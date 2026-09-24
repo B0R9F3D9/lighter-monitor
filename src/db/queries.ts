@@ -107,18 +107,24 @@ export async function removeBlockedUser(db: D1Database, telegramId: number): Pro
   ]);
 }
 
-// 6. Тихий фоновый Round-Robin (1 аккаунт за тик крона)
-export async function getNextAccountForSync(db: D1Database): Promise<TrackedAccountKey | null> {
+// 6. Тихий фоновый Round-Robin (до N аккаунтов за тик крона)
+export async function getNextAccountsForSync(db: D1Database, limit: number = 2): Promise<TrackedAccountKey[]> {
   const query = `
     SELECT DISTINCT uta.network, uta.account_index
     FROM user_tracked_accounts uta
     LEFT JOIN account_positions_cache c 
       ON uta.network = c.network AND uta.account_index = c.account_index
     ORDER BY COALESCE(c.last_updated_at, 0) ASC
-    LIMIT 1;
+    LIMIT ?;
   `;
-  const row = await db.prepare(query).first<{ network: LighterNetwork; account_index: number }>();
-  return row ? { network: row.network, accountIndex: row.account_index } : null;
+  const { results } = await db.prepare(query).bind(limit).all<{ network: LighterNetwork; account_index: number }>();
+  if (!results || results.length === 0) return [];
+  return results.map(row => ({ network: row.network, accountIndex: row.account_index }));
+}
+
+export async function getNextAccountForSync(db: D1Database): Promise<TrackedAccountKey | null> {
+  const list = await getNextAccountsForSync(db, 1);
+  return list[0] || null;
 }
 
 // 7. Единый оптимизированный JOIN всех открытых позиций с подписчиками и порогами

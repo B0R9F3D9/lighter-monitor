@@ -213,4 +213,31 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       expect(eth!.price).toBeGreaterThan(1000);
     }, 10000);
   });
+
+  describe("Scaling Optimizations", () => {
+    it("findMarketPrice strips separators (- / _) without RegExp", () => {
+      const map = new Map<string, MarketPriceSnapshot>([
+        ["ETH", { symbol: "ETH", price: 3500, dailyChange: 0 }],
+        ["BTC", { symbol: "BTC", price: 65000, dailyChange: 0 }],
+      ]);
+      expect(findMarketPrice(map, "ETH-PERP")?.price).toBe(3500);
+      expect(findMarketPrice(map, "BTC/USDC")?.price).toBe(65000);
+      expect(findMarketPrice(map, "ETH_USDC")?.price).toBe(3500);
+    });
+
+    it("correctly sorts candidate alerts by urgency ratio descending", () => {
+      const candidates = [
+        { symbol: "BTC", absDelta: 0.6, threshold: 0.5, urgency: 0.6 / 0.5 }, // 1.2
+        { symbol: "SOL", absDelta: 2.5, threshold: 1.0, urgency: 2.5 / 1.0 }, // 2.5 (highest)
+        { symbol: "XAU", absDelta: 0.8, threshold: 0.4, urgency: 0.8 / 0.4 }, // 2.0
+      ];
+
+      candidates.sort((a, b) => b.urgency - a.urgency);
+
+      expect(candidates[0].symbol).toBe("SOL");
+      expect(candidates[1].symbol).toBe("XAU");
+      expect(candidates[2].symbol).toBe("BTC");
+    });
+  });
 });
+

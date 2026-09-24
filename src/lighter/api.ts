@@ -151,9 +151,31 @@ export async function fetchExchangeStats(network: LighterNetwork): Promise<Map<s
 
 export function findMarketPrice(map: Map<string, MarketPriceSnapshot>, symbol: string): MarketPriceSnapshot | undefined {
   const sym = symbol.toUpperCase();
-  return map.get(sym) 
-    || map.get(sym.replace(/[-/_].*$/, '')) 
-    || map.get(`${sym}-PERP`)
-    || map.get(`${sym}/USDG`);
+  const direct = map.get(sym);
+  if (direct) return direct;
+
+  // Быстрый поиск суффиксов без регулярных выражений
+  const perp = map.get(`${sym}-PERP`);
+  if (perp) return perp;
+
+  const usdg = map.get(`${sym}/USDG`);
+  if (usdg) return usdg;
+
+  // Быстрое отсечение суффиксов без RegExp (например, "ETH-PERP", "GOOGL/USDG", "BTC_USDC")
+  const dashIdx = sym.indexOf("-");
+  const slashIdx = sym.indexOf("/");
+  const underIdx = sym.indexOf("_");
+  let sepIdx = -1;
+  if (dashIdx !== -1) sepIdx = dashIdx;
+  else if (slashIdx !== -1) sepIdx = slashIdx;
+  else if (underIdx !== -1) sepIdx = underIdx;
+
+  if (sepIdx !== -1) {
+    const base = sym.substring(0, sepIdx);
+    const baseMatch = map.get(base);
+    if (baseMatch) return baseMatch;
+  }
+
+  return undefined;
 }
 

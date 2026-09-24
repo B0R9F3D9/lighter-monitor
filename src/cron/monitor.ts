@@ -1,8 +1,8 @@
 import { InlineKeyboard } from "grammy";
-import { Env, LighterAccount, LighterNetwork, MarketPriceSnapshot } from "../types";
+import { Env, LighterAccount, LighterNetwork, MarketPriceSnapshot, ActivePositionWatchItem, TrackedAccountKey } from "../types";
 import { CONFIG } from "../config";
 import { 
-  getNextAccountForSync, 
+  getNextAccountsForSync, 
   touchFailedAccounts, 
   batchUpdatePositionsCache, 
   syncAccountOpenPositions,
@@ -21,6 +21,28 @@ export function getSmartCooldownSeconds(threshold: number): number {
   return 480;                       // 8 минут (для свинга с шагом 1.5% - 3%)
 }
 
+// Кандидат на отправку алерта
+export interface AlertCandidate {
+  item: ActivePositionWatchItem;
+  currentPrice: number;
+  baseline: number;
+  priceDeltaPercent: number;
+  absDelta: number;
+  urgency: number; // Относительный вес: absDelta / threshold
+}
+
+// Пакетное выполнение D1 стейтментов чанками до 100 штук
+export async function executeD1BatchInChunks(
+  db: D1Database, 
+  stmts: D1PreparedStatement[], 
+  chunkSize: number = 100
+): Promise<void> {
+  for (let i = 0; i < stmts.length; i += chunkSize) {
+    const chunk = stmts.slice(i, i + chunkSize);
+    await db.batch(chunk);
+  }
+}
+
 export async function runCronMonitor(env: Env): Promise<void> {
   const bot = getBot(env);
   const now = Math.floor(Date.now() / 1000);
@@ -31,25 +53,37 @@ export async function runCronMonitor(env: Env): Promise<void> {
   let subrequestsUsed = 0;
   let jitChecksDone = 0;
 
-  // 1. ФОНОВЫЙ ROUND-ROBIN (1 аккаунт за тик со спасением очереди при ошибках)
-  const accountToSync = await getNextAccountForSync(env.DB);
-  let syncedAccountData: LighterAccount | null = null;
+  // 1. ФОНОВЫЙ ROUND-ROBIN (синхронизируем до 2 аккаунтов за тик со спасением очереди при ошибках)
+  const accountsToSync = await getNextAccountsForSync(env.DB, 2);
+  const jitCache = new Map<string, LighterAccount | null>();
+  const failedAccounts: TrackedAccountKey[] = [];
+  const cacheUpdates: Array<{ network: LighterNetwork; account: LighterAccount; cachedPositions: any[] }> = [];
 
-  if (accountToSync) {
-    syncedAccountData = await fetchLighterAccount(accountToSync.network, accountToSync.accountIndex);
+  for (const accKey of accountsToSync) {
+    if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 20) break;
+    const syncedData = await fetchLighterAccount(accKey.network, accKey.accountIndex);
     subrequestsUsed++;
 
-    if (syncedAccountData) {
-      await syncAccountOpenPositions(env.DB, accountToSync.network, accountToSync.accountIndex, syncedAccountData.positions);
-      await batchUpdatePositionsCache(env.DB, [{
-        network: accountToSync.network,
-        account: syncedAccountData,
-        cachedPositions: syncedAccountData.positions.map(analyzePositionRisk).filter(Boolean) as any
-      }]);
+    const cacheKey = `${accKey.network}:${accKey.accountIndex}`;
+    jitCache.set(cacheKey, syncedData);
+
+    if (syncedData) {
+      await syncAccountOpenPositions(env.DB, accKey.network, accKey.accountIndex, syncedData.positions);
+      cacheUpdates.push({
+        network: accKey.network,
+        account: syncedData,
+        cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any
+      });
     } else {
-      // Спасение от зависания: проталкиваем очередь вперед даже при временном сбое API
-      await touchFailedAccounts(env.DB, [accountToSync]);
+      failedAccounts.push(accKey);
     }
+  }
+
+  if (cacheUpdates.length > 0) {
+    await batchUpdatePositionsCache(env.DB, cacheUpdates);
+  }
+  if (failedAccounts.length > 0) {
+    await touchFailedAccounts(env.DB, failedAccounts);
   }
 
   // 2. Единый JOIN: получаем открытые позиции всех пользователей
@@ -67,23 +101,11 @@ export async function runCronMonitor(env: Env): Promise<void> {
     priceSnapshots.set(net, snap);
   }
 
-  // 4. In-Memory JIT-кэш: ПРЕДЗАПОЛНЯЕМ данными из Шага 1 (теплый кэш)
-  const jitCache = new Map<string, LighterAccount | null>();
-  if (accountToSync && syncedAccountData) {
-    jitCache.set(`${accountToSync.network}:${accountToSync.accountIndex}`, syncedAccountData);
-  }
-
   const newPositionsToInit: D1PreparedStatement[] = [];
-  const alertUpdateStmts: D1PreparedStatement[] = [];
-  const lastSentTimeByUser = new Map<number, number>();
+  const candidateAlerts: AlertCandidate[] = [];
 
+  // 4. ФАЗА А: Мгновенная in-memory фильтрация и оценка срочности без сетевых запросов
   for (const item of items) {
-    // Защита по времени: если прошло более 20 секунд, прерываем цикл до следующей минуты
-    if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
-      console.warn("Cron wall-clock budget reached (20s). Postponing remaining checks.");
-      break;
-    }
-
     const netMap = priceSnapshots.get(item.network);
     if (!netMap) continue;
 
@@ -118,16 +140,44 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     if (timeSinceLastAlert < cooldownSeconds && !isDoubleJump) continue;
 
-    // Защита от шторма на рынке (лимит JIT проверок)
-    if (jitChecksDone >= MAX_JIT_CHECKS_PER_CRON || subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) {
+    // Позиция квалифицирована на алерт: считаем относительную срочность
+    const urgency = item.alert_threshold > 0 ? (absDelta / item.alert_threshold) : absDelta;
+    candidateAlerts.push({
+      item,
+      currentPrice,
+      baseline,
+      priceDeltaPercent,
+      absDelta,
+      urgency
+    });
+  }
+
+  // Сортировка по убыванию срочности (наибольшее превышение порога идет первым)
+  candidateAlerts.sort((a, b) => b.urgency - a.urgency);
+
+  // 5. ФАЗА Б: Приоритетная JIT-проверка и доставка алертов
+  const alertUpdateStmts: D1PreparedStatement[] = [];
+  const zombieCleanupStmts: D1PreparedStatement[] = [];
+  const lastSentTimeByUser = new Map<number, number>();
+
+  for (const candidate of candidateAlerts) {
+    // Защита по времени: если прошло более 20 секунд, прерываем цикл до следующей минуты
+    if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
+      console.warn("Cron wall-clock budget reached (20s). Postponing remaining checks.");
       break;
     }
+
+    const { item, currentPrice, baseline, priceDeltaPercent } = candidate;
 
     // JIT-проверка с использованием теплого jitCache
     const cacheKey = `${item.network}:${item.account_index}`;
     let freshAccount = jitCache.get(cacheKey);
 
     if (freshAccount === undefined) {
+      // Защита от шторма на рынке: лимит новых JIT сетевых запросов
+      if (jitChecksDone >= MAX_JIT_CHECKS_PER_CRON || subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) {
+        break;
+      }
       freshAccount = await fetchLighterAccount(item.network, item.account_index);
       subrequestsUsed++;
       jitChecksDone++;
@@ -140,14 +190,14 @@ export async function runCronMonitor(env: Env): Promise<void> {
       p => p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0
     );
 
-    // ЗОМБИ ЛИКВИДИРОВАН: удаление закрытой позиции для ВСЕХ подписчиков кошелька
+    // ЗОМБИ ЛИКВИДИРОВАН: пакетное накопление стейтментов удаления (без лишних сетевых вызовов)
     if (!livePosition) {
-      await env.DB.batch([
+      zombieCleanupStmts.push(
         env.DB.prepare("DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?")
           .bind(item.network, item.account_index, item.market_id),
         env.DB.prepare("DELETE FROM user_token_alerts WHERE network = ? AND account_index = ? AND market_id = ?")
           .bind(item.network, item.account_index, item.market_id)
-      ]);
+      );
       continue;
     }
 
@@ -212,9 +262,9 @@ export async function runCronMonitor(env: Env): Promise<void> {
     }
   }
 
-  // 5. Единая пакетная транзакция в D1
-  const allUpdates = [...newPositionsToInit, ...alertUpdateStmts];
+  // 6. Единая пакетная транзакция в D1 чанками
+  const allUpdates = [...newPositionsToInit, ...alertUpdateStmts, ...zombieCleanupStmts];
   if (allUpdates.length > 0) {
-    await env.DB.batch(allUpdates);
+    await executeD1BatchInChunks(env.DB, allUpdates);
   }
 }
