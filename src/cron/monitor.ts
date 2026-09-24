@@ -50,6 +50,64 @@ export async function executeD1BatchInChunks(
   }
 }
 
+interface PriceRef {
+  price: number;
+  lastCheckedAt: number;
+}
+
+// In-memory кэш цен для обратного поиска (Reverse Indexing)
+const priceReferenceCache = new Map<string, PriceRef>();
+
+export function resetPriceReferenceCache(): void {
+  priceReferenceCache.clear();
+}
+
+export function getMovedSymbols(
+  currentSnapshots: Map<LighterNetwork, Map<string, MarketPriceSnapshot>>,
+  nowSec: number,
+  minMoveThreshold: number = 0.2, // 0.2% отсечка
+  maxAgeSeconds: number = 600, // 10 минут принудительный пересчет для защиты от дрейфа
+): { movedSymbols: string[]; isFullSweep: boolean } {
+  // Холодный старт изолята: наполняем кэш и делаем полный срез
+  if (priceReferenceCache.size === 0) {
+    for (const [, netMap] of currentSnapshots) {
+      for (const [sym, snap] of netMap) {
+        if (snap.price > 0) {
+          priceReferenceCache.set(sym.toUpperCase(), { price: snap.price, lastCheckedAt: nowSec });
+        }
+      }
+    }
+    return { movedSymbols: [], isFullSweep: true };
+  }
+
+  const moved = new Set<string>();
+
+  for (const [, netMap] of currentSnapshots) {
+    for (const [rawSym, snap] of netMap) {
+      if (snap.price <= 0) continue;
+      const sym = rawSym.toUpperCase();
+      const ref = priceReferenceCache.get(sym);
+
+      if (!ref) {
+        moved.add(sym);
+        priceReferenceCache.set(sym, { price: snap.price, lastCheckedAt: nowSec });
+        continue;
+      }
+
+      const deltaPercent = Math.abs((snap.price - ref.price) / ref.price) * 100;
+      const isExpired = nowSec - ref.lastCheckedAt >= maxAgeSeconds;
+
+      if (deltaPercent >= minMoveThreshold || isExpired) {
+        moved.add(sym);
+        ref.price = snap.price;
+        ref.lastCheckedAt = nowSec;
+      }
+    }
+  }
+
+  return { movedSymbols: Array.from(moved), isFullSweep: false };
+}
+
 export async function runCronMonitor(env: Env): Promise<void> {
   const bot = getBot(env);
   const now = Math.floor(Date.now() / 1000);
@@ -60,8 +118,8 @@ export async function runCronMonitor(env: Env): Promise<void> {
   let subrequestsUsed = 0;
   let jitChecksDone = 0;
 
-  // 1. ФОНОВЫЙ ROUND-ROBIN (синхронизируем до 2 аккаунтов за тик со спасением очереди при ошибках)
-  const accountsToSync = await getNextAccountsForSync(env.DB, 2);
+  // 1. АДАПТИВНЫЙ ФОНОВЫЙ ROUND-ROBIN (приоритет новым и активным аккаунтам)
+  const accountsToSync = await getNextAccountsForSync(env.DB, 2, now);
   const jitCache = new Map<string, LighterAccount | null>();
   const failedAccounts: TrackedAccountKey[] = [];
   const cacheUpdates: Array<{
@@ -102,20 +160,25 @@ export async function runCronMonitor(env: Env): Promise<void> {
     await touchFailedAccounts(env.DB, failedAccounts);
   }
 
-  // 2. Единый JOIN: получаем открытые позиции всех пользователей
-  const items = await getActivePositionsForMonitoring(env.DB);
-  if (items.length === 0) return;
-
-  // 3. Загружаем срезы цен биржи (1-2 запроса на всю систему)
-  const neededNetworks = Array.from(new Set(items.map((i) => i.network)));
+  // 2. ЗАГРУЖАЕМ СРЕЗЫ ЦЕН БИРЖИ (2 подзапроса на всю систему)
   const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
+  const networks: LighterNetwork[] = ["rh", "mainnet"];
 
-  for (const net of neededNetworks) {
+  for (const net of networks) {
     if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 10) break;
     const snap = await fetchExchangeStats(net);
     subrequestsUsed++;
     priceSnapshots.set(net, snap);
   }
+
+  // 3. REVERSE INDEXING: Вычисляем инструменты с реальным импульсом (или делаем полный срез)
+  const { movedSymbols, isFullSweep } = getMovedSymbols(priceSnapshots, now);
+
+  const items = isFullSweep
+    ? await getActivePositionsForMonitoring(env.DB)
+    : await getActivePositionsForMonitoring(env.DB, movedSymbols);
+
+  if (items.length === 0) return;
 
   const newPositionsToInit: D1PreparedStatement[] = [];
   const candidateAlerts: AlertCandidate[] = [];
@@ -179,38 +242,64 @@ export async function runCronMonitor(env: Env): Promise<void> {
   // Сортировка по убыванию срочности (наибольшее превышение порога идет первым)
   candidateAlerts.sort((a, b) => b.urgency - a.urgency);
 
-  // 5. ФАЗА Б: Приоритетная JIT-проверка и доставка алертов
+  // 5. ФАЗА Б: Параллельная JIT-актуализация и доставка алертов
   const alertUpdateStmts: D1PreparedStatement[] = [];
   const zombieCleanupStmts: D1PreparedStatement[] = [];
   const cleanedZombieKeys = new Set<string>();
   const lastSentTimeByUser = new Map<number, number>();
 
+  // Шаг Б.1: Отбираем уникальные аккаунты для JIT-проверки среди топ кандидатов
+  const pendingJitKeys: TrackedAccountKey[] = [];
+  const seenAccKeys = new Set<string>();
+
   for (const candidate of candidateAlerts) {
-    // Защита по времени: если прошло более 20 секунд, прерываем цикл до следующей минуты
+    const key = `${candidate.item.network}:${candidate.item.account_index}`;
+    if (!jitCache.has(key) && !seenAccKeys.has(key)) {
+      seenAccKeys.add(key);
+      pendingJitKeys.push({
+        network: candidate.item.network,
+        accountIndex: candidate.item.account_index,
+      });
+      if (pendingJitKeys.length >= MAX_JIT_CHECKS_PER_CRON) break;
+    }
+  }
+
+  // Шаг Б.2: Параллельный опрос пачками по 3 аккаунта
+  const JIT_CONCURRENCY = 3;
+  for (let i = 0; i < pendingJitKeys.length; i += JIT_CONCURRENCY) {
+    if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
+      console.warn("Cron wall-clock budget reached (20s). Postponing remaining JIT checks.");
+      break;
+    }
+    if (subrequestsUsed + JIT_CONCURRENCY >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) {
+      break;
+    }
+
+    const chunk = pendingJitKeys.slice(i, i + JIT_CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map((acc) => fetchLighterAccount(acc.network, acc.accountIndex)),
+    );
+    subrequestsUsed += chunk.length;
+    jitChecksDone += chunk.length;
+
+    for (let j = 0; j < chunk.length; j++) {
+      const acc = chunk[j]!;
+      const res = results[j]!;
+      const cacheKey = `${acc.network}:${acc.accountIndex}`;
+      jitCache.set(cacheKey, res.status === "fulfilled" ? res.value : null);
+    }
+  }
+
+  // Шаг Б.3: Доставка алертов (все аккаунты уже в горячем jitCache)
+  for (const candidate of candidateAlerts) {
     if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
       console.warn("Cron wall-clock budget reached (20s). Postponing remaining checks.");
       break;
     }
 
     const { item, currentPrice, baseline, priceDeltaPercent } = candidate;
-
-    // JIT-проверка с использованием теплого jitCache
     const cacheKey = `${item.network}:${item.account_index}`;
-    let freshAccount = jitCache.get(cacheKey);
-
-    if (freshAccount === undefined) {
-      // Защита от шторма на рынке: лимит новых JIT сетевых запросов
-      if (
-        jitChecksDone >= MAX_JIT_CHECKS_PER_CRON ||
-        subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5
-      ) {
-        break;
-      }
-      freshAccount = await fetchLighterAccount(item.network, item.account_index);
-      subrequestsUsed++;
-      jitChecksDone++;
-      jitCache.set(cacheKey, freshAccount);
-    }
+    const freshAccount = jitCache.get(cacheKey);
 
     if (!freshAccount) continue;
 

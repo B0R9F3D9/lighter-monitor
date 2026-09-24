@@ -1,8 +1,12 @@
 import { describe, it, expect } from "bun:test";
-import { getSmartCooldownSeconds } from "../src/cron/monitor";
+import {
+  getSmartCooldownSeconds,
+  getMovedSymbols,
+  resetPriceReferenceCache,
+} from "../src/cron/monitor";
 import { findMarketPrice, fetchExchangeStats } from "../src/lighter/api";
 import { formatPriceStepAlert } from "../src/bot/formatters";
-import { MarketPriceSnapshot, PriceStepAlertParams } from "../src/types";
+import { MarketPriceSnapshot, PriceStepAlertParams, LighterNetwork } from "../src/types";
 
 describe("Price-Driven Monitoring Unit Tests", () => {
   describe("getSmartCooldownSeconds", () => {
@@ -226,6 +230,44 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       expect(candidates[0].symbol).toBe("SOL");
       expect(candidates[1].symbol).toBe("XAU");
       expect(candidates[2].symbol).toBe("BTC");
+    });
+
+    describe("Reverse Indexing (getMovedSymbols)", () => {
+      it("triggers full sweep on cold start and populates reference cache", () => {
+        resetPriceReferenceCache();
+        const snapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>([
+          ["rh", new Map([["XAU", { symbol: "XAU", price: 4200.0, dailyChange: 0 }]])],
+          ["mainnet", new Map([["BTC", { symbol: "BTC", price: 60000.0, dailyChange: 0 }]])],
+        ]);
+
+        const res = getMovedSymbols(snapshots, 1000);
+        expect(res.isFullSweep).toBe(true);
+        expect(res.movedSymbols.length).toBe(0);
+      });
+
+      it("filters out stationary assets and only detects assets with move >= 0.2%", () => {
+        // Reference prices are XAU = 4200, BTC = 60000 at t = 1000
+        const snapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>([
+          ["rh", new Map([["XAU", { symbol: "XAU", price: 4202.0, dailyChange: 0 }]])], // +0.047% (< 0.2%)
+          ["mainnet", new Map([["BTC", { symbol: "BTC", price: 60180.0, dailyChange: 0 }]])], // +0.30% (>= 0.2%)
+        ]);
+
+        const res = getMovedSymbols(snapshots, 1060); // 1 minute later
+        expect(res.isFullSweep).toBe(false);
+        expect(res.movedSymbols).toContain("BTC");
+        expect(res.movedSymbols).not.toContain("XAU");
+      });
+
+      it("triggers symbol recheck when maxAgeSeconds (10m) is exceeded", () => {
+        // XAU has been stationary for 601 seconds (at t = 1601)
+        const snapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>([
+          ["rh", new Map([["XAU", { symbol: "XAU", price: 4202.0, dailyChange: 0 }]])], // unchanged from previous
+        ]);
+
+        const res = getMovedSymbols(snapshots, 1601);
+        expect(res.isFullSweep).toBe(false);
+        expect(res.movedSymbols).toContain("XAU");
+      });
     });
   });
 });

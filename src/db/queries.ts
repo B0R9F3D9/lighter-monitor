@@ -193,38 +193,56 @@ export async function removeBlockedUser(db: D1Database, telegramId: number): Pro
   ]);
 }
 
-// 6. Тихий фоновый Round-Robin (до N аккаунтов за тик крона)
+// 6. Адаптивный фоновый Round-Robin (приоритет новым и активным аккаунтам)
 export async function getNextAccountsForSync(
   db: D1Database,
   limit: number = 2,
+  nowSec: number = Math.floor(Date.now() / 1000),
 ): Promise<TrackedAccountKey[]> {
   const query = `
     SELECT DISTINCT uta.network, uta.account_index
     FROM user_tracked_accounts uta
-    LEFT JOIN account_positions_cache c 
+    LEFT JOIN account_positions_cache c
       ON uta.network = c.network AND uta.account_index = c.account_index
-    ORDER BY COALESCE(c.last_updated_at, 0) ASC
+    LEFT JOIN (
+      SELECT DISTINCT network, account_index FROM account_open_positions
+    ) active
+      ON uta.network = active.network AND uta.account_index = active.account_index
+    ORDER BY
+      CASE
+        WHEN c.last_updated_at IS NULL THEN 0
+        WHEN active.account_index IS NOT NULL AND (? - c.last_updated_at) >= 900 THEN 1
+        WHEN c.collateral > 0 AND (? - c.last_updated_at) >= 3600 THEN 2
+        WHEN (? - c.last_updated_at) >= 43200 THEN 3
+        ELSE 4
+      END ASC,
+      COALESCE(c.last_updated_at, 0) ASC
     LIMIT ?;
   `;
   const { results } = await db
     .prepare(query)
-    .bind(limit)
+    .bind(nowSec, nowSec, nowSec, limit)
     .all<{ network: LighterNetwork; account_index: number }>();
   if (!results || results.length === 0) return [];
   return results.map((row) => ({ network: row.network, accountIndex: row.account_index }));
 }
 
-export async function getNextAccountForSync(db: D1Database): Promise<TrackedAccountKey | null> {
-  const list = await getNextAccountsForSync(db, 1);
-  return list[0] || null;
-}
-
-// 7. Единый оптимизированный JOIN всех открытых позиций с подписчиками и порогами
+// 7. Единый оптимизированный JOIN открытых позиций с поддержкой Reverse Indexing
 export async function getActivePositionsForMonitoring(
   db: D1Database,
+  filterSymbols?: string[],
 ): Promise<ActivePositionWatchItem[]> {
+  let whereClause = "";
+  const params: any[] = [];
+
+  if (filterSymbols && filterSymbols.length > 0) {
+    const placeholders = filterSymbols.map(() => "?").join(", ");
+    whereClause = `WHERE aop.symbol IN (${placeholders}) OR uta.last_price IS NULL`;
+    params.push(...filterSymbols);
+  }
+
   const query = `
-    SELECT 
+    SELECT
       aop.network,
       aop.account_index,
       aop.market_id,
@@ -239,18 +257,20 @@ export async function getActivePositionsForMonitoring(
       uta.last_price,
       uta.last_alerted_at
     FROM account_open_positions aop
-    JOIN user_tracked_accounts uta_acc 
+    JOIN user_tracked_accounts uta_acc
       ON aop.network = uta_acc.network AND aop.account_index = uta_acc.account_index
-    JOIN users u 
+    JOIN users u
       ON uta_acc.telegram_id = u.telegram_id
-    LEFT JOIN user_token_alerts uta 
-      ON uta.telegram_id = u.telegram_id 
-     AND uta.network = aop.network 
-     AND uta.account_index = aop.account_index 
+    LEFT JOIN user_token_alerts uta
+      ON uta.telegram_id = u.telegram_id
+     AND uta.network = aop.network
+     AND uta.account_index = aop.account_index
      AND uta.market_id = aop.market_id
+    ${whereClause}
     ORDER BY u.telegram_id ASC, aop.network ASC, aop.account_index ASC;
   `;
-  const { results } = await db.prepare(query).all<ActivePositionWatchItem>();
+  const stmt = params.length > 0 ? db.prepare(query).bind(...params) : db.prepare(query);
+  const { results } = await stmt.all<ActivePositionWatchItem>();
   return results || [];
 }
 
@@ -282,13 +302,13 @@ export async function syncAccountOpenPositions(
   const stmts: D1PreparedStatement[] = [
     db
       .prepare(`
-      DELETE FROM account_open_positions 
+      DELETE FROM account_open_positions
       WHERE network = ? AND account_index = ? AND market_id NOT IN (${placeholders})
     `)
       .bind(network, accountIndex, ...activeMarketIds),
     db
       .prepare(`
-      DELETE FROM user_token_alerts 
+      DELETE FROM user_token_alerts
       WHERE network = ? AND account_index = ? AND market_id NOT IN (${placeholders})
     `)
       .bind(network, accountIndex, ...activeMarketIds),
