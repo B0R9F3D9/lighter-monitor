@@ -7,6 +7,7 @@ import { batchUpdatePositionsCache, getUserThreshold, setUserThreshold, syncAcco
 import { formatPositionsReport } from "./formatters";
 
 let botInstance: Bot | null = null;
+const knownUsers = new Set<number>();
 
 export function getBot(env: Env): Bot {
   if (botInstance) return botInstance;
@@ -24,21 +25,25 @@ export function getBot(env: Env): Bot {
 
   const mainKeyboard = replyKeyboard;
 
-  // Сохранение пользователя в БД при любом взаимодействии
+  // Сохранение пользователя в БД при первом взаимодействии в изоляте (защита от лишних D1 записей)
   bot.use(async (ctx, next) => {
     if (ctx.from) {
-      await env.DB.prepare(`
-        INSERT INTO users (telegram_id, username, first_name, created_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(telegram_id) DO UPDATE SET
-          username = excluded.username,
-          first_name = excluded.first_name
-      `).bind(
-        ctx.from.id,
-        ctx.from.username || null,
-        ctx.from.first_name || null,
-        Math.floor(Date.now() / 1000)
-      ).run();
+      const userId = ctx.from.id;
+      if (!knownUsers.has(userId)) {
+        await env.DB.prepare(`
+          INSERT INTO users (telegram_id, username, first_name, created_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(telegram_id) DO UPDATE SET
+            username = excluded.username,
+            first_name = excluded.first_name
+        `).bind(
+          userId,
+          ctx.from.username || null,
+          ctx.from.first_name || null,
+          Math.floor(Date.now() / 1000)
+        ).run();
+        knownUsers.add(userId);
+      }
     }
     return next();
   });
@@ -378,15 +383,18 @@ export function getBot(env: Env): Bot {
       );
     }
 
-    // Собираем кэш для всех пар (network, account_index), если не принудительный рефетч
+    // Собираем кэш для всех пар (network, account_index), если не принудительный рефетч (единым батч-запросом)
     const cacheMap = new Map<string, any>();
-    if (!forceRefresh) {
-      for (const item of trackedList) {
-        const cached = await env.DB.prepare(
-          "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?"
-        ).bind(item.network, item.account_index).first<any>();
-        if (cached) {
-          cacheMap.set(`${item.network}:${item.account_index}`, cached);
+    if (!forceRefresh && trackedList.length > 0) {
+      const keys = trackedList.map(item => `${item.network}:${item.account_index}`);
+      const placeholders = keys.map(() => "?").join(",");
+      const { results: cachedRows } = await env.DB.prepare(
+        `SELECT * FROM account_positions_cache WHERE (network || ':' || account_index) IN (${placeholders})`
+      ).bind(...keys).all<any>();
+
+      if (cachedRows) {
+        for (const row of cachedRows) {
+          cacheMap.set(`${row.network}:${row.account_index}`, row);
         }
       }
     }

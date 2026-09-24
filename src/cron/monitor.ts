@@ -75,7 +75,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
   const newPositionsToInit: D1PreparedStatement[] = [];
   const alertUpdateStmts: D1PreparedStatement[] = [];
-  let lastTelegramId = 0;
+  const lastSentTimeByUser = new Map<number, number>();
 
   for (const item of items) {
     // Защита по времени: если прошло более 20 секунд, прерываем цикл до следующей минуты
@@ -179,9 +179,11 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     try {
       if (subrequestsUsed < CONFIG.MAX_SUBREQUESTS_PER_CRON) {
-        // Троттлинг Telegram: пауза 1 сек при последовательной отправке одному пользователю
-        if (item.telegram_id === lastTelegramId) {
-          await new Promise(r => setTimeout(r, 1000));
+        // Троттлинг Telegram: минимум 1 сек между сообщениями одному и тому же пользователю
+        const lastSentAt = lastSentTimeByUser.get(item.telegram_id) || 0;
+        const timeSinceLastSent = Date.now() - lastSentAt;
+        if (timeSinceLastSent < 1000) {
+          await new Promise(r => setTimeout(r, 1000 - timeSinceLastSent));
         }
 
         await bot.api.sendMessage(item.telegram_id, alertText, {
@@ -189,7 +191,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
           reply_markup: keyboard
         });
         subrequestsUsed++;
-        lastTelegramId = item.telegram_id;
+        lastSentTimeByUser.set(item.telegram_id, Date.now());
 
         alertUpdateStmts.push(
           env.DB.prepare(`

@@ -61,15 +61,3 @@ CREATE TABLE IF NOT EXISTS user_token_alerts (
     last_alerted_at INTEGER NOT NULL,
     PRIMARY KEY (telegram_id, network, account_index, market_id)
 );
-
--- 6. Журнал отправленных алертов ликвидации (Anti-Spam Cooldown)
-CREATE TABLE IF NOT EXISTS alert_logs (
-    telegram_id INTEGER NOT NULL,
-    network TEXT NOT NULL DEFAULT 'rh',
-    account_index INTEGER NOT NULL,
-    market_id INTEGER NOT NULL,
-    alert_tier TEXT NOT NULL,
-    last_distance REAL NOT NULL,
-    sent_at INTEGER NOT NULL,
-    PRIMARY KEY (telegram_id, network, account_index, market_id, alert_tier)
-);

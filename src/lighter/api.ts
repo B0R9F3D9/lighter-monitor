@@ -135,7 +135,8 @@ export async function fetchExchangeStats(network: LighterNetwork): Promise<Map<s
           map.set(sym, snapshot);
 
           const baseSym = sym.replace(/[-/_].*$/, '');
-          if (!map.has(baseSym)) {
+          const isPerp = sym.includes("PERP") || !sym.includes("/");
+          if (!map.has(baseSym) || isPerp) {
             map.set(baseSym, snapshot);
           }
         }

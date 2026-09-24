@@ -55,6 +55,15 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       expect(res).toBeDefined();
       expect(res?.price).toBe(175.0);
     });
+
+    it("prefers perp when resolving symbol", () => {
+      const perpMap = new Map<string, MarketPriceSnapshot>([
+        ["ETH/USDC", { symbol: "ETH/USDC", price: 3490.0, dailyChange: 0.5 }],
+        ["ETH", { symbol: "ETH-PERP", price: 3505.0, dailyChange: 0.6 }],
+      ]);
+      const res = findMarketPrice(perpMap, "ETH");
+      expect(res?.price).toBe(3505.0);
+    });
   });
 
   describe("formatPriceStepAlert (3-Layer Alert)", () => {

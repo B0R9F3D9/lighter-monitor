@@ -101,26 +101,13 @@ export async function setUserThreshold(db: D1Database, telegramId: number, thres
 // 5. Очистка заблокировавшего пользователя через явный batch (без опоры на SQLite PRAGMA foreign_keys)
 export async function removeBlockedUser(db: D1Database, telegramId: number): Promise<void> {
   await db.batch([
-    db.prepare("DELETE FROM alert_logs WHERE telegram_id = ?").bind(telegramId),
+    db.prepare("DELETE FROM user_token_alerts WHERE telegram_id = ?").bind(telegramId),
     db.prepare("DELETE FROM user_tracked_accounts WHERE telegram_id = ?").bind(telegramId),
     db.prepare("DELETE FROM users WHERE telegram_id = ?").bind(telegramId)
   ]);
 }
 
-// 6. Сброс кулдаунов при выходе в безопасную зону (> 12%)
-export async function clearSafeAlerts(
-  db: D1Database, 
-  network: LighterNetwork,
-  accountIndex: number, 
-  marketId: number
-): Promise<void> {
-  await db.prepare(`
-    DELETE FROM alert_logs 
-    WHERE network = ? AND account_index = ? AND market_id = ?
-  `).bind(network, accountIndex, marketId).run();
-}
-
-// 7. Тихий фоновый Round-Robin (1 аккаунт за тик крона)
+// 6. Тихий фоновый Round-Robin (1 аккаунт за тик крона)
 export async function getNextAccountForSync(db: D1Database): Promise<TrackedAccountKey | null> {
   const query = `
     SELECT DISTINCT uta.network, uta.account_index
@@ -134,7 +121,7 @@ export async function getNextAccountForSync(db: D1Database): Promise<TrackedAcco
   return row ? { network: row.network, accountIndex: row.account_index } : null;
 }
 
-// 8. Единый оптимизированный JOIN всех открытых позиций с подписчиками и порогами
+// 7. Единый оптимизированный JOIN всех открытых позиций с подписчиками и порогами
 export async function getActivePositionsForMonitoring(db: D1Database): Promise<ActivePositionWatchItem[]> {
   const query = `
     SELECT 
@@ -159,7 +146,8 @@ export async function getActivePositionsForMonitoring(db: D1Database): Promise<A
       ON uta.telegram_id = u.telegram_id 
      AND uta.network = aop.network 
      AND uta.account_index = aop.account_index 
-     AND uta.market_id = aop.market_id;
+     AND uta.market_id = aop.market_id
+    ORDER BY u.telegram_id ASC, aop.network ASC, aop.account_index ASC;
   `;
   const { results } = await db.prepare(query).all<ActivePositionWatchItem>();
   return results || [];
