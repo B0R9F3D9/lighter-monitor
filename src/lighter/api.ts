@@ -13,7 +13,7 @@ export async function fetchLighterAccountWithStatus(
   accountIndex: number
 ): Promise<FetchAccountResult> {
   const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
-  const maxRetries = 2;
+  const maxRetries = 1;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -21,13 +21,14 @@ export async function fetchLighterAccountWithStatus(
         headers: { 
           "Accept": "application/json",
           "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+        },
+        signal: AbortSignal.timeout(CONFIG.FETCH_TIMEOUT_MS || 3000)
       });
 
       if (res.status === 429) {
         if (attempt < maxRetries) {
-          const delay = (attempt + 1) * 600;
-          console.warn(`[${network}] #${accountIndex} got 429, retrying in ${delay}ms... (attempt ${attempt + 1})`);
+          const delay = 300;
+          console.warn(`[${network}] #${accountIndex} got 429, retrying in ${delay}ms...`);
           await new Promise(r => setTimeout(r, delay));
           continue;
         }

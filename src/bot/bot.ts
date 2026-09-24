@@ -383,9 +383,9 @@ export function getBot(env: Env): Bot {
       );
     }
 
-    // Собираем кэш для всех пар (network, account_index), если не принудительный рефетч (единым батч-запросом)
+    // ВСЕГДА загружаем кэш из D1 для всех аккаунтов (гарантия быстрого ответа и 100% надежного fallback)
     const cacheMap = new Map<string, any>();
-    if (!forceRefresh && trackedList.length > 0) {
+    if (trackedList.length > 0) {
       const keys = trackedList.map(item => `${item.network}:${item.account_index}`);
       const placeholders = keys.map(() => "?").join(",");
       const { results: cachedRows } = await env.DB.prepare(
@@ -399,9 +399,18 @@ export function getBot(env: Env): Bot {
       }
     }
 
+    const nowSec = Math.floor(Date.now() / 1000);
     // Определяем, для каких аккаунтов запрашиваем API
     const toFetch = forceRefresh
-      ? trackedList
+      ? trackedList.filter(item => {
+          const key = `${item.network}:${item.account_index}`;
+          const c = cacheMap.get(key);
+          // Если кэш свежий (обновлен фоновым кроном менее 15 секунд назад), отдаем сразу без задержек
+          if (c && c.last_updated_at && (nowSec - c.last_updated_at) < 15) {
+            return false;
+          }
+          return true;
+        })
       : trackedList.filter(item => {
           const key = `${item.network}:${item.account_index}`;
           const c = cacheMap.get(key);
@@ -420,9 +429,11 @@ export function getBot(env: Env): Bot {
         }
       });
 
-      // Сохраняем свежие результаты в кэш D1 и синхронизируем открытые позиции
+      // Сохраняем свежие результаты в кэш D1 и синхронизируем открытые позиции параллельно
       if (freshMap.size > 0) {
         const updates: Array<{ network: LighterNetwork; account: any; cachedPositions: any[] }> = [];
+        const syncPromises: Promise<any>[] = [];
+
         for (const item of toFetch) {
           const key = `${item.network}:${item.account_index}`;
           const acc = freshMap.get(key);
@@ -432,10 +443,15 @@ export function getBot(env: Env): Bot {
               account: acc,
               cachedPositions: acc.positions.map(analyzePositionRisk).filter(Boolean)
             });
-            await syncAccountOpenPositions(env.DB, item.network, item.account_index, acc.positions).catch(e => console.error("syncAccountOpenPositions error:", e));
+            syncPromises.push(
+              syncAccountOpenPositions(env.DB, item.network, item.account_index, acc.positions).catch(e => console.error("syncAccountOpenPositions error:", e))
+            );
           }
         }
-        await batchUpdatePositionsCache(env.DB, updates).catch(e => console.error("Cache update error:", e));
+        await Promise.all([
+          ...syncPromises,
+          batchUpdatePositionsCache(env.DB, updates).catch(e => console.error("Cache update error:", e))
+        ]);
       }
     }
 
