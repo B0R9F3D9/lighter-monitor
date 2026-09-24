@@ -1,4 +1,4 @@
-export type LighterNetwork = 'rh' | 'mainnet';
+export type LighterNetwork = "rh" | "mainnet";
 
 export interface Env {
   DB: D1Database;
@@ -48,7 +48,7 @@ export interface LighterApiResponse {
   accounts: LighterAccount[];
 }
 
-export type AlertTier = 'CRITICAL_2' | 'DANGER_5' | 'WARN_10' | 'LIQUIDATED' | 'SAFE';
+export type AlertTier = "CRITICAL_2" | "DANGER_5" | "WARN_10" | "LIQUIDATED" | "SAFE";
 
 export interface PositionRiskAnalysis {
   marketId: number;
@@ -78,10 +78,16 @@ export interface CachedPositionPayload {
   tier: AlertTier;
 }
 
-
 export type WizardState = (
   | { step: "AWAIT_INDEX"; network: LighterNetwork }
-  | { step: "AWAIT_ALIAS"; network: LighterNetwork; accountIndex: number; l1Address: string; collateral: number; positions: any[] }
+  | {
+      step: "AWAIT_ALIAS";
+      network: LighterNetwork;
+      accountIndex: number;
+      l1Address: string;
+      collateral: number;
+      positions: any[];
+    }
   | { step: "AWAIT_RENAME"; network: LighterNetwork; accountIndex: number }
   | { step: "AWAIT_THRESHOLD" }
 ) & { ts?: number };
@@ -122,4 +128,3 @@ export interface PriceStepAlertParams {
   liqPrice: number;
   distancePercent: number | null;
 }
-

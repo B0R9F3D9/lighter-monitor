@@ -4,15 +4,15 @@ import { formatSmartPrice } from "../lighter/math";
 
 export function formatPositionsReport(
   network: LighterNetwork,
-  accountIndex: number, 
-  alias: string | null, 
-  collateral: number, 
+  accountIndex: number,
+  alias: string | null,
+  collateral: number,
   positions: PositionRiskAnalysis[],
-  userThreshold: number = 1.5
+  userThreshold: number = 1.5,
 ): string {
   const badge = CONFIG.NETWORKS[network]?.badge || `[${network.toUpperCase()}]`;
   const title = alias ? `<b>#${accountIndex} (${alias})</b>` : `<b>#${accountIndex}</b>`;
-  
+
   let text = `💼 ${title} <code>${badge}</code> • <b>$${collateral.toFixed(2)}</b>\n\n`;
 
   if (positions.length === 0) {
@@ -51,19 +51,21 @@ export function formatPositionsReport(
   return text;
 }
 
-
 export function formatPriceStepAlert(params: PriceStepAlertParams): string {
   const badge = CONFIG.NETWORKS[params.network]?.badge || `[${params.network.toUpperCase()}]`;
-  const accTitle = params.alias ? `<b>#${params.accountIndex} (${params.alias})</b>` : `<b>#${params.accountIndex}</b>`;
+  const accTitle = params.alias
+    ? `<b>#${params.accountIndex} (${params.alias})</b>`
+    : `<b>#${params.accountIndex}</b>`;
   const sideBadge = params.isLong ? "🟢 LONG" : "🔴 SHORT";
-  
+
   // Стрелка и знак шага
   const stepArrow = params.priceDeltaPercent > 0 ? "↗️ +" : "↘️ ";
-  
+
   // Общее отклонение от входа
-  const totalMovePercent = params.entryPrice > 0 
-    ? ((params.currentPrice - params.entryPrice) / params.entryPrice) * 100 
-    : 0;
+  const totalMovePercent =
+    params.entryPrice > 0
+      ? ((params.currentPrice - params.entryPrice) / params.entryPrice) * 100
+      : 0;
   const totalSign = totalMovePercent > 0 ? "+" : "";
 
   // Форматирование PnL
@@ -90,4 +92,3 @@ export function formatPriceStepAlert(params: PriceStepAlertParams): string {
     `${liqSection}`
   );
 }
-

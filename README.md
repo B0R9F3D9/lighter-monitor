@@ -28,9 +28,9 @@ Telegram-бот для круглосуточного мониторинга о�
 
 - `/start` — приветствие и главное меню с инлайн-кнопками.
 - `/add <index> [alias]` — добавить аккаунт для отслеживания (до 10 на пользователя).
-  - *Пример:* `/add 31704 Основной`
+  - _Пример:_ `/add 31704 Основной`
 - `/remove <index>` — удалить аккаунт из списка.
-  - *Пример:* `/remove 31704`
+  - _Пример:_ `/remove 31704`
 - `/list` — список всех отслеживаемых аккаунтов с алиасами.
 - `/positions [index]` — текущие сделки и риски ликвидации по всем (или конкретному) аккаунту.
 
@@ -39,26 +39,31 @@ Telegram-бот для круглосуточного мониторинга о�
 ## Локальная разработка и тестирование
 
 ### 1. Установка зависимостей
+
 ```bash
 bun install
 ```
 
 ### 2. Инициализация локальной базы D1
+
 ```bash
 bun run d1:init
 ```
 
 ### 3. Запуск тестов
+
 ```bash
 bun run test
 ```
 
 ### 4. Проверка типов TypeScript
+
 ```bash
 bun run typecheck
 ```
 
 ### 5. Локальный запуск воркера
+
 ```bash
 bun run dev
 ```
@@ -68,10 +73,13 @@ bun run dev
 ## Развертывание в Cloudflare (Production)
 
 ### 1. Создание удаленной базы данных D1
+
 ```bash
 bunx wrangler d1 create lighter-db
 ```
+
 Скопируйте полученный `database_id` в `wrangler.toml`:
+
 ```toml
 [[d1_databases]]
 binding = "DB"
@@ -80,11 +88,13 @@ database_id = "ваш-id-базы-данных"
 ```
 
 ### 2. Применение схемы к удаленной базе
+
 ```bash
 bunx wrangler d1 execute lighter-db --remote --file=./schema.sql
 ```
 
 ### 3. Установка секретов воркера
+
 ```bash
 # Токен бота из @BotFather
 bunx wrangler secret put TELEGRAM_BOT_TOKEN
@@ -94,11 +104,13 @@ bunx wrangler secret put TELEGRAM_SECRET_TOKEN
 ```
 
 ### 4. Деплой воркера
+
 ```bash
 bun run deploy
 ```
 
 ### 5. Привязка вебхука Telegram
+
 ```bash
 curl -F "url=https://<ВАШ_ВОРКЕР>.workers.dev" \
      -F "secret_token=<ВАШ_TELEGRAM_SECRET_TOKEN>" \
@@ -106,6 +118,7 @@ curl -F "url=https://<ВАШ_ВОРКЕР>.workers.dev" \
 ```
 
 Для проверки статуса вебхука:
+
 ```bash
 curl "https://api.telegram.org/bot<ВАШ_TELEGRAM_BOT_TOKEN>/getWebhookInfo"
 ```

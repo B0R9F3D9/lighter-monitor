@@ -13,17 +13,17 @@ export function analyzePositionRisk(pos: LighterPosition): PositionRiskAnalysis 
 
   const markPrice = posValue > 0 && size > 0 ? posValue / size : 0;
   let distancePercent: number | null = null;
-  let tier: AlertTier = 'SAFE';
+  let tier: AlertTier = "SAFE";
 
   if (liqPrice > 0 && markPrice > 0) {
     distancePercent = (Math.abs(markPrice - liqPrice) / markPrice) * 100;
 
     if (distancePercent <= CONFIG.TIERS.CRITICAL_2.maxDistance) {
-      tier = 'CRITICAL_2';
+      tier = "CRITICAL_2";
     } else if (distancePercent <= CONFIG.TIERS.DANGER_5.maxDistance) {
-      tier = 'DANGER_5';
+      tier = "DANGER_5";
     } else if (distancePercent <= CONFIG.TIERS.WARN_10.maxDistance) {
-      tier = 'WARN_10';
+      tier = "WARN_10";
     }
   }
 
@@ -38,7 +38,7 @@ export function analyzePositionRisk(pos: LighterPosition): PositionRiskAnalysis 
     liqPrice,
     unrealizedPnl,
     distancePercent,
-    tier
+    tier,
   };
 }
 

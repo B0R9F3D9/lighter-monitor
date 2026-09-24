@@ -3,22 +3,59 @@ import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
 import { CONFIG } from "../config";
 import { fetchLighterAccount, fetchLighterAccountWithStatus } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
-import { 
-  batchUpdatePositionsCache, 
-  getUserThreshold, 
-  setUserThreshold, 
+import {
+  batchUpdatePositionsCache,
+  getUserThreshold,
+  setUserThreshold,
   syncAccountOpenPositions,
   getUserSettings,
   setUserMute,
   getUserWizardState,
   setUserWizardState,
   updateAccountAlias,
-  removeTrackedAccount
+  removeTrackedAccount,
 } from "../db/queries";
 import { formatPositionsReport } from "./formatters";
 
 let botInstance: Bot | null = null;
 const knownUsers = new Set<number>();
+
+function getPositionsKeyboard(
+  filterIndex?: number,
+  filterNetwork?: LighterNetwork,
+): InlineKeyboard {
+  const refreshCb =
+    filterIndex && filterNetwork
+      ? `refresh:${filterNetwork}:${filterIndex}`
+      : filterIndex
+        ? `refresh_positions_${filterIndex}`
+        : "refresh_positions";
+  return new InlineKeyboard().text("🔄 Обновить", refreshCb);
+}
+
+function getSettingsKeyboard(threshold: number, mutedUntil: number): InlineKeyboard {
+  const presets = [0.3, 0.5, 0.8, 1.0, 1.5, 2.0];
+  const kb = new InlineKeyboard();
+  for (let i = 0; i < presets.length; i++) {
+    const p = presets[i]!;
+    const label = Math.abs(p - threshold) < 0.001 ? `✅ ${p}%` : `${p}%`;
+    kb.text(label, `set_thresh_${p}`);
+    if (i === 2) kb.row();
+  }
+  kb.row();
+  const isCustom = !presets.some((p) => Math.abs(p - threshold) < 0.001);
+  const customLabel = isCustom ? `✏️ Свой % (сейчас ${threshold.toFixed(1)}%)` : `✏️ Ввести свой %`;
+  kb.text(customLabel, "custom_threshold");
+  kb.row();
+
+  const isMuted = mutedUntil > Math.floor(Date.now() / 1000);
+  if (isMuted) {
+    kb.text("🔔 Включить уведомления", "settings_unmute");
+  } else {
+    kb.text("🔕 Заглушить на 4 часа", "settings_mute_4h");
+  }
+  return kb;
+}
 
 export function getBot(env: Env): Bot {
   if (botInstance) return botInstance;
@@ -27,9 +64,11 @@ export function getBot(env: Env): Bot {
 
   // Основная нижняя клавиатура пользователя (Zero-CLI Reply Keyboard)
   const replyKeyboard = new Keyboard()
-    .text("📊 Мои сделки").text("💼 Мои кошельки")
+    .text("📊 Мои сделки")
+    .text("💼 Мои кошельки")
     .row()
-    .text("➕ Добавить кошелек").text("⚙️ Настройки")
+    .text("➕ Добавить кошелек")
+    .text("⚙️ Настройки")
     .resized()
     .persistent();
 
@@ -46,12 +85,14 @@ export function getBot(env: Env): Bot {
           ON CONFLICT(telegram_id) DO UPDATE SET
             username = excluded.username,
             first_name = excluded.first_name
-        `).bind(
-          userId,
-          ctx.from.username || null,
-          ctx.from.first_name || null,
-          Math.floor(Date.now() / 1000)
-        ).run();
+        `)
+          .bind(
+            userId,
+            ctx.from.username || null,
+            ctx.from.first_name || null,
+            Math.floor(Date.now() / 1000),
+          )
+          .run();
         knownUsers.add(userId);
       }
     }
@@ -63,11 +104,13 @@ export function getBot(env: Env): Bot {
     await setUserWizardState(env.DB, ctx.from!.id, null);
 
     const countRes = await env.DB.prepare(
-      "SELECT COUNT(*) as cnt FROM user_tracked_accounts WHERE telegram_id = ?"
-    ).bind(ctx.from!.id).first<{ cnt: number }>();
+      "SELECT COUNT(*) as cnt FROM user_tracked_accounts WHERE telegram_id = ?",
+    )
+      .bind(ctx.from!.id)
+      .first<{ cnt: number }>();
 
     if (!countRes || countRes.cnt === 0) {
-      const welcomeText = 
+      const welcomeText =
         `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
         `Бот в реальном времени мониторит ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
         `рассчитывает риски ликвидации и присылает сигналы при импульсах цены.\n\n` +
@@ -81,8 +124,8 @@ export function getBot(env: Env): Bot {
 
     await ctx.reply(
       `👋 <b>С возвращением в Lighter Monitor!</b>\n\n` +
-      `Используйте кнопки меню ниже для управления кошельками, просмотра сделок и настройки алертов.`,
-      { parse_mode: "HTML", reply_markup: mainKeyboard }
+        `Используйте кнопки меню ниже для управления кошельками, просмотра сделок и настройки алертов.`,
+      { parse_mode: "HTML", reply_markup: mainKeyboard },
     );
   });
 
@@ -94,13 +137,19 @@ export function getBot(env: Env): Bot {
     await setUserWizardState(env.DB, ctx.from!.id, null);
 
     const countRes = await env.DB.prepare(
-      "SELECT COUNT(*) as cnt FROM user_tracked_accounts WHERE telegram_id = ?"
-    ).bind(ctx.from!.id).first<{ cnt: number }>();
+      "SELECT COUNT(*) as cnt FROM user_tracked_accounts WHERE telegram_id = ?",
+    )
+      .bind(ctx.from!.id)
+      .first<{ cnt: number }>();
 
     if (countRes && countRes.cnt >= CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER) {
       const msg = `⚠️ Достигнут лимит: нельзя отслеживать более ${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER} аккаунтов.`;
       if (isEdit) {
-        return ctx.editMessageText(msg, { reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list") }).catch(() => {});
+        return ctx
+          .editMessageText(msg, {
+            reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list"),
+          })
+          .catch(() => {});
       }
       return ctx.reply(msg, { reply_markup: mainKeyboard });
     }
@@ -132,8 +181,8 @@ export function getBot(env: Env): Bot {
     await setUserWizardState(env.DB, ctx.from!.id, { step: "AWAIT_INDEX", network });
     await ctx.answerCallbackQuery();
 
-    const exampleIdx = network === 'rh' ? "31704" : "749329";
-    const text = 
+    const exampleIdx = network === "rh" ? "31704" : "749329";
+    const text =
       `➕ <b>Подключение ${netConfig.name}</b> <code>${netConfig.badge}</code>\n\n` +
       `Отправьте в чат числовой индекс аккаунта (например: <code>${exampleIdx}</code>):`;
     const kb = new InlineKeyboard().text("❌ Отмена", "wizard_cancel");
@@ -150,7 +199,7 @@ export function getBot(env: Env): Bot {
     await ctx.answerCallbackQuery({ text: "Отменено" });
     try {
       await ctx.editMessageText("❌ Действие отменено.", {
-        reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list")
+        reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list"),
       });
     } catch {
       await ctx.reply("❌ Действие отменено.", { reply_markup: mainKeyboard });
@@ -165,23 +214,34 @@ export function getBot(env: Env): Bot {
       await env.DB.prepare(`
         INSERT INTO user_tracked_accounts (telegram_id, network, account_index, alias, created_at)
         VALUES (?, ?, ?, ?, ?)
-      `).bind(ctx.from!.id, state.network, state.accountIndex, alias, now).run();
+      `)
+        .bind(ctx.from!.id, state.network, state.accountIndex, alias, now)
+        .run();
 
-      const activePositions = (state.positions || []).filter((p: any) => Math.abs(parseFloat(p.position || p.size || "0")) > 0);
+      const activePositions = (state.positions || []).filter(
+        (p: any) => Math.abs(parseFloat(p.position || p.size || "0")) > 0,
+      );
       const risks = activePositions.map(analyzePositionRisk).filter(Boolean);
-      await batchUpdatePositionsCache(env.DB, [{
-        network: state.network,
-        account: {
-          index: state.accountIndex,
-          l1_address: state.l1Address,
-          collateral: String(state.collateral),
-          available_balance: "0",
-          total_asset_value: "0",
-          positions: state.positions || []
-        } as any,
-        cachedPositions: risks as any
-      }]);
-      await syncAccountOpenPositions(env.DB, state.network, state.accountIndex, state.positions || []);
+      await batchUpdatePositionsCache(env.DB, [
+        {
+          network: state.network,
+          account: {
+            index: state.accountIndex,
+            l1_address: state.l1Address,
+            collateral: String(state.collateral),
+            available_balance: "0",
+            total_asset_value: "0",
+            positions: state.positions || [],
+          } as any,
+          cachedPositions: risks as any,
+        },
+      ]);
+      await syncAccountOpenPositions(
+        env.DB,
+        state.network,
+        state.accountIndex,
+        state.positions || [],
+      );
     } catch (e: any) {
       if (!e?.message?.includes("UNIQUE")) throw e;
     }
@@ -195,11 +255,11 @@ export function getBot(env: Env): Bot {
 
     await ctx.reply(
       `🎉 Аккаунт <b>#${state.accountIndex}</b> <code>${netConfig.badge}</code> успешно подключен!\n` +
-      `🏷 Имя: ${alias ? `<b>${alias}</b>` : "<i>нет</i>"}\n` +
-      `💳 Кошелек: <code>${state.l1Address}</code>\n` +
-      `💰 Залог: <b>$${Number(state.collateral).toFixed(2)}</b>\n\n` +
-      `Мониторинг активен. Проверка рисков выполняется каждую минуту.`,
-      { parse_mode: "HTML", reply_markup: postKb }
+        `🏷 Имя: ${alias ? `<b>${alias}</b>` : "<i>нет</i>"}\n` +
+        `💳 Кошелек: <code>${state.l1Address}</code>\n` +
+        `💰 Залог: <b>$${Number(state.collateral).toFixed(2)}</b>\n\n` +
+        `Мониторинг активен. Проверка рисков выполняется каждую минуту.`,
+      { parse_mode: "HTML", reply_markup: postKb },
     );
   };
 
@@ -219,11 +279,27 @@ export function getBot(env: Env): Bot {
     const text = ctx.message.text.trim();
 
     // Не перехватываем команды со слэшем и кнопки Reply-клавиатуры
-    if (text.startsWith("/") || 
-        ["📊 Мои сделки", "Мои сделки", "📊 Позиции", "Позиции", 
-         "💼 Мои кошельки", "Мои кошельки", "📋 Аккаунты", "Аккаунты", "📋 Мои аккаунты",
-         "➕ Добавить кошелек", "➕ Добавить", "Добавить кошелек",
-         "⚙️ Настройки", "Настройки", "⚙️ Порог алертов", "Порог алертов"].includes(text)) {
+    if (
+      text.startsWith("/") ||
+      [
+        "📊 Мои сделки",
+        "Мои сделки",
+        "📊 Позиции",
+        "Позиции",
+        "💼 Мои кошельки",
+        "Мои кошельки",
+        "📋 Аккаунты",
+        "Аккаунты",
+        "📋 Мои аккаунты",
+        "➕ Добавить кошелек",
+        "➕ Добавить",
+        "Добавить кошелек",
+        "⚙️ Настройки",
+        "Настройки",
+        "⚙️ Порог алертов",
+        "Порог алертов",
+      ].includes(text)
+    ) {
       await setUserWizardState(env.DB, ctx.from!.id, null);
       return next();
     }
@@ -236,46 +312,53 @@ export function getBot(env: Env): Bot {
       const netConfig = CONFIG.NETWORKS[state.network];
       if (!/^\d+$/.test(text)) {
         return ctx.reply(
-          `⚠️ Пожалуйста, отправьте только числовой индекс аккаунта (например: <code>${state.network === 'rh' ? '31704' : '749329'}</code>):`,
-          { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("❌ Отмена", "wizard_cancel") }
+          `⚠️ Пожалуйста, отправьте только числовой индекс аккаунта (например: <code>${state.network === "rh" ? "31704" : "749329"}</code>):`,
+          {
+            parse_mode: "HTML",
+            reply_markup: new InlineKeyboard().text("❌ Отмена", "wizard_cancel"),
+          },
         );
       }
       const accountIndex = parseInt(text, 10);
 
       const exists = await env.DB.prepare(
-        "SELECT 1 FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?"
-      ).bind(ctx.from!.id, state.network, accountIndex).first();
+        "SELECT 1 FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?",
+      )
+        .bind(ctx.from!.id, state.network, accountIndex)
+        .first();
 
       if (exists) {
         await setUserWizardState(env.DB, ctx.from!.id, null);
-        return ctx.reply(
-          `Вы уже отслеживаете аккаунт #${accountIndex} в сети ${netConfig.name}.`,
-          { reply_markup: mainKeyboard }
-        );
+        return ctx.reply(`Вы уже отслеживаете аккаунт #${accountIndex} в сети ${netConfig.name}.`, {
+          reply_markup: mainKeyboard,
+        });
       }
 
       await ctx.reply(`🔍 Проверяем аккаунт #${accountIndex} в ${netConfig.name}...`);
       const result = await fetchLighterAccountWithStatus(state.network, accountIndex);
 
-      if (result.status === 'RATE_LIMIT') {
+      if (result.status === "RATE_LIMIT") {
         return ctx.reply(
           `⚠️ API ${netConfig.name} временно ограничивает запросы (Rate Limit 429). Попробуйте через 30 секунд.`,
-          { reply_markup: new InlineKeyboard().text("❌ Отмена", "wizard_cancel") }
+          { reply_markup: new InlineKeyboard().text("❌ Отмена", "wizard_cancel") },
         );
       }
 
       if (!result.account) {
-        const explorerLink = state.network === 'mainnet'
-          ? `\nПроверьте индекс: https://app.lighter.xyz/explorer/accounts/${accountIndex}`
-          : '';
+        const explorerLink =
+          state.network === "mainnet"
+            ? `\nПроверьте индекс: https://app.lighter.xyz/explorer/accounts/${accountIndex}`
+            : "";
         return ctx.reply(
           `⚠️ Аккаунт #${accountIndex} не найден в сети ${netConfig.name}.${explorerLink}\n\nПроверьте цифры и попробуйте снова:`,
-          { reply_markup: new InlineKeyboard().text("❌ Отмена", "wizard_cancel") }
+          { reply_markup: new InlineKeyboard().text("❌ Отмена", "wizard_cancel") },
         );
       }
 
       const acc = result.account;
-      const shortAddr = acc.l1_address ? `${acc.l1_address.slice(0, 6)}...${acc.l1_address.slice(-4)}` : "—";
+      const shortAddr = acc.l1_address
+        ? `${acc.l1_address.slice(0, 6)}...${acc.l1_address.slice(-4)}`
+        : "—";
       const collateral = parseFloat(acc.collateral || "0");
 
       await setUserWizardState(env.DB, ctx.from!.id, {
@@ -284,7 +367,7 @@ export function getBot(env: Env): Bot {
         accountIndex,
         l1Address: acc.l1_address,
         collateral,
-        positions: acc.positions || []
+        positions: acc.positions || [],
       });
 
       const kb = new InlineKeyboard()
@@ -294,10 +377,10 @@ export function getBot(env: Env): Bot {
 
       return ctx.reply(
         `✅ <b>Аккаунт #${accountIndex} найден!</b>\n` +
-        `💳 Кошелек: <code>${shortAddr}</code>\n` +
-        `💰 Залог: <b>$${collateral.toFixed(2)}</b>\n\n` +
-        `Теперь отправьте понятное имя (алиас), например: <b>Мейн</b> или <b>Хедж</b>:`,
-        { parse_mode: "HTML", reply_markup: kb }
+          `💳 Кошелек: <code>${shortAddr}</code>\n` +
+          `💰 Залог: <b>$${collateral.toFixed(2)}</b>\n\n` +
+          `Теперь отправьте понятное имя (алиас), например: <b>Мейн</b> или <b>Хедж</b>:`,
+        { parse_mode: "HTML", reply_markup: kb },
       );
     }
 
@@ -313,10 +396,10 @@ export function getBot(env: Env): Bot {
       const newAlias = text.slice(0, 32);
       await updateAccountAlias(env.DB, ctx.from!.id, state.network, state.accountIndex, newAlias);
       await setUserWizardState(env.DB, ctx.from!.id, null);
-      await ctx.reply(
-        `✅ Имя аккаунта #${state.accountIndex} изменено на <b>${newAlias}</b>.`,
-        { parse_mode: "HTML", reply_markup: mainKeyboard }
-      );
+      await ctx.reply(`✅ Имя аккаунта #${state.accountIndex} изменено на <b>${newAlias}</b>.`, {
+        parse_mode: "HTML",
+        reply_markup: mainKeyboard,
+      });
       await showAccountCard(ctx, state.network, state.accountIndex, false);
       return;
     }
@@ -328,15 +411,18 @@ export function getBot(env: Env): Bot {
       if (isNaN(val) || val < CONFIG.MIN_ALERT_THRESHOLD || val > CONFIG.MAX_ALERT_THRESHOLD) {
         return ctx.reply(
           `⚠️ Пожалуйста, укажите число от <b>${CONFIG.MIN_ALERT_THRESHOLD}%</b> до <b>${CONFIG.MAX_ALERT_THRESHOLD}%</b> (например: <code>0.4</code>):`,
-          { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("❌ Отмена", "action_threshold") }
+          {
+            parse_mode: "HTML",
+            reply_markup: new InlineKeyboard().text("❌ Отмена", "action_threshold"),
+          },
         );
       }
       await setUserThreshold(env.DB, ctx.from!.id, val);
       await setUserWizardState(env.DB, ctx.from!.id, null);
-      await ctx.reply(
-        `✅ Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.`,
-        { parse_mode: "HTML", reply_markup: mainKeyboard }
-      );
+      await ctx.reply(`✅ Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.`, {
+        parse_mode: "HTML",
+        reply_markup: mainKeyboard,
+      });
       await handleSettings(ctx);
       return;
     }
@@ -352,39 +438,43 @@ export function getBot(env: Env): Bot {
     const netConfig = CONFIG.NETWORKS[network];
 
     if (!indexStr || !/^\d+$/.test(indexStr)) {
-      const cmdName = network === 'rh' ? '/add_rh' : '/add_mainnet';
-      const exampleIdx = network === 'rh' ? '31704' : '749329';
+      const cmdName = network === "rh" ? "/add_rh" : "/add_mainnet";
+      const exampleIdx = network === "rh" ? "31704" : "749329";
       return ctx.reply(
         `Укажите числовой индекс аккаунта ${netConfig.name}.\n` +
-        `Пример: <code>${cmdName} ${exampleIdx} ${alias || "Основной"}</code>`, 
-        { parse_mode: "HTML" }
+          `Пример: <code>${cmdName} ${exampleIdx} ${alias || "Основной"}</code>`,
+        { parse_mode: "HTML" },
       );
     }
 
     const accountIndex = parseInt(indexStr, 10);
     const countRes = await env.DB.prepare(
-      "SELECT COUNT(*) as cnt FROM user_tracked_accounts WHERE telegram_id = ?"
-    ).bind(ctx.from!.id).first<{ cnt: number }>();
+      "SELECT COUNT(*) as cnt FROM user_tracked_accounts WHERE telegram_id = ?",
+    )
+      .bind(ctx.from!.id)
+      .first<{ cnt: number }>();
 
     if (countRes && countRes.cnt >= CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER) {
       return ctx.reply(
         `Достигнут лимит: нельзя отслеживать более ${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER} аккаунтов суммарно.`,
-        { reply_markup: mainKeyboard }
+        { reply_markup: mainKeyboard },
       );
     }
 
     await ctx.reply(`Проверяем аккаунт в ${netConfig.name} API...`);
     const result = await fetchLighterAccountWithStatus(network, accountIndex);
 
-    if (result.status === 'RATE_LIMIT') {
+    if (result.status === "RATE_LIMIT") {
       return ctx.reply(
         `⚠️ API ${netConfig.name} временно ограничивает запросы (Rate Limit 429). Повторите через 30–60 секунд.`,
-        { reply_markup: mainKeyboard }
+        { reply_markup: mainKeyboard },
       );
     }
 
     if (!result.account) {
-      return ctx.reply(`Аккаунт #${accountIndex} не найден в ${netConfig.name}.`, { reply_markup: mainKeyboard });
+      return ctx.reply(`Аккаунт #${accountIndex} не найден в ${netConfig.name}.`, {
+        reply_markup: mainKeyboard,
+      });
     }
 
     const account = result.account;
@@ -392,41 +482,46 @@ export function getBot(env: Env): Bot {
       await env.DB.prepare(`
         INSERT INTO user_tracked_accounts (telegram_id, network, account_index, alias, created_at)
         VALUES (?, ?, ?, ?, ?)
-      `).bind(ctx.from!.id, network, accountIndex, alias, Math.floor(Date.now() / 1000)).run();
+      `)
+        .bind(ctx.from!.id, network, accountIndex, alias, Math.floor(Date.now() / 1000))
+        .run();
 
-      const activePositions = account.positions.filter(p => Math.abs(parseFloat(p.position || "0")) > 0);
+      const activePositions = account.positions.filter(
+        (p) => Math.abs(parseFloat(p.position || "0")) > 0,
+      );
       const risks = activePositions.map(analyzePositionRisk).filter(Boolean);
-      await batchUpdatePositionsCache(env.DB, [{
-        network,
-        account,
-        cachedPositions: risks as any
-      }]);
+      await batchUpdatePositionsCache(env.DB, [
+        {
+          network,
+          account,
+          cachedPositions: risks as any,
+        },
+      ]);
       await syncAccountOpenPositions(env.DB, network, accountIndex, account.positions);
 
       await ctx.reply(
         `Аккаунт <b>#${accountIndex}</b> добавлен в <b>${netConfig.name}</b> <code>${netConfig.badge}</code>.\n` +
-        `Алиас: ${alias ? `<b>${alias}</b>` : "<i>нет</i>"}\n` +
-        `Кошелек: <code>${account.l1_address}</code>\n\n` +
-        `Мониторинг активен.`,
-        { parse_mode: "HTML", reply_markup: mainKeyboard }
+          `Алиас: ${alias ? `<b>${alias}</b>` : "<i>нет</i>"}\n` +
+          `Кошелек: <code>${account.l1_address}</code>\n\n` +
+          `Мониторинг активен.`,
+        { parse_mode: "HTML", reply_markup: mainKeyboard },
       );
     } catch (e: any) {
       if (e?.message && e.message.includes("UNIQUE")) {
-        return ctx.reply(
-          `Вы уже отслеживаете аккаунт #${accountIndex} в сети ${netConfig.name}.`,
-          { reply_markup: mainKeyboard }
-        );
+        return ctx.reply(`Вы уже отслеживаете аккаунт #${accountIndex} в сети ${netConfig.name}.`, {
+          reply_markup: mainKeyboard,
+        });
       }
       throw e;
     }
   };
 
   bot.command("add_rh", async (ctx) => {
-    await handleAdd(ctx, 'rh', ctx.match);
+    await handleAdd(ctx, "rh", ctx.match);
   });
 
   bot.command("add_mainnet", async (ctx) => {
-    await handleAdd(ctx, 'mainnet', ctx.match);
+    await handleAdd(ctx, "mainnet", ctx.match);
   });
 
   bot.command("add", async (ctx) => {
@@ -435,11 +530,11 @@ export function getBot(env: Env): Bot {
     const firstArg = args[0]?.toLowerCase();
 
     if (firstArg === "rh" || firstArg === "robinhood") {
-      await handleAdd(ctx, 'rh', args.slice(1).join(" "));
+      await handleAdd(ctx, "rh", args.slice(1).join(" "));
     } else if (firstArg === "mainnet" || firstArg === "main") {
-      await handleAdd(ctx, 'mainnet', args.slice(1).join(" "));
+      await handleAdd(ctx, "mainnet", args.slice(1).join(" "));
     } else if (firstArg && /^\d+$/.test(firstArg)) {
-      await handleAdd(ctx, 'rh', rawMatch);
+      await handleAdd(ctx, "rh", rawMatch);
     } else {
       await startAddWizard(ctx);
     }
@@ -451,10 +546,10 @@ export function getBot(env: Env): Bot {
     const netConfig = CONFIG.NETWORKS[network];
 
     if (!indexStr || !/^\d+$/.test(indexStr)) {
-      const cmdName = network === 'rh' ? '/remove_rh' : '/remove_mainnet';
+      const cmdName = network === "rh" ? "/remove_rh" : "/remove_mainnet";
       return ctx.reply(
-        `Укажите индекс для удаления из ${netConfig.name}: <code>${cmdName} 31704</code>`, 
-        { parse_mode: "HTML" }
+        `Укажите индекс для удаления из ${netConfig.name}: <code>${cmdName} 31704</code>`,
+        { parse_mode: "HTML" },
       );
     }
 
@@ -464,22 +559,22 @@ export function getBot(env: Env): Bot {
     if (!removed) {
       return ctx.reply(
         `Аккаунт #${accountIndex} не найден среди ваших отслеживаемых в ${netConfig.name}.`,
-        { reply_markup: mainKeyboard }
+        { reply_markup: mainKeyboard },
       );
     }
 
     await ctx.reply(
-      `Аккаунт #${accountIndex} <code>${netConfig.badge}</code> удален из отслеживания.`, 
-      { parse_mode: "HTML", reply_markup: mainKeyboard }
+      `Аккаунт #${accountIndex} <code>${netConfig.badge}</code> удален из отслеживания.`,
+      { parse_mode: "HTML", reply_markup: mainKeyboard },
     );
   };
 
   bot.command("remove_rh", async (ctx) => {
-    await handleRemove(ctx, 'rh', ctx.match);
+    await handleRemove(ctx, "rh", ctx.match);
   });
 
   bot.command("remove_mainnet", async (ctx) => {
-    await handleRemove(ctx, 'mainnet', ctx.match);
+    await handleRemove(ctx, "mainnet", ctx.match);
   });
 
   bot.command("remove", async (ctx) => {
@@ -488,9 +583,9 @@ export function getBot(env: Env): Bot {
     const firstArg = args[0]?.toLowerCase();
 
     if (firstArg === "rh") {
-      await handleRemove(ctx, 'rh', args.slice(1).join(" "));
+      await handleRemove(ctx, "rh", args.slice(1).join(" "));
     } else if (firstArg === "mainnet") {
-      await handleRemove(ctx, 'mainnet', args.slice(1).join(" "));
+      await handleRemove(ctx, "mainnet", args.slice(1).join(" "));
     } else {
       await handleList(ctx);
     }
@@ -500,25 +595,40 @@ export function getBot(env: Env): Bot {
   // ИНТЕРАКТИВНОЕ УПРАВЛЕНИЕ КОШЕЛЬКАМИ
   // ==========================================
 
-  const showAccountCard = async (ctx: any, network: LighterNetwork, accountIndex: number, isEdit: boolean = true) => {
+  const showAccountCard = async (
+    ctx: any,
+    network: LighterNetwork,
+    accountIndex: number,
+    isEdit: boolean = true,
+  ) => {
     const accRow = await env.DB.prepare(
-      "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?"
-    ).bind(ctx.from!.id, network, accountIndex).first<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+      "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?",
+    )
+      .bind(ctx.from!.id, network, accountIndex)
+      .first<{ network: LighterNetwork; account_index: number; alias: string | null }>();
 
     if (!accRow) {
       const notFoundMsg = `Аккаунт #${accountIndex} не найден среди ваших отслеживаемых.`;
       if (isEdit) {
-        return ctx.editMessageText(notFoundMsg, { reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list") }).catch(() => {});
+        return ctx
+          .editMessageText(notFoundMsg, {
+            reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list"),
+          })
+          .catch(() => {});
       }
       return ctx.reply(notFoundMsg, { reply_markup: mainKeyboard });
     }
 
     const cacheRow = await env.DB.prepare(
-      "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?"
-    ).bind(network, accountIndex).first<any>();
+      "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?",
+    )
+      .bind(network, accountIndex)
+      .first<any>();
 
     const netConfig = CONFIG.NETWORKS[network];
-    const shortAddr = cacheRow?.l1_address ? `${cacheRow.l1_address.slice(0, 6)}...${cacheRow.l1_address.slice(-4)}` : "—";
+    const shortAddr = cacheRow?.l1_address
+      ? `${cacheRow.l1_address.slice(0, 6)}...${cacheRow.l1_address.slice(-4)}`
+      : "—";
     const collateral = parseFloat(String(cacheRow?.collateral || 0));
 
     let positionsCount = 0;
@@ -526,16 +636,16 @@ export function getBot(env: Env): Bot {
     if (cacheRow?.positions_json) {
       try {
         const parsed = JSON.parse(cacheRow.positions_json) as any[];
-        const active = parsed.filter(p => Math.abs(parseFloat(p.position || p.size || "0")) > 0);
+        const active = parsed.filter((p) => Math.abs(parseFloat(p.position || p.size || "0")) > 0);
         positionsCount = active.length;
         if (positionsCount > 0) {
-          const syms = active.map(p => p.symbol).filter(Boolean);
+          const syms = active.map((p) => p.symbol).filter(Boolean);
           symbolsSummary = ` (${syms.join(", ")})`;
         }
       } catch {}
     }
 
-    const card = 
+    const card =
       `💼 <b>Управление аккаунтом #${accountIndex}</b> <code>${netConfig.badge}</code>\n\n` +
       `🏷 <b>Имя:</b> ${accRow.alias ? `<b>${accRow.alias}</b>` : "<i>не задано</i>"}\n` +
       `💳 <b>Кошелек:</b> <code>${shortAddr}</code>\n` +
@@ -574,8 +684,8 @@ export function getBot(env: Env): Bot {
     const kb = new InlineKeyboard().text("❌ Отмена", `manage_acc:${network}:${accountIndex}`);
     await ctx.editMessageText(
       `✏️ Отправьте в чат новое имя (алиас) для аккаунта <b>#${accountIndex}</b> <code>${netConfig.badge}</code>:\n\n` +
-      `<i>(например: <b>Основной</b> или <b>Хедж</b>)</i>`,
-      { parse_mode: "HTML", reply_markup: kb }
+        `<i>(например: <b>Основной</b> или <b>Хедж</b>)</i>`,
+      { parse_mode: "HTML", reply_markup: kb },
     );
   });
 
@@ -590,7 +700,7 @@ export function getBot(env: Env): Bot {
 
     await ctx.editMessageText(
       `⚠️ Вы уверены, что хотите удалить аккаунт <b>#${accountIndex}</b> <code>${netConfig.badge}</code> из отслеживания?`,
-      { parse_mode: "HTML", reply_markup: kb }
+      { parse_mode: "HTML", reply_markup: kb },
     );
   });
 
@@ -609,10 +719,12 @@ export function getBot(env: Env): Bot {
       FROM user_tracked_accounts 
       WHERE telegram_id = ? 
       ORDER BY network ASC, id ASC
-    `).bind(ctx.from!.id).all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+    `)
+      .bind(ctx.from!.id)
+      .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
 
     if (!results || results.length === 0) {
-      const emptyText = 
+      const emptyText =
         `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
         `Бот отслеживает ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
         `рассчитывает риски и защищает от ликвидации.\n\n` +
@@ -620,24 +732,31 @@ export function getBot(env: Env): Bot {
       const emptyKb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
 
       if (isEdit) {
-        return ctx.editMessageText(emptyText, { parse_mode: "HTML", reply_markup: emptyKb }).catch(() => {});
+        return ctx
+          .editMessageText(emptyText, { parse_mode: "HTML", reply_markup: emptyKb })
+          .catch(() => {});
       }
       return ctx.reply(emptyText, { parse_mode: "HTML", reply_markup: emptyKb });
     }
 
     const kb = new InlineKeyboard();
     for (const r of results) {
-      const netIcon = r.network === 'rh' ? '🟠' : '⚡️';
+      const netIcon = r.network === "rh" ? "🟠" : "⚡️";
       const aliasStr = r.alias ? ` (${r.alias})` : "";
       const label = `${netIcon} #${r.account_index}${aliasStr}`;
       kb.text(label, `manage_acc:${r.network}:${r.account_index}`).row();
     }
-    kb.text("➕ Добавить кошелек", "wizard_start_add")
-      .text("🔄 Обновить", "refresh_list");
+    kb.text("➕ Добавить кошелек", "wizard_start_add").text("🔄 Обновить", "refresh_list");
 
     const now = new Date();
-    const timeStr = now.toLocaleTimeString("ru-RU", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const msg = `📋 <b>Ваши отслеживаемые кошельки (${results.length}/${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER}):</b>\n\n` +
+    const timeStr = now.toLocaleTimeString("ru-RU", {
+      timeZone: "UTC",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    const msg =
+      `📋 <b>Ваши отслеживаемые кошельки (${results.length}/${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER}):</b>\n\n` +
       `Нажмите на кошелек для управления:\n\n` +
       `🕒 <i>Обновлено: ${timeStr} UTC</i>`;
 
@@ -671,62 +790,69 @@ export function getBot(env: Env): Bot {
   // ВЫВОД ПОЗИЦИЙ (/positions) С ХЕДЖ-ИТОГОМ
   // ==========================================
 
-  const getPositionsKeyboard = (filterIndex?: number, filterNetwork?: LighterNetwork) => {
-    const refreshCb = (filterIndex && filterNetwork)
-      ? `refresh:${filterNetwork}:${filterIndex}`
-      : (filterIndex ? `refresh_positions_${filterIndex}` : "refresh_positions");
-    return new InlineKeyboard()
-      .text("🔄 Обновить", refreshCb);
-  };
-
   const handlePositions = async (
-    ctx: any, 
-    filterIndex?: number, 
-    forceRefresh: boolean = false, 
+    ctx: any,
+    filterIndex?: number,
+    forceRefresh: boolean = false,
     isEdit: boolean = false,
-    filterNetwork?: LighterNetwork
+    filterNetwork?: LighterNetwork,
   ) => {
-    let trackedList: Array<{ network: LighterNetwork; account_index: number; alias: string | null }> = [];
+    let trackedList: Array<{
+      network: LighterNetwork;
+      account_index: number;
+      alias: string | null;
+    }> = [];
 
     if (filterIndex) {
       if (filterNetwork) {
         const { results } = await env.DB.prepare(
-          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?"
-        ).bind(ctx.from!.id, filterNetwork, filterIndex).all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
-        trackedList = (results && results.length > 0) ? results : [
-          { network: filterNetwork, account_index: filterIndex, alias: null }
-        ];
+          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?",
+        )
+          .bind(ctx.from!.id, filterNetwork, filterIndex)
+          .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+        trackedList =
+          results && results.length > 0
+            ? results
+            : [{ network: filterNetwork, account_index: filterIndex, alias: null }];
       } else {
         const { results } = await env.DB.prepare(
-          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND account_index = ?"
-        ).bind(ctx.from!.id, filterIndex).all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND account_index = ?",
+        )
+          .bind(ctx.from!.id, filterIndex)
+          .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
         trackedList = results || [];
         if (trackedList.length === 0) {
           trackedList = [
-            { network: 'rh', account_index: filterIndex, alias: null },
-            { network: 'mainnet', account_index: filterIndex, alias: null }
+            { network: "rh", account_index: filterIndex, alias: null },
+            { network: "mainnet", account_index: filterIndex, alias: null },
           ];
         }
       }
     } else {
       const { results } = await env.DB.prepare(
-        "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? ORDER BY network ASC, id ASC"
-      ).bind(ctx.from!.id).all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+        "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? ORDER BY network ASC, id ASC",
+      )
+        .bind(ctx.from!.id)
+        .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
       trackedList = results || [];
     }
 
     if (trackedList.length === 0) {
       if (filterIndex) {
-        return ctx.reply(`Аккаунт #${filterIndex} не найден среди ваших отслеживаемых.`, { reply_markup: mainKeyboard });
+        return ctx.reply(`Аккаунт #${filterIndex} не найден среди ваших отслеживаемых.`, {
+          reply_markup: mainKeyboard,
+        });
       }
-      const emptyText = 
+      const emptyText =
         `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
         `Бот в реальном времени отслеживает ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
         `рассчитывает риски и защищает от ликвидации.\n\n` +
         `У вас пока нет подключенных кошельков. Давайте подключим первый:`;
       const emptyKb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
       if (isEdit) {
-        return ctx.editMessageText(emptyText, { parse_mode: "HTML", reply_markup: emptyKb }).catch(() => {});
+        return ctx
+          .editMessageText(emptyText, { parse_mode: "HTML", reply_markup: emptyKb })
+          .catch(() => {});
       }
       return ctx.reply(emptyText, { parse_mode: "HTML", reply_markup: emptyKb });
     }
@@ -741,7 +867,9 @@ export function getBot(env: Env): Bot {
           JOIN user_tracked_accounts uta 
             ON c.network = uta.network AND c.account_index = uta.account_index
           WHERE uta.telegram_id = ?
-        `).bind(ctx.from!.id).all<any>();
+        `)
+          .bind(ctx.from!.id)
+          .all<any>();
 
         if (cachedRows) {
           for (const row of cachedRows) {
@@ -750,11 +878,13 @@ export function getBot(env: Env): Bot {
         }
       } else {
         const rows = await Promise.all(
-          trackedList.map(item =>
-            env.DB.prepare("SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?")
+          trackedList.map((item) =>
+            env.DB.prepare(
+              "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?",
+            )
               .bind(item.network, item.account_index)
-              .first<any>()
-          )
+              .first<any>(),
+          ),
         );
         for (const row of rows) {
           if (row) {
@@ -766,24 +896,24 @@ export function getBot(env: Env): Bot {
 
     const nowSec = Math.floor(Date.now() / 1000);
     const toFetch = forceRefresh
-      ? trackedList.filter(item => {
+      ? trackedList.filter((item) => {
           const key = `${item.network}:${item.account_index}`;
           const c = cacheMap.get(key);
-          if (c && c.last_updated_at && (nowSec - c.last_updated_at) < 15) {
+          if (c && c.last_updated_at && nowSec - c.last_updated_at < 15) {
             return false;
           }
           return true;
         })
-      : trackedList.filter(item => {
+      : trackedList.filter((item) => {
           const key = `${item.network}:${item.account_index}`;
           const c = cacheMap.get(key);
-          return !c || !c.l1_address || !c.last_updated_at || (nowSec - c.last_updated_at) >= 120;
+          return !c || !c.l1_address || !c.last_updated_at || nowSec - c.last_updated_at >= 120;
         });
 
     const freshMap = new Map<string, any>();
     if (toFetch.length > 0) {
       const freshResults = await Promise.all(
-        toFetch.map(item => fetchLighterAccount(item.network, item.account_index))
+        toFetch.map((item) => fetchLighterAccount(item.network, item.account_index)),
       );
       toFetch.forEach((item, i) => {
         if (freshResults[i]) {
@@ -792,7 +922,8 @@ export function getBot(env: Env): Bot {
       });
 
       if (freshMap.size > 0) {
-        const updates: Array<{ network: LighterNetwork; account: any; cachedPositions: any[] }> = [];
+        const updates: Array<{ network: LighterNetwork; account: any; cachedPositions: any[] }> =
+          [];
         const syncPromises: Promise<any>[] = [];
 
         for (const item of toFetch) {
@@ -802,16 +933,23 @@ export function getBot(env: Env): Bot {
             updates.push({
               network: item.network,
               account: acc,
-              cachedPositions: acc.positions.map(analyzePositionRisk).filter(Boolean)
+              cachedPositions: acc.positions.map(analyzePositionRisk).filter(Boolean),
             });
             syncPromises.push(
-              syncAccountOpenPositions(env.DB, item.network, item.account_index, acc.positions).catch(e => console.error("syncAccountOpenPositions error:", e))
+              syncAccountOpenPositions(
+                env.DB,
+                item.network,
+                item.account_index,
+                acc.positions,
+              ).catch((e) => console.error("syncAccountOpenPositions error:", e)),
             );
           }
         }
         await Promise.all([
           ...syncPromises,
-          batchUpdatePositionsCache(env.DB, updates).catch(e => console.error("Cache update error:", e))
+          batchUpdatePositionsCache(env.DB, updates).catch((e) =>
+            console.error("Cache update error:", e),
+          ),
         ]);
       }
     }
@@ -830,33 +968,37 @@ export function getBot(env: Env): Bot {
       let accCollateral = 0;
 
       if (fresh) {
-        accPositions = fresh.positions.map(analyzePositionRisk).filter(Boolean) as PositionRiskAnalysis[];
+        accPositions = fresh.positions
+          .map(analyzePositionRisk)
+          .filter(Boolean) as PositionRiskAnalysis[];
         accCollateral = parseFloat(fresh.collateral || "0");
         card = formatPositionsReport(
           item.network,
-          item.account_index, 
-          item.alias, 
-          accCollateral, 
-          accPositions, 
-          userThreshold
+          item.account_index,
+          item.alias,
+          accCollateral,
+          accPositions,
+          userThreshold,
         );
       } else if (cached && cached.l1_address && cached.positions_json) {
         const parsedPositions = JSON.parse(cached.positions_json) as any[];
-        accPositions = parsedPositions.map((p: any) => {
-          if (p.marketId !== undefined && p.tier !== undefined) {
-            return p as PositionRiskAnalysis;
-          }
-          return analyzePositionRisk(p);
-        }).filter(Boolean) as PositionRiskAnalysis[];
+        accPositions = parsedPositions
+          .map((p: any) => {
+            if (p.marketId !== undefined && p.tier !== undefined) {
+              return p as PositionRiskAnalysis;
+            }
+            return analyzePositionRisk(p);
+          })
+          .filter(Boolean) as PositionRiskAnalysis[];
         accCollateral = parseFloat(String(cached.collateral || 0));
 
         card = formatPositionsReport(
           item.network,
-          item.account_index, 
-          item.alias, 
-          accCollateral, 
-          accPositions, 
-          userThreshold
+          item.account_index,
+          item.alias,
+          accCollateral,
+          accPositions,
+          userThreshold,
         );
       } else {
         if (filterIndex && !fresh && !cached) continue;
@@ -886,7 +1028,12 @@ export function getBot(env: Env): Bot {
       combinedReport += summaryBlock;
 
       const now = new Date();
-      const timeStr = now.toLocaleTimeString("ru-RU", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      const timeStr = now.toLocaleTimeString("ru-RU", {
+        timeZone: "UTC",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
       combinedReport += `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
 
       if (combinedReport.length > 3800) {
@@ -907,7 +1054,10 @@ export function getBot(env: Env): Bot {
 
       if (isEdit) {
         try {
-          await ctx.editMessageText(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
+          await ctx.editMessageText(combinedReport, {
+            parse_mode: "HTML",
+            reply_markup: posKeyboard,
+          });
         } catch (err: any) {
           if (!err?.message?.includes("message is not modified")) {
             await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
@@ -917,13 +1067,15 @@ export function getBot(env: Env): Bot {
         await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
       }
     } else if (filterIndex) {
-      await ctx.reply(`Аккаунт #${filterIndex} не найден ни в одной из поддерживаемых сетей.`, { reply_markup: mainKeyboard });
+      await ctx.reply(`Аккаунт #${filterIndex} не найден ни в одной из поддерживаемых сетей.`, {
+        reply_markup: mainKeyboard,
+      });
     }
   };
 
   bot.command("positions", async (ctx) => {
     const arg = ctx.match ? ctx.match.trim() : "";
-    const filter = (arg && /^\d+$/.test(arg)) ? parseInt(arg, 10) : undefined;
+    const filter = arg && /^\d+$/.test(arg) ? parseInt(arg, 10) : undefined;
     await handlePositions(ctx, filter);
   });
 
@@ -953,30 +1105,6 @@ export function getBot(env: Env): Bot {
   // МЕНЮ НАСТРОЕК (ПОРОГ И ТИХИЙ СОН)
   // ==========================================
 
-  const getSettingsKeyboard = (threshold: number, mutedUntil: number) => {
-    const presets = [0.3, 0.5, 0.8, 1.0, 1.5, 2.0];
-    const kb = new InlineKeyboard();
-    for (let i = 0; i < presets.length; i++) {
-      const p = presets[i]!;
-      const label = Math.abs(p - threshold) < 0.001 ? `✅ ${p}%` : `${p}%`;
-      kb.text(label, `set_thresh_${p}`);
-      if (i === 2) kb.row();
-    }
-    kb.row();
-    const isCustom = !presets.some(p => Math.abs(p - threshold) < 0.001);
-    const customLabel = isCustom ? `✏️ Свой % (сейчас ${threshold.toFixed(1)}%)` : `✏️ Ввести свой %`;
-    kb.text(customLabel, "custom_threshold");
-    kb.row();
-
-    const isMuted = mutedUntil > Math.floor(Date.now() / 1000);
-    if (isMuted) {
-      kb.text("🔔 Включить уведомления", "settings_unmute");
-    } else {
-      kb.text("🔕 Заглушить на 4 часа", "settings_mute_4h");
-    }
-    return kb;
-  };
-
   const handleSettings = async (ctx: any, isEdit: boolean = false) => {
     const settings = await getUserSettings(env.DB, ctx.from!.id);
     const nowSec = Math.floor(Date.now() / 1000);
@@ -986,11 +1114,15 @@ export function getBot(env: Env): Bot {
     if (isMuted) {
       const remainingMinutes = Math.ceil((settings.mutedUntil - nowSec) / 60);
       const muteUntilDate = new Date(settings.mutedUntil * 1000);
-      const timeStr = muteUntilDate.toLocaleTimeString("ru-RU", { timeZone: "UTC", hour: "2-digit", minute: "2-digit" });
+      const timeStr = muteUntilDate.toLocaleTimeString("ru-RU", {
+        timeZone: "UTC",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
       muteText = `🔕 <b>Уведомления заглушены:</b> еще ${remainingMinutes} мин (до ${timeStr} UTC)`;
     }
 
-    const text = 
+    const text =
       `⚙️ <b>Настройки Lighter Monitor</b>\n\n` +
       `🎯 <b>Шаг цены для алертов:</b> <b>${settings.alertThreshold.toFixed(1)}%</b>\n` +
       `<i>(Для золота XAU на плече 15–25x рекомендуется 0.3%–0.5%)</i>\n\n` +
@@ -1014,15 +1146,15 @@ export function getBot(env: Env): Bot {
       if (isNaN(val) || val < CONFIG.MIN_ALERT_THRESHOLD || val > CONFIG.MAX_ALERT_THRESHOLD) {
         return ctx.reply(
           `Укажите процент от ${CONFIG.MIN_ALERT_THRESHOLD}% до ${CONFIG.MAX_ALERT_THRESHOLD}%.\n` +
-          `Пример: <code>/threshold 0.5</code>`,
-          { parse_mode: "HTML" }
+            `Пример: <code>/threshold 0.5</code>`,
+          { parse_mode: "HTML" },
         );
       }
       await setUserThreshold(env.DB, ctx.from!.id, val);
-      return ctx.reply(
-        `Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.`,
-        { parse_mode: "HTML", reply_markup: mainKeyboard }
-      );
+      return ctx.reply(`Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.`, {
+        parse_mode: "HTML",
+        reply_markup: mainKeyboard,
+      });
     }
     await handleSettings(ctx);
   });
@@ -1037,9 +1169,9 @@ export function getBot(env: Env): Bot {
     const kb = new InlineKeyboard().text("❌ Отмена", "action_threshold");
     await ctx.editMessageText(
       `✏️ <b>Настройка шага цены для алертов</b>\n\n` +
-      `Отправьте желаемый шаг цены числом в чат:\n` +
-      `<i>(от <b>${CONFIG.MIN_ALERT_THRESHOLD}%</b> до <b>${CONFIG.MAX_ALERT_THRESHOLD}%</b>, например: <b>0.4</b> или <b>0.7</b>)</i>`,
-      { parse_mode: "HTML", reply_markup: kb }
+        `Отправьте желаемый шаг цены числом в чат:\n` +
+        `<i>(от <b>${CONFIG.MIN_ALERT_THRESHOLD}%</b> до <b>${CONFIG.MAX_ALERT_THRESHOLD}%</b>, например: <b>0.4</b> или <b>0.7</b>)</i>`,
+      { parse_mode: "HTML", reply_markup: kb },
     );
   });
 
@@ -1078,9 +1210,12 @@ export function getBot(env: Env): Bot {
     await handlePositions(ctx);
   });
 
-  bot.hears(["💼 Мои кошельки", "Мои кошельки", "📋 Аккаунты", "Аккаунты", "📋 Мои аккаунты"], async (ctx) => {
-    await handleList(ctx);
-  });
+  bot.hears(
+    ["💼 Мои кошельки", "Мои кошельки", "📋 Аккаунты", "Аккаунты", "📋 Мои аккаунты"],
+    async (ctx) => {
+      await handleList(ctx);
+    },
+  );
 
   bot.hears(["➕ Добавить кошелек", "➕ Добавить", "Добавить кошелек"], async (ctx) => {
     await startAddWizard(ctx);

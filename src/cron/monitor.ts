@@ -1,13 +1,20 @@
 import { InlineKeyboard } from "grammy";
-import { Env, LighterAccount, LighterNetwork, MarketPriceSnapshot, ActivePositionWatchItem, TrackedAccountKey } from "../types";
+import {
+  Env,
+  LighterAccount,
+  LighterNetwork,
+  MarketPriceSnapshot,
+  ActivePositionWatchItem,
+  TrackedAccountKey,
+} from "../types";
 import { CONFIG } from "../config";
-import { 
-  getNextAccountsForSync, 
-  touchFailedAccounts, 
-  batchUpdatePositionsCache, 
+import {
+  getNextAccountsForSync,
+  touchFailedAccounts,
+  batchUpdatePositionsCache,
   syncAccountOpenPositions,
   getActivePositionsForMonitoring,
-  removeBlockedUser 
+  removeBlockedUser,
 } from "../db/queries";
 import { fetchLighterAccount, fetchExchangeStats, findMarketPrice } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
@@ -18,7 +25,7 @@ import { getBot } from "../bot/bot";
 export function getSmartCooldownSeconds(threshold: number): number {
   if (threshold <= 0.5) return 180; // 3 минуты (для XAU / агрессивных плеч 15x-25x)
   if (threshold <= 1.0) return 300; // 5 минут (стандарт)
-  return 480;                       // 8 минут (для свинга с шагом 1.5% - 3%)
+  return 480; // 8 минут (для свинга с шагом 1.5% - 3%)
 }
 
 // Кандидат на отправку алерта
@@ -33,9 +40,9 @@ export interface AlertCandidate {
 
 // Пакетное выполнение D1 стейтментов чанками до 100 штук
 export async function executeD1BatchInChunks(
-  db: D1Database, 
-  stmts: D1PreparedStatement[], 
-  chunkSize: number = 100
+  db: D1Database,
+  stmts: D1PreparedStatement[],
+  chunkSize: number = 100,
 ): Promise<void> {
   for (let i = 0; i < stmts.length; i += chunkSize) {
     const chunk = stmts.slice(i, i + chunkSize);
@@ -57,7 +64,11 @@ export async function runCronMonitor(env: Env): Promise<void> {
   const accountsToSync = await getNextAccountsForSync(env.DB, 2);
   const jitCache = new Map<string, LighterAccount | null>();
   const failedAccounts: TrackedAccountKey[] = [];
-  const cacheUpdates: Array<{ network: LighterNetwork; account: LighterAccount; cachedPositions: any[] }> = [];
+  const cacheUpdates: Array<{
+    network: LighterNetwork;
+    account: LighterAccount;
+    cachedPositions: any[];
+  }> = [];
 
   for (const accKey of accountsToSync) {
     if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 20) break;
@@ -68,11 +79,16 @@ export async function runCronMonitor(env: Env): Promise<void> {
     jitCache.set(cacheKey, syncedData);
 
     if (syncedData) {
-      await syncAccountOpenPositions(env.DB, accKey.network, accKey.accountIndex, syncedData.positions);
+      await syncAccountOpenPositions(
+        env.DB,
+        accKey.network,
+        accKey.accountIndex,
+        syncedData.positions,
+      );
       cacheUpdates.push({
         network: accKey.network,
         account: syncedData,
-        cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any
+        cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
       });
     } else {
       failedAccounts.push(accKey);
@@ -91,7 +107,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
   if (items.length === 0) return;
 
   // 3. Загружаем срезы цен биржи (1-2 запроса на всю систему)
-  const neededNetworks = Array.from(new Set(items.map(i => i.network)));
+  const neededNetworks = Array.from(new Set(items.map((i) => i.network)));
   const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
 
   for (const net of neededNetworks) {
@@ -121,7 +137,15 @@ export async function runCronMonitor(env: Env): Promise<void> {
           INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET last_price = excluded.last_price
-        `).bind(item.telegram_id, item.network, item.account_index, item.market_id, item.symbol, currentPrice, now)
+        `).bind(
+          item.telegram_id,
+          item.network,
+          item.account_index,
+          item.market_id,
+          item.symbol,
+          currentPrice,
+          now,
+        ),
       );
       continue;
     }
@@ -135,20 +159,20 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     // Динамический кулдаун (3-8 минут с пробитием при двойном скачке)
     const cooldownSeconds = getSmartCooldownSeconds(item.alert_threshold);
-    const timeSinceLastAlert = item.last_alerted_at ? (now - item.last_alerted_at) : Infinity;
-    const isDoubleJump = absDelta >= (item.alert_threshold * 2);
+    const timeSinceLastAlert = item.last_alerted_at ? now - item.last_alerted_at : Infinity;
+    const isDoubleJump = absDelta >= item.alert_threshold * 2;
 
     if (timeSinceLastAlert < cooldownSeconds && !isDoubleJump) continue;
 
     // Позиция квалифицирована на алерт: считаем относительную срочность
-    const urgency = item.alert_threshold > 0 ? (absDelta / item.alert_threshold) : absDelta;
+    const urgency = item.alert_threshold > 0 ? absDelta / item.alert_threshold : absDelta;
     candidateAlerts.push({
       item,
       currentPrice,
       baseline,
       priceDeltaPercent,
       absDelta,
-      urgency
+      urgency,
     });
   }
 
@@ -176,7 +200,10 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     if (freshAccount === undefined) {
       // Защита от шторма на рынке: лимит новых JIT сетевых запросов
-      if (jitChecksDone >= MAX_JIT_CHECKS_PER_CRON || subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) {
+      if (
+        jitChecksDone >= MAX_JIT_CHECKS_PER_CRON ||
+        subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5
+      ) {
         break;
       }
       freshAccount = await fetchLighterAccount(item.network, item.account_index);
@@ -189,7 +216,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     const livePosition = Array.isArray(freshAccount?.positions)
       ? freshAccount.positions.find(
-          p => p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0
+          (p) => p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0,
         )
       : undefined;
 
@@ -199,10 +226,12 @@ export async function runCronMonitor(env: Env): Promise<void> {
       if (!cleanedZombieKeys.has(zKey)) {
         cleanedZombieKeys.add(zKey);
         zombieCleanupStmts.push(
-          env.DB.prepare("DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?")
-            .bind(item.network, item.account_index, item.market_id),
-          env.DB.prepare("DELETE FROM user_token_alerts WHERE network = ? AND account_index = ? AND market_id = ?")
-            .bind(item.network, item.account_index, item.market_id)
+          env.DB.prepare(
+            "DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?",
+          ).bind(item.network, item.account_index, item.market_id),
+          env.DB.prepare(
+            "DELETE FROM user_token_alerts WHERE network = ? AND account_index = ? AND market_id = ?",
+          ).bind(item.network, item.account_index, item.market_id),
         );
       }
       continue;
@@ -212,9 +241,10 @@ export async function runCronMonitor(env: Env): Promise<void> {
     const isLong = item.is_long === 1;
     const unPnl = parseFloat(livePosition.unrealized_pnl || "0");
     const liqPrice = parseFloat(livePosition.liquidation_price || "0");
-    const distancePercent = (liqPrice > 0 && currentPrice > 0)
-      ? Math.abs((currentPrice - liqPrice) / currentPrice) * 100
-      : null;
+    const distancePercent =
+      liqPrice > 0 && currentPrice > 0
+        ? Math.abs((currentPrice - liqPrice) / currentPrice) * 100
+        : null;
 
     const alertText = formatPriceStepAlert({
       network: item.network,
@@ -228,7 +258,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
       priceDeltaPercent,
       unrealizedPnl: unPnl,
       liqPrice,
-      distancePercent
+      distancePercent,
     });
 
     // Проверка режима «Тихий сон» (Mute)
@@ -240,14 +270,21 @@ export async function runCronMonitor(env: Env): Promise<void> {
           ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
             last_price = excluded.last_price,
             last_alerted_at = excluded.last_alerted_at
-        `).bind(item.telegram_id, item.network, item.account_index, item.market_id, item.symbol, currentPrice, now)
+        `).bind(
+          item.telegram_id,
+          item.network,
+          item.account_index,
+          item.market_id,
+          item.symbol,
+          currentPrice,
+          now,
+        ),
       );
       continue;
     }
 
-    const lighterUrl = item.network === 'mainnet' 
-      ? "https://app.lighter.xyz/" 
-      : "https://rh.lighter.xyz/";
+    const lighterUrl =
+      item.network === "mainnet" ? "https://app.lighter.xyz/" : "https://rh.lighter.xyz/";
 
     const keyboard = new InlineKeyboard()
       .text("🔄 Обновить", `refresh:${item.network}:${item.account_index}`)
@@ -259,12 +296,12 @@ export async function runCronMonitor(env: Env): Promise<void> {
         const lastSentAt = lastSentTimeByUser.get(item.telegram_id) || 0;
         const timeSinceLastSent = Date.now() - lastSentAt;
         if (timeSinceLastSent < 300) {
-          await new Promise(r => setTimeout(r, 300 - timeSinceLastSent));
+          await new Promise((r) => setTimeout(r, 300 - timeSinceLastSent));
         }
 
         await bot.api.sendMessage(item.telegram_id, alertText, {
           parse_mode: "HTML",
-          reply_markup: keyboard
+          reply_markup: keyboard,
         });
         subrequestsUsed++;
         lastSentTimeByUser.set(item.telegram_id, Date.now());
@@ -276,7 +313,15 @@ export async function runCronMonitor(env: Env): Promise<void> {
             ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
               last_price = excluded.last_price,
               last_alerted_at = excluded.last_alerted_at
-          `).bind(item.telegram_id, item.network, item.account_index, item.market_id, item.symbol, currentPrice, now)
+          `).bind(
+            item.telegram_id,
+            item.network,
+            item.account_index,
+            item.market_id,
+            item.symbol,
+            currentPrice,
+            now,
+          ),
         );
       }
     } catch (err: any) {

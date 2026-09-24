@@ -7,7 +7,11 @@
     "deploy": "wrangler deploy",
     "d1:init": "wrangler d1 execute lighter-db --local --file=./schema.sql",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt --write",
+    "format:check": "oxfmt --check"
   },
   "dependencies": {
     "grammy": "^1.35.0"
@@ -15,6 +19,8 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250214.0",
     "@types/bun": "latest",
+    "oxfmt": "^0.70.0",
+    "oxlint": "^1.85.0",
     "typescript": "^5.7.0",
     "wrangler": "^3.109.0"
   }

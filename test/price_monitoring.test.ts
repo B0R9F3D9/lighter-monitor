@@ -92,7 +92,9 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       // Impulse & Position & Liq
       expect(text).toContain("• Импульс: <b>↘️ -0.47%</b> (с $4,280.00)");
       expect(text).toContain("• Позиция: <b>📉 -$115.00</b> (-0.47% от $4,280.00)");
-      expect(text).toContain("• Ликвидация: <b>$4,168.30</b> (до неё <b>2.15%</b> ⚠️ <b>[ОПАСНО]</b>)");
+      expect(text).toContain(
+        "• Ликвидация: <b>$4,168.30</b> (до неё <b>2.15%</b> ⚠️ <b>[ОПАСНО]</b>)",
+      );
     });
 
     it("formats break-even correctly when bouncing back to entry price", () => {
@@ -227,4 +229,3 @@ describe("Price-Driven Monitoring Unit Tests", () => {
     });
   });
 });
-

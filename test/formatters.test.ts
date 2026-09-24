@@ -4,7 +4,7 @@ import { PositionRiskAnalysis } from "../src/types";
 
 describe("formatPositionsReport", () => {
   it("should format empty positions correctly with network badge", () => {
-    const text = formatPositionsReport('rh', 31704, "Основной", 100.5, []);
+    const text = formatPositionsReport("rh", 31704, "Основной", 100.5, []);
     expect(text).toContain("#31704 (Основной)");
     expect(text).toContain("[RH]");
     expect(text).toContain("$100.50");
@@ -23,10 +23,10 @@ describe("formatPositionsReport", () => {
       liqPrice: 4168.39,
       unrealizedPnl: -47.16,
       distancePercent: 0.8,
-      tier: "CRITICAL_2"
+      tier: "CRITICAL_2",
     };
 
-    const text = formatPositionsReport('mainnet', 749329, null, 51.32, [pos], 1.5);
+    const text = formatPositionsReport("mainnet", 749329, null, 51.32, [pos], 1.5);
     expect(text).toContain("#749329");
     expect(text).toContain("[Mainnet]");
     expect(text).toContain("🟢 LONG <b>XAU</b> • <b>3.1</b>");
@@ -36,4 +36,3 @@ describe("formatPositionsReport", () => {
     expect(text).toContain("📉 -$47.16");
   });
 });
-

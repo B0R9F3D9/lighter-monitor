@@ -14,7 +14,7 @@ describe("analyzePositionRisk", () => {
       unrealized_pnl: "-47.162912",
       realized_pnl: "0.000000",
       liquidation_price: "4168.387237903226",
-      allocated_margin: "664.354485"
+      allocated_margin: "664.354485",
     };
 
     const analysis = analyzePositionRisk(pos);
@@ -23,13 +23,13 @@ describe("analyzePositionRisk", () => {
     expect(analysis?.symbol).toBe("XAU");
     expect(analysis?.isLong).toBe(true);
     expect(analysis?.size).toBe(3.1);
-    
+
     // Mark price = 13229.064 / 3.1 = 4267.44
     expect(analysis?.markPrice).toBeCloseTo(4267.44, 1);
-    
+
     // Distance percent = |4267.44 - 4168.387| / 4267.44 * 100 ≈ 2.32%
     expect(analysis?.distancePercent).not.toBeNull();
-    expect(analysis?.distancePercent!).toBeCloseTo(2.32, 1);
+    expect(analysis!.distancePercent!).toBeCloseTo(2.32, 1);
     expect(analysis?.tier).toBe("WARN_10");
   });
 
@@ -44,7 +44,7 @@ describe("analyzePositionRisk", () => {
       unrealized_pnl: "0.000000",
       realized_pnl: "0.000000",
       liquidation_price: "0",
-      allocated_margin: "0.000000"
+      allocated_margin: "0.000000",
     };
 
     const analysis = analyzePositionRisk(pos);
@@ -62,7 +62,7 @@ describe("analyzePositionRisk", () => {
       unrealized_pnl: "0.000000",
       realized_pnl: "0.000000",
       liquidation_price: "0",
-      allocated_margin: "30000.000000"
+      allocated_margin: "30000.000000",
     };
 
     const analysis = analyzePositionRisk(pos);
@@ -83,7 +83,7 @@ describe("analyzePositionRisk", () => {
       unrealized_pnl: "0.000000",
       realized_pnl: "0.000000",
       liquidation_price: "148.80", // |150 - 148.80| / 150 = 0.8%
-      allocated_margin: "200.000000"
+      allocated_margin: "200.000000",
     };
     expect(analyzePositionRisk(critPos)?.tier).toBe("CRITICAL_2");
 
@@ -98,7 +98,7 @@ describe("analyzePositionRisk", () => {
       unrealized_pnl: "0.000000",
       realized_pnl: "0.000000",
       liquidation_price: "148.20", // |150 - 148.20| / 150 = 1.2%
-      allocated_margin: "200.000000"
+      allocated_margin: "200.000000",
     };
     expect(analyzePositionRisk(dangerPos)?.tier).toBe("DANGER_5");
 
@@ -113,7 +113,7 @@ describe("analyzePositionRisk", () => {
       unrealized_pnl: "0.000000",
       realized_pnl: "0.000000",
       liquidation_price: "147.00", // |150 - 147| / 150 = 2.0%
-      allocated_margin: "200.000000"
+      allocated_margin: "200.000000",
     };
     expect(analyzePositionRisk(warnPos)?.tier).toBe("WARN_10");
 
@@ -128,7 +128,7 @@ describe("analyzePositionRisk", () => {
       unrealized_pnl: "0.000000",
       realized_pnl: "0.000000",
       liquidation_price: "144.00", // 4% distance
-      allocated_margin: "200.000000"
+      allocated_margin: "200.000000",
     };
     expect(analyzePositionRisk(safePos)?.tier).toBe("SAFE");
   });

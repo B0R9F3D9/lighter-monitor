@@ -1,17 +1,16 @@
 import { webhookCallback } from "grammy";
 import { Env } from "./types";
-import { CONFIG } from "./config";
 import { getBot } from "./bot/bot";
 import { runCronMonitor } from "./cron/monitor";
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Health check эндпоинт
     if (url.pathname === "/health") {
       return new Response(JSON.stringify({ status: "ok", timestamp: Date.now() }), {
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     }
 
@@ -28,9 +27,12 @@ export default {
         { command: "remove_mainnet", description: "➖ Удалить аккаунт Lighter Mainnet" },
         { command: "start", description: "🚀 Главное меню и справка" },
       ]);
-      return new Response(JSON.stringify({ ok: true, message: "Commands registered successfully in Telegram" }), {
-        headers: { "Content-Type": "application/json" }
-      });
+      return new Response(
+        JSON.stringify({ ok: true, message: "Commands registered successfully in Telegram" }),
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     }
 
     // Проверка Secret Token для безопасности вебхука Telegram
@@ -46,7 +48,7 @@ export default {
     return await cb(request as any);
   },
 
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runCronMonitor(env));
-  }
+  },
 };

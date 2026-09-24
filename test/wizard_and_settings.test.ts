@@ -1,6 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import { WizardState } from "../src/types";
 
+function parseThresholdInput(raw: string): number | null {
+  const cleaned = raw.replace(",", ".");
+  const val = parseFloat(cleaned);
+  if (isNaN(val) || val < 0.1 || val > 10.0) return null;
+  return val;
+}
+
+function isWizardExpired(st: WizardState, now: number): boolean {
+  return !!st.ts && now - st.ts > 900;
+}
+
 describe("Wizard State & Settings Logic", () => {
   it("serializes and deserializes AWAIT_INDEX wizard state correctly", () => {
     const state: WizardState = {
@@ -22,7 +33,7 @@ describe("Wizard State & Settings Logic", () => {
       accountIndex: 749329,
       l1Address: "0x0000000000000000000000000000000000000001",
       collateral: 51.32,
-      positions: [{ market_id: 40, position: "3.1" }]
+      positions: [{ market_id: 40, position: "3.1" }],
     };
     const json = JSON.stringify(state);
     const parsed = JSON.parse(json) as WizardState;
@@ -68,20 +79,13 @@ describe("Wizard State & Settings Logic", () => {
   });
 
   it("parses and validates custom alert threshold inputs", () => {
-    const parseInput = (raw: string) => {
-      const cleaned = raw.replace(",", ".");
-      const val = parseFloat(cleaned);
-      if (isNaN(val) || val < 0.1 || val > 10.0) return null;
-      return val;
-    };
-
-    expect(parseInput("0.4")).toBe(0.4);
-    expect(parseInput("0,7")).toBe(0.7);
-    expect(parseInput("1.25")).toBe(1.25);
-    expect(parseInput("10.0")).toBe(10.0);
-    expect(parseInput("0.05")).toBeNull(); // below 0.1
-    expect(parseInput("10.5")).toBeNull(); // above 10.0
-    expect(parseInput("abc")).toBeNull();
+    expect(parseThresholdInput("0.4")).toBe(0.4);
+    expect(parseThresholdInput("0,7")).toBe(0.7);
+    expect(parseThresholdInput("1.25")).toBe(1.25);
+    expect(parseThresholdInput("10.0")).toBe(10.0);
+    expect(parseThresholdInput("0.05")).toBeNull(); // below 0.1
+    expect(parseThresholdInput("10.5")).toBeNull(); // above 10.0
+    expect(parseThresholdInput("abc")).toBeNull();
   });
 
   it("identifies expired wizard states after 15 minutes TTL", () => {
@@ -89,8 +93,7 @@ describe("Wizard State & Settings Logic", () => {
     const freshState: WizardState = { step: "AWAIT_INDEX", network: "rh", ts: now - 300 }; // 5 min ago
     const expiredState: WizardState = { step: "AWAIT_INDEX", network: "rh", ts: now - 901 }; // 15 min 1 sec ago
 
-    const isExpired = (st: WizardState) => !!st.ts && (now - st.ts) > 900;
-    expect(isExpired(freshState)).toBe(false);
-    expect(isExpired(expiredState)).toBe(true);
+    expect(isWizardExpired(freshState, now)).toBe(false);
+    expect(isWizardExpired(expiredState, now)).toBe(true);
   });
 });
