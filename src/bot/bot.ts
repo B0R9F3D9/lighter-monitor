@@ -864,7 +864,8 @@ export function getBot(env: Env): Bot {
 
       const pnlSign = totalUnPnl >= 0 ? "📈 +" : "📉 -";
       const totalPnlStr = `${pnlSign}$${Math.abs(totalUnPnl).toFixed(2)}`;
-      combinedReport += `${separator}📊 <b>ИТОГО:</b> 💵 UnPnL: <b>${totalPnlStr}</b> • Маржа: <b>$${totalCollateral.toFixed(2)}</b>`;
+      const summaryBlock = `${separator}📊 <b>ИТОГО:</b>\n• UnPnL: <b>${totalPnlStr}</b>\n• Маржа: <b>$${totalCollateral.toFixed(2)}</b>`;
+      combinedReport += summaryBlock;
 
       const now = new Date();
       const timeStr = now.toLocaleTimeString("ru-RU", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -881,7 +882,7 @@ export function getBot(env: Env): Bot {
             currentChunk += piece;
           }
         }
-        currentChunk += `${separator}📊 <b>ИТОГО:</b> 💵 UnPnL: <b>${totalPnlStr}</b> • Маржа: <b>$${totalCollateral.toFixed(2)}</b>\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+        currentChunk += `${summaryBlock}\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
         await ctx.reply(currentChunk, { parse_mode: "HTML", reply_markup: posKeyboard });
         return;
       }
