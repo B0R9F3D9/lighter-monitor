@@ -4,7 +4,8 @@ import {
   TrackedAccountKey, 
   LighterNetwork, 
   LighterPosition, 
-  ActivePositionWatchItem 
+  ActivePositionWatchItem,
+  WizardState 
 } from "../types";
 
 // 2. Обновление last_updated_at ТОЛЬКО для упавших запросов (экономия 50% квоты D1)
@@ -69,6 +70,70 @@ export async function setUserThreshold(db: D1Database, telegramId: number, thres
     .run();
 }
 
+export async function getUserSettings(db: D1Database, telegramId: number): Promise<{ alertThreshold: number; mutedUntil: number }> {
+  const row = await db.prepare("SELECT alert_threshold, muted_until FROM users WHERE telegram_id = ?")
+    .bind(telegramId)
+    .first<{ alert_threshold: number | null; muted_until: number | null }>();
+  return {
+    alertThreshold: row?.alert_threshold ?? 0.5,
+    mutedUntil: row?.muted_until ?? 0
+  };
+}
+
+export async function setUserMute(db: D1Database, telegramId: number, mutedUntil: number): Promise<void> {
+  await db.prepare("UPDATE users SET muted_until = ? WHERE telegram_id = ?")
+    .bind(mutedUntil, telegramId)
+    .run();
+}
+
+export async function getUserWizardState(db: D1Database, telegramId: number): Promise<WizardState | null> {
+  const row = await db.prepare("SELECT wizard_state FROM users WHERE telegram_id = ?")
+    .bind(telegramId)
+    .first<{ wizard_state: string | null }>();
+  if (!row || !row.wizard_state) return null;
+  try {
+    return JSON.parse(row.wizard_state) as WizardState;
+  } catch {
+    return null;
+  }
+}
+
+export async function setUserWizardState(db: D1Database, telegramId: number, state: WizardState | null): Promise<void> {
+  const val = state ? JSON.stringify(state) : null;
+  await db.prepare("UPDATE users SET wizard_state = ? WHERE telegram_id = ?")
+    .bind(val, telegramId)
+    .run();
+}
+
+export async function updateAccountAlias(
+  db: D1Database, 
+  telegramId: number, 
+  network: LighterNetwork, 
+  accountIndex: number, 
+  alias: string | null
+): Promise<void> {
+  await db.prepare(
+    "UPDATE user_tracked_accounts SET alias = ? WHERE telegram_id = ? AND network = ? AND account_index = ?"
+  ).bind(alias, telegramId, network, accountIndex).run();
+}
+
+export async function removeTrackedAccount(
+  db: D1Database, 
+  telegramId: number, 
+  network: LighterNetwork, 
+  accountIndex: number
+): Promise<boolean> {
+  const res = await db.prepare(
+    "DELETE FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?"
+  ).bind(telegramId, network, accountIndex).run();
+
+  await db.prepare(
+    "DELETE FROM user_token_alerts WHERE telegram_id = ? AND network = ? AND account_index = ?"
+  ).bind(telegramId, network, accountIndex).run();
+
+  return (res.meta.changes ?? 0) > 0;
+}
+
 // 5. Очистка заблокировавшего пользователя через явный batch (без опоры на SQLite PRAGMA foreign_keys)
 export async function removeBlockedUser(db: D1Database, telegramId: number): Promise<void> {
   await db.batch([
@@ -111,6 +176,7 @@ export async function getActivePositionsForMonitoring(db: D1Database): Promise<A
       aop.size,
       u.telegram_id,
       COALESCE(u.alert_threshold, 0.5) as alert_threshold,
+      COALESCE(u.muted_until, 0) as muted_until,
       uta_acc.alias,
       uta.last_price,
       uta.last_alerted_at

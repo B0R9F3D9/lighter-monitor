@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     first_name TEXT,
     alert_threshold REAL NOT NULL DEFAULT 0.5,
+    wizard_state TEXT DEFAULT NULL,
+    muted_until INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );
 

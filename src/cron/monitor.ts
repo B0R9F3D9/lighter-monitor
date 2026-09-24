@@ -226,8 +226,27 @@ export async function runCronMonitor(env: Env): Promise<void> {
       distancePercent
     });
 
+    // Проверка режима «Тихий сон» (Mute)
+    if (item.muted_until && now < item.muted_until) {
+      alertUpdateStmts.push(
+        env.DB.prepare(`
+          INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
+            last_price = excluded.last_price,
+            last_alerted_at = excluded.last_alerted_at
+        `).bind(item.telegram_id, item.network, item.account_index, item.market_id, item.symbol, currentPrice, now)
+      );
+      continue;
+    }
+
+    const lighterUrl = item.network === 'mainnet' 
+      ? "https://app.lighter.xyz/" 
+      : "https://rh.lighter.xyz/";
+
     const keyboard = new InlineKeyboard()
-      .text("🔄 Обновить позиции", `refresh:${item.network}:${item.account_index}`);
+      .text("🔄 Обновить", `refresh:${item.network}:${item.account_index}`)
+      .url("🌐 Открыть биржу", lighterUrl);
 
     try {
       if (subrequestsUsed < CONFIG.MAX_SUBREQUESTS_PER_CRON) {
