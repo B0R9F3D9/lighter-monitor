@@ -67,7 +67,7 @@ describe("Price-Driven Monitoring Unit Tests", () => {
   });
 
   describe("formatPriceStepAlert (3-Layer Alert)", () => {
-    it("formats 3 layers correctly for LONG moving down into drawdown", () => {
+    it("formats alert correctly for LONG moving down into drawdown", () => {
       const params: PriceStepAlertParams = {
         network: "rh",
         accountIndex: 31704,
@@ -85,24 +85,14 @@ describe("Price-Driven Monitoring Unit Tests", () => {
 
       const text = formatPriceStepAlert(params);
 
-      // Header
-      expect(text).toContain("⚡️ <b>Движение XAU [RH]</b>");
-      expect(text).toContain("💼 Аккаунт: <b>#31704 (Основной)</b>");
-      expect(text).toContain("📊 Позиция: <b>🟢 LONG XAU</b> (Вход: $4,280.00)");
+      // Header & Account
+      expect(text).toContain("⚡️ <b>XAU [RH] — $4,260.00</b>");
+      expect(text).toContain("💼 <b>#31704 (Основной)</b> • 🟢 LONG");
 
-      // Layer 1: Impulse
-      expect(text).toContain("1️⃣ <b>Локальный импульс:</b>");
-      expect(text).toContain("• С прошлой засечки: <b>↘️ -0.47% ($4,280.00 ➔ $4,260.00)</b> 🔴 <i>В просадку</i>");
-
-      // Layer 2: Global State
-      expect(text).toContain("2️⃣ <b>Глобальное состояние позиции:</b>");
-      expect(text).toContain("• Ход от точки входа: <b>-0.47%</b> (🔴 <i>В просадку</i>)");
-      expect(text).toContain("• Текущий UnPnL: 📉 <b>-$115.00</b>");
-
-      // Layer 3: Safety / Liquidation
-      expect(text).toContain("3️⃣ <b>Запас прочности (безопасность):</b>");
-      expect(text).toContain("• Цена ликвидации: <b>$4,168.30</b>");
-      expect(text).toContain("• До ликвидации осталось: <b>2.15%</b> ⚠️ <b>[ОПАСНО]</b>");
+      // Impulse & Position & Liq
+      expect(text).toContain("• Импульс: <b>↘️ -0.47%</b> (с $4,280.00)");
+      expect(text).toContain("• Позиция: <b>📉 -$115.00</b> (-0.47% от $4,280.00)");
+      expect(text).toContain("• Ликвидация: <b>$4,168.30</b> (до неё <b>2.15%</b> ⚠️ <b>[ОПАСНО]</b>)");
     });
 
     it("formats break-even correctly when bouncing back to entry price", () => {
@@ -123,12 +113,11 @@ describe("Price-Driven Monitoring Unit Tests", () => {
 
       const text = formatPriceStepAlert(params);
 
-      // Impulse shows upward step
-      expect(text).toContain("• С прошлой засечки: <b>↗️ +0.47% ($4,260.00 ➔ $4,280.00)</b> 🟢 <i>В плюс</i>");
-
-      // Global state shows break-even!
-      expect(text).toContain("• Ход от точки входа: <b>0.00%</b> (⚪️ <i>Безубыток</i>)");
-      expect(text).toContain("• Текущий UnPnL: 📈 <b>+$0.00</b>");
+      expect(text).toContain("⚡️ <b>XAU [RH] — $4,280.00</b>");
+      expect(text).toContain("💼 <b>#31704</b> • 🟢 LONG");
+      expect(text).toContain("• Импульс: <b>↗️ +0.47%</b> (с $4,260.00)");
+      expect(text).toContain("• Позиция: <b>📈 +$0.00</b> (0.00% от $4,280.00)");
+      expect(text).toContain("• Ликвидация: <b>$4,168.30</b> (до неё <b>2.61%</b>)");
     });
 
     it("formats SHORT position correctly: price drop is profit, price rise is drawdown", () => {
@@ -149,9 +138,8 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       };
 
       const profitText = formatPriceStepAlert(profitShort);
-      expect(profitText).toContain("🔴 SHORT ETH");
-      expect(profitText).toContain("🟢 <i>В плюс</i>");
-      expect(profitText).toContain("+$250.00");
+      expect(profitText).toContain("🔴 SHORT");
+      expect(profitText).toContain("📈 +$250.00");
 
       // Short moving up -> drawdown
       const lossShort: PriceStepAlertParams = {
@@ -170,8 +158,7 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       };
 
       const lossText = formatPriceStepAlert(lossShort);
-      expect(lossText).toContain("🔴 <i>В просадку</i>");
-      expect(lossText).toContain("-$250.00");
+      expect(lossText).toContain("📉 -$250.00");
       expect(lossText).toContain("1.41%</b> ⚠️ <b>[ОПАСНО]</b>");
     });
 
