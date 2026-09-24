@@ -1,4 +1,4 @@
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot, InlineKeyboard, Keyboard } from "grammy";
 import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
 import { CONFIG } from "../config";
 import { fetchLighterAccount, fetchLighterAccountWithStatus } from "../lighter/api";
@@ -13,11 +13,16 @@ export function getBot(env: Env): Bot {
 
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
 
-  const mainKeyboard = new InlineKeyboard()
-    .text("📊 Позиции", "action_positions")
-    .text("📋 Мои аккаунты", "action_list")
+  // Основная нижняя клавиатура пользователя (Reply Keyboard)
+  const replyKeyboard = new Keyboard()
+    .text("📊 Позиции")
+    .text("📋 Аккаунты")
     .row()
-    .text("⚙️ Порог алертов", "action_threshold");
+    .text("⚙️ Порог алертов")
+    .resized()
+    .persistent();
+
+  const mainKeyboard = replyKeyboard;
 
   // Сохранение пользователя в БД при любом взаимодействии
   bot.use(async (ctx, next) => {
@@ -266,8 +271,10 @@ export function getBot(env: Env): Bot {
     }
   });
 
+  const listKeyboard = new InlineKeyboard().text("🔄 Обновить", "refresh_list");
+
   // Функция вывода /list
-  const handleList = async (ctx: any) => {
+  const handleList = async (ctx: any, isEdit: boolean = false) => {
     const { results } = await env.DB.prepare(`
       SELECT network, account_index, alias 
       FROM user_tracked_accounts 
@@ -276,11 +283,12 @@ export function getBot(env: Env): Bot {
     `).bind(ctx.from!.id).all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
 
     if (!results || results.length === 0) {
-      return ctx.reply(
-        "У вас нет отслеживаемых аккаунтов.\n" +
-        "Добавьте: <code>/add_rh &lt;index&gt;</code> или <code>/add_mainnet &lt;index&gt;</code>.", 
-        { parse_mode: "HTML", reply_markup: mainKeyboard }
-      );
+      const emptyMsg = "У вас нет отслеживаемых аккаунтов.\n" +
+        "Добавьте: <code>/add_rh &lt;index&gt;</code> или <code>/add_mainnet &lt;index&gt;</code>.";
+      if (isEdit) {
+        return ctx.editMessageText(emptyMsg, { parse_mode: "HTML", reply_markup: listKeyboard }).catch(() => {});
+      }
+      return ctx.reply(emptyMsg, { parse_mode: "HTML", reply_markup: mainKeyboard });
     }
 
     let msg = `📋 <b>Отслеживаемые аккаунты (${results.length}/${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER}):</b>\n\n`;
@@ -289,10 +297,29 @@ export function getBot(env: Env): Bot {
       const aliasStr = r.alias ? ` (${r.alias})` : "";
       msg += `• <code>${badge}</code> <b>#${r.account_index}</b>${aliasStr}\n`;
     }
-    await ctx.reply(msg, { parse_mode: "HTML", reply_markup: mainKeyboard });
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("ru-RU", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    msg += `\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+
+    if (isEdit) {
+      try {
+        await ctx.editMessageText(msg, { parse_mode: "HTML", reply_markup: listKeyboard });
+      } catch (err: any) {
+        if (!err?.message?.includes("message is not modified")) {
+          await ctx.reply(msg, { parse_mode: "HTML", reply_markup: listKeyboard });
+        }
+      }
+    } else {
+      await ctx.reply(msg, { parse_mode: "HTML", reply_markup: listKeyboard });
+    }
   };
 
-  bot.command("list", handleList);
+  bot.command("list", (ctx) => handleList(ctx));
+  bot.callbackQuery("refresh_list", async (ctx) => {
+    await ctx.answerCallbackQuery({ text: "🔄 Обновляем список..." });
+    await handleList(ctx, true);
+  });
   bot.callbackQuery("action_list", async (ctx) => {
     await ctx.answerCallbackQuery();
     await handleList(ctx);
@@ -303,10 +330,7 @@ export function getBot(env: Env): Bot {
       ? `refresh:${filterNetwork}:${filterIndex}`
       : (filterIndex ? `refresh_positions_${filterIndex}` : "refresh_positions");
     return new InlineKeyboard()
-      .text("🔄 Обновить", refreshCb)
-      .row()
-      .text("📋 Мои аккаунты", "action_list")
-      .text("⚙️ Порог алертов", "action_threshold");
+      .text("🔄 Обновить", refreshCb);
   };
 
   // Функция вывода /positions с параллельным чтением кэша для всех сетей
@@ -575,8 +599,21 @@ export function getBot(env: Env): Bot {
     await ctx.editMessageText(
       `Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.\n` +
       `Уведомления будут приходить при каждом смещении цены на ${val.toFixed(1)}% от предыдущей засечки.`,
-      { parse_mode: "HTML", reply_markup: mainKeyboard }
+      { parse_mode: "HTML" }
     );
+  });
+
+  // Обработка текстовых кнопок нижней клавиатуры (Reply Keyboard)
+  bot.hears(["📊 Позиции", "Позиции"], async (ctx) => {
+    await handlePositions(ctx);
+  });
+
+  bot.hears(["📋 Аккаунты", "Аккаунты", "📋 Мои аккаунты"], async (ctx) => {
+    await handleList(ctx);
+  });
+
+  bot.hears(["⚙️ Порог алертов", "Порог алертов"], async (ctx) => {
+    await handleThreshold(ctx);
   });
 
   botInstance = bot;
