@@ -3,7 +3,7 @@ import { Env, PositionRiskAnalysis } from "../types";
 import { CONFIG } from "../config";
 import { fetchLighterAccount } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
-import { batchUpdatePositionsCache } from "../db/queries";
+import { batchUpdatePositionsCache, getUserThreshold, setUserThreshold } from "../db/queries";
 import { formatPositionsReport } from "./formatters";
 
 let botInstance: Bot | null = null;
@@ -15,7 +15,9 @@ export function getBot(env: Env): Bot {
 
   const mainKeyboard = new InlineKeyboard()
     .text("📊 Позиции", "action_positions")
-    .text("📋 Мои аккаунты", "action_list");
+    .text("📋 Мои аккаунты", "action_list")
+    .row()
+    .text("⚙️ Порог алертов", "action_threshold");
 
   // Сохранение пользователя в БД при любом взаимодействии
   bot.use(async (ctx, next) => {
@@ -45,7 +47,8 @@ export function getBot(env: Env): Bot {
       `• <code>/add &lt;index&gt; [alias]</code> — начать следить за аккаунтом (макс. 10)\n` +
       `• <code>/remove &lt;index&gt;</code> — удалить аккаунт из отслеживания\n` +
       `• <code>/list</code> — список ваших отслеживаемых аккаунтов\n` +
-      `• <code>/positions [index]</code> — текущие сделки и дистанция до ликвидации\n\n` +
+      `• <code>/positions [index]</code> — текущие сделки и риски ликвидации\n` +
+      `• <code>/threshold [значение]</code> — настроить порог алертов (дефолт: 1.5%)\n\n` +
       `<i>Пример:</i> <code>/add 31704 Основной</code>`,
       { parse_mode: "HTML", reply_markup: mainKeyboard }
     );
@@ -220,6 +223,7 @@ export function getBot(env: Env): Bot {
       await batchUpdatePositionsCache(env.DB, updates).catch(e => console.error("Cache update error:", e));
     }
 
+    const userThreshold = await getUserThreshold(env.DB, ctx.from.id);
     let combinedReport = "";
 
     for (const accIndex of accountIndices) {
@@ -229,7 +233,6 @@ export function getBot(env: Env): Bot {
 
       if (cached && cached.l1_address && cached.positions_json) {
         const parsedPositions = JSON.parse(cached.positions_json) as any[];
-        // Если позиции уже были проанализированы или в сыром формате
         const positions: PositionRiskAnalysis[] = parsedPositions.map((p: any) => {
           if (p.marketId !== undefined && p.tier !== undefined) {
             return p as PositionRiskAnalysis;
@@ -237,11 +240,11 @@ export function getBot(env: Env): Bot {
           return analyzePositionRisk(p);
         }).filter(Boolean) as PositionRiskAnalysis[];
 
-        card = formatPositionsReport(accIndex, alias, cached.l1_address, parseFloat(String(cached.collateral || 0)), positions);
+        card = formatPositionsReport(accIndex, alias, cached.l1_address, parseFloat(String(cached.collateral || 0)), positions, userThreshold);
       } else if (freshMap.has(accIndex)) {
         const fresh = freshMap.get(accIndex);
         const positions = fresh.positions.map(analyzePositionRisk).filter(Boolean) as PositionRiskAnalysis[];
-        card = formatPositionsReport(accIndex, alias, fresh.l1_address, parseFloat(fresh.collateral || "0"), positions);
+        card = formatPositionsReport(accIndex, alias, fresh.l1_address, parseFloat(fresh.collateral || "0"), positions, userThreshold);
       } else {
         card = `Аккаунт #${accIndex}: данные временно недоступны.\n`;
       }
@@ -267,6 +270,75 @@ export function getBot(env: Env): Bot {
   bot.callbackQuery("action_positions", async (ctx) => {
     await ctx.answerCallbackQuery();
     await handlePositions(ctx);
+  });
+
+  // Клавиатура выбора порога
+  const getThresholdKeyboard = (current: number) => {
+    const presets = [0.8, 1.0, 1.5, 2.0, 2.5, 3.0];
+    const kb = new InlineKeyboard();
+    for (let i = 0; i < presets.length; i++) {
+      const p = presets[i]!;
+      const label = p === current ? `• ${p}% •` : `${p}%`;
+      kb.text(label, `set_thresh_${p}`);
+      if (i === 2) kb.row();
+    }
+    return kb;
+  };
+
+  // Обработчик настройки порога
+  const handleThreshold = async (ctx: any, newValStr?: string) => {
+    if (newValStr) {
+      const cleaned = newValStr.replace(",", ".");
+      const val = parseFloat(cleaned);
+      if (isNaN(val) || val < CONFIG.MIN_ALERT_THRESHOLD || val > CONFIG.MAX_ALERT_THRESHOLD) {
+        return ctx.reply(
+          `Укажите процент от ${CONFIG.MIN_ALERT_THRESHOLD}% до ${CONFIG.MAX_ALERT_THRESHOLD}%.\n` +
+          `Пример: <code>/threshold 1.5</code>`,
+          { parse_mode: "HTML" }
+        );
+      }
+      await setUserThreshold(env.DB, ctx.from.id, val);
+      return ctx.reply(
+        `Порог ликвидации установлен на <b>${val.toFixed(1)}%</b>.\n` +
+        `Алерты будут приходить при сближении с ликвидацией ближе чем на ${val.toFixed(1)}%.`,
+        { parse_mode: "HTML", reply_markup: mainKeyboard }
+      );
+    }
+
+    const current = await getUserThreshold(env.DB, ctx.from.id);
+    await ctx.reply(
+      `⚙️ <b>Настройка порога алертов</b>\n\n` +
+      `Текущий порог: <b>${current.toFixed(1)}%</b>\n` +
+      `<i>(Для плеча 15-25x рекомендуется 1.5%)</i>\n\n` +
+      `Выберите значение кнопкой или введите:\n` +
+      `<code>/threshold &lt;число&gt;</code> (напр. <code>/threshold 1.2</code>)`,
+      { parse_mode: "HTML", reply_markup: getThresholdKeyboard(current) }
+    );
+  };
+
+  bot.command("threshold", async (ctx) => {
+    const arg = ctx.match ? ctx.match.trim() : "";
+    await handleThreshold(ctx, arg || undefined);
+  });
+
+  bot.command("settings", async (ctx) => {
+    await handleThreshold(ctx);
+  });
+
+  bot.callbackQuery("action_threshold", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleThreshold(ctx);
+  });
+
+  bot.callbackQuery(/^set_thresh_(\d+(\.\d+)?)$/, async (ctx) => {
+    const val = parseFloat(ctx.match[1]);
+    await setUserThreshold(env.DB, ctx.from.id, val);
+    await ctx.answerCallbackQuery({ text: `Порог установлен: ${val}%` });
+    await ctx.editMessageText(
+      `Порог ликвидации установлен на <b>${val.toFixed(1)}%</b>.\n` +
+      `Алерты будут приходить при сближении с ликвидацией ближе чем на ${val.toFixed(1)}%.`,
+      { parse_mode: "HTML", reply_markup: mainKeyboard }
+    );
   });
 
   botInstance = bot;

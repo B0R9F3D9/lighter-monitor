@@ -6,7 +6,8 @@ export function formatPositionsReport(
   alias: string | null, 
   l1Address: string, 
   collateral: number, 
-  positions: PositionRiskAnalysis[]
+  positions: PositionRiskAnalysis[],
+  userThreshold: number = 1.5
 ): string {
   const shortAddr = l1Address ? `${l1Address.slice(0, 6)}...${l1Address.slice(-4)}` : "—";
   const title = alias ? `<b>#${accountIndex} (${alias})</b>` : `<b>#${accountIndex}</b>`;
@@ -30,9 +31,9 @@ export function formatPositionsReport(
 
     if (pos.liqPrice > 0 && pos.distancePercent !== null) {
       let badge = "";
-      if (pos.tier === 'CRITICAL_2') badge = " [КРИТИЧНО]";
-      else if (pos.tier === 'DANGER_5') badge = " [ОПАСНО]";
-      else if (pos.tier === 'WARN_10') badge = " [ВНИМАНИЕ]";
+      if (pos.distancePercent <= 1.0) badge = " [КРИТИЧНО]";
+      else if (pos.distancePercent <= userThreshold) badge = " [ОПАСНО]";
+      else if (pos.distancePercent <= userThreshold * 1.5) badge = " [ВНИМАНИЕ]";
 
       text += `• Ликвидация: $${formatSmartPrice(pos.liqPrice)} (<b>${pos.distancePercent.toFixed(2)}%</b>${badge})\n`;
     } else {

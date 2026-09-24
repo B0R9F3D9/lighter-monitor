@@ -11,10 +11,16 @@ export const CONFIG = {
   FETCH_TIMEOUT_MS: 2500,
 
   // Пороги рисков
+  DEFAULT_ALERT_THRESHOLD: 1.5, // По умолчанию 1.5% (для плеча 15-25x)
+  MIN_ALERT_THRESHOLD: 0.1,
+  MAX_ALERT_THRESHOLD: 50.0,
+  CLEARANCE_MULTIPLIER: 1.3,    // Сброс алерта при уходе цены на 30% выше порога
+  ALERT_COOLDOWN_SECONDS: 900,  // 15 минут кулдаун между повторными алертами
+
   TIERS: {
-    CRITICAL_2: { maxDistance: 2.5, cooldownSeconds: 600, label: "КРИТИЧЕСКИЙ РИСК (<2.5%)" },
-    DANGER_5:   { maxDistance: 5.0, cooldownSeconds: 1800, label: "ВЫСОКИЙ РИСК (<5%)" },
-    WARN_10:    { maxDistance: 10.0, cooldownSeconds: 7200, label: "ВНИМАНИЕ (<10%)" },
+    CRITICAL_2: { maxDistance: 1.0, cooldownSeconds: 600, label: "КРИТИЧЕСКИЙ РИСК (<1.0%)" },
+    DANGER_5:   { maxDistance: 1.5, cooldownSeconds: 900, label: "ВЫСОКИЙ РИСК (<1.5%)" },
+    WARN_10:    { maxDistance: 2.5, cooldownSeconds: 1800, label: "ВНИМАНИЕ (<2.5%)" },
   },
   CLEARANCE_DISTANCE: 12.0, // Дистанция, при которой алерт сбрасывается из базы
 

@@ -22,15 +22,15 @@ describe("formatPositionsReport", () => {
       markPrice: 4267.44,
       liqPrice: 4168.39,
       unrealizedPnl: -47.16,
-      distancePercent: 2.32,
+      distancePercent: 0.8,
       tier: "CRITICAL_2"
     };
 
-    const text = formatPositionsReport(31704, null, "0x0000000000000000000000000000000000000001", 51.32, [pos]);
+    const text = formatPositionsReport(31704, null, "0x0000000000000000000000000000000000000001", 51.32, [pos], 1.5);
     expect(text).toContain("#31704");
     expect(text).toContain("<b>XAU</b> [LONG]");
     expect(text).toContain("Размер: 3.1");
-    expect(text).toContain("<b>2.32%</b> [КРИТИЧНО]");
+    expect(text).toContain("<b>0.80%</b> [КРИТИЧНО]");
   });
 });
 

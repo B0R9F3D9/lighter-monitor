@@ -70,3 +70,9 @@ export interface AlertTask {
   tier: AlertTier;
   distance: number;
 }
+
+export interface SubscriberRecord {
+  telegram_id: number;
+  alias: string | null;
+  alert_threshold: number;
+}

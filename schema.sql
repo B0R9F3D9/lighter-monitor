@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
     username TEXT,
     first_name TEXT,
+    alert_threshold REAL NOT NULL DEFAULT 1.5,
     created_at INTEGER NOT NULL
 );
 

@@ -84,33 +84,40 @@ export async function runCronMonitor(env: Env): Promise<void> {
     for (const r of risks) {
       if (!r) continue;
 
-      // Сброс истории алертов при выходе в безопасную зону (> 12%)
-      if (r.distancePercent !== null && r.distancePercent > CONFIG.CLEARANCE_DISTANCE) {
-        await clearSafeAlerts(env.DB, accIndex, r.marketId);
-        continue;
-      }
-
-      if (r.tier === 'SAFE' || r.tier === 'LIQUIDATED') continue;
-
       const subs = await getAccountSubscribers(env.DB, accIndex);
 
       for (const sub of subs) {
-        const cooldown = CONFIG.TIERS[r.tier].cooldownSeconds;
-        const now = Math.floor(Date.now() / 1000);
+        const userThreshold = sub.alert_threshold ?? CONFIG.DEFAULT_ALERT_THRESHOLD;
 
-        const lastAlert = await env.DB.prepare(
-          "SELECT sent_at FROM alert_logs WHERE telegram_id = ? AND account_index = ? AND market_id = ? AND alert_tier = ?"
-        ).bind(sub.telegram_id, accIndex, r.marketId, r.tier).first<{ sent_at: number }>();
+        // Сброс истории алертов при выходе цены в безопасную зону выше порога пользователя
+        if (r.distancePercent !== null && r.distancePercent > userThreshold * CONFIG.CLEARANCE_MULTIPLIER) {
+          await env.DB.prepare(
+            "DELETE FROM alert_logs WHERE telegram_id = ? AND account_index = ? AND market_id = ?"
+          ).bind(sub.telegram_id, accIndex, r.marketId).run();
+          continue;
+        }
 
-        if (!lastAlert || (now - lastAlert.sent_at) >= cooldown) {
-          alertsToSend.push({
-            telegramId: sub.telegram_id,
-            text: formatLiquidationAlert(accIndex, sub.alias, r),
-            accountIndex: accIndex,
-            marketId: r.marketId,
-            tier: r.tier,
-            distance: r.distancePercent || 0
-          });
+        // Проверяем, пробил ли процент порог пользователя
+        if (r.distancePercent !== null && r.distancePercent <= userThreshold) {
+          const cooldown = CONFIG.ALERT_COOLDOWN_SECONDS;
+          const now = Math.floor(Date.now() / 1000);
+
+          const lastAlert = await env.DB.prepare(
+            "SELECT sent_at, last_distance FROM alert_logs WHERE telegram_id = ? AND account_index = ? AND market_id = ? AND alert_tier = ?"
+          ).bind(sub.telegram_id, accIndex, r.marketId, r.tier).first<{ sent_at: number; last_distance: number }>();
+
+          // Алерт шлем, если прошло > 15 мин кулдауна ИЛИ если дистанция сократилась еще сильнее (на >= 0.3%)
+          const isSignificantlyWorse = lastAlert && (lastAlert.last_distance - r.distancePercent >= 0.3);
+          if (!lastAlert || (now - lastAlert.sent_at) >= cooldown || isSignificantlyWorse) {
+            alertsToSend.push({
+              telegramId: sub.telegram_id,
+              text: formatLiquidationAlert(accIndex, sub.alias, r),
+              accountIndex: accIndex,
+              marketId: r.marketId,
+              tier: r.tier,
+              distance: r.distancePercent || 0
+            });
+          }
         }
       }
     }

@@ -1,4 +1,4 @@
-import { LighterAccount, CachedPositionPayload } from "../types";
+import { LighterAccount, CachedPositionPayload, SubscriberRecord } from "../types";
 
 // 1. Выборка аккаунтов по честному Round-Robin
 export async function getAccountsForCronBatch(db: D1Database, limit: number): Promise<number[]> {
@@ -59,18 +59,32 @@ export async function batchUpdatePositionsCache(
   }
 }
 
-// 4. Подписчики аккаунта
+// 4. Подписчики аккаунта с их индивидуальными порогами алертов
 export async function getAccountSubscribers(
   db: D1Database, 
   accountIndex: number
-): Promise<Array<{ telegram_id: number; alias: string | null }>> {
+): Promise<SubscriberRecord[]> {
   const query = `
-    SELECT telegram_id, alias 
-    FROM user_tracked_accounts 
-    WHERE account_index = ?
+    SELECT u.telegram_id, uta.alias, COALESCE(u.alert_threshold, 1.5) as alert_threshold
+    FROM user_tracked_accounts uta
+    JOIN users u ON uta.telegram_id = u.telegram_id
+    WHERE uta.account_index = ?;
   `;
-  const { results } = await db.prepare(query).bind(accountIndex).all<{ telegram_id: number; alias: string | null }>();
+  const { results } = await db.prepare(query).bind(accountIndex).all<SubscriberRecord>();
   return results || [];
+}
+
+export async function getUserThreshold(db: D1Database, telegramId: number): Promise<number> {
+  const row = await db.prepare("SELECT alert_threshold FROM users WHERE telegram_id = ?")
+    .bind(telegramId)
+    .first<{ alert_threshold: number }>();
+  return row?.alert_threshold ?? 1.5;
+}
+
+export async function setUserThreshold(db: D1Database, telegramId: number, threshold: number): Promise<void> {
+  await db.prepare("UPDATE users SET alert_threshold = ? WHERE telegram_id = ?")
+    .bind(threshold, telegramId)
+    .run();
 }
 
 // 5. Очистка заблокировавшего пользователя через явный batch (без опоры на SQLite PRAGMA foreign_keys)

@@ -30,7 +30,7 @@ describe("analyzePositionRisk", () => {
     // Distance percent = |4267.44 - 4168.387| / 4267.44 * 100 ≈ 2.32%
     expect(analysis?.distancePercent).not.toBeNull();
     expect(analysis?.distancePercent!).toBeCloseTo(2.32, 1);
-    expect(analysis?.tier).toBe("CRITICAL_2");
+    expect(analysis?.tier).toBe("WARN_10");
   });
 
   it("should return null for zero / closed positions", () => {
@@ -71,9 +71,9 @@ describe("analyzePositionRisk", () => {
     expect(analysis?.tier).toBe("SAFE");
   });
 
-  it("should correctly classify DANGER_5 and WARN_10 tiers", () => {
-    // 4% distance -> DANGER_5
-    const dangerPos: LighterPosition = {
+  it("should correctly classify CRITICAL_2, DANGER_5 and WARN_10 tiers for high leverage", () => {
+    // 0.8% distance -> CRITICAL_2 (< 1.0%)
+    const critPos: LighterPosition = {
       market_id: 2,
       symbol: "SOL",
       sign: 1,
@@ -82,14 +82,27 @@ describe("analyzePositionRisk", () => {
       position_value: "1500.000000", // mark = 150
       unrealized_pnl: "0.000000",
       realized_pnl: "0.000000",
-      liquidation_price: "144.00", // |150 - 144| / 150 = 4%
+      liquidation_price: "148.80", // |150 - 148.80| / 150 = 0.8%
       allocated_margin: "200.000000"
     };
+    expect(analyzePositionRisk(critPos)?.tier).toBe("CRITICAL_2");
 
-    const dangerAnalysis = analyzePositionRisk(dangerPos);
-    expect(dangerAnalysis?.tier).toBe("DANGER_5");
+    // 1.2% distance -> DANGER_5 (< 1.5%)
+    const dangerPos: LighterPosition = {
+      market_id: 2,
+      symbol: "SOL",
+      sign: 1,
+      position: "10.0000",
+      avg_entry_price: "150.00",
+      position_value: "1500.000000",
+      unrealized_pnl: "0.000000",
+      realized_pnl: "0.000000",
+      liquidation_price: "148.20", // |150 - 148.20| / 150 = 1.2%
+      allocated_margin: "200.000000"
+    };
+    expect(analyzePositionRisk(dangerPos)?.tier).toBe("DANGER_5");
 
-    // 8% distance -> WARN_10
+    // 2.0% distance -> WARN_10 (< 2.5%)
     const warnPos: LighterPosition = {
       market_id: 2,
       symbol: "SOL",
@@ -99,14 +112,12 @@ describe("analyzePositionRisk", () => {
       position_value: "1500.000000",
       unrealized_pnl: "0.000000",
       realized_pnl: "0.000000",
-      liquidation_price: "138.00", // |150 - 138| / 150 = 8%
+      liquidation_price: "147.00", // |150 - 147| / 150 = 2.0%
       allocated_margin: "200.000000"
     };
+    expect(analyzePositionRisk(warnPos)?.tier).toBe("WARN_10");
 
-    const warnAnalysis = analyzePositionRisk(warnPos);
-    expect(warnAnalysis?.tier).toBe("WARN_10");
-
-    // 15% distance -> SAFE
+    // 4.0% distance -> SAFE (> 2.5%)
     const safePos: LighterPosition = {
       market_id: 2,
       symbol: "SOL",
@@ -116,12 +127,10 @@ describe("analyzePositionRisk", () => {
       position_value: "1500.000000",
       unrealized_pnl: "0.000000",
       realized_pnl: "0.000000",
-      liquidation_price: "127.50", // 15% distance
+      liquidation_price: "144.00", // 4% distance
       allocated_margin: "200.000000"
     };
-
-    const safeAnalysis = analyzePositionRisk(safePos);
-    expect(safeAnalysis?.tier).toBe("SAFE");
+    expect(analyzePositionRisk(safePos)?.tier).toBe("SAFE");
   });
 });
 
