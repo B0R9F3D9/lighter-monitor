@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { WizardState } from "../src/types";
+import { WizardState, Env } from "../src/types";
+import { isUserAdmin } from "../src/bot/bot";
 
 function parseThresholdInput(raw: string): number | null {
   const cleaned = raw.replace(",", ".");
@@ -11,6 +12,12 @@ function parseThresholdInput(raw: string): number | null {
 function isWizardExpired(st: WizardState, now: number): boolean {
   return !!st.ts && now - st.ts > 900;
 }
+
+const mockEnv = (adminVar?: string): Env => ({
+  DB: {} as any,
+  TELEGRAM_BOT_TOKEN: "mock",
+  ADMIN_TELEGRAM_ID: adminVar,
+});
 
 describe("Wizard State & Settings Logic", () => {
   it("serializes and deserializes AWAIT_INDEX wizard state correctly", () => {
@@ -95,5 +102,39 @@ describe("Wizard State & Settings Logic", () => {
 
     expect(isWizardExpired(freshState, now)).toBe(false);
     expect(isWizardExpired(expiredState, now)).toBe(true);
+  });
+
+  describe("isUserAdmin Access Control", () => {
+    it("allows access when ADMIN_TELEGRAM_ID is undefined or empty", () => {
+      expect(isUserAdmin(mockEnv(), 999888777, "b0r9f3d9")).toBe(true);
+      expect(isUserAdmin(mockEnv("   "), 999888777, "b0r9f3d9")).toBe(true);
+    });
+
+    it("matches numeric telegram ID", () => {
+      expect(isUserAdmin(mockEnv("999888777"), 999888777, "someone")).toBe(true);
+      expect(isUserAdmin(mockEnv("999888777"), 123456789, "someone")).toBe(false);
+    });
+
+    it("matches username with or without @ prefix, case-insensitive", () => {
+      expect(isUserAdmin(mockEnv("b0r9f3d9"), 123, "b0r9f3d9")).toBe(true);
+      expect(isUserAdmin(mockEnv("@B0R9F3D9"), 123, "b0r9f3d9")).toBe(true);
+      expect(isUserAdmin(mockEnv("b0r9f3d9"), 123, "B0R9F3D9")).toBe(true);
+      expect(isUserAdmin(mockEnv("@b0r9f3d9"), 123, "someone_else")).toBe(false);
+    });
+
+    it("cleans accidental quotes or variable prefix", () => {
+      expect(isUserAdmin(mockEnv('"999888777"'), 999888777)).toBe(true);
+      expect(isUserAdmin(mockEnv("'999888777'"), 999888777)).toBe(true);
+      expect(isUserAdmin(mockEnv("ADMIN_TELEGRAM_ID=999888777"), 999888777)).toBe(true);
+      expect(isUserAdmin(mockEnv("ADMIN_TELEGRAM_ID = @b0r9f3d9"), 123, "b0r9f3d9")).toBe(true);
+    });
+
+    it("supports comma-separated list of multiple admins", () => {
+      const env = mockEnv("999888777, @second_admin, 999999");
+      expect(isUserAdmin(env, 999888777)).toBe(true);
+      expect(isUserAdmin(env, 123456, "second_admin")).toBe(true);
+      expect(isUserAdmin(env, 999999)).toBe(true);
+      expect(isUserAdmin(env, 111111, "stranger")).toBe(false);
+    });
   });
 });

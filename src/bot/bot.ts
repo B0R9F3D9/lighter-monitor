@@ -19,7 +19,38 @@ import {
 import { formatPositionsReport } from "./formatters";
 
 let botInstance: Bot | null = null;
+let currentEnv: Env | null = null;
 const knownUsers = new Set<number>();
+
+export function isUserAdmin(env: Env, userId?: number, username?: string): boolean {
+  const rawAdmin = (env.ADMIN_TELEGRAM_ID || "").trim();
+  if (!rawAdmin) {
+    // Если переменная не задана в окружении, разрешаем доступ (для локальной разработки/тестов)
+    return true;
+  }
+
+  const cleanUsername = username ? username.replace(/^@/, "").toLowerCase() : "";
+  const userIdStr = userId ? String(userId) : "";
+
+  // Поддерживаем список через запятую, очищаем кавычки и префиксы вида ADMIN_TELEGRAM_ID=
+  const adminTokens = rawAdmin
+    .split(",")
+    .map((s) =>
+      s
+        .trim()
+        .replace(/^["']|["']$/g, "")
+        .replace(/^ADMIN_TELEGRAM_ID\s*=\s*/i, ""),
+    )
+    .filter(Boolean);
+
+  for (const token of adminTokens) {
+    const cleanToken = token.replace(/^@/, "").toLowerCase();
+    if (userIdStr && token === userIdStr) return true;
+    if (cleanUsername && cleanToken === cleanUsername) return true;
+  }
+
+  return false;
+}
 
 function getPositionsKeyboard(
   filterIndex?: number,
@@ -59,9 +90,14 @@ function getSettingsKeyboard(threshold: number, mutedUntil: number): InlineKeybo
 }
 
 export function getBot(env: Env): Bot {
+  currentEnv = env;
   if (botInstance) return botInstance;
 
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
+
+  bot.catch((err) => {
+    console.error("Unhandled error in bot handler:", err.error || err);
+  });
 
   // Основная нижняя клавиатура пользователя (Zero-CLI Reply Keyboard)
   const replyKeyboard = new Keyboard()
@@ -1165,26 +1201,44 @@ export function getBot(env: Env): Bot {
   });
 
   bot.command(["stats", "admin"], async (ctx) => {
-    const adminId = Number(env.ADMIN_TELEGRAM_ID || 0);
-    if (adminId > 0 && ctx.from?.id !== adminId) return;
+    const activeEnv = currentEnv || env;
+    const userId = ctx.from?.id;
+    const username = ctx.from?.username;
 
-    const stats = await getSystemStats(env.DB);
-    const tokenBreakdown = stats.topTokens
-      .map((t) => `• <b>${t.symbol}:</b> ${t.count} поз.`)
-      .join("\n");
+    if (!isUserAdmin(activeEnv, userId, username)) {
+      return ctx.reply(
+        `⛔️ <b>Доступ ограничен</b>\n\n` +
+          `Эта команда доступна только администратору бота.\n` +
+          `• Ваш Telegram ID: <code>${userId || "не определен"}</code>\n` +
+          `• Ваш Username: ${username ? `@${username}` : "<i>не задан</i>"}\n\n` +
+          `<i>Чтобы получить доступ, укажите ваш Telegram ID или Username в секрете Cloudflare:</i>\n` +
+          `<code>bunx wrangler secret put ADMIN_TELEGRAM_ID</code>`,
+        { parse_mode: "HTML" },
+      );
+    }
 
-    const report =
-      `📊 <b>Lighter Monitor — Системный Дашборд</b>\n\n` +
-      `👥 <b>Пользователи:</b> <b>${stats.totalUsers}</b>\n` +
-      `💼 <b>Всего кошельков:</b> <b>${stats.totalTracked}</b>\n` +
-      `  ├ 🟠 Robinhood: ${stats.trackedRh}\n` +
-      `  └ ⚡️ Mainnet: ${stats.trackedMainnet}\n\n` +
-      `📈 <b>Открытых сделок в базе:</b> <b>${stats.activePositionsCount}</b>\n` +
-      `${tokenBreakdown ? `${tokenBreakdown}\n\n` : ""}` +
-      `⏱ <b>Лаг очереди Round-Robin:</b> ${stats.maxQueueLagMinutes} мин.\n` +
-      `<i>(Норма: < 30-45 мин для активных счетов)</i>`;
+    try {
+      const stats = await getSystemStats(activeEnv.DB);
+      const tokenBreakdown = stats.topTokens
+        .map((t) => `• <b>${t.symbol}:</b> ${t.count} поз.`)
+        .join("\n");
 
-    await ctx.reply(report, { parse_mode: "HTML" });
+      const report =
+        `📊 <b>Lighter Monitor — Системный Дашборд</b>\n\n` +
+        `👥 <b>Пользователи:</b> <b>${stats.totalUsers}</b>\n` +
+        `💼 <b>Всего кошельков:</b> <b>${stats.totalTracked}</b>\n` +
+        `  ├ 🟠 Robinhood: ${stats.trackedRh}\n` +
+        `  └ ⚡️ Mainnet: ${stats.trackedMainnet}\n\n` +
+        `📈 <b>Открытых сделок в базе:</b> <b>${stats.activePositionsCount}</b>\n` +
+        `${tokenBreakdown ? `${tokenBreakdown}\n\n` : ""}` +
+        `⏱ <b>Лаг очереди Round-Robin:</b> ${stats.maxQueueLagMinutes} мин.\n` +
+        `<i>(Норма: < 30-45 мин для активных счетов)</i>`;
+
+      await ctx.reply(report, { parse_mode: "HTML" });
+    } catch (err: any) {
+      console.error("Failed to load /stats:", err);
+      await ctx.reply(`⚠️ Ошибка загрузки дашборда: ${err?.message || err}`);
+    }
   });
 
   bot.callbackQuery("custom_threshold", async (ctx) => {

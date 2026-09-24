@@ -21,6 +21,7 @@ export default {
         { command: "positions", description: "📊 Открытые сделки и риски" },
         { command: "list", description: "📋 Список ваших аккаунтов" },
         { command: "threshold", description: "⚙️ Настройка шага цены для алертов" },
+        { command: "stats", description: "📊 Системный дашборд (админ)" },
         { command: "add_rh", description: "➕ Добавить аккаунт Robinhood Lighter" },
         { command: "add_mainnet", description: "➕ Добавить аккаунт Lighter Mainnet" },
         { command: "remove_rh", description: "➖ Удалить аккаунт Robinhood Lighter" },
