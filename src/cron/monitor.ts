@@ -65,7 +65,7 @@ export function resetPriceReferenceCache(): void {
 export function getMovedSymbols(
   currentSnapshots: Map<LighterNetwork, Map<string, MarketPriceSnapshot>>,
   nowSec: number,
-  minMoveThreshold: number = 0.2, // 0.2% отсечка
+  minMoveThreshold: number = 0.05, // 0.05% отсечка для надежного улавливания пользовательского шага 0.1%
   maxAgeSeconds: number = 600, // 10 минут принудительный пересчет для защиты от дрейфа
 ): { movedSymbols: string[]; isFullSweep: boolean } {
   // Холодный старт изолята: наполняем кэш и делаем полный срез
@@ -426,5 +426,30 @@ export async function runCronMonitor(env: Env): Promise<void> {
   const allUpdates = [...newPositionsToInit, ...alertUpdateStmts, ...zombieCleanupStmts];
   if (allUpdates.length > 0) {
     await executeD1BatchInChunks(env.DB, allUpdates);
+  }
+
+  // 7. СТРУКТУРИРОВАННЫЙ JSON-ЛОГ (Observability & Cloudflare Dashboard / Axiom)
+  const durationMs = Date.now() - startTime;
+  const executionMetrics = {
+    event: "cron_completed",
+    duration_ms: durationMs,
+    subrequests_used: subrequestsUsed,
+    round_robin_synced: accountsToSync.length,
+    total_positions_checked: items.length,
+    candidates_count: candidateAlerts.length,
+    jit_checks_performed: jitChecksDone,
+    alerts_sent: alertUpdateStmts.length,
+    zombies_cleaned: zombieCleanupStmts.length / 2,
+    timestamp: now,
+  };
+  console.log(JSON.stringify(executionMetrics));
+
+  // 8. WATCHDOG / HEARTBEAT (Healthchecks.io / Better Stack)
+  if (env.HEALTHCHECK_URL) {
+    try {
+      await fetch(env.HEALTHCHECK_URL);
+    } catch (err) {
+      console.warn("Healthcheck ping failed:", err);
+    }
   }
 }

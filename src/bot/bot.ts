@@ -14,6 +14,7 @@ import {
   setUserWizardState,
   updateAccountAlias,
   removeTrackedAccount,
+  getSystemStats,
 } from "../db/queries";
 import { formatPositionsReport } from "./formatters";
 
@@ -1161,6 +1162,29 @@ export function getBot(env: Env): Bot {
 
   bot.command("settings", async (ctx) => {
     await handleSettings(ctx);
+  });
+
+  bot.command(["stats", "admin"], async (ctx) => {
+    const adminId = Number(env.ADMIN_TELEGRAM_ID || 0);
+    if (adminId > 0 && ctx.from?.id !== adminId) return;
+
+    const stats = await getSystemStats(env.DB);
+    const tokenBreakdown = stats.topTokens
+      .map((t) => `• <b>${t.symbol}:</b> ${t.count} поз.`)
+      .join("\n");
+
+    const report =
+      `📊 <b>Lighter Monitor — Системный Дашборд</b>\n\n` +
+      `👥 <b>Пользователи:</b> <b>${stats.totalUsers}</b>\n` +
+      `💼 <b>Всего кошельков:</b> <b>${stats.totalTracked}</b>\n` +
+      `  ├ 🟠 Robinhood: ${stats.trackedRh}\n` +
+      `  └ ⚡️ Mainnet: ${stats.trackedMainnet}\n\n` +
+      `📈 <b>Открытых сделок в базе:</b> <b>${stats.activePositionsCount}</b>\n` +
+      `${tokenBreakdown ? `${tokenBreakdown}\n\n` : ""}` +
+      `⏱ <b>Лаг очереди Round-Robin:</b> ${stats.maxQueueLagMinutes} мин.\n` +
+      `<i>(Норма: < 30-45 мин для активных счетов)</i>`;
+
+    await ctx.reply(report, { parse_mode: "HTML" });
   });
 
   bot.callbackQuery("custom_threshold", async (ctx) => {

@@ -64,6 +64,7 @@
 | `/list`                       | Список отслеживаемых аккаунтов и карточки управления     |
 | `/settings`                   | Меню настроек шага цены и режима сна                     |
 | `/threshold <число>`          | Прямая установка шага цены (например, `/threshold 0.4`)  |
+| `/stats` (или `/admin`)       | Системный дашборд и бизнес-метрики (только для админа)   |
 | `/add_rh <индекс> [имя]`      | Быстрое добавление кошелька Robinhood Lighter            |
 | `/add_mainnet <индекс> [имя]` | Быстрое добавление кошелька Lighter Mainnet              |
 | `/remove_rh <индекс>`         | Удаление аккаунта Robinhood Lighter                      |
@@ -104,7 +105,7 @@ bun run d1:init
 
 ### 3. Запуск тестов
 
-Проект покрыт 36 модульными тестами (математика маржи/ликвидации, API биржи, форматеры сообщений, логика визардов):
+Проект покрыт 39 модульными тестами (математика маржи/ликвидации, API биржи, форматеры сообщений, логика визардов, reverse-индексация и метрики):
 
 ```bash
 bun test
@@ -170,6 +171,12 @@ bunx wrangler secret put TELEGRAM_BOT_TOKEN
 
 # Секретный токен для проверки подлинности вебхука
 bunx wrangler secret put TELEGRAM_SECRET_TOKEN
+
+# (Опционально) Telegram ID администратора для доступа к /stats и /admin
+bunx wrangler secret put ADMIN_TELEGRAM_ID
+
+# (Опционально) URL Heartbeat-мониторинга крона (Healthchecks.io / Better Stack)
+bunx wrangler secret put HEALTHCHECK_URL
 ```
 
 ### 4. Деплой

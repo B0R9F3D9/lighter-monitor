@@ -245,11 +245,11 @@ describe("Price-Driven Monitoring Unit Tests", () => {
         expect(res.movedSymbols.length).toBe(0);
       });
 
-      it("filters out stationary assets and only detects assets with move >= 0.2%", () => {
+      it("filters out stationary assets and only detects assets with move >= 0.05%", () => {
         // Reference prices are XAU = 4200, BTC = 60000 at t = 1000
         const snapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>([
-          ["rh", new Map([["XAU", { symbol: "XAU", price: 4202.0, dailyChange: 0 }]])], // +0.047% (< 0.2%)
-          ["mainnet", new Map([["BTC", { symbol: "BTC", price: 60180.0, dailyChange: 0 }]])], // +0.30% (>= 0.2%)
+          ["rh", new Map([["XAU", { symbol: "XAU", price: 4201.0, dailyChange: 0 }]])], // +0.0238% (< 0.05%)
+          ["mainnet", new Map([["BTC", { symbol: "BTC", price: 60060.0, dailyChange: 0 }]])], // +0.10% (>= 0.05%)
         ]);
 
         const res = getMovedSymbols(snapshots, 1060); // 1 minute later

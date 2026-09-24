@@ -4,6 +4,8 @@ export interface Env {
   DB: D1Database;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_SECRET_TOKEN?: string;
+  ADMIN_TELEGRAM_ID?: string;
+  HEALTHCHECK_URL?: string;
 }
 
 export interface TrackedAccountKey {
@@ -127,4 +129,14 @@ export interface PriceStepAlertParams {
   unrealizedPnl: number;
   liqPrice: number;
   distancePercent: number | null;
+}
+
+export interface SystemStats {
+  totalUsers: number;
+  totalTracked: number;
+  trackedRh: number;
+  trackedMainnet: number;
+  activePositionsCount: number;
+  maxQueueLagMinutes: number;
+  topTokens: Array<{ symbol: string; count: number }>;
 }
