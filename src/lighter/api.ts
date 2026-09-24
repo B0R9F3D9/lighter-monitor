@@ -22,6 +22,7 @@ export async function fetchLighterAccount(
     }
     return null;
   } catch (err) {
+    console.error(`fetchLighterAccount error for account ${accountIndex}:`, err);
     return null;
   } finally {
     clearTimeout(timer);
@@ -36,7 +37,7 @@ export async function fetchInChunks<T, R>(
   const results: PromiseSettledResult<R>[] = [];
   for (let i = 0; i < items.length; i += chunkSize) {
     const chunk = items.slice(i, i + chunkSize);
-    const chunkResults = await Promise.allSettled(chunk.map(fn));
+    const chunkResults = await Promise.allSettled(chunk.map(item => fn(item)));
     results.push(...chunkResults);
   }
   return results;

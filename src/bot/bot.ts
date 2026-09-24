@@ -3,6 +3,7 @@ import { Env, PositionRiskAnalysis } from "../types";
 import { CONFIG } from "../config";
 import { fetchLighterAccount } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
+import { batchUpdatePositionsCache } from "../db/queries";
 import { formatPositionsReport } from "./formatters";
 
 let botInstance: Bot | null = null;
@@ -99,6 +100,14 @@ export function getBot(env: Env): Bot {
         Math.floor(Date.now() / 1000)
       ).run();
 
+      // Сразу кэшируем аккаунт, чтобы /positions отдавал данные мгновенно
+      const activePositions = account.positions.filter(p => Math.abs(parseFloat(p.position || "0")) > 0);
+      const risks = activePositions.map(analyzePositionRisk).filter(Boolean);
+      await batchUpdatePositionsCache(env.DB, [{
+        account,
+        cachedPositions: risks as any
+      }]);
+
       await ctx.reply(
         `Аккаунт <b>#${accountIndex}</b> добавлен.\n` +
         `Алиас: ${alias ? `<b>${alias}</b>` : "<i>нет</i>"}\n` +
@@ -194,13 +203,22 @@ export function getBot(env: Env): Bot {
     ).bind(ctx.from!.id, ...accountIndices).all<{ account_index: number; alias: string | null }>();
     const aliasMap = new Map((aliasRows || []).map(r => [r.account_index, r.alias]));
 
-    // Параллельный запрос к API для тех аккаунтов, которых еще нет в кэше
-    const uncachedIndices = accountIndices.filter(idx => !cacheMap.has(idx));
+    // Запрос к API для тех аккаунтов, которых нет в кэше или у которых пустой l1_address
+    const uncachedIndices = accountIndices.filter(idx => !cacheMap.has(idx) || !cacheMap.get(idx)?.l1_address);
     const freshResults = await Promise.all(uncachedIndices.map(idx => fetchLighterAccount(idx)));
     const freshMap = new Map<number, any>();
     uncachedIndices.forEach((idx, i) => {
       if (freshResults[i]) freshMap.set(idx, freshResults[i]);
     });
+
+    // Если получили свежие данные из API, сохраняем их в кэш D1
+    if (freshMap.size > 0) {
+      const updates = Array.from(freshMap.values()).map(acc => ({
+        account: acc,
+        cachedPositions: acc.positions.map(analyzePositionRisk).filter(Boolean) as any
+      }));
+      await batchUpdatePositionsCache(env.DB, updates).catch(e => console.error("Cache update error:", e));
+    }
 
     let combinedReport = "";
 
@@ -209,7 +227,7 @@ export function getBot(env: Env): Bot {
       const alias = aliasMap.get(accIndex) || null;
       let card = "";
 
-      if (cached && cached.positions_json) {
+      if (cached && cached.l1_address && cached.positions_json) {
         const parsedPositions = JSON.parse(cached.positions_json) as any[];
         // Если позиции уже были проанализированы или в сыром формате
         const positions: PositionRiskAnalysis[] = parsedPositions.map((p: any) => {
@@ -219,7 +237,7 @@ export function getBot(env: Env): Bot {
           return analyzePositionRisk(p);
         }).filter(Boolean) as PositionRiskAnalysis[];
 
-        card = formatPositionsReport(accIndex, alias, cached.l1_address, cached.collateral, positions);
+        card = formatPositionsReport(accIndex, alias, cached.l1_address, parseFloat(String(cached.collateral || 0)), positions);
       } else if (freshMap.has(accIndex)) {
         const fresh = freshMap.get(accIndex);
         const positions = fresh.positions.map(analyzePositionRisk).filter(Boolean) as PositionRiskAnalysis[];

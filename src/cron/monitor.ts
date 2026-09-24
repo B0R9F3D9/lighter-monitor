@@ -30,7 +30,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
   const oldCacheMap = new Map((oldCacheRows || []).map(r => [r.account_index, r]));
 
   // 3. Опрос Lighter API пачками по 5 параллельных запросов (таймаут 2.5 сек)
-  const fetchResults = await fetchInChunks(accountsToPoll, CONFIG.LIGHTER_CHUNK_CONCURRENCY, fetchLighterAccount);
+  const fetchResults = await fetchInChunks(accountsToPoll, CONFIG.LIGHTER_CHUNK_CONCURRENCY, (idx) => fetchLighterAccount(idx));
   subrequestsUsed += accountsToPoll.length;
 
   const failedIndices: number[] = [];
