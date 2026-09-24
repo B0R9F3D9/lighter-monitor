@@ -156,7 +156,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
   for (const [telegramId, userTasks] of targetUsers) {
     try {
-      const combinedText = userTasks.map(t => t.text).join("\n\n────────────────\n\n");
+      const combinedText = userTasks.map(t => t.text.trim()).join("\n\n");
 
       if (combinedText.length > 3900) {
         for (const t of userTasks) {

@@ -437,11 +437,14 @@ export function getBot(env: Env): Bot {
         card = `Аккаунт #${item.account_index} ${netBadge}: данные временно недоступны.\n`;
       }
 
-      if ((combinedReport + card).length > 3800) {
+      const trimmedCard = card.trim();
+      if (!trimmedCard) continue;
+
+      if (combinedReport && (combinedReport + "\n\n" + trimmedCard).length > 3800) {
         await ctx.reply(combinedReport, { parse_mode: "HTML" });
         combinedReport = "";
       }
-      combinedReport += card + "\n────────────────\n";
+      combinedReport = combinedReport ? `${combinedReport}\n\n${trimmedCard}` : trimmedCard;
     }
 
     const posKeyboard = getPositionsKeyboard(filterIndex);
@@ -449,7 +452,7 @@ export function getBot(env: Env): Bot {
     if (combinedReport.trim()) {
       const now = new Date();
       const timeStr = now.toLocaleTimeString("ru-RU", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      combinedReport += `🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+      combinedReport += `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
 
       if (isEdit) {
         try {
