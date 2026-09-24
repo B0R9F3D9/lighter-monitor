@@ -30,9 +30,9 @@ describe("formatPositionsReport", () => {
     const text = formatPositionsReport('mainnet', 749329, null, "0x0000000000000000000000000000000000000001", 51.32, [pos], 1.5);
     expect(text).toContain("#749329");
     expect(text).toContain("[Mainnet]");
-    expect(text).toContain("🟢 LONG <b>XAU</b>");
+    expect(text).toContain("🟢 LONG <b>XAU</b> • <b>3.1</b>");
     expect(text).not.toContain("mId");
-    expect(text).toContain("Размер: 3.1");
+    expect(text).toContain("Вход: $4,282.65 ➔ Марк: $4,267.44");
     expect(text).toContain("<b>0.80%</b> 🚨 [КРИТИЧНО]");
     expect(text).toContain("📉 -$47.16");
   });

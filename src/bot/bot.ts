@@ -473,41 +473,47 @@ export function getBot(env: Env): Bot {
     }
 
     const userThreshold = await getUserThreshold(env.DB, ctx.from.id);
-    let combinedReport = "";
+    let totalUnPnl = 0;
+    let totalCollateral = 0;
+    const cards: string[] = [];
 
     for (const item of trackedList) {
       const key = `${item.network}:${item.account_index}`;
       const fresh = freshMap.get(key);
       const cached = cacheMap.get(key);
       let card = "";
+      let accPositions: PositionRiskAnalysis[] = [];
+      let accCollateral = 0;
 
       if (fresh) {
-        const positions = fresh.positions.map(analyzePositionRisk).filter(Boolean) as PositionRiskAnalysis[];
+        accPositions = fresh.positions.map(analyzePositionRisk).filter(Boolean) as PositionRiskAnalysis[];
+        accCollateral = parseFloat(fresh.collateral || "0");
         card = formatPositionsReport(
           item.network,
           item.account_index, 
           item.alias, 
           fresh.l1_address, 
-          parseFloat(fresh.collateral || "0"), 
-          positions, 
+          accCollateral, 
+          accPositions, 
           userThreshold
         );
       } else if (cached && cached.l1_address && cached.positions_json) {
         const parsedPositions = JSON.parse(cached.positions_json) as any[];
-        const positions: PositionRiskAnalysis[] = parsedPositions.map((p: any) => {
+        accPositions = parsedPositions.map((p: any) => {
           if (p.marketId !== undefined && p.tier !== undefined) {
             return p as PositionRiskAnalysis;
           }
           return analyzePositionRisk(p);
         }).filter(Boolean) as PositionRiskAnalysis[];
+        accCollateral = parseFloat(String(cached.collateral || 0));
 
         card = formatPositionsReport(
           item.network,
           item.account_index, 
           item.alias, 
           cached.l1_address, 
-          parseFloat(String(cached.collateral || 0)), 
-          positions, 
+          accCollateral, 
+          accPositions, 
           userThreshold
         );
       } else {
@@ -519,19 +525,44 @@ export function getBot(env: Env): Bot {
       const trimmedCard = card.trim();
       if (!trimmedCard) continue;
 
-      if (combinedReport && (combinedReport + "\n\n" + trimmedCard).length > 3800) {
-        await ctx.reply(combinedReport, { parse_mode: "HTML" });
-        combinedReport = "";
+      cards.push(trimmedCard);
+      totalCollateral += accCollateral;
+      for (const pos of accPositions) {
+        totalUnPnl += pos.unrealizedPnl;
       }
-      combinedReport = combinedReport ? `${combinedReport}\n\n${trimmedCard}` : trimmedCard;
     }
 
     const posKeyboard = getPositionsKeyboard(filterIndex, filterNetwork);
 
-    if (combinedReport.trim()) {
+    if (cards.length > 0) {
+      const separator = "\n───────────────────\n";
+      let combinedReport = cards.join(separator);
+
+      // ИТОГО (Суммарный UnPnL и Маржа по всем отображенным счетам)
+      const pnlSign = totalUnPnl >= 0 ? "📈 +" : "📉 -";
+      const totalPnlStr = `${pnlSign}$${Math.abs(totalUnPnl).toFixed(2)}`;
+      combinedReport += `${separator}📊 <b>ИТОГО:</b> 💵 UnPnL: <b>${totalPnlStr}</b> • Маржа: <b>$${totalCollateral.toFixed(2)}</b>`;
+
       const now = new Date();
       const timeStr = now.toLocaleTimeString("ru-RU", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit" });
       combinedReport += `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+
+      if (combinedReport.length > 3800) {
+        // Защита от переполнения лимита сообщения Telegram
+        let currentChunk = "";
+        for (let i = 0; i < cards.length; i++) {
+          const piece = i === 0 ? cards[i] : separator + cards[i];
+          if ((currentChunk + piece).length > 3800) {
+            await ctx.reply(currentChunk, { parse_mode: "HTML" });
+            currentChunk = cards[i];
+          } else {
+            currentChunk += piece;
+          }
+        }
+        currentChunk += `${separator}📊 <b>ИТОГО:</b> 💵 UnPnL: <b>${totalPnlStr}</b> • Маржа: <b>$${totalCollateral.toFixed(2)}</b>\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+        await ctx.reply(currentChunk, { parse_mode: "HTML", reply_markup: posKeyboard });
+        return;
+      }
 
       if (isEdit) {
         try {

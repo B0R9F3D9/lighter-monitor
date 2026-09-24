@@ -15,9 +15,8 @@ export function formatPositionsReport(
   const shortAddr = l1Address ? `${l1Address.slice(0, 6)}...${l1Address.slice(-4)}` : "—";
   const title = alias ? `<b>#${accountIndex} (${alias})</b>` : `<b>#${accountIndex}</b>`;
   
-  let text = `💼 <b>Аккаунт:</b> ${title} <code>${badge}</code>\n`;
-  text += `💳 <b>Кошелек:</b> <code>${shortAddr}</code>\n`;
-  text += `💰 <b>Коллатерал:</b> $${collateral.toFixed(2)}\n\n`;
+  let text = `💼 ${title} <code>${badge}</code> • <b>$${collateral.toFixed(2)}</b>\n`;
+  text += `💳 <code>${shortAddr}</code>\n\n`;
 
   if (positions.length === 0) {
     text += `<i>Нет открытых позиций</i>\n`;
@@ -26,12 +25,11 @@ export function formatPositionsReport(
 
   for (const pos of positions) {
     const sideBadge = pos.isLong ? "🟢 LONG" : "🔴 SHORT";
-    text += `${sideBadge} <b>${pos.symbol}</b>\n`;
-    text += `• Размер: ${pos.size}\n`;
-    text += `• Вход: $${formatSmartPrice(pos.entryPrice)} | Марк: $${formatSmartPrice(pos.markPrice)}\n`;
-    const pnlSign = pos.unrealizedPnl >= 0 ? "📈" : "📉";
-    const pnlFormatted = pos.unrealizedPnl >= 0 ? `+$${pos.unrealizedPnl.toFixed(2)}` : `-$${Math.abs(pos.unrealizedPnl).toFixed(2)}`;
-    text += `• UnPnL: ${pnlSign} ${pnlFormatted}\n`;
+    text += `${sideBadge} <b>${pos.symbol}</b> • <b>${pos.size}</b>\n`;
+    text += `• Вход: $${formatSmartPrice(pos.entryPrice)} ➔ Марк: $${formatSmartPrice(pos.markPrice)}\n`;
+    const pnlSign = pos.unrealizedPnl >= 0 ? "📈 +" : "📉 -";
+    const pnlFormatted = `${pnlSign}$${Math.abs(pos.unrealizedPnl).toFixed(2)}`;
+    text += `• UnPnL: <b>${pnlFormatted}</b>\n`;
 
     if (pos.liqPrice > 0 && pos.distancePercent !== null) {
       let alertBadge = "";
@@ -47,7 +45,7 @@ export function formatPositionsReport(
         icon = "⚡️";
       }
 
-      text += `• Ликвидация: $${formatSmartPrice(pos.liqPrice)} (${icon} <b>${pos.distancePercent.toFixed(2)}%</b>${alertBadge})\n`;
+      text += `• Ликвидация: $${formatSmartPrice(pos.liqPrice)} (${icon}<b>${pos.distancePercent.toFixed(2)}%</b>${alertBadge})\n`;
     } else {
       text += `• Ликвидация: <i>нет риска</i> 🛡\n`;
     }
