@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { formatPositionsReport, formatLiquidationAlert, formatPositionWipedAlert } from "../src/bot/formatters";
+import { formatPositionsReport } from "../src/bot/formatters";
 import { PositionRiskAnalysis } from "../src/types";
 
 describe("formatPositionsReport", () => {
@@ -38,37 +38,3 @@ describe("formatPositionsReport", () => {
   });
 });
 
-describe("formatLiquidationAlert", () => {
-  it("should format liquidation alert with network badge, account name and details", () => {
-    const pos: PositionRiskAnalysis = {
-      marketId: 40,
-      symbol: "XAU",
-      isLong: true,
-      size: 3.1,
-      posValue: 13229.064,
-      entryPrice: 4282.65,
-      markPrice: 4267.44,
-      liqPrice: 4168.39,
-      unrealizedPnl: -47.16,
-      distancePercent: 0.8,
-      tier: "CRITICAL_2"
-    };
-
-    const alert = formatLiquidationAlert('rh', 31704, "Мейн", pos);
-    expect(alert).toContain("КРИТИЧЕСКИЙ РИСК ЛИКВИДАЦИИ");
-    expect(alert).toContain("#31704 (Мейн) [RH]");
-    expect(alert).toContain("0.80%");
-    expect(alert).toContain("4,267.44");
-    expect(alert).toContain("4,168.39");
-    expect(alert).toContain("🟢 LONG");
-  });
-});
-
-describe("formatPositionWipedAlert", () => {
-  it("should format wiped alert for closed/liquidated position with network badge", () => {
-    const alert = formatPositionWipedAlert('mainnet', 749329, "Кит", "XAU");
-    expect(alert).toContain("ПОЗИЦИЯ ЗАКРЫТА ИЛИ ЛИКВИДИРОВАНА");
-    expect(alert).toContain("#749329 (Кит) [Mainnet]");
-    expect(alert).toContain("XAU");
-  });
-});

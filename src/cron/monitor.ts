@@ -186,9 +186,11 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     if (!freshAccount) continue;
 
-    const livePosition = freshAccount.positions.find(
-      p => p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0
-    );
+    const livePosition = Array.isArray(freshAccount?.positions)
+      ? freshAccount.positions.find(
+          p => p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0
+        )
+      : undefined;
 
     // ЗОМБИ ЛИКВИДИРОВАН: пакетное накопление стейтментов удаления (без лишних сетевых вызовов)
     if (!livePosition) {
@@ -229,11 +231,11 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     try {
       if (subrequestsUsed < CONFIG.MAX_SUBREQUESTS_PER_CRON) {
-        // Троттлинг Telegram: минимум 1 сек между сообщениями одному и тому же пользователю
+        // Троттлинг Telegram: минимум 300 мс между сообщениями одному и тому же пользователю
         const lastSentAt = lastSentTimeByUser.get(item.telegram_id) || 0;
         const timeSinceLastSent = Date.now() - lastSentAt;
-        if (timeSinceLastSent < 1000) {
-          await new Promise(r => setTimeout(r, 1000 - timeSinceLastSent));
+        if (timeSinceLastSent < 300) {
+          await new Promise(r => setTimeout(r, 300 - timeSinceLastSent));
         }
 
         await bot.api.sendMessage(item.telegram_id, alertText, {

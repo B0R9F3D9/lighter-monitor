@@ -1,25 +1,11 @@
 import { 
   LighterAccount, 
   CachedPositionPayload, 
-  SubscriberRecord, 
   TrackedAccountKey, 
   LighterNetwork, 
   LighterPosition, 
   ActivePositionWatchItem 
 } from "../types";
-
-// 1. Выборка пар (network, account_index) по честному Round-Robin
-export async function getAccountsForCronBatch(db: D1Database, limit: number): Promise<TrackedAccountKey[]> {
-  const query = `
-    SELECT DISTINCT u.network, u.account_index 
-    FROM user_tracked_accounts u
-    LEFT JOIN account_positions_cache c ON u.network = c.network AND u.account_index = c.account_index
-    ORDER BY COALESCE(c.last_updated_at, 0) ASC
-    LIMIT ?;
-  `;
-  const { results } = await db.prepare(query).bind(limit).all<{ network: LighterNetwork; account_index: number }>();
-  return results ? results.map(r => ({ network: r.network, accountIndex: r.account_index })) : [];
-}
 
 // 2. Обновление last_updated_at ТОЛЬКО для упавших запросов (экономия 50% квоты D1)
 export async function touchFailedAccounts(db: D1Database, failedAccounts: TrackedAccountKey[]): Promise<void> {
@@ -69,21 +55,6 @@ export async function batchUpdatePositionsCache(
   }
 }
 
-// 4. Подписчики аккаунта с их индивидуальными порогами алертов
-export async function getAccountSubscribers(
-  db: D1Database, 
-  network: LighterNetwork,
-  accountIndex: number
-): Promise<SubscriberRecord[]> {
-  const query = `
-    SELECT u.telegram_id, uta.alias, COALESCE(u.alert_threshold, 0.5) as alert_threshold
-    FROM user_tracked_accounts uta
-    JOIN users u ON uta.telegram_id = u.telegram_id
-    WHERE uta.network = ? AND uta.account_index = ?;
-  `;
-  const { results } = await db.prepare(query).bind(network, accountIndex).all<SubscriberRecord>();
-  return results || [];
-}
 
 export async function getUserThreshold(db: D1Database, telegramId: number): Promise<number> {
   const row = await db.prepare("SELECT alert_threshold FROM users WHERE telegram_id = ?")

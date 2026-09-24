@@ -386,15 +386,32 @@ export function getBot(env: Env): Bot {
     // ВСЕГДА загружаем кэш из D1 для всех аккаунтов (гарантия быстрого ответа и 100% надежного fallback)
     const cacheMap = new Map<string, any>();
     if (trackedList.length > 0) {
-      const keys = trackedList.map(item => `${item.network}:${item.account_index}`);
-      const placeholders = keys.map(() => "?").join(",");
-      const { results: cachedRows } = await env.DB.prepare(
-        `SELECT * FROM account_positions_cache WHERE (network || ':' || account_index) IN (${placeholders})`
-      ).bind(...keys).all<any>();
+      if (!filterIndex) {
+        const { results: cachedRows } = await env.DB.prepare(`
+          SELECT c.* 
+          FROM account_positions_cache c
+          JOIN user_tracked_accounts uta 
+            ON c.network = uta.network AND c.account_index = uta.account_index
+          WHERE uta.telegram_id = ?
+        `).bind(ctx.from!.id).all<any>();
 
-      if (cachedRows) {
-        for (const row of cachedRows) {
-          cacheMap.set(`${row.network}:${row.account_index}`, row);
+        if (cachedRows) {
+          for (const row of cachedRows) {
+            cacheMap.set(`${row.network}:${row.account_index}`, row);
+          }
+        }
+      } else {
+        const rows = await Promise.all(
+          trackedList.map(item =>
+            env.DB.prepare("SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?")
+              .bind(item.network, item.account_index)
+              .first<any>()
+          )
+        );
+        for (const row of rows) {
+          if (row) {
+            cacheMap.set(`${row.network}:${row.account_index}`, row);
+          }
         }
       }
     }
@@ -405,7 +422,7 @@ export function getBot(env: Env): Bot {
       ? trackedList.filter(item => {
           const key = `${item.network}:${item.account_index}`;
           const c = cacheMap.get(key);
-          // Если кэш свежий (обновлен фоновым кроном менее 15 секунд назад), отдаем сразу без задержек
+          // Если кэш свежий (обновлен менее 15 секунд назад), отдаем сразу без задержек
           if (c && c.last_updated_at && (nowSec - c.last_updated_at) < 15) {
             return false;
           }
@@ -414,7 +431,7 @@ export function getBot(env: Env): Bot {
       : trackedList.filter(item => {
           const key = `${item.network}:${item.account_index}`;
           const c = cacheMap.get(key);
-          return !c || !c.l1_address;
+          return !c || !c.l1_address || !c.last_updated_at || (nowSec - c.last_updated_at) >= 120;
         });
 
     // Параллельно запрашиваем свежие данные из API

@@ -78,21 +78,6 @@ export interface CachedPositionPayload {
   tier: AlertTier;
 }
 
-export interface AlertTask {
-  telegramId: number;
-  text: string;
-  network: LighterNetwork;
-  accountIndex: number;
-  marketId: number;
-  tier: AlertTier;
-  distance: number;
-}
-
-export interface SubscriberRecord {
-  telegram_id: number;
-  alias: string | null;
-  alert_threshold: number;
-}
 
 export interface ActivePositionWatchItem {
   telegram_id: number;

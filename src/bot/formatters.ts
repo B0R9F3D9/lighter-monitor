@@ -56,44 +56,6 @@ export function formatPositionsReport(
   return text;
 }
 
-export function formatLiquidationAlert(
-  network: LighterNetwork,
-  accountIndex: number, 
-  alias: string | null, 
-  pos: PositionRiskAnalysis
-): string {
-  const badge = CONFIG.NETWORKS[network]?.badge || `[${network.toUpperCase()}]`;
-  const isCrit = pos.distancePercent !== null && pos.distancePercent <= 1.0;
-  const header = isCrit ? "💥 <b>КРИТИЧЕСКИЙ РИСК ЛИКВИДАЦИИ!</b>" : "🚨 <b>ВНИМАНИЕ: РИСК ЛИКВИДАЦИИ!</b>";
-  const accName = alias ? `#${accountIndex} (${alias})` : `#${accountIndex}`;
-  const sideBadge = pos.isLong ? "🟢 LONG" : "🔴 SHORT";
-  const pnlSign = pos.unrealizedPnl >= 0 ? "📈" : "📉";
-  const pnlFormatted = pos.unrealizedPnl >= 0 ? `+$${pos.unrealizedPnl.toFixed(2)}` : `-$${Math.abs(pos.unrealizedPnl).toFixed(2)}`;
-
-  return `${header}\n\n` +
-    `💼 Аккаунт: <b>${accName} ${badge}</b>\n` +
-    `📊 Инструмент: <b>${pos.symbol}</b> (${sideBadge})\n` +
-    `⚠️ До ликвидации: <b>${pos.distancePercent?.toFixed(2)}%</b> 🚨\n` +
-    `• Текущая цена: $${formatSmartPrice(pos.markPrice)}\n` +
-    `• Цена ликвидации: $${formatSmartPrice(pos.liqPrice)}\n` +
-    `• Размер позиции: ${pos.size} ($${pos.posValue.toFixed(2)})\n` +
-    `• UnPnL: ${pnlSign} ${pnlFormatted}\n\n` +
-    `⚠️ <i>Рекомендуется пополнить маржу или сократить позицию!</i>`;
-}
-
-export function formatPositionWipedAlert(
-  network: LighterNetwork,
-  accountIndex: number, 
-  alias: string | null, 
-  symbol: string
-): string {
-  const badge = CONFIG.NETWORKS[network]?.badge || `[${network.toUpperCase()}]`;
-  const accName = alias ? `#${accountIndex} (${alias})` : `#${accountIndex}`;
-  return `💀 <b>ВНИМАНИЕ! ПОЗИЦИЯ ЗАКРЫТА ИЛИ ЛИКВИДИРОВАНА</b>\n\n` +
-    `💼 Аккаунт: <b>${accName} ${badge}</b>\n` +
-    `📊 Инструмент: <b>${symbol}</b>\n\n` +
-    `Позиция с высоким риском больше не числится открытой в Lighter. Проверьте баланс на бирже.`;
-}
 
 export function formatPriceStepAlert(params: PriceStepAlertParams): string {
   const badge = CONFIG.NETWORKS[params.network]?.badge || `[${params.network.toUpperCase()}]`;
