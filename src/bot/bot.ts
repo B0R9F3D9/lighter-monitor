@@ -321,6 +321,26 @@ export function getBot(env: Env): Bot {
       return;
     }
 
+    // 4. Шаг ввода процента для алертов
+    if (state.step === "AWAIT_THRESHOLD") {
+      const cleaned = text.replace(",", ".");
+      const val = parseFloat(cleaned);
+      if (isNaN(val) || val < CONFIG.MIN_ALERT_THRESHOLD || val > CONFIG.MAX_ALERT_THRESHOLD) {
+        return ctx.reply(
+          `⚠️ Пожалуйста, укажите число от <b>${CONFIG.MIN_ALERT_THRESHOLD}%</b> до <b>${CONFIG.MAX_ALERT_THRESHOLD}%</b> (например: <code>0.4</code>):`,
+          { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("❌ Отмена", "action_threshold") }
+        );
+      }
+      await setUserThreshold(env.DB, ctx.from!.id, val);
+      await setUserWizardState(env.DB, ctx.from!.id, null);
+      await ctx.reply(
+        `✅ Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.`,
+        { parse_mode: "HTML", reply_markup: mainKeyboard }
+      );
+      await handleSettings(ctx);
+      return;
+    }
+
     return next();
   });
 
@@ -940,10 +960,14 @@ export function getBot(env: Env): Bot {
     const kb = new InlineKeyboard();
     for (let i = 0; i < presets.length; i++) {
       const p = presets[i]!;
-      const label = p === threshold ? `✅ ${p}%` : `${p}%`;
+      const label = Math.abs(p - threshold) < 0.001 ? `✅ ${p}%` : `${p}%`;
       kb.text(label, `set_thresh_${p}`);
       if (i === 2) kb.row();
     }
+    kb.row();
+    const isCustom = !presets.some(p => Math.abs(p - threshold) < 0.001);
+    const customLabel = isCustom ? `✏️ Свой % (сейчас ${threshold.toFixed(1)}%)` : `✏️ Ввести свой %`;
+    kb.text(customLabel, "custom_threshold");
     kb.row();
 
     const isMuted = mutedUntil > Math.floor(Date.now() / 1000);
@@ -1009,14 +1033,28 @@ export function getBot(env: Env): Bot {
     await handleSettings(ctx);
   });
 
+  bot.callbackQuery("custom_threshold", async (ctx) => {
+    await setUserWizardState(env.DB, ctx.from!.id, { step: "AWAIT_THRESHOLD" });
+    await ctx.answerCallbackQuery();
+    const kb = new InlineKeyboard().text("❌ Отмена", "action_threshold");
+    await ctx.editMessageText(
+      `✏️ <b>Настройка шага цены для алертов</b>\n\n` +
+      `Отправьте желаемый шаг цены числом в чат:\n` +
+      `<i>(от <b>${CONFIG.MIN_ALERT_THRESHOLD}%</b> до <b>${CONFIG.MAX_ALERT_THRESHOLD}%</b>, например: <b>0.4</b> или <b>0.7</b>)</i>`,
+      { parse_mode: "HTML", reply_markup: kb }
+    );
+  });
+
   bot.callbackQuery("action_threshold", async (ctx) => {
+    await setUserWizardState(env.DB, ctx.from!.id, null);
     await ctx.answerCallbackQuery();
     await handleSettings(ctx, true);
   });
 
   bot.callbackQuery(/^set_thresh_(\d+(\.\d+)?)$/, async (ctx) => {
     const val = parseFloat(ctx.match[1]);
-    await setUserThreshold(env.DB, ctx.from.id, val);
+    await setUserWizardState(env.DB, ctx.from!.id, null);
+    await setUserThreshold(env.DB, ctx.from!.id, val);
     await ctx.answerCallbackQuery({ text: `Шаг установлен: ${val}%` });
     await handleSettings(ctx, true);
   });
