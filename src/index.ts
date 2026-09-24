@@ -1,5 +1,6 @@
 import { webhookCallback } from "grammy";
 import { Env } from "./types";
+import { CONFIG } from "./config";
 import { getBot } from "./bot/bot";
 import { runCronMonitor } from "./cron/monitor";
 

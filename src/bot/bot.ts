@@ -1,7 +1,7 @@
 import { Bot, InlineKeyboard } from "grammy";
 import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
 import { CONFIG } from "../config";
-import { fetchLighterAccount } from "../lighter/api";
+import { fetchLighterAccount, fetchLighterAccountWithStatus } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
 import { batchUpdatePositionsCache, getUserThreshold, setUserThreshold } from "../db/queries";
 import { formatPositionsReport } from "./formatters";
@@ -96,13 +96,27 @@ export function getBot(env: Env): Bot {
 
     // Проверка существования в Lighter API соответствующей сети
     await ctx.reply(`Проверяем аккаунт в ${netConfig.name} API...`);
-    const account = await fetchLighterAccount(network, accountIndex);
-    if (!account) {
+    const result = await fetchLighterAccountWithStatus(network, accountIndex);
+
+    if (result.status === 'RATE_LIMIT') {
       return ctx.reply(
-        `Аккаунт #${accountIndex} не найден в ${netConfig.name}.`,
+        `⚠️ API ${netConfig.name} временно ограничивает запросы (Rate Limit 429).\n\n` +
+        `Пожалуйста, повторите команду через 30–60 секунд.`,
         { reply_markup: mainKeyboard }
       );
     }
+
+    if (!result.account) {
+      const explorerLink = network === 'mainnet'
+        ? `\n\nПроверьте индекс в эксплорере:\nhttps://app.lighter.xyz/explorer/accounts/${accountIndex}`
+        : '';
+      return ctx.reply(
+        `Аккаунт #${accountIndex} не найден в ${netConfig.name}.${explorerLink}`,
+        { reply_markup: mainKeyboard }
+      );
+    }
+
+    const account = result.account;
 
     try {
       await env.DB.prepare(`

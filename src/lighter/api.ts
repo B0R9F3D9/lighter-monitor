@@ -1,6 +1,69 @@
 import { CONFIG } from "../config";
 import { LighterAccount, LighterApiResponse, LighterNetwork } from "../types";
 
+export interface FetchAccountResult {
+  account: LighterAccount | null;
+  status: 'OK' | 'NOT_FOUND' | 'RATE_LIMIT' | 'ERROR';
+  statusCode?: number;
+  message?: string;
+}
+
+export async function fetchLighterAccountWithStatus(
+  network: LighterNetwork,
+  accountIndex: number
+): Promise<FetchAccountResult> {
+  const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
+  const maxRetries = 2;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(`${baseUrl}/account?by=index&value=${accountIndex}`, {
+        headers: { 
+          "Accept": "application/json",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      });
+
+      if (res.status === 429) {
+        if (attempt < maxRetries) {
+          const delay = (attempt + 1) * 600;
+          console.warn(`[${network}] #${accountIndex} got 429, retrying in ${delay}ms... (attempt ${attempt + 1})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        return { account: null, status: 'RATE_LIMIT', statusCode: 429, message: "Too Many Requests" };
+      }
+
+      if (!res.ok) {
+        if (res.status === 404) {
+          return { account: null, status: 'NOT_FOUND', statusCode: 404, message: "Not found" };
+        }
+        const errText = await res.text().catch(() => "");
+        return { account: null, status: 'ERROR', statusCode: res.status, message: errText };
+      }
+
+      const data = (await res.json()) as any;
+      if (data.code === 200 && data.accounts && data.accounts.length > 0) {
+        return { account: data.accounts[0] as LighterAccount, status: 'OK', statusCode: 200 };
+      }
+
+      if (data.code === 29404 || (data.message && data.message.includes("not found")) || (data.accounts && data.accounts.length === 0)) {
+        return { account: null, status: 'NOT_FOUND', statusCode: 200, message: "Not found" };
+      }
+
+      return { account: null, status: 'ERROR', statusCode: data.code, message: data.message };
+    } catch (err: any) {
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, 400));
+        continue;
+      }
+      return { account: null, status: 'ERROR', message: err?.message || String(err) };
+    }
+  }
+
+  return { account: null, status: 'ERROR', message: "Max retries exceeded" };
+}
+
 export async function fetchLighterAccount(
   network: LighterNetwork,
   accountIndex: number
@@ -23,29 +86,8 @@ export async function fetchLighterAccount(
     index = maybeIndex!;
   }
 
-  const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), CONFIG.FETCH_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(`${baseUrl}/account?by=index&value=${index}`, {
-      signal: controller.signal,
-      headers: { "Accept": "application/json" }
-    });
-
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as LighterApiResponse;
-    if (data.code === 200 && data.accounts && data.accounts.length > 0) {
-      return data.accounts[0];
-    }
-    return null;
-  } catch (err) {
-    console.error(`fetchLighterAccount error for [${network}] #${index}:`, err);
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  const result = await fetchLighterAccountWithStatus(network, index);
+  return result.account;
 }
 
 export async function fetchInChunks<T, R>(
@@ -58,6 +100,10 @@ export async function fetchInChunks<T, R>(
     const chunk = items.slice(i, i + chunkSize);
     const chunkResults = await Promise.allSettled(chunk.map(item => fn(item)));
     results.push(...chunkResults);
+    // Небольшая пауза между чанками для предотвращения 429 всплесков
+    if (i + chunkSize < items.length) {
+      await new Promise(r => setTimeout(r, 150));
+    }
   }
   return results;
 }

@@ -25,8 +25,8 @@ export const CONFIG = {
   ACCOUNTS_BATCH_SIZE: 20,
   LIGHTER_CHUNK_CONCURRENCY: 5,
 
-  // Wall-Clock защита (4 чанка * 2.5 сек = 10 сек)
-  FETCH_TIMEOUT_MS: 2500,
+  // Wall-Clock защита (4 чанка * 5 сек = 20 сек)
+  FETCH_TIMEOUT_MS: 5000,
 
   // Пороги рисков
   DEFAULT_ALERT_THRESHOLD: 1.5, // По умолчанию 1.5% (для плеча 15-25x)
