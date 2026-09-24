@@ -1,7 +1,9 @@
-import { PositionRiskAnalysis } from "../types";
+import { PositionRiskAnalysis, LighterNetwork } from "../types";
+import { CONFIG } from "../config";
 import { formatSmartPrice } from "../lighter/math";
 
 export function formatPositionsReport(
+  network: LighterNetwork,
   accountIndex: number, 
   alias: string | null, 
   l1Address: string, 
@@ -9,10 +11,11 @@ export function formatPositionsReport(
   positions: PositionRiskAnalysis[],
   userThreshold: number = 1.5
 ): string {
+  const badge = CONFIG.NETWORKS[network]?.badge || `[${network.toUpperCase()}]`;
   const shortAddr = l1Address ? `${l1Address.slice(0, 6)}...${l1Address.slice(-4)}` : "—";
   const title = alias ? `<b>#${accountIndex} (${alias})</b>` : `<b>#${accountIndex}</b>`;
   
-  let text = `💼 <b>Аккаунт:</b> ${title}\n`;
+  let text = `💼 <b>Аккаунт:</b> ${title} <code>${badge}</code>\n`;
   text += `💳 <b>Кошелек:</b> <code>${shortAddr}</code>\n`;
   text += `💰 <b>Коллатерал:</b> $${collateral.toFixed(2)}\n\n`;
 
@@ -31,20 +34,20 @@ export function formatPositionsReport(
     text += `• UnPnL: ${pnlSign} ${pnlFormatted}\n`;
 
     if (pos.liqPrice > 0 && pos.distancePercent !== null) {
-      let badge = "";
+      let alertBadge = "";
       let icon = "🛡";
       if (pos.distancePercent <= 1.0) {
-        badge = " 🚨 [КРИТИЧНО]";
+        alertBadge = " 🚨 [КРИТИЧНО]";
         icon = "💥";
       } else if (pos.distancePercent <= userThreshold) {
-        badge = " ⚠️ [ОПАСНО]";
+        alertBadge = " ⚠️ [ОПАСНО]";
         icon = "⚠️";
       } else if (pos.distancePercent <= userThreshold * 1.5) {
-        badge = " [ВНИМАНИЕ]";
+        alertBadge = " [ВНИМАНИЕ]";
         icon = "⚡️";
       }
 
-      text += `• Ликвидация: $${formatSmartPrice(pos.liqPrice)} (${icon} <b>${pos.distancePercent.toFixed(2)}%</b>${badge})\n`;
+      text += `• Ликвидация: $${formatSmartPrice(pos.liqPrice)} (${icon} <b>${pos.distancePercent.toFixed(2)}%</b>${alertBadge})\n`;
     } else {
       text += `• Ликвидация: <i>нет риска</i> 🛡\n`;
     }
@@ -53,7 +56,13 @@ export function formatPositionsReport(
   return text;
 }
 
-export function formatLiquidationAlert(accountIndex: number, alias: string | null, pos: PositionRiskAnalysis): string {
+export function formatLiquidationAlert(
+  network: LighterNetwork,
+  accountIndex: number, 
+  alias: string | null, 
+  pos: PositionRiskAnalysis
+): string {
+  const badge = CONFIG.NETWORKS[network]?.badge || `[${network.toUpperCase()}]`;
   const isCrit = pos.distancePercent !== null && pos.distancePercent <= 1.0;
   const header = isCrit ? "💥 <b>КРИТИЧЕСКИЙ РИСК ЛИКВИДАЦИИ!</b>" : "🚨 <b>ВНИМАНИЕ: РИСК ЛИКВИДАЦИИ!</b>";
   const accName = alias ? `#${accountIndex} (${alias})` : `#${accountIndex}`;
@@ -62,7 +71,7 @@ export function formatLiquidationAlert(accountIndex: number, alias: string | nul
   const pnlFormatted = pos.unrealizedPnl >= 0 ? `+$${pos.unrealizedPnl.toFixed(2)}` : `-$${Math.abs(pos.unrealizedPnl).toFixed(2)}`;
 
   return `${header}\n\n` +
-    `💼 Аккаунт: <b>${accName}</b>\n` +
+    `💼 Аккаунт: <b>${accName} ${badge}</b>\n` +
     `📊 Инструмент: <b>${pos.symbol}</b> (${sideBadge})\n` +
     `⚠️ До ликвидации: <b>${pos.distancePercent?.toFixed(2)}%</b> 🚨\n` +
     `• Текущая цена: $${formatSmartPrice(pos.markPrice)}\n` +
@@ -72,10 +81,16 @@ export function formatLiquidationAlert(accountIndex: number, alias: string | nul
     `⚠️ <i>Рекомендуется пополнить маржу или сократить позицию!</i>`;
 }
 
-export function formatPositionWipedAlert(accountIndex: number, alias: string | null, symbol: string): string {
+export function formatPositionWipedAlert(
+  network: LighterNetwork,
+  accountIndex: number, 
+  alias: string | null, 
+  symbol: string
+): string {
+  const badge = CONFIG.NETWORKS[network]?.badge || `[${network.toUpperCase()}]`;
   const accName = alias ? `#${accountIndex} (${alias})` : `#${accountIndex}`;
   return `💀 <b>ВНИМАНИЕ! ПОЗИЦИЯ ЗАКРЫТА ИЛИ ЛИКВИДИРОВАНА</b>\n\n` +
-    `💼 Аккаунт: <b>${accName}</b>\n` +
+    `💼 Аккаунт: <b>${accName} ${badge}</b>\n` +
     `📊 Инструмент: <b>${symbol}</b>\n\n` +
     `Позиция с высоким риском больше не числится открытой в Lighter. Проверьте баланс на бирже.`;
 }

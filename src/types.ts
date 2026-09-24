@@ -1,7 +1,23 @@
+export type LighterNetwork = 'rh' | 'mainnet';
+
 export interface Env {
   DB: D1Database;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_SECRET_TOKEN?: string;
+}
+
+export interface TrackedAccountKey {
+  network: LighterNetwork;
+  accountIndex: number;
+}
+
+export interface UserTrackedAccountRow {
+  id: number;
+  telegram_id: number;
+  network: LighterNetwork;
+  account_index: number;
+  alias: string | null;
+  created_at: number;
 }
 
 export interface LighterPosition {
@@ -65,6 +81,7 @@ export interface CachedPositionPayload {
 export interface AlertTask {
   telegramId: number;
   text: string;
+  network: LighterNetwork;
   accountIndex: number;
   marketId: number;
   tier: AlertTier;

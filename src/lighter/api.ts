@@ -1,15 +1,34 @@
 import { CONFIG } from "../config";
-import { LighterAccount, LighterApiResponse } from "../types";
+import { LighterAccount, LighterApiResponse, LighterNetwork } from "../types";
 
 export async function fetchLighterAccount(
-  accountIndex: number, 
-  baseUrl: string = CONFIG.LIGHTER_RH_BASE_URL
+  network: LighterNetwork,
+  accountIndex: number
+): Promise<LighterAccount | null>;
+export async function fetchLighterAccount(
+  accountIndex: number
+): Promise<LighterAccount | null>;
+export async function fetchLighterAccount(
+  networkOrIndex: LighterNetwork | number,
+  maybeIndex?: number
 ): Promise<LighterAccount | null> {
+  let network: LighterNetwork = 'rh';
+  let index: number;
+
+  if (typeof networkOrIndex === 'number') {
+    index = networkOrIndex;
+    network = 'rh';
+  } else {
+    network = networkOrIndex;
+    index = maybeIndex!;
+  }
+
+  const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CONFIG.FETCH_TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${baseUrl}/account?by=index&value=${accountIndex}`, {
+    const res = await fetch(`${baseUrl}/account?by=index&value=${index}`, {
       signal: controller.signal,
       headers: { "Accept": "application/json" }
     });
@@ -22,7 +41,7 @@ export async function fetchLighterAccount(
     }
     return null;
   } catch (err) {
-    console.error(`fetchLighterAccount error for account ${accountIndex}:`, err);
+    console.error(`fetchLighterAccount error for [${network}] #${index}:`, err);
     return null;
   } finally {
     clearTimeout(timer);

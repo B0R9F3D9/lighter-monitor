@@ -1,5 +1,23 @@
+import { LighterNetwork } from "./types";
+
 export const CONFIG = {
-  LIGHTER_RH_BASE_URL: "https://api.rh.lighter.xyz/api/v1",
+  NETWORKS: {
+    rh: {
+      id: 'rh' as LighterNetwork,
+      name: 'Robinhood Lighter',
+      shortLabel: 'RH',
+      badge: '[RH]',
+      baseUrl: 'https://api.rh.lighter.xyz/api/v1',
+    },
+    mainnet: {
+      id: 'mainnet' as LighterNetwork,
+      name: 'Lighter Mainnet',
+      shortLabel: 'Mainnet',
+      badge: '[Mainnet]',
+      baseUrl: 'https://mainnet.zklighter.elliot.ai/api/v1',
+    },
+  },
+  DEFAULT_NETWORK: 'rh' as LighterNetwork,
   MAX_TRACKED_ACCOUNTS_PER_USER: 10,
 
   // Управление бюджетом Cloudflare Free Subrequests

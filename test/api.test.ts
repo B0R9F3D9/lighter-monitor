@@ -3,7 +3,7 @@ import { fetchLighterAccount, fetchInChunks } from "../src/lighter/api";
 
 describe("fetchLighterAccount", () => {
   it("should successfully fetch real account 31704 from Robinhood Lighter API", async () => {
-    const account = await fetchLighterAccount(31704);
+    const account = await fetchLighterAccount('rh', 31704);
     expect(account).not.toBeNull();
     expect(account?.index).toBe(31704);
     expect(account?.l1_address).toBeDefined();
@@ -11,9 +11,20 @@ describe("fetchLighterAccount", () => {
     expect(Array.isArray(account?.positions)).toBe(true);
   });
 
+  it("should successfully fetch real account 749329 from Mainnet Lighter API", async () => {
+    const account = await fetchLighterAccount('mainnet', 749329);
+    expect(account).not.toBeNull();
+    expect(account?.index).toBe(749329);
+    expect(account?.l1_address).toBeDefined();
+    expect(account?.l1_address.startsWith("0x")).toBe(true);
+    expect(Array.isArray(account?.positions)).toBe(true);
+    // Verified that 749329 has an active XAU position
+    const xauPos = account?.positions.find(p => p.symbol === "XAU");
+    expect(xauPos).toBeDefined();
+  });
+
   it("should return null for non-existent account index", async () => {
-    // Large non-existent index
-    const account = await fetchLighterAccount(999999999);
+    const account = await fetchLighterAccount('rh', 999999999);
     expect(account).toBeNull();
   });
 });

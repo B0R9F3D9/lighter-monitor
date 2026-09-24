@@ -1,50 +1,52 @@
-import { LighterAccount, CachedPositionPayload, SubscriberRecord } from "../types";
+import { LighterAccount, CachedPositionPayload, SubscriberRecord, TrackedAccountKey, LighterNetwork } from "../types";
 
-// 1. Выборка аккаунтов по честному Round-Robin
-export async function getAccountsForCronBatch(db: D1Database, limit: number): Promise<number[]> {
+// 1. Выборка пар (network, account_index) по честному Round-Robin
+export async function getAccountsForCronBatch(db: D1Database, limit: number): Promise<TrackedAccountKey[]> {
   const query = `
-    SELECT DISTINCT u.account_index 
+    SELECT DISTINCT u.network, u.account_index 
     FROM user_tracked_accounts u
-    LEFT JOIN account_positions_cache c ON u.account_index = c.account_index
+    LEFT JOIN account_positions_cache c ON u.network = c.network AND u.account_index = c.account_index
     ORDER BY COALESCE(c.last_updated_at, 0) ASC
     LIMIT ?;
   `;
-  const { results } = await db.prepare(query).bind(limit).all<{ account_index: number }>();
-  return results ? results.map(r => r.account_index) : [];
+  const { results } = await db.prepare(query).bind(limit).all<{ network: LighterNetwork; account_index: number }>();
+  return results ? results.map(r => ({ network: r.network, accountIndex: r.account_index })) : [];
 }
 
 // 2. Обновление last_updated_at ТОЛЬКО для упавших запросов (экономия 50% квоты D1)
-export async function touchFailedAccounts(db: D1Database, failedIndices: number[]): Promise<void> {
-  if (failedIndices.length === 0) return;
+export async function touchFailedAccounts(db: D1Database, failedAccounts: TrackedAccountKey[]): Promise<void> {
+  if (failedAccounts.length === 0) return;
   const now = Math.floor(Date.now() / 1000);
-  const values = failedIndices.map(id => `(${id}, '', 0, 0, '[]', ${now})`).join(",");
-  const query = `
-    INSERT INTO account_positions_cache (account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at)
-    VALUES ${values}
-    ON CONFLICT(account_index) DO UPDATE SET last_updated_at = excluded.last_updated_at;
-  `;
-  await db.prepare(query).run();
+  const statements = failedAccounts.map(item =>
+    db.prepare(`
+      INSERT INTO account_positions_cache (network, account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at)
+      VALUES (?, ?, '', 0, 0, '[]', ?)
+      ON CONFLICT(network, account_index) DO UPDATE SET last_updated_at = excluded.last_updated_at;
+    `).bind(item.network, item.accountIndex, now)
+  );
+  await db.batch(statements);
 }
 
 // 3. Пакетное обновление детального кэша для успешно опрошенных аккаунтов
 export async function batchUpdatePositionsCache(
   db: D1Database, 
-  accountsData: Array<{ account: LighterAccount; cachedPositions: CachedPositionPayload[] }>
+  accountsData: Array<{ network: LighterNetwork; account: LighterAccount; cachedPositions: CachedPositionPayload[] }>
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const statements: D1PreparedStatement[] = accountsData.map(item => {
     const acc = item.account;
     return db.prepare(`
       INSERT INTO account_positions_cache (
-        account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(account_index) DO UPDATE SET
+        network, account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(network, account_index) DO UPDATE SET
         l1_address = excluded.l1_address,
         collateral = excluded.collateral,
         total_asset_value = excluded.total_asset_value,
         positions_json = excluded.positions_json,
         last_updated_at = excluded.last_updated_at
     `).bind(
+      item.network,
       acc.index,
       acc.l1_address,
       parseFloat(acc.collateral || "0"),
@@ -62,15 +64,16 @@ export async function batchUpdatePositionsCache(
 // 4. Подписчики аккаунта с их индивидуальными порогами алертов
 export async function getAccountSubscribers(
   db: D1Database, 
+  network: LighterNetwork,
   accountIndex: number
 ): Promise<SubscriberRecord[]> {
   const query = `
     SELECT u.telegram_id, uta.alias, COALESCE(u.alert_threshold, 1.5) as alert_threshold
     FROM user_tracked_accounts uta
     JOIN users u ON uta.telegram_id = u.telegram_id
-    WHERE uta.account_index = ?;
+    WHERE uta.network = ? AND uta.account_index = ?;
   `;
-  const { results } = await db.prepare(query).bind(accountIndex).all<SubscriberRecord>();
+  const { results } = await db.prepare(query).bind(network, accountIndex).all<SubscriberRecord>();
   return results || [];
 }
 
@@ -97,9 +100,14 @@ export async function removeBlockedUser(db: D1Database, telegramId: number): Pro
 }
 
 // 6. Сброс кулдаунов при выходе в безопасную зону (> 12%)
-export async function clearSafeAlerts(db: D1Database, accountIndex: number, marketId: number): Promise<void> {
+export async function clearSafeAlerts(
+  db: D1Database, 
+  network: LighterNetwork,
+  accountIndex: number, 
+  marketId: number
+): Promise<void> {
   await db.prepare(`
     DELETE FROM alert_logs 
-    WHERE account_index = ? AND market_id = ?
-  `).bind(accountIndex, marketId).run();
+    WHERE network = ? AND account_index = ? AND market_id = ?
+  `).bind(network, accountIndex, marketId).run();
 }

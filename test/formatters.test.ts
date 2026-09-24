@@ -3,9 +3,10 @@ import { formatPositionsReport, formatLiquidationAlert, formatPositionWipedAlert
 import { PositionRiskAnalysis } from "../src/types";
 
 describe("formatPositionsReport", () => {
-  it("should format empty positions correctly", () => {
-    const text = formatPositionsReport(31704, "Основной", "0x0000000000000000000000000000000000000001", 100.5, []);
+  it("should format empty positions correctly with network badge", () => {
+    const text = formatPositionsReport('rh', 31704, "Основной", "0x0000000000000000000000000000000000000001", 100.5, []);
     expect(text).toContain("#31704 (Основной)");
+    expect(text).toContain("[RH]");
     expect(text).toContain("0x0000...0001");
     expect(text).toContain("$100.50");
     expect(text).toContain("Нет открытых позиций");
@@ -26,8 +27,9 @@ describe("formatPositionsReport", () => {
       tier: "CRITICAL_2"
     };
 
-    const text = formatPositionsReport(31704, null, "0x0000000000000000000000000000000000000001", 51.32, [pos], 1.5);
-    expect(text).toContain("#31704");
+    const text = formatPositionsReport('mainnet', 749329, null, "0x0000000000000000000000000000000000000001", 51.32, [pos], 1.5);
+    expect(text).toContain("#749329");
+    expect(text).toContain("[Mainnet]");
     expect(text).toContain("🟢 LONG <b>XAU</b>");
     expect(text).not.toContain("mId");
     expect(text).toContain("Размер: 3.1");
@@ -37,7 +39,7 @@ describe("formatPositionsReport", () => {
 });
 
 describe("formatLiquidationAlert", () => {
-  it("should format liquidation alert with account name and details", () => {
+  it("should format liquidation alert with network badge, account name and details", () => {
     const pos: PositionRiskAnalysis = {
       marketId: 40,
       symbol: "XAU",
@@ -52,9 +54,9 @@ describe("formatLiquidationAlert", () => {
       tier: "CRITICAL_2"
     };
 
-    const alert = formatLiquidationAlert(31704, "Мейн", pos);
+    const alert = formatLiquidationAlert('rh', 31704, "Мейн", pos);
     expect(alert).toContain("КРИТИЧЕСКИЙ РИСК ЛИКВИДАЦИИ");
-    expect(alert).toContain("#31704 (Мейн)");
+    expect(alert).toContain("#31704 (Мейн) [RH]");
     expect(alert).toContain("0.80%");
     expect(alert).toContain("4,267.44");
     expect(alert).toContain("4,168.39");
@@ -63,10 +65,10 @@ describe("formatLiquidationAlert", () => {
 });
 
 describe("formatPositionWipedAlert", () => {
-  it("should format wiped alert for closed/liquidated position", () => {
-    const alert = formatPositionWipedAlert(31704, "Мейн", "XAU");
+  it("should format wiped alert for closed/liquidated position with network badge", () => {
+    const alert = formatPositionWipedAlert('mainnet', 749329, "Кит", "XAU");
     expect(alert).toContain("ПОЗИЦИЯ ЗАКРЫТА ИЛИ ЛИКВИДИРОВАНА");
-    expect(alert).toContain("#31704 (Мейн)");
+    expect(alert).toContain("#749329 (Кит) [Mainnet]");
     expect(alert).toContain("XAU");
   });
 });
