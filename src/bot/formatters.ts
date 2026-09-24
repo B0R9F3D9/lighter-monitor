@@ -12,11 +12,9 @@ export function formatPositionsReport(
   userThreshold: number = 1.5
 ): string {
   const badge = CONFIG.NETWORKS[network]?.badge || `[${network.toUpperCase()}]`;
-  const shortAddr = l1Address ? `${l1Address.slice(0, 6)}...${l1Address.slice(-4)}` : "—";
   const title = alias ? `<b>#${accountIndex} (${alias})</b>` : `<b>#${accountIndex}</b>`;
   
-  let text = `💼 ${title} <code>${badge}</code> • <b>$${collateral.toFixed(2)}</b>\n`;
-  text += `💳 <code>${shortAddr}</code>\n\n`;
+  let text = `💼 ${title} <code>${badge}</code> • <b>$${collateral.toFixed(2)}</b>\n\n`;
 
   if (positions.length === 0) {
     text += `<i>Нет открытых позиций</i>\n`;

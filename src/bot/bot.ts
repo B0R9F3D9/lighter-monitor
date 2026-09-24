@@ -656,8 +656,7 @@ export function getBot(env: Env): Bot {
       ? `refresh:${filterNetwork}:${filterIndex}`
       : (filterIndex ? `refresh_positions_${filterIndex}` : "refresh_positions");
     return new InlineKeyboard()
-      .text("🔄 Обновить", refreshCb)
-      .text("💼 Кошельки", "action_list");
+      .text("🔄 Обновить", refreshCb);
   };
 
   const handlePositions = async (

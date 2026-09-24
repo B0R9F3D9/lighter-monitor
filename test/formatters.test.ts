@@ -7,7 +7,7 @@ describe("formatPositionsReport", () => {
     const text = formatPositionsReport('rh', 31704, "Основной", "0x0000000000000000000000000000000000000001", 100.5, []);
     expect(text).toContain("#31704 (Основной)");
     expect(text).toContain("[RH]");
-    expect(text).toContain("0x0000...0001");
+    expect(text).not.toContain("0x0000");
     expect(text).toContain("$100.50");
     expect(text).toContain("Нет открытых позиций");
   });
