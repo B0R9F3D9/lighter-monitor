@@ -1,196 +1,218 @@
-import { Env, LighterAccount, AlertTask, CachedPositionPayload, TrackedAccountKey } from "../types";
+import { InlineKeyboard } from "grammy";
+import { Env, LighterAccount, LighterNetwork, MarketPriceSnapshot } from "../types";
 import { CONFIG } from "../config";
 import { 
-  getAccountsForCronBatch, 
+  getNextAccountForSync, 
   touchFailedAccounts, 
   batchUpdatePositionsCache, 
-  getAccountSubscribers, 
+  syncAccountOpenPositions,
+  getActivePositionsForMonitoring,
   removeBlockedUser 
 } from "../db/queries";
-import { fetchInChunks, fetchLighterAccount } from "../lighter/api";
+import { fetchLighterAccount, fetchExchangeStats, findMarketPrice } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
-import { formatLiquidationAlert, formatPositionWipedAlert } from "../bot/formatters";
+import { formatPriceStepAlert } from "../bot/formatters";
 import { getBot } from "../bot/bot";
+
+// Динамический умный кулдаун на лету от порога пользователя
+export function getSmartCooldownSeconds(threshold: number): number {
+  if (threshold <= 0.5) return 180; // 3 минуты (для XAU / агрессивных плеч 15x-25x)
+  if (threshold <= 1.0) return 300; // 5 минут (стандарт)
+  return 480;                       // 8 минут (для свинга с шагом 1.5% - 3%)
+}
 
 export async function runCronMonitor(env: Env): Promise<void> {
   const bot = getBot(env);
+  const now = Math.floor(Date.now() / 1000);
+  const startTime = Date.now();
+  const MAX_WALL_CLOCK_MS = 20_000; // 20 сек таймаут (Time-Budgeting)
+  const MAX_JIT_CHECKS_PER_CRON = 15;
+
   let subrequestsUsed = 0;
+  let jitChecksDone = 0;
 
-  // 1. Выборка аккаунтов по честному Round-Robin среди всех сетей
-  const accountsToPoll = await getAccountsForCronBatch(env.DB, CONFIG.ACCOUNTS_BATCH_SIZE);
-  if (accountsToPoll.length === 0) return;
+  // 1. ФОНОВЫЙ ROUND-ROBIN (1 аккаунт за тик со спасением очереди при ошибках)
+  const accountToSync = await getNextAccountForSync(env.DB);
+  let syncedAccountData: LighterAccount | null = null;
 
-  // 2. Читаем предыдущие снимки для точечной детекции ликвидации
-  const keys = accountsToPoll.map(a => `${a.network}:${a.accountIndex}`);
-  const placeholders = keys.map(() => "?").join(",");
-  const { results: oldCacheRows } = await env.DB.prepare(
-    `SELECT network, account_index, positions_json FROM account_positions_cache WHERE (network || ':' || account_index) IN (${placeholders})`
-  ).bind(...keys).all<{ network: string; account_index: number; positions_json: string }>();
+  if (accountToSync) {
+    syncedAccountData = await fetchLighterAccount(accountToSync.network, accountToSync.accountIndex);
+    subrequestsUsed++;
 
-  const oldCacheMap = new Map((oldCacheRows || []).map(r => [`${r.network}:${r.account_index}`, r]));
+    if (syncedAccountData) {
+      await syncAccountOpenPositions(env.DB, accountToSync.network, accountToSync.accountIndex, syncedAccountData.positions);
+      await batchUpdatePositionsCache(env.DB, [{
+        network: accountToSync.network,
+        account: syncedAccountData,
+        cachedPositions: syncedAccountData.positions.map(analyzePositionRisk).filter(Boolean) as any
+      }]);
+    } else {
+      // Спасение от зависания: проталкиваем очередь вперед даже при временном сбое API
+      await touchFailedAccounts(env.DB, [accountToSync]);
+    }
+  }
 
-  // 3. Опрос Lighter API пачками по 5 параллельных запросов (таймаут 2.5 сек)
-  const fetchResults = await fetchInChunks(
-    accountsToPoll, 
-    CONFIG.LIGHTER_CHUNK_CONCURRENCY, 
-    (target) => fetchLighterAccount(target.network, target.accountIndex)
-  );
-  subrequestsUsed += accountsToPoll.length;
+  // 2. Единый JOIN: получаем открытые позиции всех пользователей
+  const items = await getActivePositionsForMonitoring(env.DB);
+  if (items.length === 0) return;
 
-  const failedAccounts: TrackedAccountKey[] = [];
-  const validAccounts: Array<{ network: any; account: LighterAccount; cachedPositions: CachedPositionPayload[] }> = [];
-  const alertsToSend: AlertTask[] = [];
+  // 3. Загружаем срезы цен биржи (1-2 запроса на всю систему)
+  const neededNetworks = Array.from(new Set(items.map(i => i.network)));
+  const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
 
-  for (let i = 0; i < accountsToPoll.length; i++) {
-    const target = accountsToPoll[i]!;
-    const res = fetchResults[i];
+  for (const net of neededNetworks) {
+    if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 10) break;
+    const snap = await fetchExchangeStats(net);
+    subrequestsUsed++;
+    priceSnapshots.set(net, snap);
+  }
 
-    if (!res || res.status !== "fulfilled" || !res.value) {
-      failedAccounts.push(target);
+  // 4. In-Memory JIT-кэш: ПРЕДЗАПОЛНЯЕМ данными из Шага 1 (теплый кэш)
+  const jitCache = new Map<string, LighterAccount | null>();
+  if (accountToSync && syncedAccountData) {
+    jitCache.set(`${accountToSync.network}:${accountToSync.accountIndex}`, syncedAccountData);
+  }
+
+  const newPositionsToInit: D1PreparedStatement[] = [];
+  const alertUpdateStmts: D1PreparedStatement[] = [];
+  let lastTelegramId = 0;
+
+  for (const item of items) {
+    // Защита по времени: если прошло более 20 секунд, прерываем цикл до следующей минуты
+    if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
+      console.warn("Cron wall-clock budget reached (20s). Postponing remaining checks.");
+      break;
+    }
+
+    const netMap = priceSnapshots.get(item.network);
+    if (!netMap) continue;
+
+    const market = findMarketPrice(netMap, item.symbol);
+    if (!market || market.price <= 0) continue;
+
+    const currentPrice = market.price;
+
+    // ПЕРВЫЙ ТИК: пакуем в единый batch без отправки спама
+    if (item.last_price === null) {
+      newPositionsToInit.push(
+        env.DB.prepare(`
+          INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET last_price = excluded.last_price
+        `).bind(item.telegram_id, item.network, item.account_index, item.market_id, item.symbol, currentPrice, now)
+      );
       continue;
     }
 
-    const account = res.value;
-    const oldCache = oldCacheMap.get(`${target.network}:${target.accountIndex}`);
+    // Проверка шага цены
+    const baseline = item.last_price;
+    const priceDeltaPercent = ((currentPrice - baseline) / baseline) * 100;
+    const absDelta = Math.abs(priceDeltaPercent);
 
-    const activePositions = account.positions.filter(p => Math.abs(parseFloat(p.position || "0")) > 0);
-    const risks = activePositions.map(analyzePositionRisk).filter(Boolean);
+    if (absDelta < item.alert_threshold) continue;
 
-    const cachedPositions: CachedPositionPayload[] = risks.map(r => ({ ...r! }));
-    validAccounts.push({ network: target.network, account, cachedPositions });
+    // Динамический кулдаун (3-8 минут с пробитием при двойном скачке)
+    const cooldownSeconds = getSmartCooldownSeconds(item.alert_threshold);
+    const timeSinceLastAlert = item.last_alerted_at ? (now - item.last_alerted_at) : Infinity;
+    const isDoubleJump = absDelta >= (item.alert_threshold * 2);
 
-    // Детекция закрытия/ликвидации только позиций с прошлым высоким риском
-    if (oldCache && oldCache.positions_json) {
-      try {
-        const oldPositions = JSON.parse(oldCache.positions_json) as CachedPositionPayload[];
-        for (const oldP of oldPositions) {
-          const stillOpen = activePositions.some(p => p.market_id === oldP.marketId);
-          if (!stillOpen && (oldP.tier === 'CRITICAL_2' || oldP.tier === 'DANGER_5')) {
-            const subs = await getAccountSubscribers(env.DB, target.network, target.accountIndex);
-            for (const sub of subs) {
-              alertsToSend.push({
-                telegramId: sub.telegram_id,
-                text: formatPositionWipedAlert(target.network, target.accountIndex, sub.alias, oldP.symbol),
-                network: target.network,
-                accountIndex: target.accountIndex,
-                marketId: oldP.marketId,
-                tier: 'LIQUIDATED',
-                distance: 0
-              });
-            }
-          }
-        }
-      } catch (err) {
-        console.error(`Error parsing old cache for [${target.network}] #${target.accountIndex}:`, err);
-      }
+    if (timeSinceLastAlert < cooldownSeconds && !isDoubleJump) continue;
+
+    // Защита от шторма на рынке (лимит JIT проверок)
+    if (jitChecksDone >= MAX_JIT_CHECKS_PER_CRON || subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) {
+      break;
     }
 
-    // Проверка текущих открытых позиций
-    for (const r of risks) {
-      if (!r) continue;
+    // JIT-проверка с использованием теплого jitCache
+    const cacheKey = `${item.network}:${item.account_index}`;
+    let freshAccount = jitCache.get(cacheKey);
 
-      const subs = await getAccountSubscribers(env.DB, target.network, target.accountIndex);
-
-      for (const sub of subs) {
-        const userThreshold = sub.alert_threshold ?? CONFIG.DEFAULT_ALERT_THRESHOLD;
-
-        // Сброс истории алертов при выходе цены в безопасную зону выше порога пользователя
-        if (r.distancePercent !== null && r.distancePercent > userThreshold * CONFIG.CLEARANCE_MULTIPLIER) {
-          await env.DB.prepare(
-            "DELETE FROM alert_logs WHERE telegram_id = ? AND network = ? AND account_index = ? AND market_id = ?"
-          ).bind(sub.telegram_id, target.network, target.accountIndex, r.marketId).run();
-          continue;
-        }
-
-        // Проверяем, пробил ли процент порог пользователя
-        if (r.distancePercent !== null && r.distancePercent <= userThreshold) {
-          const cooldown = CONFIG.ALERT_COOLDOWN_SECONDS;
-          const now = Math.floor(Date.now() / 1000);
-
-          const lastAlert = await env.DB.prepare(
-            "SELECT sent_at, last_distance FROM alert_logs WHERE telegram_id = ? AND network = ? AND account_index = ? AND market_id = ? AND alert_tier = ?"
-          ).bind(sub.telegram_id, target.network, target.accountIndex, r.marketId, r.tier).first<{ sent_at: number; last_distance: number }>();
-
-          // Алерт шлем, если прошло > 15 мин кулдауна ИЛИ если дистанция сократилась еще сильнее (на >= 0.3%)
-          const isSignificantlyWorse = lastAlert && (lastAlert.last_distance - r.distancePercent >= 0.3);
-          if (!lastAlert || (now - lastAlert.sent_at) >= cooldown || isSignificantlyWorse) {
-            alertsToSend.push({
-              telegramId: sub.telegram_id,
-              text: formatLiquidationAlert(target.network, target.accountIndex, sub.alias, r),
-              network: target.network,
-              accountIndex: target.accountIndex,
-              marketId: r.marketId,
-              tier: r.tier,
-              distance: r.distancePercent || 0
-            });
-          }
-        }
-      }
+    if (freshAccount === undefined) {
+      freshAccount = await fetchLighterAccount(item.network, item.account_index);
+      subrequestsUsed++;
+      jitChecksDone++;
+      jitCache.set(cacheKey, freshAccount);
     }
-  }
 
-  // 4. Обновление упавших аккаунтов (для непрерывного Round-Robin)
-  if (failedAccounts.length > 0) {
-    await touchFailedAccounts(env.DB, failedAccounts);
-  }
+    if (!freshAccount) continue;
 
-  // 5. Пакетная запись кэша успешных аккаунтов
-  if (validAccounts.length > 0) {
-    await batchUpdatePositionsCache(env.DB, validAccounts);
-  }
+    const livePosition = freshAccount.positions.find(
+      p => p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0
+    );
 
-  // 6. Сортировка приоритетов
-  alertsToSend.sort((a, b) => (CONFIG.PRIORITY_WEIGHTS[b.tier] || 0) - (CONFIG.PRIORITY_WEIGHTS[a.tier] || 0));
+    // ЗОМБИ ЛИКВИДИРОВАН: удаление закрытой позиции для ВСЕХ подписчиков кошелька
+    if (!livePosition) {
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?")
+          .bind(item.network, item.account_index, item.market_id),
+        env.DB.prepare("DELETE FROM user_token_alerts WHERE network = ? AND account_index = ? AND market_id = ?")
+          .bind(item.network, item.account_index, item.market_id)
+      ]);
+      continue;
+    }
 
-  // 7. Группировка алертов по пользователям
-  const userAlertsMap = new Map<number, AlertTask[]>();
-  for (const alert of alertsToSend) {
-    const list = userAlertsMap.get(alert.telegramId) || [];
-    list.push(alert);
-    userAlertsMap.set(alert.telegramId, list);
-  }
+    // ОТПРАВКА 3-СЛОЙНОГО БОЕВОГО АЛЕРТА
+    const isLong = item.is_long === 1;
+    const unPnl = parseFloat(livePosition.unrealized_pnl || "0");
+    const liqPrice = parseFloat(livePosition.liquidation_price || "0");
+    const distancePercent = (liqPrice > 0 && currentPrice > 0)
+      ? Math.abs((currentPrice - liqPrice) / currentPrice) * 100
+      : null;
 
-  // 8. Рассылка с контролем подзапросов и безопасным делением длинных текстов
-  const maxUserDispatches = CONFIG.MAX_SUBREQUESTS_PER_CRON - subrequestsUsed;
-  const targetUsers = Array.from(userAlertsMap.entries()).slice(0, Math.max(0, maxUserDispatches));
+    const alertText = formatPriceStepAlert({
+      network: item.network,
+      accountIndex: item.account_index,
+      alias: item.alias,
+      symbol: item.symbol,
+      isLong,
+      entryPrice: item.entry_price,
+      currentPrice,
+      baselinePrice: baseline,
+      priceDeltaPercent,
+      unrealizedPnl: unPnl,
+      liqPrice,
+      distancePercent
+    });
 
-  for (const [telegramId, userTasks] of targetUsers) {
+    const keyboard = new InlineKeyboard()
+      .text("🔄 Обновить позиции", `refresh:${item.network}:${item.account_index}`);
+
     try {
-      const combinedText = userTasks.map(t => t.text.trim()).join("\n\n");
-
-      if (combinedText.length > 3900) {
-        for (const t of userTasks) {
-          if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON) break;
-          await bot.api.sendMessage(telegramId, t.text, { parse_mode: "HTML" });
-          subrequestsUsed++;
+      if (subrequestsUsed < CONFIG.MAX_SUBREQUESTS_PER_CRON) {
+        // Троттлинг Telegram: пауза 1 сек при последовательной отправке одному пользователю
+        if (item.telegram_id === lastTelegramId) {
           await new Promise(r => setTimeout(r, 1000));
         }
-      } else {
-        await bot.api.sendMessage(telegramId, combinedText, { parse_mode: "HTML" });
+
+        await bot.api.sendMessage(item.telegram_id, alertText, {
+          parse_mode: "HTML",
+          reply_markup: keyboard
+        });
         subrequestsUsed++;
+        lastTelegramId = item.telegram_id;
+
+        alertUpdateStmts.push(
+          env.DB.prepare(`
+            INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
+              last_price = excluded.last_price,
+              last_alerted_at = excluded.last_alerted_at
+          `).bind(item.telegram_id, item.network, item.account_index, item.market_id, item.symbol, currentPrice, now)
+        );
       }
-
-      const now = Math.floor(Date.now() / 1000);
-      const logStatements = userTasks.map(t => env.DB.prepare(`
-        INSERT INTO alert_logs (telegram_id, network, account_index, market_id, alert_tier, last_distance, sent_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(telegram_id, network, account_index, market_id, alert_tier) DO UPDATE SET
-          last_distance = excluded.last_distance,
-          sent_at = excluded.sent_at
-      `).bind(t.telegramId, t.network, t.accountIndex, t.marketId, t.tier, t.distance, now));
-
-      if (logStatements.length > 0) {
-        await env.DB.batch(logStatements);
-      }
-
-      await new Promise(res => setTimeout(res, 60));
     } catch (err: any) {
       if (err?.error_code === 403) {
-        console.warn(`User ${telegramId} blocked the bot. Deleting via batch.`);
-        await removeBlockedUser(env.DB, telegramId);
+        await removeBlockedUser(env.DB, item.telegram_id);
       } else {
-        console.error(`Failed to send alert to ${telegramId}:`, err);
+        console.error(`Failed to send alert to ${item.telegram_id}:`, err);
       }
     }
+  }
+
+  // 5. Единая пакетная транзакция в D1
+  const allUpdates = [...newPositionsToInit, ...alertUpdateStmts];
+  if (allUpdates.length > 0) {
+    await env.DB.batch(allUpdates);
   }
 }

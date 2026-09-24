@@ -3,7 +3,7 @@ import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
 import { CONFIG } from "../config";
 import { fetchLighterAccount, fetchLighterAccountWithStatus } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
-import { batchUpdatePositionsCache, getUserThreshold, setUserThreshold } from "../db/queries";
+import { batchUpdatePositionsCache, getUserThreshold, setUserThreshold, syncAccountOpenPositions } from "../db/queries";
 import { formatPositionsReport } from "./formatters";
 
 let botInstance: Bot | null = null;
@@ -135,6 +135,7 @@ export function getBot(env: Env): Bot {
         account,
         cachedPositions: risks as any
       }]);
+      await syncAccountOpenPositions(env.DB, network, accountIndex, account.positions);
 
       await ctx.reply(
         `Аккаунт <b>#${accountIndex}</b> добавлен в <b>${netConfig.name}</b> <code>${netConfig.badge}</code>.\n` +
@@ -297,8 +298,10 @@ export function getBot(env: Env): Bot {
     await handleList(ctx);
   });
 
-  const getPositionsKeyboard = (filterIndex?: number) => {
-    const refreshCb = filterIndex ? `refresh_positions_${filterIndex}` : "refresh_positions";
+  const getPositionsKeyboard = (filterIndex?: number, filterNetwork?: LighterNetwork) => {
+    const refreshCb = (filterIndex && filterNetwork)
+      ? `refresh:${filterNetwork}:${filterIndex}`
+      : (filterIndex ? `refresh_positions_${filterIndex}` : "refresh_positions");
     return new InlineKeyboard()
       .text("🔄 Обновить", refreshCb)
       .row()
@@ -311,21 +314,31 @@ export function getBot(env: Env): Bot {
     ctx: any, 
     filterIndex?: number, 
     forceRefresh: boolean = false, 
-    isEdit: boolean = false
+    isEdit: boolean = false,
+    filterNetwork?: LighterNetwork
   ) => {
     let trackedList: Array<{ network: LighterNetwork; account_index: number; alias: string | null }> = [];
 
     if (filterIndex) {
-      const { results } = await env.DB.prepare(
-        "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND account_index = ?"
-      ).bind(ctx.from!.id, filterIndex).all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
-      trackedList = results || [];
-      if (trackedList.length === 0) {
-        // Если аккаунт не отслеживается, все равно попробуем опросить обе сети
-        trackedList = [
-          { network: 'rh', account_index: filterIndex, alias: null },
-          { network: 'mainnet', account_index: filterIndex, alias: null }
+      if (filterNetwork) {
+        const { results } = await env.DB.prepare(
+          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?"
+        ).bind(ctx.from!.id, filterNetwork, filterIndex).all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+        trackedList = (results && results.length > 0) ? results : [
+          { network: filterNetwork, account_index: filterIndex, alias: null }
         ];
+      } else {
+        const { results } = await env.DB.prepare(
+          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND account_index = ?"
+        ).bind(ctx.from!.id, filterIndex).all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+        trackedList = results || [];
+        if (trackedList.length === 0) {
+          // Если аккаунт не отслеживается, все равно попробуем опросить обе сети
+          trackedList = [
+            { network: 'rh', account_index: filterIndex, alias: null },
+            { network: 'mainnet', account_index: filterIndex, alias: null }
+          ];
+        }
       }
     } else {
       const { results } = await env.DB.prepare(
@@ -375,7 +388,7 @@ export function getBot(env: Env): Bot {
         }
       });
 
-      // Сохраняем свежие результаты в кэш D1
+      // Сохраняем свежие результаты в кэш D1 и синхронизируем открытые позиции
       if (freshMap.size > 0) {
         const updates: Array<{ network: LighterNetwork; account: any; cachedPositions: any[] }> = [];
         for (const item of toFetch) {
@@ -387,6 +400,7 @@ export function getBot(env: Env): Bot {
               account: acc,
               cachedPositions: acc.positions.map(analyzePositionRisk).filter(Boolean)
             });
+            await syncAccountOpenPositions(env.DB, item.network, item.account_index, acc.positions).catch(e => console.error("syncAccountOpenPositions error:", e));
           }
         }
         await batchUpdatePositionsCache(env.DB, updates).catch(e => console.error("Cache update error:", e));
@@ -447,7 +461,7 @@ export function getBot(env: Env): Bot {
       combinedReport = combinedReport ? `${combinedReport}\n\n${trimmedCard}` : trimmedCard;
     }
 
-    const posKeyboard = getPositionsKeyboard(filterIndex);
+    const posKeyboard = getPositionsKeyboard(filterIndex, filterNetwork);
 
     if (combinedReport.trim()) {
       const now = new Date();
@@ -483,15 +497,22 @@ export function getBot(env: Env): Bot {
     await handlePositions(ctx);
   });
 
+  bot.callbackQuery(/^refresh:([a-z0-9_-]+):(\d+)$/, async (ctx) => {
+    const network = ctx.match[1] as LighterNetwork;
+    const accountIndex = parseInt(ctx.match[2]!, 10);
+    await ctx.answerCallbackQuery({ text: "🔄 Обновляем позиции..." });
+    await handlePositions(ctx, accountIndex, true, true, network);
+  });
+
   bot.callbackQuery(/^refresh_positions(?:_(\d+))?$/, async (ctx) => {
     const filter = ctx.match[1] ? parseInt(ctx.match[1], 10) : undefined;
     await ctx.answerCallbackQuery({ text: "🔄 Обновляем позиции..." });
     await handlePositions(ctx, filter, true, true);
   });
 
-  // Клавиатура выбора порога
+  // Клавиатура выбора порога (адаптирована под XAU и плечо 15x–25x)
   const getThresholdKeyboard = (current: number) => {
-    const presets = [0.8, 1.0, 1.5, 2.0, 2.5, 3.0];
+    const presets = [0.3, 0.5, 0.8, 1.0, 1.5, 2.0];
     const kb = new InlineKeyboard();
     for (let i = 0; i < presets.length; i++) {
       const p = presets[i]!;
@@ -502,7 +523,7 @@ export function getBot(env: Env): Bot {
     return kb;
   };
 
-  // Обработчик настройки порога
+  // Обработчик настройки шага цены
   const handleThreshold = async (ctx: any, newValStr?: string) => {
     if (newValStr) {
       const cleaned = newValStr.replace(",", ".");
@@ -510,25 +531,25 @@ export function getBot(env: Env): Bot {
       if (isNaN(val) || val < CONFIG.MIN_ALERT_THRESHOLD || val > CONFIG.MAX_ALERT_THRESHOLD) {
         return ctx.reply(
           `Укажите процент от ${CONFIG.MIN_ALERT_THRESHOLD}% до ${CONFIG.MAX_ALERT_THRESHOLD}%.\n` +
-          `Пример: <code>/threshold 1.5</code>`,
+          `Пример: <code>/threshold 0.5</code>`,
           { parse_mode: "HTML" }
         );
       }
       await setUserThreshold(env.DB, ctx.from.id, val);
       return ctx.reply(
-        `Порог ликвидации установлен на <b>${val.toFixed(1)}%</b>.\n` +
-        `Алерты будут приходить при сближении с ликвидацией ближе чем на ${val.toFixed(1)}%.`,
+        `Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.\n` +
+        `Уведомления будут приходить при каждом смещении цены на ${val.toFixed(1)}% от предыдущей засечки.`,
         { parse_mode: "HTML", reply_markup: mainKeyboard }
       );
     }
 
     const current = await getUserThreshold(env.DB, ctx.from.id);
     await ctx.reply(
-      `⚙️ <b>Настройка порога алертов</b>\n\n` +
-      `Текущий порог: <b>${current.toFixed(1)}%</b>\n` +
-      `<i>(Для плеча 15-25x рекомендуется 1.5%)</i>\n\n` +
+      `⚙️ <b>Настройка шага цены для алертов</b>\n\n` +
+      `Текущий шаг: <b>${current.toFixed(1)}%</b>\n` +
+      `<i>(Для золота XAU на плече 15-25x рекомендуется 0.4% - 0.5%)</i>\n\n` +
       `Выберите значение кнопкой или введите:\n` +
-      `<code>/threshold &lt;число&gt;</code> (напр. <code>/threshold 1.2</code>)`,
+      `<code>/threshold &lt;число&gt;</code> (напр. <code>/threshold 0.5</code>)`,
       { parse_mode: "HTML", reply_markup: getThresholdKeyboard(current) }
     );
   };
@@ -550,10 +571,10 @@ export function getBot(env: Env): Bot {
   bot.callbackQuery(/^set_thresh_(\d+(\.\d+)?)$/, async (ctx) => {
     const val = parseFloat(ctx.match[1]);
     await setUserThreshold(env.DB, ctx.from.id, val);
-    await ctx.answerCallbackQuery({ text: `Порог установлен: ${val}%` });
+    await ctx.answerCallbackQuery({ text: `Шаг установлен: ${val}%` });
     await ctx.editMessageText(
-      `Порог ликвидации установлен на <b>${val.toFixed(1)}%</b>.\n` +
-      `Алерты будут приходить при сближении с ликвидацией ближе чем на ${val.toFixed(1)}%.`,
+      `Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.\n` +
+      `Уведомления будут приходить при каждом смещении цены на ${val.toFixed(1)}% от предыдущей засечки.`,
       { parse_mode: "HTML", reply_markup: mainKeyboard }
     );
   });

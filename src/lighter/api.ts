@@ -1,5 +1,5 @@
 import { CONFIG } from "../config";
-import { LighterAccount, LighterApiResponse, LighterNetwork } from "../types";
+import { LighterAccount, LighterApiResponse, LighterNetwork, MarketPriceSnapshot } from "../types";
 
 export interface FetchAccountResult {
   account: LighterAccount | null;
@@ -107,3 +107,52 @@ export async function fetchInChunks<T, R>(
   }
   return results;
 }
+
+export async function fetchExchangeStats(network: LighterNetwork): Promise<Map<string, MarketPriceSnapshot>> {
+  const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
+  const map = new Map<string, MarketPriceSnapshot>();
+
+  try {
+    const res = await fetch(`${baseUrl}/exchangeStats`, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
+    });
+
+    if (!res.ok) return map;
+    const data = (await res.json()) as any;
+
+    if (data.code === 200 && Array.isArray(data.order_book_stats)) {
+      for (const item of data.order_book_stats) {
+        if (item.symbol && item.last_trade_price) {
+          const sym = String(item.symbol).toUpperCase();
+          const snapshot: MarketPriceSnapshot = {
+            symbol: sym,
+            price: parseFloat(item.last_trade_price),
+            dailyChange: parseFloat(item.daily_price_change || "0")
+          };
+          map.set(sym, snapshot);
+
+          const baseSym = sym.replace(/[-/_].*$/, '');
+          if (!map.has(baseSym)) {
+            map.set(baseSym, snapshot);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`Error fetching exchangeStats for ${network}:`, err);
+  }
+
+  return map;
+}
+
+export function findMarketPrice(map: Map<string, MarketPriceSnapshot>, symbol: string): MarketPriceSnapshot | undefined {
+  const sym = symbol.toUpperCase();
+  return map.get(sym) 
+    || map.get(sym.replace(/[-/_].*$/, '')) 
+    || map.get(`${sym}-PERP`)
+    || map.get(`${sym}/USDG`);
+}
+

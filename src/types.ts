@@ -93,3 +93,40 @@ export interface SubscriberRecord {
   alias: string | null;
   alert_threshold: number;
 }
+
+export interface ActivePositionWatchItem {
+  telegram_id: number;
+  alert_threshold: number;
+  alias: string | null;
+  network: LighterNetwork;
+  account_index: number;
+  market_id: number;
+  symbol: string;
+  is_long: number;
+  entry_price: number;
+  size: number;
+  last_price: number | null;
+  last_alerted_at: number | null;
+}
+
+export interface MarketPriceSnapshot {
+  symbol: string;
+  price: number;
+  dailyChange: number;
+}
+
+export interface PriceStepAlertParams {
+  network: LighterNetwork;
+  accountIndex: number;
+  alias: string | null;
+  symbol: string;
+  isLong: boolean;
+  entryPrice: number;
+  currentPrice: number;
+  baselinePrice: number;
+  priceDeltaPercent: number;
+  unrealizedPnl: number;
+  liqPrice: number;
+  distancePercent: number | null;
+}
+

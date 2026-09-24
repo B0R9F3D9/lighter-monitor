@@ -25,15 +25,15 @@ export const CONFIG = {
   ACCOUNTS_BATCH_SIZE: 20,
   LIGHTER_CHUNK_CONCURRENCY: 5,
 
-  // Wall-Clock защита (4 чанка * 5 сек = 20 сек)
-  FETCH_TIMEOUT_MS: 5000,
+  // Wall-Clock защита
+  FETCH_TIMEOUT_MS: 3000,
 
   // Пороги рисков
-  DEFAULT_ALERT_THRESHOLD: 1.5, // По умолчанию 1.5% (для плеча 15-25x)
+  DEFAULT_ALERT_THRESHOLD: 0.5, // По умолчанию 0.5% (оптимум для XAU и плеча 15-25x)
   MIN_ALERT_THRESHOLD: 0.1,
   MAX_ALERT_THRESHOLD: 50.0,
   CLEARANCE_MULTIPLIER: 1.3,    // Сброс алерта при уходе цены на 30% выше порога
-  ALERT_COOLDOWN_SECONDS: 900,  // 15 минут кулдаун между повторными алертами
+  ALERT_COOLDOWN_SECONDS: 180,  // 3 минуты базовый кулдаун
 
   TIERS: {
     CRITICAL_2: { maxDistance: 1.0, cooldownSeconds: 600, label: "КРИТИЧЕСКИЙ РИСК (<1.0%)" },

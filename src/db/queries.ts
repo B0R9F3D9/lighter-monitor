@@ -1,4 +1,12 @@
-import { LighterAccount, CachedPositionPayload, SubscriberRecord, TrackedAccountKey, LighterNetwork } from "../types";
+import { 
+  LighterAccount, 
+  CachedPositionPayload, 
+  SubscriberRecord, 
+  TrackedAccountKey, 
+  LighterNetwork, 
+  LighterPosition, 
+  ActivePositionWatchItem 
+} from "../types";
 
 // 1. Выборка пар (network, account_index) по честному Round-Robin
 export async function getAccountsForCronBatch(db: D1Database, limit: number): Promise<TrackedAccountKey[]> {
@@ -68,7 +76,7 @@ export async function getAccountSubscribers(
   accountIndex: number
 ): Promise<SubscriberRecord[]> {
   const query = `
-    SELECT u.telegram_id, uta.alias, COALESCE(u.alert_threshold, 1.5) as alert_threshold
+    SELECT u.telegram_id, uta.alias, COALESCE(u.alert_threshold, 0.5) as alert_threshold
     FROM user_tracked_accounts uta
     JOIN users u ON uta.telegram_id = u.telegram_id
     WHERE uta.network = ? AND uta.account_index = ?;
@@ -81,7 +89,7 @@ export async function getUserThreshold(db: D1Database, telegramId: number): Prom
   const row = await db.prepare("SELECT alert_threshold FROM users WHERE telegram_id = ?")
     .bind(telegramId)
     .first<{ alert_threshold: number }>();
-  return row?.alert_threshold ?? 1.5;
+  return row?.alert_threshold ?? 0.5;
 }
 
 export async function setUserThreshold(db: D1Database, telegramId: number, threshold: number): Promise<void> {
@@ -111,3 +119,108 @@ export async function clearSafeAlerts(
     WHERE network = ? AND account_index = ? AND market_id = ?
   `).bind(network, accountIndex, marketId).run();
 }
+
+// 7. Тихий фоновый Round-Robin (1 аккаунт за тик крона)
+export async function getNextAccountForSync(db: D1Database): Promise<TrackedAccountKey | null> {
+  const query = `
+    SELECT DISTINCT uta.network, uta.account_index
+    FROM user_tracked_accounts uta
+    LEFT JOIN account_positions_cache c 
+      ON uta.network = c.network AND uta.account_index = c.account_index
+    ORDER BY COALESCE(c.last_updated_at, 0) ASC
+    LIMIT 1;
+  `;
+  const row = await db.prepare(query).first<{ network: LighterNetwork; account_index: number }>();
+  return row ? { network: row.network, accountIndex: row.account_index } : null;
+}
+
+// 8. Единый оптимизированный JOIN всех открытых позиций с подписчиками и порогами
+export async function getActivePositionsForMonitoring(db: D1Database): Promise<ActivePositionWatchItem[]> {
+  const query = `
+    SELECT 
+      aop.network,
+      aop.account_index,
+      aop.market_id,
+      aop.symbol,
+      aop.is_long,
+      aop.entry_price,
+      aop.size,
+      u.telegram_id,
+      COALESCE(u.alert_threshold, 0.5) as alert_threshold,
+      uta_acc.alias,
+      uta.last_price,
+      uta.last_alerted_at
+    FROM account_open_positions aop
+    JOIN user_tracked_accounts uta_acc 
+      ON aop.network = uta_acc.network AND aop.account_index = uta_acc.account_index
+    JOIN users u 
+      ON uta_acc.telegram_id = u.telegram_id
+    LEFT JOIN user_token_alerts uta 
+      ON uta.telegram_id = u.telegram_id 
+     AND uta.network = aop.network 
+     AND uta.account_index = aop.account_index 
+     AND uta.market_id = aop.market_id;
+  `;
+  const { results } = await db.prepare(query).all<ActivePositionWatchItem>();
+  return results || [];
+}
+
+// 9. Синхронизация открытых позиций аккаунта (удаление закрытых, добавление новых)
+export async function syncAccountOpenPositions(
+  db: D1Database,
+  network: LighterNetwork,
+  accountIndex: number,
+  positions: LighterPosition[]
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const active = positions.filter(p => Math.abs(parseFloat(p.position || "0")) > 0);
+
+  if (active.length === 0) {
+    await db.batch([
+      db.prepare("DELETE FROM account_open_positions WHERE network = ? AND account_index = ?").bind(network, accountIndex),
+      db.prepare("DELETE FROM user_token_alerts WHERE network = ? AND account_index = ?").bind(network, accountIndex)
+    ]);
+    return;
+  }
+
+  const activeMarketIds = active.map(p => p.market_id);
+  const placeholders = activeMarketIds.map(() => "?").join(",");
+
+  const stmts: D1PreparedStatement[] = [
+    db.prepare(`
+      DELETE FROM account_open_positions 
+      WHERE network = ? AND account_index = ? AND market_id NOT IN (${placeholders})
+    `).bind(network, accountIndex, ...activeMarketIds),
+    db.prepare(`
+      DELETE FROM user_token_alerts 
+      WHERE network = ? AND account_index = ? AND market_id NOT IN (${placeholders})
+    `).bind(network, accountIndex, ...activeMarketIds)
+  ];
+
+  for (const p of active) {
+    const isLong = (p.sign ?? (parseFloat(p.position) > 0 ? 1 : -1)) > 0 ? 1 : 0;
+    stmts.push(db.prepare(`
+      INSERT INTO account_open_positions (
+        network, account_index, market_id, symbol, is_long, entry_price, size, last_updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(network, account_index, market_id) DO UPDATE SET
+        symbol = excluded.symbol,
+        is_long = excluded.is_long,
+        entry_price = excluded.entry_price,
+        size = excluded.size,
+        last_updated_at = excluded.last_updated_at
+    `).bind(
+      network,
+      accountIndex,
+      p.market_id,
+      p.symbol.toUpperCase(),
+      isLong,
+      parseFloat(p.avg_entry_price || "0"),
+      Math.abs(parseFloat(p.position || "0")),
+      now
+    ));
+  }
+
+  await db.batch(stmts);
+}
+

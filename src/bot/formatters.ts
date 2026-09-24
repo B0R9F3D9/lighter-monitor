@@ -1,4 +1,4 @@
-import { PositionRiskAnalysis, LighterNetwork } from "../types";
+import { PositionRiskAnalysis, LighterNetwork, PriceStepAlertParams } from "../types";
 import { CONFIG } from "../config";
 import { formatSmartPrice } from "../lighter/math";
 
@@ -94,3 +94,65 @@ export function formatPositionWipedAlert(
     `📊 Инструмент: <b>${symbol}</b>\n\n` +
     `Позиция с высоким риском больше не числится открытой в Lighter. Проверьте баланс на бирже.`;
 }
+
+export function formatPriceStepAlert(params: PriceStepAlertParams): string {
+  const badge = CONFIG.NETWORKS[params.network]?.badge || `[${params.network.toUpperCase()}]`;
+  const accTitle = params.alias ? `<b>#${params.accountIndex} (${params.alias})</b>` : `<b>#${params.accountIndex}</b>`;
+  const sideBadge = params.isLong ? "🟢 LONG" : "🔴 SHORT";
+  
+  // 1. Локальный импульс с прошлой засечки
+  const isProfitableStep = params.isLong ? (params.priceDeltaPercent > 0) : (params.priceDeltaPercent < 0);
+  const stepEmoji = isProfitableStep ? "🟢" : "🔴";
+  const stepLabel = isProfitableStep ? "В плюс" : "В просадку";
+  const stepArrow = params.priceDeltaPercent > 0 ? "↗️ +" : "↘️ ";
+
+  // 2. Глобальный результат от цены входа
+  const totalMovePercent = params.entryPrice > 0 
+    ? ((params.currentPrice - params.entryPrice) / params.entryPrice) * 100 
+    : 0;
+  
+  let totalLabel = "Безубыток";
+  let totalEmoji = "⚪️";
+  if (Math.abs(totalMovePercent) >= 0.05) {
+    const isProfitableTotal = params.isLong ? (totalMovePercent > 0) : (totalMovePercent < 0);
+    totalEmoji = isProfitableTotal ? "🟢" : "🔴";
+    totalLabel = isProfitableTotal ? "В плюс" : "В просадку";
+  }
+  const totalSign = totalMovePercent > 0 ? "+" : "";
+
+  // 3. Запас прочности / Риск ликвидации
+  let liqSection = `• Цена ликвидации: <i>нет риска</i> 🛡`;
+  if (params.liqPrice > 0 && params.distancePercent !== null) {
+    let liqWarn = "";
+    if (params.distancePercent <= 1.0) {
+      liqWarn = " 🚨 <b>[КРИТИЧНО]</b>";
+    } else if (params.distancePercent <= 2.5) {
+      liqWarn = " ⚠️ <b>[ОПАСНО]</b>";
+    } else if (params.distancePercent <= 4.0) {
+      liqWarn = " ⚡️";
+    }
+    liqSection = 
+      `• Цена ликвидации: <b>$${formatSmartPrice(params.liqPrice)}</b>\n` +
+      `• До ликвидации осталось: <b>${params.distancePercent.toFixed(2)}%</b>${liqWarn}`;
+  }
+
+  const pnlSign = params.unrealizedPnl >= 0 ? "📈" : "📉";
+  const pnlFormatted = params.unrealizedPnl >= 0 
+    ? `+$${params.unrealizedPnl.toFixed(2)}` 
+    : `-$${Math.abs(params.unrealizedPnl).toFixed(2)}`;
+
+  return (
+    `⚡️ <b>Движение ${params.symbol} ${badge}</b>\n\n` +
+    `💼 Аккаунт: ${accTitle}\n` +
+    `📊 Позиция: <b>${sideBadge} ${params.symbol}</b> (Вход: $${formatSmartPrice(params.entryPrice)})\n\n` +
+    `1️⃣ <b>Локальный импульс:</b>\n` +
+    `• С прошлой засечки: <b>${stepArrow}${params.priceDeltaPercent.toFixed(2)}% ($${formatSmartPrice(params.baselinePrice)} ➔ $${formatSmartPrice(params.currentPrice)})</b> ${stepEmoji} <i>${stepLabel}</i>\n\n` +
+    `2️⃣ <b>Глобальное состояние позиции:</b>\n` +
+    `• Ход от точки входа: <b>${totalSign}${totalMovePercent.toFixed(2)}%</b> (${totalEmoji} <i>${totalLabel}</i>)\n` +
+    `• Текущий UnPnL: ${pnlSign} <b>${pnlFormatted}</b>\n\n` +
+    `3️⃣ <b>Запас прочности (безопасность):</b>\n` +
+    `${liqSection}\n\n` +
+    `<i>Нажмите кнопку ниже, чтобы открыть карточку сделки:</i>`
+  );
+}
+

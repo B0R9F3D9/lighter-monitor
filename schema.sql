@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
     username TEXT,
     first_name TEXT,
-    alert_threshold REAL NOT NULL DEFAULT 1.5,
+    alert_threshold REAL NOT NULL DEFAULT 0.5,
     created_at INTEGER NOT NULL
 );
 
@@ -35,8 +35,34 @@ CREATE TABLE IF NOT EXISTS account_positions_cache (
 
 CREATE INDEX IF NOT EXISTS idx_cache_round_robin ON account_positions_cache(last_updated_at);
 
--- 4. Журнал отправленных алертов (Anti-Spam Cooldown)
--- Идентификация строго по (network, account_index, market_id, alert_tier)
+-- 4. Открытые позиции пользователей (актуализируются при /positions, /add_* и фоновом Round-Robin)
+CREATE TABLE IF NOT EXISTS account_open_positions (
+    network TEXT NOT NULL,
+    account_index INTEGER NOT NULL,
+    market_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    is_long INTEGER NOT NULL,
+    entry_price REAL NOT NULL,
+    size REAL NOT NULL,
+    last_updated_at INTEGER NOT NULL,
+    PRIMARY KEY (network, account_index, market_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_open_pos_market ON account_open_positions(network, market_id);
+
+-- 5. Базовые отметки цен и анти-флаппинг кулдаун (Price-Driven Alerting)
+CREATE TABLE IF NOT EXISTS user_token_alerts (
+    telegram_id INTEGER NOT NULL,
+    network TEXT NOT NULL,
+    account_index INTEGER NOT NULL,
+    market_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    last_price REAL NOT NULL,
+    last_alerted_at INTEGER NOT NULL,
+    PRIMARY KEY (telegram_id, network, account_index, market_id)
+);
+
+-- 6. Журнал отправленных алертов ликвидации (Anti-Spam Cooldown)
 CREATE TABLE IF NOT EXISTS alert_logs (
     telegram_id INTEGER NOT NULL,
     network TEXT NOT NULL DEFAULT 'rh',
