@@ -1219,9 +1219,10 @@ export function getBot(env: Env): Bot {
 
     try {
       const stats = await getSystemStats(activeEnv.DB);
-      const tokenBreakdown = stats.topTokens
-        .map((t) => `• <b>${t.symbol}:</b> ${t.count} поз.`)
-        .join("\n");
+      const tokenBreakdown =
+        stats.topTokens.length > 0
+          ? stats.topTokens.map((t) => `• <b>${t.symbol}:</b> ${t.count} поз.`).join("\n") + "\n\n"
+          : "";
 
       const report =
         `📊 <b>Lighter Monitor — Системный Дашборд</b>\n\n` +
@@ -1230,9 +1231,9 @@ export function getBot(env: Env): Bot {
         `  ├ 🟠 Robinhood: ${stats.trackedRh}\n` +
         `  └ ⚡️ Mainnet: ${stats.trackedMainnet}\n\n` +
         `📈 <b>Открытых сделок в базе:</b> <b>${stats.activePositionsCount}</b>\n` +
-        `${tokenBreakdown ? `${tokenBreakdown}\n\n` : ""}` +
+        `${tokenBreakdown}` +
         `⏱ <b>Лаг очереди Round-Robin:</b> ${stats.maxQueueLagMinutes} мин.\n` +
-        `<i>(Норма: < 30-45 мин для активных счетов)</i>`;
+        `<i>(Норма: &lt; 30–45 мин для активных счетов)</i>`;
 
       await ctx.reply(report, { parse_mode: "HTML" });
     } catch (err: any) {

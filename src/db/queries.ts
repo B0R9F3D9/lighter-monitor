@@ -346,56 +346,50 @@ export async function syncAccountOpenPositions(
   await db.batch(stmts);
 }
 
-// 10. Системные и бизнес-метрики для админ-панели (/stats)
+// 10. Системные и бизнес-метрики для админ-панели (/stats) — 1 сетевой round-trip через db.batch
 export async function getSystemStats(db: D1Database): Promise<SystemStats> {
   const now = Math.floor(Date.now() / 1000);
 
-  // 1. Пользователи и аккаунты
-  const usersCount = await db.prepare("SELECT COUNT(*) as cnt FROM users").first<{ cnt: number }>();
-  const trackedTotal = await db
-    .prepare("SELECT COUNT(*) as cnt FROM user_tracked_accounts")
-    .first<{ cnt: number }>();
-  const trackedRh = await db
-    .prepare("SELECT COUNT(*) as cnt FROM user_tracked_accounts WHERE network = 'rh'")
-    .first<{ cnt: number }>();
-  const trackedMainnet = await db
-    .prepare("SELECT COUNT(*) as cnt FROM user_tracked_accounts WHERE network = 'mainnet'")
-    .first<{ cnt: number }>();
-
-  // 2. Открытые позиции
-  const posCount = await db
-    .prepare("SELECT COUNT(*) as cnt FROM account_open_positions")
-    .first<{ cnt: number }>();
-
-  // 3. Топ отслеживаемых токенов
-  const { results: topTokens } = await db
-    .prepare(`
+  const [summaryRes, tokensRes] = await db.batch([
+    db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM users) as total_users,
+        (SELECT COUNT(*) FROM user_tracked_accounts) as total_tracked,
+        (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'rh') as tracked_rh,
+        (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'mainnet') as tracked_mainnet,
+        (SELECT COUNT(*) FROM account_open_positions) as active_positions,
+        (SELECT MIN(last_updated_at) FROM account_positions_cache) as oldest_cache
+    `),
+    db.prepare(`
       SELECT symbol, COUNT(*) as count 
       FROM account_open_positions 
       GROUP BY symbol 
       ORDER BY count DESC 
       LIMIT 5
-    `)
-    .all<{ symbol: string; count: number }>();
+    `),
+  ]);
 
-  // 4. Лаг очереди Round-Robin (насколько свежий самый старый аккаунт)
-  const oldestAccount = await db
-    .prepare(`
-      SELECT MIN(last_updated_at) as oldest 
-      FROM account_positions_cache
-    `)
-    .first<{ oldest: number | null }>();
+  const summary = ((summaryRes as any)?.results?.[0] || {}) as {
+    total_users?: number;
+    total_tracked?: number;
+    tracked_rh?: number;
+    tracked_mainnet?: number;
+    active_positions?: number;
+    oldest_cache?: number | null;
+  };
 
-  const lagSeconds =
-    oldestAccount?.oldest && oldestAccount.oldest > 0 ? now - oldestAccount.oldest : 0;
+  const topTokens = ((tokensRes as any)?.results || []) as Array<{ symbol: string; count: number }>;
+
+  const oldest = summary.oldest_cache;
+  const lagSeconds = oldest && oldest > 0 ? now - oldest : 0;
 
   return {
-    totalUsers: usersCount?.cnt || 0,
-    totalTracked: trackedTotal?.cnt || 0,
-    trackedRh: trackedRh?.cnt || 0,
-    trackedMainnet: trackedMainnet?.cnt || 0,
-    activePositionsCount: posCount?.cnt || 0,
+    totalUsers: summary.total_users || 0,
+    totalTracked: summary.total_tracked || 0,
+    trackedRh: summary.tracked_rh || 0,
+    trackedMainnet: summary.tracked_mainnet || 0,
+    activePositionsCount: summary.active_positions || 0,
     maxQueueLagMinutes: Math.round(lagSeconds / 60),
-    topTokens: topTokens || [],
+    topTokens,
   };
 }
