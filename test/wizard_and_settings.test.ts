@@ -83,4 +83,14 @@ describe("Wizard State & Settings Logic", () => {
     expect(parseInput("10.5")).toBeNull(); // above 10.0
     expect(parseInput("abc")).toBeNull();
   });
+
+  it("identifies expired wizard states after 15 minutes TTL", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const freshState: WizardState = { step: "AWAIT_INDEX", network: "rh", ts: now - 300 }; // 5 min ago
+    const expiredState: WizardState = { step: "AWAIT_INDEX", network: "rh", ts: now - 901 }; // 15 min 1 sec ago
+
+    const isExpired = (st: WizardState) => !!st.ts && (now - st.ts) > 900;
+    expect(isExpired(freshState)).toBe(false);
+    expect(isExpired(expiredState)).toBe(true);
+  });
 });

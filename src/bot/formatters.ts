@@ -6,7 +6,6 @@ export function formatPositionsReport(
   network: LighterNetwork,
   accountIndex: number, 
   alias: string | null, 
-  l1Address: string, 
   collateral: number, 
   positions: PositionRiskAnalysis[],
   userThreshold: number = 1.5

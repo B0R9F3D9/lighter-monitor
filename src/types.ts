@@ -79,11 +79,12 @@ export interface CachedPositionPayload {
 }
 
 
-export type WizardState =
+export type WizardState = (
   | { step: "AWAIT_INDEX"; network: LighterNetwork }
   | { step: "AWAIT_ALIAS"; network: LighterNetwork; accountIndex: number; l1Address: string; collateral: number; positions: any[] }
   | { step: "AWAIT_RENAME"; network: LighterNetwork; accountIndex: number }
-  | { step: "AWAIT_THRESHOLD" };
+  | { step: "AWAIT_THRESHOLD" }
+) & { ts?: number };
 
 export interface ActivePositionWatchItem {
   telegram_id: number;

@@ -158,6 +158,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
   // 5. ФАЗА Б: Приоритетная JIT-проверка и доставка алертов
   const alertUpdateStmts: D1PreparedStatement[] = [];
   const zombieCleanupStmts: D1PreparedStatement[] = [];
+  const cleanedZombieKeys = new Set<string>();
   const lastSentTimeByUser = new Map<number, number>();
 
   for (const candidate of candidateAlerts) {
@@ -192,14 +193,18 @@ export async function runCronMonitor(env: Env): Promise<void> {
         )
       : undefined;
 
-    // ЗОМБИ ЛИКВИДИРОВАН: пакетное накопление стейтментов удаления (без лишних сетевых вызовов)
+    // ЗОМБИ ЛИКВИДИРОВАН: пакетное накопление стейтментов удаления (с дедупликацией по ключу)
     if (!livePosition) {
-      zombieCleanupStmts.push(
-        env.DB.prepare("DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?")
-          .bind(item.network, item.account_index, item.market_id),
-        env.DB.prepare("DELETE FROM user_token_alerts WHERE network = ? AND account_index = ? AND market_id = ?")
-          .bind(item.network, item.account_index, item.market_id)
-      );
+      const zKey = `${item.network}:${item.account_index}:${item.market_id}`;
+      if (!cleanedZombieKeys.has(zKey)) {
+        cleanedZombieKeys.add(zKey);
+        zombieCleanupStmts.push(
+          env.DB.prepare("DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?")
+            .bind(item.network, item.account_index, item.market_id),
+          env.DB.prepare("DELETE FROM user_token_alerts WHERE network = ? AND account_index = ? AND market_id = ?")
+            .bind(item.network, item.account_index, item.market_id)
+        );
+      }
       continue;
     }
 

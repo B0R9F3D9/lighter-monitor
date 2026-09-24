@@ -92,14 +92,19 @@ export async function getUserWizardState(db: D1Database, telegramId: number): Pr
     .first<{ wizard_state: string | null }>();
   if (!row || !row.wizard_state) return null;
   try {
-    return JSON.parse(row.wizard_state) as WizardState;
+    const state = JSON.parse(row.wizard_state) as WizardState;
+    if (state.ts && (Math.floor(Date.now() / 1000) - state.ts) > 900) {
+      await setUserWizardState(db, telegramId, null);
+      return null;
+    }
+    return state;
   } catch {
     return null;
   }
 }
 
 export async function setUserWizardState(db: D1Database, telegramId: number, state: WizardState | null): Promise<void> {
-  const val = state ? JSON.stringify(state) : null;
+  const val = state ? JSON.stringify({ ...state, ts: state.ts || Math.floor(Date.now() / 1000) }) : null;
   await db.prepare("UPDATE users SET wizard_state = ? WHERE telegram_id = ?")
     .bind(val, telegramId)
     .run();

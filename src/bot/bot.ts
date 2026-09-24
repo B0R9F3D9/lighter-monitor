@@ -836,7 +836,6 @@ export function getBot(env: Env): Bot {
           item.network,
           item.account_index, 
           item.alias, 
-          fresh.l1_address, 
           accCollateral, 
           accPositions, 
           userThreshold
@@ -855,7 +854,6 @@ export function getBot(env: Env): Bot {
           item.network,
           item.account_index, 
           item.alias, 
-          cached.l1_address, 
           accCollateral, 
           accPositions, 
           userThreshold
