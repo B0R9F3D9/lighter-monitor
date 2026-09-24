@@ -17,9 +17,6 @@ export function getBot(env: Env): Bot {
     .text("📊 Позиции", "action_positions")
     .text("📋 Мои аккаунты", "action_list")
     .row()
-    .text("➕ Добавить RH", "action_help_rh")
-    .text("➕ Добавить Mainnet", "action_help_mainnet")
-    .row()
     .text("⚙️ Порог алертов", "action_threshold");
 
   // Сохранение пользователя в БД при любом взаимодействии
@@ -268,27 +265,6 @@ export function getBot(env: Env): Bot {
     }
   });
 
-  // Вызов помощи по добавлению через инлайн-кнопки
-  bot.callbackQuery("action_help_rh", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.reply(
-      `➕ <b>Добавление аккаунта Robinhood Lighter</b>\n\n` +
-      `Отправьте команду:\n<code>/add_rh &lt;индекс&gt; [алиас]</code>\n\n` +
-      `<i>Пример:</i> <code>/add_rh 31704 Основной</code>`,
-      { parse_mode: "HTML" }
-    );
-  });
-
-  bot.callbackQuery("action_help_mainnet", async (ctx) => {
-    await ctx.answerCallbackQuery();
-    await ctx.reply(
-      `➕ <b>Добавление аккаунта Lighter Mainnet</b>\n\n` +
-      `Отправьте команду:\n<code>/add_mainnet &lt;индекс&gt; [алиас]</code>\n\n` +
-      `<i>Пример:</i> <code>/add_mainnet 749329 Кит</code>`,
-      { parse_mode: "HTML" }
-    );
-  });
-
   // Функция вывода /list
   const handleList = async (ctx: any) => {
     const { results } = await env.DB.prepare(`
@@ -321,8 +297,22 @@ export function getBot(env: Env): Bot {
     await handleList(ctx);
   });
 
+  const getPositionsKeyboard = (filterIndex?: number) => {
+    const refreshCb = filterIndex ? `refresh_positions_${filterIndex}` : "refresh_positions";
+    return new InlineKeyboard()
+      .text("🔄 Обновить", refreshCb)
+      .row()
+      .text("📋 Мои аккаунты", "action_list")
+      .text("⚙️ Порог алертов", "action_threshold");
+  };
+
   // Функция вывода /positions с параллельным чтением кэша для всех сетей
-  const handlePositions = async (ctx: any, filterIndex?: number) => {
+  const handlePositions = async (
+    ctx: any, 
+    filterIndex?: number, 
+    forceRefresh: boolean = false, 
+    isEdit: boolean = false
+  ) => {
     let trackedList: Array<{ network: LighterNetwork; account_index: number; alias: string | null }> = [];
 
     if (filterIndex) {
@@ -351,31 +341,35 @@ export function getBot(env: Env): Bot {
       );
     }
 
-    // Собираем кэш для всех пар (network, account_index)
+    // Собираем кэш для всех пар (network, account_index), если не принудительный рефетч
     const cacheMap = new Map<string, any>();
-    for (const item of trackedList) {
-      const cached = await env.DB.prepare(
-        "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?"
-      ).bind(item.network, item.account_index).first<any>();
-      if (cached) {
-        cacheMap.set(`${item.network}:${item.account_index}`, cached);
+    if (!forceRefresh) {
+      for (const item of trackedList) {
+        const cached = await env.DB.prepare(
+          "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?"
+        ).bind(item.network, item.account_index).first<any>();
+        if (cached) {
+          cacheMap.set(`${item.network}:${item.account_index}`, cached);
+        }
       }
     }
 
-    // Проверяем, для каких аккаунтов кэша нет или он пуст
-    const uncached = trackedList.filter(item => {
-      const key = `${item.network}:${item.account_index}`;
-      const c = cacheMap.get(key);
-      return !c || !c.l1_address;
-    });
+    // Определяем, для каких аккаунтов запрашиваем API
+    const toFetch = forceRefresh
+      ? trackedList
+      : trackedList.filter(item => {
+          const key = `${item.network}:${item.account_index}`;
+          const c = cacheMap.get(key);
+          return !c || !c.l1_address;
+        });
 
     // Параллельно запрашиваем свежие данные из API
     const freshMap = new Map<string, any>();
-    if (uncached.length > 0) {
+    if (toFetch.length > 0) {
       const freshResults = await Promise.all(
-        uncached.map(item => fetchLighterAccount(item.network, item.account_index))
+        toFetch.map(item => fetchLighterAccount(item.network, item.account_index))
       );
-      uncached.forEach((item, i) => {
+      toFetch.forEach((item, i) => {
         if (freshResults[i]) {
           freshMap.set(`${item.network}:${item.account_index}`, freshResults[i]);
         }
@@ -384,7 +378,7 @@ export function getBot(env: Env): Bot {
       // Сохраняем свежие результаты в кэш D1
       if (freshMap.size > 0) {
         const updates: Array<{ network: LighterNetwork; account: any; cachedPositions: any[] }> = [];
-        for (const item of uncached) {
+        for (const item of toFetch) {
           const key = `${item.network}:${item.account_index}`;
           const acc = freshMap.get(key);
           if (acc) {
@@ -404,11 +398,22 @@ export function getBot(env: Env): Bot {
 
     for (const item of trackedList) {
       const key = `${item.network}:${item.account_index}`;
-      const cached = cacheMap.get(key);
       const fresh = freshMap.get(key);
+      const cached = cacheMap.get(key);
       let card = "";
 
-      if (cached && cached.l1_address && cached.positions_json) {
+      if (fresh) {
+        const positions = fresh.positions.map(analyzePositionRisk).filter(Boolean) as PositionRiskAnalysis[];
+        card = formatPositionsReport(
+          item.network,
+          item.account_index, 
+          item.alias, 
+          fresh.l1_address, 
+          parseFloat(fresh.collateral || "0"), 
+          positions, 
+          userThreshold
+        );
+      } else if (cached && cached.l1_address && cached.positions_json) {
         const parsedPositions = JSON.parse(cached.positions_json) as any[];
         const positions: PositionRiskAnalysis[] = parsedPositions.map((p: any) => {
           if (p.marketId !== undefined && p.tier !== undefined) {
@@ -426,19 +431,7 @@ export function getBot(env: Env): Bot {
           positions, 
           userThreshold
         );
-      } else if (fresh) {
-        const positions = fresh.positions.map(analyzePositionRisk).filter(Boolean) as PositionRiskAnalysis[];
-        card = formatPositionsReport(
-          item.network,
-          item.account_index, 
-          item.alias, 
-          fresh.l1_address, 
-          parseFloat(fresh.collateral || "0"), 
-          positions, 
-          userThreshold
-        );
       } else {
-        // Если вызывали по filterIndex и аккаунта в этой сети нет, пропускаем
         if (filterIndex && !fresh && !cached) continue;
         const netBadge = CONFIG.NETWORKS[item.network]?.badge || `[${item.network.toUpperCase()}]`;
         card = `Аккаунт #${item.account_index} ${netBadge}: данные временно недоступны.\n`;
@@ -451,8 +444,26 @@ export function getBot(env: Env): Bot {
       combinedReport += card + "\n────────────────\n";
     }
 
+    const posKeyboard = getPositionsKeyboard(filterIndex);
+
     if (combinedReport.trim()) {
-      await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: mainKeyboard });
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString("ru-RU", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      combinedReport += `🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+
+      if (isEdit) {
+        try {
+          await ctx.editMessageText(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
+        } catch (err: any) {
+          if (err?.message && err.message.includes("message is not modified")) {
+            // Игнорируем
+          } else {
+            await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
+          }
+        }
+      } else {
+        await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
+      }
     } else if (filterIndex) {
       await ctx.reply(`Аккаунт #${filterIndex} не найден ни в одной из поддерживаемых сетей.`, { reply_markup: mainKeyboard });
     }
@@ -467,6 +478,12 @@ export function getBot(env: Env): Bot {
   bot.callbackQuery("action_positions", async (ctx) => {
     await ctx.answerCallbackQuery();
     await handlePositions(ctx);
+  });
+
+  bot.callbackQuery(/^refresh_positions(?:_(\d+))?$/, async (ctx) => {
+    const filter = ctx.match[1] ? parseInt(ctx.match[1], 10) : undefined;
+    await ctx.answerCallbackQuery({ text: "🔄 Обновляем позиции..." });
+    await handlePositions(ctx, filter, true, true);
   });
 
   // Клавиатура выбора порога
