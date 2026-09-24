@@ -1,0 +1,12 @@
+name = "lighter-monitor"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lighter-db"
+database_id = "local-lighter-db"
