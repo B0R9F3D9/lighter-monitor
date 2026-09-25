@@ -1297,8 +1297,7 @@ export function getBot(env: Env): Bot {
         `  • Средний лаг кэша: <b>${stats.avgQueueLagMinutes} мин.</b>\n` +
         `  • Макс. лаг очереди: <b>${stats.maxQueueLagMinutes} мин.</b> <i>(норма &lt; 30–45 мин)</i>\n\n` +
         `${cronSection}` +
-        `🔑 <b>Статус API Lighter:</b> ${authStatusText}\n\n` +
-        `🛡 <i>Cloudflare Free: 0-CLI, Zero-Dormant, Selective JIT</i>`;
+        `🔑 <b>Статус API Lighter:</b>\n${authStatusText}`;
 
       await ctx.reply(report, { parse_mode: "HTML" });
     } catch (err: any) {
