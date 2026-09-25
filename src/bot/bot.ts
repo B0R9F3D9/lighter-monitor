@@ -463,7 +463,7 @@ export function getBot(env: Env): Bot {
 
       if (result.status === "RATE_LIMIT") {
         return ctx.reply(
-          `⚠️ API ${netConfig.name} временно ограничивает запросы (Rate Limit 429). Попробуйте через 30 секунд.`,
+          `⚠️ Биржа ${netConfig.name} временно перегружена запросами. Попробуйте через 30 секунд.`,
           { reply_markup: new InlineKeyboard().text("❌ Отмена", "wizard_cancel") },
         );
       }
@@ -585,13 +585,13 @@ export function getBot(env: Env): Bot {
       );
     }
 
-    await ctx.reply(`Проверяем аккаунт в ${netConfig.name} API...`);
+    await ctx.reply(`Проверяем аккаунт в ${netConfig.name}...`);
     const authToken = getLighterAuthToken(currentEnv || env, network);
     const result = await fetchLighterAccountWithStatus(network, accountIndex, false, authToken);
 
     if (result.status === "RATE_LIMIT") {
       return ctx.reply(
-        `⚠️ API ${netConfig.name} временно ограничивает запросы (Rate Limit 429). Повторите через 30–60 секунд.`,
+        `⚠️ Биржа ${netConfig.name} временно перегружена запросами. Попробуйте через 30 секунд.`,
         { reply_markup: getMainKb(ctx) },
       );
     }
@@ -1177,7 +1177,7 @@ export function getBot(env: Env): Bot {
       });
       combinedReport += `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
       if (isRateLimited) {
-        combinedReport += `\n⚠️ <i>Биржа Lighter временно ограничила частые запросы (429). Показаны последние сохраненные данные.</i>`;
+        combinedReport += `\n⚠️ <i>Биржа временно перегружена запросами. Показаны последние сохраненные данные.</i>`;
       }
 
       if (combinedReport.length > 3800) {
@@ -1314,13 +1314,11 @@ export function getBot(env: Env): Bot {
 
     if (!isUserAdmin(activeEnv, userId, username)) {
       return ctx.reply(
-        `⛔️ <b>Доступ ограничен</b>\n\n` +
-          `Эта команда доступна только администратору бота.\n` +
-          `• Ваш Telegram ID: <code>${userId || "не определен"}</code>\n` +
-          `• Ваш Username: ${username ? `@${username}` : "<i>не задан</i>"}\n\n` +
-          `<i>Чтобы получить доступ, укажите ваш Telegram ID или Username в секрете Cloudflare:</i>\n` +
-          `<code>bunx wrangler secret put ADMIN_TELEGRAM_ID</code>`,
-        { parse_mode: "HTML", reply_markup: getMainKb(ctx) },
+        `⛔️ <b>Доступ ограничен</b>\n\nЭта команда доступна только администратору бота.`,
+        {
+          parse_mode: "HTML",
+          reply_markup: getMainKb(ctx),
+        },
       );
     }
 
