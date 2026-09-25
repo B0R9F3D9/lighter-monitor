@@ -17,6 +17,7 @@ import {
   getSystemStats,
 } from "../db/queries";
 import { formatPositionsReport } from "./formatters";
+import { Tracer } from "../utils/tracer";
 
 let botInstance: Bot | null = null;
 let currentEnv: Env | null = null;
@@ -179,13 +180,25 @@ export function getBot(env: Env): Bot {
   if (botInstance) return botInstance;
 
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
+  const getMainKb = (ctx?: any) => getMainKeyboard(env, ctx?.from?.id, ctx?.from?.username);
 
   bot.catch((err) => {
     console.error("Unhandled error in bot handler:", err.error || err);
   });
 
-  // Основная нижняя клавиатура пользователя (Zero-CLI Reply Keyboard)
-  const getMainKb = (ctx?: any) => getMainKeyboard(env, ctx?.from?.id, ctx?.from?.username);
+  // Сквозной легковесный трейсинг всех входящих событий Telegram
+  bot.use(async (ctx, next) => {
+    const trace = new Tracer("telegram_update", {
+      updateId: ctx.update?.update_id,
+      userId: ctx.from?.id,
+      action: ctx.message?.text || ctx.callbackQuery?.data || "other",
+    });
+    try {
+      await next();
+    } finally {
+      trace.end();
+    }
+  });
 
   // Сохранение пользователя в БД при первом взаимодействии в изоляте (защита от лишних D1 записей)
   bot.use(async (ctx, next) => {
@@ -838,62 +851,72 @@ export function getBot(env: Env): Bot {
 
   // Функция вывода списка кошельков /list
   const handleList = async (ctx: any, isEdit: boolean = false) => {
-    const { results } = await env.DB.prepare(`
-      SELECT network, account_index, alias 
-      FROM user_tracked_accounts 
-      WHERE telegram_id = ? 
-      ORDER BY network ASC, id ASC
-    `)
-      .bind(ctx.from!.id)
-      .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+    const trace = new Tracer("handle_list", { userId: ctx.from?.id, isEdit });
+    try {
+      const { results } = await env.DB.prepare(`
+        SELECT network, account_index, alias 
+        FROM user_tracked_accounts 
+        WHERE telegram_id = ? 
+        ORDER BY network ASC, id ASC
+      `)
+        .bind(ctx.from!.id)
+        .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+      trace.mark("d1_query");
 
-    if (!results || results.length === 0) {
-      const emptyText =
-        `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
-        `Бот отслеживает ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
-        `рассчитывает риски и защищает от ликвидации.\n\n` +
-        `У вас пока нет подключенных кошельков. Давайте подключим первый:`;
-      const emptyKb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
+      if (!results || results.length === 0) {
+        const emptyText =
+          `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
+          `Бот отслеживает ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
+          `рассчитывает риски и защищает от ликвидации.\n\n` +
+          `У вас пока нет подключенных кошельков. Давайте подключим первый:`;
+        const emptyKb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
+
+        if (isEdit) {
+          return ctx
+            .editMessageText(emptyText, { parse_mode: "HTML", reply_markup: emptyKb })
+            .catch(() => {});
+        }
+        return ctx.reply(emptyText, { parse_mode: "HTML", reply_markup: emptyKb });
+      }
+
+      const kb = new InlineKeyboard();
+      for (const r of results) {
+        const netIcon = r.network === "rh" ? "🟠" : "⚡️";
+        const aliasStr = r.alias ? ` (${r.alias})` : "";
+        const label = `${netIcon} #${r.account_index}${aliasStr}`;
+        kb.text(label, `manage_acc:${r.network}:${r.account_index}`).row();
+      }
+      kb.text("➕ Добавить кошелек", "wizard_start_add").text("🔄 Обновить", "refresh_list");
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString("ru-RU", {
+        timeZone: "UTC",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      const msg =
+        `📋 <b>Ваши отслеживаемые кошельки (${results.length}/${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER}):</b>\n\n` +
+        `Нажмите на кошелек для управления:\n\n` +
+        `🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+
+      trace.mark("render");
+      trace.set("accountCount", results.length);
 
       if (isEdit) {
-        return ctx
-          .editMessageText(emptyText, { parse_mode: "HTML", reply_markup: emptyKb })
-          .catch(() => {});
-      }
-      return ctx.reply(emptyText, { parse_mode: "HTML", reply_markup: emptyKb });
-    }
-
-    const kb = new InlineKeyboard();
-    for (const r of results) {
-      const netIcon = r.network === "rh" ? "🟠" : "⚡️";
-      const aliasStr = r.alias ? ` (${r.alias})` : "";
-      const label = `${netIcon} #${r.account_index}${aliasStr}`;
-      kb.text(label, `manage_acc:${r.network}:${r.account_index}`).row();
-    }
-    kb.text("➕ Добавить кошелек", "wizard_start_add").text("🔄 Обновить", "refresh_list");
-
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString("ru-RU", {
-      timeZone: "UTC",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    const msg =
-      `📋 <b>Ваши отслеживаемые кошельки (${results.length}/${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER}):</b>\n\n` +
-      `Нажмите на кошелек для управления:\n\n` +
-      `🕒 <i>Обновлено: ${timeStr} UTC</i>`;
-
-    if (isEdit) {
-      try {
-        await ctx.editMessageText(msg, { parse_mode: "HTML", reply_markup: kb });
-      } catch (err: any) {
-        if (!err?.message?.includes("message is not modified")) {
-          await ctx.reply(msg, { parse_mode: "HTML", reply_markup: kb });
+        try {
+          await ctx.editMessageText(msg, { parse_mode: "HTML", reply_markup: kb });
+        } catch (err: any) {
+          if (!err?.message?.includes("message is not modified")) {
+            await ctx.reply(msg, { parse_mode: "HTML", reply_markup: kb });
+          }
         }
+      } else {
+        await ctx.reply(msg, { parse_mode: "HTML", reply_markup: kb });
       }
-    } else {
-      await ctx.reply(msg, { parse_mode: "HTML", reply_markup: kb });
+      trace.mark("telegram_send");
+    } finally {
+      trace.end();
     }
   };
 
@@ -921,102 +944,114 @@ export function getBot(env: Env): Bot {
     isEdit: boolean = false,
     filterNetwork?: LighterNetwork,
   ) => {
-    let trackedList: Array<{
-      network: LighterNetwork;
-      account_index: number;
-      alias: string | null;
-    }> = [];
+    const trace = new Tracer("handle_positions", {
+      userId: ctx.from?.id,
+      forceRefresh,
+      filterIndex,
+      filterNetwork,
+    });
 
-    if (filterIndex) {
-      if (filterNetwork) {
-        const { results } = await env.DB.prepare(
-          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?",
-        )
-          .bind(ctx.from!.id, filterNetwork, filterIndex)
-          .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
-        trackedList =
-          results && results.length > 0
-            ? results
-            : [{ network: filterNetwork, account_index: filterIndex, alias: null }];
+    try {
+      let trackedList: Array<{
+        network: LighterNetwork;
+        account_index: number;
+        alias: string | null;
+      }> = [];
+
+      if (filterIndex) {
+        if (filterNetwork) {
+          const { results } = await env.DB.prepare(
+            "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?",
+          )
+            .bind(ctx.from!.id, filterNetwork, filterIndex)
+            .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+          trackedList =
+            results && results.length > 0
+              ? results
+              : [{ network: filterNetwork, account_index: filterIndex, alias: null }];
+        } else {
+          const { results } = await env.DB.prepare(
+            "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND account_index = ?",
+          )
+            .bind(ctx.from!.id, filterIndex)
+            .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+          trackedList = results || [];
+          if (trackedList.length === 0) {
+            trackedList = [
+              { network: "rh", account_index: filterIndex, alias: null },
+              { network: "mainnet", account_index: filterIndex, alias: null },
+            ];
+          }
+        }
       } else {
         const { results } = await env.DB.prepare(
-          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND account_index = ?",
+          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? ORDER BY network ASC, id ASC",
         )
-          .bind(ctx.from!.id, filterIndex)
+          .bind(ctx.from!.id)
           .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
         trackedList = results || [];
-        if (trackedList.length === 0) {
-          trackedList = [
-            { network: "rh", account_index: filterIndex, alias: null },
-            { network: "mainnet", account_index: filterIndex, alias: null },
-          ];
+      }
+
+      trace.mark("d1_load_tracked");
+
+      if (trackedList.length === 0) {
+        if (filterIndex) {
+          return ctx.reply(`Аккаунт #${filterIndex} не найден среди ваших отслеживаемых.`, {
+            reply_markup: getMainKb(ctx),
+          });
         }
+        const emptyText =
+          `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
+          `Бот в реальном времени отслеживает ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
+          `рассчитывает риски и защищает от ликвидации.\n\n` +
+          `У вас пока нет подключенных кошельков. Давайте подключим первый:`;
+        const emptyKb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
+        if (isEdit) {
+          return ctx
+            .editMessageText(emptyText, { parse_mode: "HTML", reply_markup: emptyKb })
+            .catch(() => {});
+        }
+        return ctx.reply(emptyText, { parse_mode: "HTML", reply_markup: emptyKb });
       }
-    } else {
-      const { results } = await env.DB.prepare(
-        "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? ORDER BY network ASC, id ASC",
-      )
-        .bind(ctx.from!.id)
-        .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
-      trackedList = results || [];
-    }
 
-    if (trackedList.length === 0) {
-      if (filterIndex) {
-        return ctx.reply(`Аккаунт #${filterIndex} не найден среди ваших отслеживаемых.`, {
-          reply_markup: getMainKb(ctx),
-        });
-      }
-      const emptyText =
-        `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
-        `Бот в реальном времени отслеживает ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
-        `рассчитывает риски и защищает от ликвидации.\n\n` +
-        `У вас пока нет подключенных кошельков. Давайте подключим первый:`;
-      const emptyKb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
-      if (isEdit) {
-        return ctx
-          .editMessageText(emptyText, { parse_mode: "HTML", reply_markup: emptyKb })
-          .catch(() => {});
-      }
-      return ctx.reply(emptyText, { parse_mode: "HTML", reply_markup: emptyKb });
-    }
+      // Загрузка кэша из D1
+      const cacheMap = new Map<string, any>();
+      if (trackedList.length > 0) {
+        if (!filterIndex) {
+          const { results: cachedRows } = await env.DB.prepare(`
+            SELECT c.* 
+            FROM account_positions_cache c
+            JOIN user_tracked_accounts uta 
+              ON c.network = uta.network AND c.account_index = uta.account_index
+            WHERE uta.telegram_id = ?
+          `)
+            .bind(ctx.from!.id)
+            .all<any>();
 
-    // Загрузка кэша из D1
-    const cacheMap = new Map<string, any>();
-    if (trackedList.length > 0) {
-      if (!filterIndex) {
-        const { results: cachedRows } = await env.DB.prepare(`
-          SELECT c.* 
-          FROM account_positions_cache c
-          JOIN user_tracked_accounts uta 
-            ON c.network = uta.network AND c.account_index = uta.account_index
-          WHERE uta.telegram_id = ?
-        `)
-          .bind(ctx.from!.id)
-          .all<any>();
-
-        if (cachedRows) {
-          for (const row of cachedRows) {
-            cacheMap.set(`${row.network}:${row.account_index}`, row);
+          if (cachedRows) {
+            for (const row of cachedRows) {
+              cacheMap.set(`${row.network}:${row.account_index}`, row);
+            }
           }
-        }
-      } else {
-        const rows = await Promise.all(
-          trackedList.map((item) =>
-            env.DB.prepare(
-              "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?",
-            )
-              .bind(item.network, item.account_index)
-              .first<any>(),
-          ),
-        );
-        for (const row of rows) {
-          if (row) {
-            cacheMap.set(`${row.network}:${row.account_index}`, row);
+        } else {
+          const rows = await Promise.all(
+            trackedList.map((item) =>
+              env.DB.prepare(
+                "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?",
+              )
+                .bind(item.network, item.account_index)
+                .first<any>(),
+            ),
+          );
+          for (const row of rows) {
+            if (row) {
+              cacheMap.set(`${row.network}:${row.account_index}`, row);
+            }
           }
         }
       }
-    }
+
+      trace.mark("d1_load_cache");
 
     const nowSec = Math.floor(Date.now() / 1000);
     let isRateLimited = false;
@@ -1032,6 +1067,7 @@ export function getBot(env: Env): Bot {
         });
 
     const freshMap = new Map<string, any>();
+    trace.set("toFetchCount", toFetch.length);
     if (toFetch.length > 0) {
       const settled = await fetchInChunks(toFetch, CONFIG.LIGHTER_CHUNK_CONCURRENCY || 5, (item) =>
         fetchLighterAccountWithStatus(
@@ -1041,6 +1077,7 @@ export function getBot(env: Env): Bot {
           getLighterAuthToken(currentEnv || env, item.network),
         ),
       );
+      trace.mark("lighter_api_fetch");
       toFetch.forEach((item, i) => {
         const res = settled[i];
         if (res && res.status === "fulfilled") {
@@ -1091,6 +1128,7 @@ export function getBot(env: Env): Bot {
             console.error("Cache update error:", e),
           ),
         ]);
+        trace.mark("d1_sync_and_cache");
       }
     }
 
@@ -1200,6 +1238,8 @@ export function getBot(env: Env): Bot {
       }
 
       combinedReport += footerSuffix;
+      trace.mark("calc_and_render");
+      trace.set("cardsCount", cards.length);
 
       if (combinedReport.length > 3800) {
         let currentChunk = "";
@@ -1214,6 +1254,7 @@ export function getBot(env: Env): Bot {
         }
         currentChunk += `${summaryBlock}${footerSuffix}`;
         await ctx.reply(currentChunk, { parse_mode: "HTML", reply_markup: posKeyboard });
+        trace.mark("telegram_send");
         return;
       }
 
@@ -1231,12 +1272,17 @@ export function getBot(env: Env): Bot {
       } else {
         await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
       }
+      trace.mark("telegram_send");
     } else if (filterIndex) {
       await ctx.reply(`Аккаунт #${filterIndex} не найден ни в одной из поддерживаемых сетей.`, {
         reply_markup: getMainKb(ctx),
       });
+      trace.mark("telegram_send");
     }
-  };
+  } finally {
+    trace.end();
+  }
+};
 
   bot.command("positions", async (ctx) => {
     const arg = ctx.match ? ctx.match.trim() : "";

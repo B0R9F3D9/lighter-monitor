@@ -26,6 +26,7 @@ import {
 import { analyzePositionRisk } from "../lighter/math";
 import { formatPriceStepAlert } from "../bot/formatters";
 import { getBot } from "../bot/bot";
+import { Tracer } from "../utils/tracer";
 
 // Динамический умный кулдаун на лету от порога пользователя
 export function getSmartCooldownSeconds(threshold: number): number {
@@ -115,89 +116,95 @@ export function getMovedSymbols(
 }
 
 export async function runCronMonitor(env: Env): Promise<void> {
-  const bot = getBot(env);
-  const now = Math.floor(Date.now() / 1000);
-  const startTime = Date.now();
-  const MAX_WALL_CLOCK_MS = 14_000; // 14 сек безопасный таймаут (гарантирует завершение всего цикла до 15с)
-  await ensureDatabaseSchema(env.DB);
+  const trace = new Tracer("cron_monitor");
+  try {
+    const bot = getBot(env);
+    const now = Math.floor(Date.now() / 1000);
+    const startTime = Date.now();
+    const MAX_WALL_CLOCK_MS = 14_000; // 14 сек безопасный таймаут (гарантирует завершение всего цикла до 15с)
+    await ensureDatabaseSchema(env.DB);
+    trace.mark("schema_check");
 
-  let subrequestsUsed = 0;
-  let jitChecksDone = 0;
+    let subrequestsUsed = 0;
+    let jitChecksDone = 0;
 
-  // 1. АДАПТИВНЫЙ ФОНОВЫЙ ROUND-ROBIN (приоритет новым и активным аккаунтам, ускоренный с API-токеном)
-  const accountsToSync = await getNextAccountsForSync(env.DB, 6, now, 60);
-  const jitCache = new Map<string, LighterAccount | null>();
-  const failedAccounts: TrackedAccountKey[] = [];
-  const cacheUpdates = new Map<
-    string,
-    {
-      network: LighterNetwork;
-      account: LighterAccount;
-      cachedPositions: any[];
-    }
-  >();
+    // 1. АДАПТИВНЫЙ ФОНОВЫЙ ROUND-ROBIN (приоритет новым и активным аккаунтам, ускоренный с API-токеном)
+    const accountsToSync = await getNextAccountsForSync(env.DB, 6, now, 60);
+    const jitCache = new Map<string, LighterAccount | null>();
+    const failedAccounts: TrackedAccountKey[] = [];
+    const cacheUpdates = new Map<
+      string,
+      {
+        network: LighterNetwork;
+        account: LighterAccount;
+        cachedPositions: any[];
+      }
+    >();
 
-  if (accountsToSync.length > 0) {
-    const syncResults = await fetchInChunks(accountsToSync, 3, (acc) =>
-      fetchLighterAccount(
-        acc.network,
-        acc.accountIndex,
-        false,
-        getLighterAuthToken(env, acc.network),
-      ),
-    );
-    subrequestsUsed += accountsToSync.length;
+    if (accountsToSync.length > 0) {
+      const syncResults = await fetchInChunks(accountsToSync, 3, (acc) =>
+        fetchLighterAccount(
+          acc.network,
+          acc.accountIndex,
+          false,
+          getLighterAuthToken(env, acc.network),
+        ),
+      );
+      subrequestsUsed += accountsToSync.length;
 
-    for (let i = 0; i < accountsToSync.length; i++) {
-      const accKey = accountsToSync[i]!;
-      const res = syncResults[i];
-      const syncedData = res?.status === "fulfilled" ? res.value : null;
+      for (let i = 0; i < accountsToSync.length; i++) {
+        const accKey = accountsToSync[i]!;
+        const res = syncResults[i];
+        const syncedData = res?.status === "fulfilled" ? res.value : null;
 
-      const cacheKey = `${accKey.network}:${accKey.accountIndex}`;
-      jitCache.set(cacheKey, syncedData);
+        const cacheKey = `${accKey.network}:${accKey.accountIndex}`;
+        jitCache.set(cacheKey, syncedData);
 
-      if (syncedData) {
-        await syncAccountOpenPositions(
-          env.DB,
-          accKey.network,
-          accKey.accountIndex,
-          syncedData.positions,
-        );
-        cacheUpdates.set(cacheKey, {
-          network: accKey.network,
-          account: syncedData,
-          cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
-        });
-      } else {
-        failedAccounts.push(accKey);
+        if (syncedData) {
+          await syncAccountOpenPositions(
+            env.DB,
+            accKey.network,
+            accKey.accountIndex,
+            syncedData.positions,
+          );
+          cacheUpdates.set(cacheKey, {
+            network: accKey.network,
+            account: syncedData,
+            cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
+          });
+        } else {
+          failedAccounts.push(accKey);
+        }
       }
     }
-  }
 
-  if (failedAccounts.length > 0) {
-    await touchFailedAccounts(env.DB, failedAccounts);
-  }
+    if (failedAccounts.length > 0) {
+      await touchFailedAccounts(env.DB, failedAccounts);
+    }
+    trace.mark("round_robin_sync");
 
-  // 2. ЗАГРУЖАЕМ СРЕЗЫ ЦЕН БИРЖИ (2 подзапроса на всю систему)
-  const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
-  const networks: LighterNetwork[] = ["rh", "mainnet"];
+    // 2. ЗАГРУЖАЕМ СРЕЗЫ ЦЕН БИРЖИ (2 подзапроса на всю систему)
+    const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
+    const networks: LighterNetwork[] = ["rh", "mainnet"];
 
-  for (const net of networks) {
-    if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 10) break;
-    const snap = await fetchExchangeStats(net, getLighterAuthToken(env, net));
-    subrequestsUsed++;
-    priceSnapshots.set(net, snap);
-  }
+    for (const net of networks) {
+      if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 10) break;
+      const snap = await fetchExchangeStats(net, getLighterAuthToken(env, net));
+      subrequestsUsed++;
+      priceSnapshots.set(net, snap);
+    }
+    trace.mark("fetch_exchange_prices");
 
-  // 3. REVERSE INDEXING: Вычисляем инструменты с реальным импульсом (или делаем полный срез)
-  const { movedSymbols, isFullSweep } = getMovedSymbols(priceSnapshots, now);
+    // 3. REVERSE INDEXING: Вычисляем инструменты с реальным импульсом (или делаем полный срез)
+    const { movedSymbols, isFullSweep } = getMovedSymbols(priceSnapshots, now);
 
-  const items = isFullSweep
-    ? await getActivePositionsForMonitoring(env.DB)
-    : await getActivePositionsForMonitoring(env.DB, movedSymbols);
+    const items = isFullSweep
+      ? await getActivePositionsForMonitoring(env.DB)
+      : await getActivePositionsForMonitoring(env.DB, movedSymbols);
+    trace.mark("positions_db_fetch");
 
-  const newPositionsToInit: D1PreparedStatement[] = [];
-  const candidateAlerts: AlertCandidate[] = [];
+    const newPositionsToInit: D1PreparedStatement[] = [];
+    const candidateAlerts: AlertCandidate[] = [];
 
   // 4. ФАЗА А: Мгновенная in-memory фильтрация и оценка срочности без сетевых запросов
   for (const item of items) {
@@ -258,6 +265,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
   // Сортировка по убыванию срочности (наибольшее превышение порога идет первым)
   candidateAlerts.sort((a, b) => b.urgency - a.urgency);
+  trace.mark("evaluate_candidates");
 
   // 5. ФАЗА Б: Параллельная JIT-актуализация и доставка алертов
   const alertUpdateStmts: D1PreparedStatement[] = [];
@@ -337,6 +345,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
       }
     }
   }
+  trace.mark("jit_checks");
 
   // Шаг Б.3: Фильтрация, удаление зомби и агрегация алертов по пользователям
   interface PendingUserAlert {
@@ -514,6 +523,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
       }),
     );
   }
+  trace.mark("send_alerts");
 
   // 6. Единая пакетная транзакция в D1 чанками (кэш позиций + алерты + зомби)
   if (cacheUpdates.size > 0) {
@@ -523,6 +533,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
   if (allUpdates.length > 0) {
     await executeD1BatchInChunks(env.DB, allUpdates);
   }
+  trace.mark("d1_batch_update");
 
   // 7. СТРУКТУРИРОВАННЫЙ JSON-ЛОГ (Observability & Cloudflare Dashboard / Axiom)
   const durationMs = Date.now() - startTime;
@@ -560,5 +571,12 @@ export async function runCronMonitor(env: Env): Promise<void> {
     } catch (err) {
       console.warn("Healthcheck ping failed:", err);
     }
+  }
+  trace.mark("metrics_and_healthcheck");
+  trace.set("subrequests", subrequestsUsed);
+  trace.set("alertsSent", alertUpdateStmts.length);
+  trace.set("positionsChecked", items.length);
+  } finally {
+    trace.end();
   }
 }
