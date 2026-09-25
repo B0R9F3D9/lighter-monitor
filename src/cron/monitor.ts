@@ -35,6 +35,17 @@ export function getSmartCooldownSeconds(threshold: number): number {
   return 480; // 8 минут (для свинга с шагом 1.5% - 3%)
 }
 
+// Проверка увеличения риска по позиции от изменения цены:
+// Для LONG: риск растет при падении цены ниже базовой (currentPrice < baseline)
+// Для SHORT: риск растет при росте цены выше базовой (currentPrice > baseline)
+export function isPositionRiskIncreasing(
+  isLong: boolean,
+  currentPrice: number,
+  baseline: number,
+): boolean {
+  return isLong ? currentPrice < baseline : currentPrice > baseline;
+}
+
 // Кандидат на отправку алерта
 export interface AlertCandidate {
   item: ActivePositionWatchItem;
@@ -205,6 +216,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     const newPositionsToInit: D1PreparedStatement[] = [];
     const candidateAlerts: AlertCandidate[] = [];
+    const favorableBaselineUpdates: D1PreparedStatement[] = [];
 
   // 4. ФАЗА А: Мгновенная in-memory фильтрация и оценка срочности без сетевых запросов
   for (const item of items) {
@@ -243,6 +255,31 @@ export async function runCronMonitor(env: Env): Promise<void> {
     const absDelta = Math.abs(priceDeltaPercent);
 
     if (absDelta < item.alert_threshold) continue;
+
+    const isLong = item.is_long === 1;
+    const isRiskIncreasing = isPositionRiskIncreasing(isLong, currentPrice, baseline);
+
+    if (!isRiskIncreasing) {
+      // Цена сдвинулась в пользу позиции (прибыль/уменьшение риска) на шаг порога или более.
+      // Не отправляем уведомление, но подтягиваем базовую отметку цены в D1,
+      // чтобы последующие откаты (когда риск снова начнет расти) фиксировались с нового экстремума.
+      favorableBaselineUpdates.push(
+        env.DB.prepare(`
+          INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET last_price = excluded.last_price
+        `).bind(
+          item.telegram_id,
+          item.network,
+          item.account_index,
+          item.market_id,
+          item.symbol,
+          currentPrice,
+          item.last_alerted_at,
+        ),
+      );
+      continue;
+    }
 
     // Динамический кулдаун (3-8 минут с пробитием при двойном скачке)
     const cooldownSeconds = getSmartCooldownSeconds(item.alert_threshold);
@@ -529,7 +566,12 @@ export async function runCronMonitor(env: Env): Promise<void> {
   if (cacheUpdates.size > 0) {
     await batchUpdatePositionsCache(env.DB, Array.from(cacheUpdates.values()));
   }
-  const allUpdates = [...newPositionsToInit, ...alertUpdateStmts, ...zombieCleanupStmts];
+  const allUpdates = [
+    ...newPositionsToInit,
+    ...favorableBaselineUpdates,
+    ...alertUpdateStmts,
+    ...zombieCleanupStmts,
+  ];
   if (allUpdates.length > 0) {
     await executeD1BatchInChunks(env.DB, allUpdates);
   }

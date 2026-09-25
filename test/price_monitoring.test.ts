@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   getSmartCooldownSeconds,
+  isPositionRiskIncreasing,
   getMovedSymbols,
   resetPriceReferenceCache,
 } from "../src/cron/monitor";
@@ -26,6 +27,33 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       expect(getSmartCooldownSeconds(1.5)).toBe(480);
       expect(getSmartCooldownSeconds(2.0)).toBe(480);
       expect(getSmartCooldownSeconds(3.0)).toBe(480);
+    });
+  });
+
+  describe("isPositionRiskIncreasing", () => {
+    it("detects increased risk for SHORT when price rises (drawdown/approaching liq)", () => {
+      // Gold rises from 4000 to 4010
+      expect(isPositionRiskIncreasing(false, 4010, 4000)).toBe(true);
+    });
+
+    it("filters out LONG when price rises (favorable/profit, risk does not increase)", () => {
+      // Gold rises from 4000 to 4010
+      expect(isPositionRiskIncreasing(true, 4010, 4000)).toBe(false);
+    });
+
+    it("detects increased risk for LONG when price drops (drawdown/approaching liq)", () => {
+      // Gold drops from 4000 to 3990
+      expect(isPositionRiskIncreasing(true, 3990, 4000)).toBe(true);
+    });
+
+    it("filters out SHORT when price drops (favorable/profit, risk does not increase)", () => {
+      // Gold drops from 4000 to 3990
+      expect(isPositionRiskIncreasing(false, 3990, 4000)).toBe(false);
+    });
+
+    it("returns false when price is unchanged", () => {
+      expect(isPositionRiskIncreasing(true, 4000, 4000)).toBe(false);
+      expect(isPositionRiskIncreasing(false, 4000, 4000)).toBe(false);
     });
   });
 
@@ -97,9 +125,9 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       // Impulse & Position & Liq
       expect(text).toContain("• Импульс: <b>↘️ -0.47%</b> (с $4,280.00)");
       expect(text).toContain("• Позиция: <b>📉 -$115.00</b> (-0.47% от $4,280.00)");
-      expect(text).toContain(
-        "• Ликвидация: <b>$4,168.30</b> (до неё <b>2.15%</b> ⚠️ <b>[ОПАСНО]</b>)",
-      );
+      expect(text).toContain("• Ликвидация: <b>$4,168.30</b> (до неё <b>2.15%</b>)");
+      expect(text).not.toContain("[ОПАСНО]");
+      expect(text).not.toContain("[КРИТИЧНО]");
     });
 
     it("formats break-even correctly when bouncing back to entry price", () => {
@@ -166,10 +194,12 @@ describe("Price-Driven Monitoring Unit Tests", () => {
 
       const lossText = formatPriceStepAlert(lossShort);
       expect(lossText).toContain("📉 -$250.00");
-      expect(lossText).toContain("1.41%</b> ⚠️ <b>[ОПАСНО]</b>");
+      expect(lossText).toContain("1.41%</b>)");
+      expect(lossText).not.toContain("[ОПАСНО]");
+      expect(lossText).not.toContain("[КРИТИЧНО]");
     });
 
-    it("shows critical liquidation badge when distance <= 1.0%", () => {
+    it("formats liquidation price and distance cleanly without warning badges", () => {
       const critParams: PriceStepAlertParams = {
         network: "rh",
         accountIndex: 12345,
@@ -186,7 +216,9 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       };
 
       const text = formatPriceStepAlert(critParams);
-      expect(text).toContain("0.72%</b> 🚨 <b>[КРИТИЧНО]</b>");
+      expect(text).toContain("0.72%</b>)");
+      expect(text).not.toContain("[КРИТИЧНО]");
+      expect(text).not.toContain("[ОПАСНО]");
     });
   });
 

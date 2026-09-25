@@ -8,7 +8,7 @@ export function formatPositionsReport(
   alias: string | null,
   collateral: number,
   positions: PositionRiskAnalysis[],
-  userThreshold: number = 1.5,
+  _userThreshold: number = 1.5,
 ): string {
   const badge = CONFIG.NETWORKS[network]?.badge || `[${network.toUpperCase()}]`;
   const title = alias ? `<b>#${accountIndex} (${alias})</b>` : `<b>#${accountIndex}</b>`;
@@ -29,20 +29,7 @@ export function formatPositionsReport(
     text += `• UnPnL: <b>${pnlFormatted}</b>\n`;
 
     if (pos.liqPrice > 0 && pos.distancePercent !== null) {
-      let alertBadge = "";
-      let icon = "🛡";
-      if (pos.distancePercent <= 1.0) {
-        alertBadge = " 🚨 [КРИТИЧНО]";
-        icon = "💥";
-      } else if (pos.distancePercent <= userThreshold) {
-        alertBadge = " ⚠️ [ОПАСНО]";
-        icon = "⚠️";
-      } else if (pos.distancePercent <= userThreshold * 1.5) {
-        alertBadge = " [ВНИМАНИЕ]";
-        icon = "⚡️";
-      }
-
-      text += `• Ликвидация: $${formatSmartPrice(pos.liqPrice)} (${icon}<b>${pos.distancePercent.toFixed(2)}%</b>${alertBadge})\n`;
+      text += `• Ликвидация: $${formatSmartPrice(pos.liqPrice)} (🛡${pos.distancePercent.toFixed(2)}%)\n`;
     } else {
       text += `• Ликвидация: <i>нет риска</i> 🛡\n`;
     }
@@ -75,13 +62,7 @@ export function formatPriceStepAlert(params: PriceStepAlertParams): string {
   // Блок ликвидации
   let liqSection = `• Ликвидация: <i>нет риска</i> 🛡`;
   if (params.liqPrice > 0 && params.distancePercent !== null) {
-    let liqWarn = "";
-    if (params.distancePercent <= 1.0) {
-      liqWarn = " 🚨 <b>[КРИТИЧНО]</b>";
-    } else if (params.distancePercent <= 2.5) {
-      liqWarn = " ⚠️ <b>[ОПАСНО]</b>";
-    }
-    liqSection = `• Ликвидация: <b>$${formatSmartPrice(params.liqPrice)}</b> (до неё <b>${params.distancePercent.toFixed(2)}%</b>${liqWarn})`;
+    liqSection = `• Ликвидация: <b>$${formatSmartPrice(params.liqPrice)}</b> (до неё <b>${params.distancePercent.toFixed(2)}%</b>)`;
   }
 
   return (

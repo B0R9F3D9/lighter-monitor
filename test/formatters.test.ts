@@ -32,7 +32,9 @@ describe("formatPositionsReport", () => {
     expect(text).toContain("🟢 LONG <b>XAU</b> • <b>3.1</b>");
     expect(text).not.toContain("mId");
     expect(text).toContain("Вход: $4,282.65 ➔ Марк: $4,267.44");
-    expect(text).toContain("<b>0.80%</b> 🚨 [КРИТИЧНО]");
+    expect(text).toContain("Ликвидация: $4,168.39 (🛡0.80%)");
+    expect(text).not.toContain("[КРИТИЧНО]");
+    expect(text).not.toContain("[ОПАСНО]");
     expect(text).toContain("📉 -$47.16");
   });
 });
