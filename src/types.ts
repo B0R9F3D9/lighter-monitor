@@ -133,12 +133,34 @@ export interface PriceStepAlertParams {
   distancePercent: number | null;
 }
 
+export interface CronExecutionMetrics {
+  event: string;
+  duration_ms: number;
+  subrequests_used: number;
+  round_robin_synced: number;
+  total_positions_checked: number;
+  candidates_count: number;
+  jit_checks_performed: number;
+  alerts_sent: number;
+  zombies_cleaned: number;
+  timestamp: number;
+}
+
 export interface SystemStats {
   totalUsers: number;
+  users24h: number;
   totalTracked: number;
   trackedRh: number;
   trackedMainnet: number;
+  activeAccountsCount: number;
   activePositionsCount: number;
+  totalLongs: number;
+  totalShorts: number;
+  totalOpenInterestUsd: number;
+  totalCollateralUsd: number;
+  minQueueLagMinutes: number;
+  avgQueueLagMinutes: number;
   maxQueueLagMinutes: number;
   topTokens: Array<{ symbol: string; count: number }>;
+  lastCron?: CronExecutionMetrics | null;
 }

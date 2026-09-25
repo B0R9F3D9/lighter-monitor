@@ -11,9 +11,11 @@ export interface FetchAccountResult {
 export async function fetchLighterAccountWithStatus(
   network: LighterNetwork,
   accountIndex: number,
+  interactive: boolean = false,
 ): Promise<FetchAccountResult> {
   const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
-  const maxRetries = 2;
+  // В интерактивных запросах пользователя ретраи отключены для мгновенного ответа
+  const maxRetries = interactive ? 0 : 1;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -30,10 +32,12 @@ export async function fetchLighterAccountWithStatus(
         if (attempt < maxRetries) {
           const retryHeader = res.headers.get("Retry-After");
           const retryAfterSec = retryHeader ? parseInt(retryHeader, 10) : 0;
-          const delay =
+          const delay = Math.min(
             retryAfterSec > 0
               ? retryAfterSec * 1000
-              : (attempt + 1) * 600 + Math.floor(Math.random() * 300);
+              : (attempt + 1) * 350 + Math.floor(Math.random() * 150),
+            1000,
+          );
           console.warn(
             `[${network}] #${accountIndex} got 429, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`,
           );
@@ -72,7 +76,7 @@ export async function fetchLighterAccountWithStatus(
       return { account: null, status: "ERROR", statusCode: data.code, message: data.message };
     } catch (err: any) {
       if (attempt < maxRetries) {
-        await new Promise((r) => setTimeout(r, 400));
+        await new Promise((r) => setTimeout(r, 200));
         continue;
       }
       return { account: null, status: "ERROR", message: err?.message || String(err) };
@@ -85,24 +89,32 @@ export async function fetchLighterAccountWithStatus(
 export async function fetchLighterAccount(
   network: LighterNetwork,
   accountIndex: number,
+  interactive?: boolean,
 ): Promise<LighterAccount | null>;
-export async function fetchLighterAccount(accountIndex: number): Promise<LighterAccount | null>;
+export async function fetchLighterAccount(
+  accountIndex: number,
+  interactive?: boolean,
+): Promise<LighterAccount | null>;
 export async function fetchLighterAccount(
   networkOrIndex: LighterNetwork | number,
-  maybeIndex?: number,
+  maybeIndexOrInteractive?: number | boolean,
+  maybeInteractive?: boolean,
 ): Promise<LighterAccount | null> {
   let network: LighterNetwork = "rh";
   let index: number;
+  let interactive = false;
 
   if (typeof networkOrIndex === "number") {
     index = networkOrIndex;
     network = "rh";
+    interactive = typeof maybeIndexOrInteractive === "boolean" ? maybeIndexOrInteractive : false;
   } else {
     network = networkOrIndex;
-    index = maybeIndex!;
+    index = maybeIndexOrInteractive as number;
+    interactive = maybeInteractive ?? false;
   }
 
-  const result = await fetchLighterAccountWithStatus(network, index);
+  const result = await fetchLighterAccountWithStatus(network, index, interactive);
   return result.account;
 }
 

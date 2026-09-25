@@ -65,3 +65,11 @@ CREATE TABLE IF NOT EXISTS user_token_alerts (
     last_alerted_at INTEGER NOT NULL,
     PRIMARY KEY (telegram_id, network, account_index, market_id)
 );
+
+-- 6. Системные и операционные метрики для обсервабилити (/stats и дашборд)
+CREATE TABLE IF NOT EXISTS bot_system_metrics (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+

@@ -278,11 +278,14 @@ export async function runCronMonitor(env: Env): Promise<void> {
         ? Math.abs((currentPrice - liqPrice) / currentPrice) * 100
         : null;
 
-    const isNearLiquidation = distancePercent !== null && distancePercent <= 3.5;
-    const isStale = item.last_updated_at ? now - item.last_updated_at >= 7200 : true;
+    const stalenessSec = item.last_updated_at ? now - item.last_updated_at : Infinity;
 
-    // В JIT очередь попадают позиции в зоне риска (<= 3.5% от ликвидации) или не обновлявшиеся > 2 часов
-    if (isNearLiquidation || isStale) {
+    // В JIT очередь попадают позиции в критической зоне риска (<= 1.0% от ликвидации)
+    // или сильно устаревшие (> 2 часов), И ТОЛЬКО если они не опрашивались за последние 300 секунд (5 мин)!
+    const isCriticalRisk = distancePercent !== null && distancePercent <= 1.0;
+    const isStale = stalenessSec >= 7200;
+
+    if ((isCriticalRisk || isStale) && stalenessSec >= 300) {
       seenAccKeys.add(key);
       pendingJitKeys.push({
         network: item.network,
@@ -384,12 +387,6 @@ export async function runCronMonitor(env: Env): Promise<void> {
         liqPrice > 0 && currentPrice > 0
           ? Math.abs((currentPrice - liqPrice) / currentPrice) * 100
           : null;
-
-      // Если расчетная ликвидация в опасной зоне (<= 3.5%), но аккаунт не попал в JIT этого тика,
-      // откладываем алерт до верификации биржей на следующем тике
-      if (distancePercent !== null && distancePercent <= 3.5) {
-        continue;
-      }
     }
 
     // Проверка режима «Тихий сон» (Mute)
@@ -534,6 +531,19 @@ export async function runCronMonitor(env: Env): Promise<void> {
     timestamp: now,
   };
   console.log(JSON.stringify(executionMetrics));
+
+  // Сохраняем операционные метрики в D1 для системного дашборда (/stats)
+  try {
+    await env.DB.prepare(`
+      INSERT INTO bot_system_metrics (key, value_json, updated_at)
+      VALUES ('last_cron', ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+    `)
+      .bind(JSON.stringify(executionMetrics), now)
+      .run();
+  } catch (err) {
+    console.error("Failed to persist cron metrics:", err);
+  }
 
   // 8. WATCHDOG / HEARTBEAT (Healthchecks.io / Better Stack)
   if (env.HEALTHCHECK_URL) {

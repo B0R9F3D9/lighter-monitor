@@ -1,7 +1,7 @@
 import { Bot, InlineKeyboard, Keyboard } from "grammy";
 import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
 import { CONFIG } from "../config";
-import { fetchLighterAccount, fetchLighterAccountWithStatus, fetchInChunks } from "../lighter/api";
+import { fetchLighterAccountWithStatus, fetchInChunks } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
 import {
   batchUpdatePositionsCache,
@@ -932,6 +932,12 @@ export function getBot(env: Env): Bot {
     }
 
     const nowSec = Math.floor(Date.now() / 1000);
+    let isRateLimited = false;
+
+    // В штатном режиме (/positions или кнопка "Позиции") отдаем мгновенно из кэша D1 за 40-60 мс!
+    // Сетевой запрос к бирже отправляется ТОЛЬКО если:
+    // 1) Пользователь нажал кнопку "🔄 Обновить" (forceRefresh === true)
+    // 2) Либо для аккаунта ВООБЩЕ нет кэша в базе (первое подключение)
     const toFetch = forceRefresh
       ? trackedList.filter((item) => {
           const key = `${item.network}:${item.account_index}`;
@@ -944,18 +950,22 @@ export function getBot(env: Env): Bot {
       : trackedList.filter((item) => {
           const key = `${item.network}:${item.account_index}`;
           const c = cacheMap.get(key);
-          return !c || !c.l1_address || !c.last_updated_at || nowSec - c.last_updated_at >= 120;
+          return !c || !c.l1_address;
         });
 
     const freshMap = new Map<string, any>();
     if (toFetch.length > 0) {
       const settled = await fetchInChunks(toFetch, 2, (item) =>
-        fetchLighterAccount(item.network, item.account_index),
+        fetchLighterAccountWithStatus(item.network, item.account_index, true),
       );
       toFetch.forEach((item, i) => {
         const res = settled[i];
-        if (res && res.status === "fulfilled" && res.value) {
-          freshMap.set(`${item.network}:${item.account_index}`, res.value);
+        if (res && res.status === "fulfilled") {
+          if (res.value.status === "OK" && res.value.account) {
+            freshMap.set(`${item.network}:${item.account_index}`, res.value.account);
+          } else if (res.value.status === "RATE_LIMIT") {
+            isRateLimited = true;
+          }
         }
       });
 
@@ -1073,6 +1083,9 @@ export function getBot(env: Env): Bot {
         second: "2-digit",
       });
       combinedReport += `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+      if (isRateLimited) {
+        combinedReport += `\n⚠️ <i>Биржа Lighter временно ограничила частые запросы (429). Показаны последние сохраненные данные.</i>`;
+      }
 
       if (combinedReport.length > 3800) {
         let currentChunk = "";
@@ -1222,19 +1235,41 @@ export function getBot(env: Env): Bot {
       const stats = await getSystemStats(activeEnv.DB);
       const tokenBreakdown =
         stats.topTokens.length > 0
-          ? stats.topTokens.map((t) => `• <b>${t.symbol}:</b> ${t.count} поз.`).join("\n") + "\n\n"
-          : "";
+          ? stats.topTokens.map((t) => `  • <b>${t.symbol}:</b> ${t.count} поз.`).join("\n") + "\n"
+          : "  • <i>нет открытых сделок</i>\n";
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      let cronSection = "";
+      if (stats.lastCron) {
+        const c = stats.lastCron;
+        const cronAgoSec = nowSec - c.timestamp;
+        const cronAgoText =
+          cronAgoSec < 60 ? `${cronAgoSec} сек назад` : `${Math.round(cronAgoSec / 60)} мин назад`;
+        cronSection =
+          `⚙️ <b>Последний тик крона (${cronAgoText}):</b>\n` +
+          `  • Длительность: <b>${c.duration_ms} мс</b>\n` +
+          `  • Subrequests: <b>${c.subrequests_used} / 50</b>\n` +
+          `  • Позиций проверено: <b>${c.total_positions_checked}</b> (JIT: <b>${c.jit_checks_performed}</b>)\n` +
+          `  • Алертов отправлено: <b>${c.alerts_sent}</b>\n\n`;
+      }
 
       const report =
         `📊 <b>Lighter Monitor — Системный Дашборд</b>\n\n` +
-        `👥 <b>Пользователи:</b> <b>${stats.totalUsers}</b>\n` +
-        `💼 <b>Всего кошельков:</b> <b>${stats.totalTracked}</b>\n` +
-        `  ├ 🟠 Robinhood: ${stats.trackedRh}\n` +
-        `  └ ⚡️ Mainnet: ${stats.trackedMainnet}\n\n` +
-        `📈 <b>Открытых сделок в базе:</b> <b>${stats.activePositionsCount}</b>\n` +
-        `${tokenBreakdown}` +
-        `⏱ <b>Лаг очереди Round-Robin:</b> ${stats.maxQueueLagMinutes} мин.\n` +
-        `<i>(Норма: &lt; 30–45 мин для активных счетов)</i>`;
+        `👥 <b>Пользователи и счета:</b>\n` +
+        `  • Пользователи: <b>${stats.totalUsers}</b> (новых за 24ч: <b>+${stats.users24h}</b>)\n` +
+        `  • Всего кошельков: <b>${stats.totalTracked}</b> (🟠 RH: ${stats.trackedRh} | ⚡️ Mainnet: ${stats.trackedMainnet})\n` +
+        `  • Активных счетов: <b>${stats.activeAccountsCount}</b>\n\n` +
+        `💰 <b>Объем портфеля:</b>\n` +
+        `  • Совокупный залог: <b>$${stats.totalCollateralUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>\n` +
+        `  • Открытый интерес (OI): <b>$${stats.totalOpenInterestUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>\n` +
+        `  • Позиции: <b>${stats.activePositionsCount}</b> (🟢 Long: ${stats.totalLongs} | 🔴 Short: ${stats.totalShorts})\n` +
+        `${tokenBreakdown}\n` +
+        `⏱ <b>Здоровье очереди и лаги:</b>\n` +
+        `  • Мин. лаг синхронизации: <b>${stats.minQueueLagMinutes} мин.</b>\n` +
+        `  • Средний лаг кэша: <b>${stats.avgQueueLagMinutes} мин.</b>\n` +
+        `  • Макс. лаг очереди: <b>${stats.maxQueueLagMinutes} мин.</b> <i>(норма &lt; 30–45 мин)</i>\n\n` +
+        `${cronSection}` +
+        `🛡 <i>Cloudflare Free: 0-CLI, Zero-Dormant, Selective JIT</i>`;
 
       await ctx.reply(report, { parse_mode: "HTML" });
     } catch (err: any) {

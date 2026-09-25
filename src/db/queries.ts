@@ -312,6 +312,17 @@ export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
       .prepare("CREATE INDEX IF NOT EXISTS idx_open_pos_symbol ON account_open_positions(symbol)")
       .run();
   } catch {}
+  try {
+    await db
+      .prepare(`
+        CREATE TABLE IF NOT EXISTS bot_system_metrics (
+          key TEXT PRIMARY KEY,
+          value_json TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `)
+      .run();
+  } catch {}
 }
 
 // 9. Синхронизация открытых позиций аккаунта (удаление закрытых, добавление новых)
@@ -392,14 +403,21 @@ export async function syncAccountOpenPositions(
 export async function getSystemStats(db: D1Database): Promise<SystemStats> {
   const now = Math.floor(Date.now() / 1000);
 
-  const [summaryRes, tokensRes] = await db.batch([
-    db.prepare(`
+  const [summaryRes, tokensRes, metricsRes] = await db.batch([
+    db
+      .prepare(`
       SELECT
         (SELECT COUNT(*) FROM users) as total_users,
+        (SELECT COUNT(*) FROM users WHERE created_at >= ? - 86400) as users_24h,
         (SELECT COUNT(*) FROM user_tracked_accounts) as total_tracked,
         (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'rh') as tracked_rh,
         (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'mainnet') as tracked_mainnet,
+        (SELECT COUNT(DISTINCT network || ':' || account_index) FROM account_open_positions) as active_accounts_count,
         (SELECT COUNT(*) FROM account_open_positions) as active_positions,
+        (SELECT COUNT(*) FROM account_open_positions WHERE is_long = 1) as total_longs,
+        (SELECT COUNT(*) FROM account_open_positions WHERE is_long = 0) as total_shorts,
+        (SELECT COALESCE(SUM(size * entry_price), 0) FROM account_open_positions) as total_open_interest,
+        (SELECT COALESCE(SUM(collateral), 0) FROM account_positions_cache) as total_collateral,
         (SELECT MIN(c.last_updated_at)
          FROM account_positions_cache c
          JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
@@ -408,8 +426,27 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
               SELECT 1 FROM account_open_positions aop
               WHERE aop.network = c.network AND aop.account_index = c.account_index
             )
-        ) as oldest_cache
-    `),
+        ) as oldest_cache,
+        (SELECT MAX(c.last_updated_at)
+         FROM account_positions_cache c
+         JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
+         WHERE c.collateral > 0
+            OR EXISTS (
+              SELECT 1 FROM account_open_positions aop
+              WHERE aop.network = c.network AND aop.account_index = c.account_index
+            )
+        ) as newest_cache,
+        (SELECT AVG(c.last_updated_at)
+         FROM account_positions_cache c
+         JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
+         WHERE c.collateral > 0
+            OR EXISTS (
+              SELECT 1 FROM account_open_positions aop
+              WHERE aop.network = c.network AND aop.account_index = c.account_index
+            )
+        ) as avg_cache
+    `)
+      .bind(now),
     db.prepare(`
       SELECT symbol, COUNT(*) as count 
       FROM account_open_positions 
@@ -417,29 +454,48 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
       ORDER BY count DESC 
       LIMIT 5
     `),
+    db.prepare(`
+      SELECT value_json, updated_at FROM bot_system_metrics WHERE key = 'last_cron'
+    `),
   ]);
 
-  const summary = ((summaryRes as any)?.results?.[0] || {}) as {
-    total_users?: number;
-    total_tracked?: number;
-    tracked_rh?: number;
-    tracked_mainnet?: number;
-    active_positions?: number;
-    oldest_cache?: number | null;
-  };
-
+  const summary = ((summaryRes as any)?.results?.[0] || {}) as any;
   const topTokens = ((tokensRes as any)?.results || []) as Array<{ symbol: string; count: number }>;
+  const metricsRow = (metricsRes as any)?.results?.[0] as
+    | { value_json: string; updated_at: number }
+    | undefined;
+
+  let lastCron: any = null;
+  if (metricsRow?.value_json) {
+    try {
+      lastCron = JSON.parse(metricsRow.value_json);
+    } catch {}
+  }
 
   const oldest = summary.oldest_cache;
-  const lagSeconds = oldest && oldest > 0 ? now - oldest : 0;
+  const newest = summary.newest_cache;
+  const avg = summary.avg_cache;
+
+  const maxLagMinutes = oldest && oldest > 0 ? Math.round((now - oldest) / 60) : 0;
+  const minLagMinutes = newest && newest > 0 ? Math.round((now - newest) / 60) : 0;
+  const avgLagMinutes = avg && avg > 0 ? Math.round((now - avg) / 60) : 0;
 
   return {
     totalUsers: summary.total_users || 0,
+    users24h: summary.users_24h || 0,
     totalTracked: summary.total_tracked || 0,
     trackedRh: summary.tracked_rh || 0,
     trackedMainnet: summary.tracked_mainnet || 0,
+    activeAccountsCount: summary.active_accounts_count || 0,
     activePositionsCount: summary.active_positions || 0,
-    maxQueueLagMinutes: Math.round(lagSeconds / 60),
+    totalLongs: summary.total_longs || 0,
+    totalShorts: summary.total_shorts || 0,
+    totalOpenInterestUsd: summary.total_open_interest || 0,
+    totalCollateralUsd: summary.total_collateral || 0,
+    minQueueLagMinutes: minLagMinutes,
+    avgQueueLagMinutes: avgLagMinutes,
+    maxQueueLagMinutes: maxLagMinutes,
     topTokens,
+    lastCron,
   };
 }
