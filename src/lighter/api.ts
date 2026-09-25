@@ -31,14 +31,9 @@ export async function fetchLighterAccountWithStatus(
         headers["Authorization"] = authToken.trim();
       }
 
-      const fetchOptions: any = {
+      const fetchOptions = {
         headers,
-        cache: "no-store",
-        cf: {
-          cacheTtl: -1,
-          cacheEverything: false,
-        },
-        signal: AbortSignal.timeout(CONFIG.FETCH_TIMEOUT_MS || 3000),
+        signal: AbortSignal.timeout(CONFIG.FETCH_TIMEOUT_MS || 5000),
       };
 
       // Добавляем микросекундный cache-buster _t=${Date.now()}, чтобы CloudFront и промежуточные CDN
@@ -204,26 +199,14 @@ export async function fetchExchangeStats(
       headers["Authorization"] = authToken.trim();
     }
 
-    const fetchOptions: any = {
-      headers,
-      cache: "no-store",
-      cf: {
-        cacheTtl: -1,
-        cacheEverything: false,
-      },
-    };
-
-    let res = await fetch(`${baseUrl}/exchangeStats?_t=${Date.now()}`, fetchOptions);
+    let res = await fetch(`${baseUrl}/exchangeStats?_t=${Date.now()}`, { headers });
 
     if (res.status === 401 && authToken) {
       console.warn(
         `[${network}] exchangeStats got 401 with Authorization token. Retrying without auth token...`,
       );
       delete headers["Authorization"];
-      res = await fetch(`${baseUrl}/exchangeStats?_t=${Date.now()}`, {
-        ...fetchOptions,
-        headers,
-      });
+      res = await fetch(`${baseUrl}/exchangeStats?_t=${Date.now()}`, { headers });
     }
 
     if (!res.ok) return map;

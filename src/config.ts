@@ -26,7 +26,7 @@ export const CONFIG = {
   LIGHTER_CHUNK_CONCURRENCY: 5,
 
   // Wall-Clock защита
-  FETCH_TIMEOUT_MS: 3000,
+  FETCH_TIMEOUT_MS: 5000,
 
   // Пороги рисков
   DEFAULT_ALERT_THRESHOLD: 0.5, // По умолчанию 0.5% (оптимум для XAU и плеча 15-25x)
