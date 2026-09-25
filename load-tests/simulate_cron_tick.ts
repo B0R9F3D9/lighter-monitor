@@ -71,6 +71,7 @@ interface TelegramAlertRecord {
   time: number;
   intervalFromLastMs: number | null;
   snippet: string;
+  text: string;
 }
 
 const telegramRecords: TelegramAlertRecord[] = [];
@@ -226,6 +227,7 @@ bot.api.config.use(async (prev, method, payload, signal) => {
       time: nowTime,
       intervalFromLastMs: intervalFromLast,
       snippet: text.slice(0, 65).replace(/\n/g, " "),
+      text,
     });
 
     return {
@@ -275,27 +277,29 @@ console.log(`   • Успешно удалено зомби из базы: ${zo
 console.log(`\n💬 Доставка уведомлений Telegram:`);
 console.log(`   • Всего алертов отправлено: ${telegramSends}`);
 
-// Анализ интервалов троттлинга по пользователям
-console.log("\n🚦 ПРОВЕРКА ТРОТТЛИНГА TELEGRAM (>= 850 мс между сообщениями одному юзеру):");
+// Анализ консолидации алертов по пользователям
+console.log(
+  "\n📦 ПРОВЕРКА КОНСОЛИДАЦИИ АЛЕРТОВ (1 объединенное сообщение на пользователя, 0 мс сна):",
+);
 const user10001Alerts = telegramRecords.filter((r) => r.userId === 10001);
-console.log(`   • Алертов для пользователя 10001 (мульти-позиция): ${user10001Alerts.length}`);
+console.log(`   • Сообщений для пользователя 10001 (мульти-позиция): ${user10001Alerts.length}`);
 
-let throttlingPassed = true;
-user10001Alerts.forEach((r, idx) => {
-  const intervalStr =
-    r.intervalFromLastMs !== null ? `+${r.intervalFromLastMs} ms` : "0 ms (первое)";
-  console.log(`     ${idx + 1}. Сообщение в ${r.time} (${intervalStr}) | ${r.snippet}`);
-  if (r.intervalFromLastMs !== null && r.intervalFromLastMs < 800) {
-    throttlingPassed = false;
+if (user10001Alerts.length === 1) {
+  const msg = user10001Alerts[0]!;
+  const hasDivider = msg.text.includes("───────────────────");
+  console.log(`     1. Объединенный дайджест доставлен | Длина: ${msg.text.length} символов`);
+  if (hasDivider) {
+    console.log("   ✅ Мульти-алерты успешно объединены разделителем в одно сообщение!");
+  } else {
+    console.log("   ℹ️ Одиночный алерт в сообщении.");
   }
-});
-
-if (throttlingPassed && user10001Alerts.length > 1) {
-  console.log("   ✅ Троттлинг 850 мс работает строго: спам в личку предотвращен!");
-} else if (user10001Alerts.length <= 1) {
-  console.log("   ℹ️ Для 10001 отправлено 1 сообщение (интервалы не применимы).");
+  console.log("   ✅ 0 мс искусственных пауз: лимит 1 сообщ/сек на чат гарантирован архитектурно!");
+} else if (user10001Alerts.length > 1) {
+  console.log(
+    "   ❌ ОШИБКА: Пользователь получил несколько раздельных сообщений вместо одного дайджеста!",
+  );
 } else {
-  console.log("   ❌ ОШИБКА: интервал между сообщениями меньше 800 мс!");
+  console.log("   ℹ️ Для 10001 не было сработавших алертов на этом тике.");
 }
 
 console.log("\n🛡 ПРОВЕРКА БЮДЖЕТОВ CLOUDFLARE WORKERS:");

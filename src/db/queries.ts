@@ -376,7 +376,15 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
         (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'rh') as tracked_rh,
         (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'mainnet') as tracked_mainnet,
         (SELECT COUNT(*) FROM account_open_positions) as active_positions,
-        (SELECT MIN(last_updated_at) FROM account_positions_cache) as oldest_cache
+        (SELECT MIN(c.last_updated_at)
+         FROM account_positions_cache c
+         JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
+         WHERE c.collateral > 0
+            OR EXISTS (
+              SELECT 1 FROM account_open_positions aop
+              WHERE aop.network = c.network AND aop.account_index = c.account_index
+            )
+        ) as oldest_cache
     `),
     db.prepare(`
       SELECT symbol, COUNT(*) as count 

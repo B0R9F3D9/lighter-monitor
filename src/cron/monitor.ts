@@ -16,7 +16,12 @@ import {
   getActivePositionsForMonitoring,
   removeBlockedUser,
 } from "../db/queries";
-import { fetchLighterAccount, fetchExchangeStats, findMarketPrice } from "../lighter/api";
+import {
+  fetchLighterAccount,
+  fetchInChunks,
+  fetchExchangeStats,
+  findMarketPrice,
+} from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
 import { formatPriceStepAlert } from "../bot/formatters";
 import { getBot } from "../bot/bot";
@@ -118,44 +123,51 @@ export async function runCronMonitor(env: Env): Promise<void> {
   let subrequestsUsed = 0;
   let jitChecksDone = 0;
 
-  // 1. АДАПТИВНЫЙ ФОНОВЫЙ ROUND-ROBIN (приоритет новым и активным аккаунтам)
-  const accountsToSync = await getNextAccountsForSync(env.DB, 2, now);
+  // 1. АДАПТИВНЫЙ ФОНОВЫЙ ROUND-ROBIN (приоритет новым и активным аккаунтам, ускорен до 4)
+  const accountsToSync = await getNextAccountsForSync(env.DB, 4, now);
   const jitCache = new Map<string, LighterAccount | null>();
   const failedAccounts: TrackedAccountKey[] = [];
-  const cacheUpdates: Array<{
-    network: LighterNetwork;
-    account: LighterAccount;
-    cachedPositions: any[];
-  }> = [];
+  const cacheUpdates = new Map<
+    string,
+    {
+      network: LighterNetwork;
+      account: LighterAccount;
+      cachedPositions: any[];
+    }
+  >();
 
-  for (const accKey of accountsToSync) {
-    if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 20) break;
-    const syncedData = await fetchLighterAccount(accKey.network, accKey.accountIndex);
-    subrequestsUsed++;
+  if (accountsToSync.length > 0) {
+    const syncResults = await fetchInChunks(accountsToSync, 2, (acc) =>
+      fetchLighterAccount(acc.network, acc.accountIndex),
+    );
+    subrequestsUsed += accountsToSync.length;
 
-    const cacheKey = `${accKey.network}:${accKey.accountIndex}`;
-    jitCache.set(cacheKey, syncedData);
+    for (let i = 0; i < accountsToSync.length; i++) {
+      const accKey = accountsToSync[i]!;
+      const res = syncResults[i];
+      const syncedData = res?.status === "fulfilled" ? res.value : null;
 
-    if (syncedData) {
-      await syncAccountOpenPositions(
-        env.DB,
-        accKey.network,
-        accKey.accountIndex,
-        syncedData.positions,
-      );
-      cacheUpdates.push({
-        network: accKey.network,
-        account: syncedData,
-        cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
-      });
-    } else {
-      failedAccounts.push(accKey);
+      const cacheKey = `${accKey.network}:${accKey.accountIndex}`;
+      jitCache.set(cacheKey, syncedData);
+
+      if (syncedData) {
+        await syncAccountOpenPositions(
+          env.DB,
+          accKey.network,
+          accKey.accountIndex,
+          syncedData.positions,
+        );
+        cacheUpdates.set(cacheKey, {
+          network: accKey.network,
+          account: syncedData,
+          cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
+        });
+      } else {
+        failedAccounts.push(accKey);
+      }
     }
   }
 
-  if (cacheUpdates.length > 0) {
-    await batchUpdatePositionsCache(env.DB, cacheUpdates);
-  }
   if (failedAccounts.length > 0) {
     await touchFailedAccounts(env.DB, failedAccounts);
   }
@@ -247,7 +259,6 @@ export async function runCronMonitor(env: Env): Promise<void> {
   const alertUpdateStmts: D1PreparedStatement[] = [];
   const zombieCleanupStmts: D1PreparedStatement[] = [];
   const cleanedZombieKeys = new Set<string>();
-  const lastSentTimeByUser = new Map<number, number>();
 
   // Шаг Б.1: Отбираем уникальные аккаунты для JIT-проверки среди топ кандидатов
   const pendingJitKeys: TrackedAccountKey[] = [];
@@ -265,33 +276,50 @@ export async function runCronMonitor(env: Env): Promise<void> {
     }
   }
 
-  // Шаг Б.2: Опрос аккаунтов с мягким pacing (100ms) для защиты от burst rate limit WAF
-  for (let i = 0; i < pendingJitKeys.length; i++) {
+  // Шаг Б.2: Параллельный опрос аккаунтов пачками по 3 штуки (Promise.allSettled без искусственных пауз)
+  const JIT_CHUNK = 3;
+  for (let i = 0; i < pendingJitKeys.length; i += JIT_CHUNK) {
     if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
-      console.warn("Cron wall-clock budget reached (20s). Postponing remaining JIT checks.");
+      console.warn("Cron wall-clock budget reached. Postponing remaining JIT checks.");
       break;
     }
-    if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) break;
+    if (subrequestsUsed + JIT_CHUNK >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) break;
 
-    const acc = pendingJitKeys[i]!;
-    const syncedData = await fetchLighterAccount(acc.network, acc.accountIndex);
-    subrequestsUsed++;
-    jitChecksDone++;
-    jitCache.set(`${acc.network}:${acc.accountIndex}`, syncedData);
+    const chunk = pendingJitKeys.slice(i, i + JIT_CHUNK);
+    const results = await Promise.allSettled(
+      chunk.map((acc) => fetchLighterAccount(acc.network, acc.accountIndex)),
+    );
+    subrequestsUsed += chunk.length;
+    jitChecksDone += chunk.length;
 
-    // Мягкая пауза 100ms между запросами (предотвращает всплески параллельности)
-    if (i < pendingJitKeys.length - 1) {
-      await new Promise((r) => setTimeout(r, 100));
+    for (let j = 0; j < chunk.length; j++) {
+      const acc = chunk[j]!;
+      const res = results[j];
+      const syncedData = res?.status === "fulfilled" ? res.value : null;
+      const cacheKey = `${acc.network}:${acc.accountIndex}`;
+      jitCache.set(cacheKey, syncedData);
+
+      // JIT-СИНК: сразу актуализируем открытые позиции в D1 без ожидания Round-Robin очереди
+      if (syncedData) {
+        await syncAccountOpenPositions(env.DB, acc.network, acc.accountIndex, syncedData.positions);
+        cacheUpdates.set(cacheKey, {
+          network: acc.network,
+          account: syncedData,
+          cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
+        });
+      }
     }
   }
 
-  // Шаг Б.3: Доставка алертов (все аккаунты уже в горячем jitCache)
-  for (const candidate of candidateAlerts) {
-    if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
-      console.warn("Cron wall-clock budget reached (20s). Postponing remaining checks.");
-      break;
-    }
+  // Шаг Б.3: Фильтрация, удаление зомби и агрегация алертов по пользователям
+  interface PendingUserAlert {
+    item: ActivePositionWatchItem;
+    currentPrice: number;
+    alertText: string;
+  }
+  const alertsByUser = new Map<number, PendingUserAlert[]>();
 
+  for (const candidate of candidateAlerts) {
     const { item, currentPrice, baseline, priceDeltaPercent } = candidate;
     const cacheKey = `${item.network}:${item.account_index}`;
     const freshAccount = jitCache.get(cacheKey);
@@ -321,7 +349,28 @@ export async function runCronMonitor(env: Env): Promise<void> {
       continue;
     }
 
-    // ОТПРАВКА 3-СЛОЙНОГО БОЕВОГО АЛЕРТА
+    // Проверка режима «Тихий сон» (Mute)
+    if (item.muted_until && now < item.muted_until) {
+      alertUpdateStmts.push(
+        env.DB.prepare(`
+          INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
+            last_price = excluded.last_price,
+            last_alerted_at = excluded.last_alerted_at
+        `).bind(
+          item.telegram_id,
+          item.network,
+          item.account_index,
+          item.market_id,
+          item.symbol,
+          currentPrice,
+          now,
+        ),
+      );
+      continue;
+    }
+
     const isLong = item.is_long === 1;
     const unPnl = parseFloat(livePosition.unrealized_pnl || "0");
     const liqPrice = parseFloat(livePosition.liquidation_price || "0");
@@ -345,83 +394,90 @@ export async function runCronMonitor(env: Env): Promise<void> {
       distancePercent,
     });
 
-    // Проверка режима «Тихий сон» (Mute)
-    if (item.muted_until && now < item.muted_until) {
-      alertUpdateStmts.push(
-        env.DB.prepare(`
-          INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
-            last_price = excluded.last_price,
-            last_alerted_at = excluded.last_alerted_at
-        `).bind(
-          item.telegram_id,
-          item.network,
-          item.account_index,
-          item.market_id,
-          item.symbol,
-          currentPrice,
-          now,
-        ),
-      );
-      continue;
-    }
-
-    const lighterUrl =
-      item.network === "mainnet" ? "https://app.lighter.xyz/" : "https://rh.lighter.xyz/";
-
-    const keyboard = new InlineKeyboard()
-      .text("🔄 Обновить", `refresh:${item.network}:${item.account_index}`)
-      .url("🌐 Открыть биржу", lighterUrl);
-
-    try {
-      if (subrequestsUsed < CONFIG.MAX_SUBREQUESTS_PER_CRON) {
-        // Троттлинг Telegram: минимум 850 мс между сообщениями одному и тому же пользователю (лимит Telegram 1 сообщ./сек на чат)
-        const lastSentAt = lastSentTimeByUser.get(item.telegram_id) || 0;
-        const timeSinceLastSent = Date.now() - lastSentAt;
-        if (timeSinceLastSent < 850) {
-          await new Promise((r) => setTimeout(r, 850 - timeSinceLastSent));
-        }
-
-        await bot.api.sendMessage(item.telegram_id, alertText, {
-          parse_mode: "HTML",
-          reply_markup: keyboard,
-        });
-        subrequestsUsed++;
-        lastSentTimeByUser.set(item.telegram_id, Date.now());
-
-        alertUpdateStmts.push(
-          env.DB.prepare(`
-            INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
-              last_price = excluded.last_price,
-              last_alerted_at = excluded.last_alerted_at
-          `).bind(
-            item.telegram_id,
-            item.network,
-            item.account_index,
-            item.market_id,
-            item.symbol,
-            currentPrice,
-            now,
-          ),
-        );
-      }
-    } catch (err: any) {
-      if (err?.error_code === 403) {
-        await removeBlockedUser(env.DB, item.telegram_id);
-      } else if (err?.error_code === 429) {
-        console.warn(
-          `[telegram] Rate limited (429) for user ${item.telegram_id}, retry_after: ${err?.parameters?.retry_after ?? "unknown"}s`,
-        );
-      } else {
-        console.error(`Failed to send alert to ${item.telegram_id}:`, err);
-      }
-    }
+    const userAlerts = alertsByUser.get(item.telegram_id) || [];
+    userAlerts.push({ item, currentPrice, alertText });
+    alertsByUser.set(item.telegram_id, userAlerts);
   }
 
-  // 6. Единая пакетная транзакция в D1 чанками
+  // Шаг Б.4: Параллельная отправка агрегированных алертов (0 мс сна, защита от 429)
+  const userEntries = Array.from(alertsByUser.entries());
+  const ALERT_SEND_CONCURRENCY = 3;
+
+  for (let i = 0; i < userEntries.length; i += ALERT_SEND_CONCURRENCY) {
+    if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
+      console.warn("Cron wall-clock budget reached. Postponing remaining alert deliveries.");
+      break;
+    }
+    if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON) break;
+
+    const chunk = userEntries.slice(i, i + ALERT_SEND_CONCURRENCY);
+    await Promise.allSettled(
+      chunk.map(async ([telegramId, alerts]) => {
+        if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON) return;
+
+        const combinedText = alerts.map((a) => a.alertText).join("\n\n───────────────────\n\n");
+        let keyboard: InlineKeyboard;
+
+        if (alerts.length === 1) {
+          const first = alerts[0]!;
+          const lighterUrl =
+            first.item.network === "mainnet"
+              ? "https://app.lighter.xyz/"
+              : "https://rh.lighter.xyz/";
+          keyboard = new InlineKeyboard()
+            .text("🔄 Обновить", `refresh:${first.item.network}:${first.item.account_index}`)
+            .url("🌐 Открыть биржу", lighterUrl);
+        } else {
+          keyboard = new InlineKeyboard()
+            .text("📊 Мои сделки", "action_positions")
+            .url("🌐 Открыть биржу", "https://app.lighter.xyz/");
+        }
+
+        try {
+          await bot.api.sendMessage(telegramId, combinedText, {
+            parse_mode: "HTML",
+            reply_markup: keyboard,
+          });
+          subrequestsUsed++;
+
+          for (const a of alerts) {
+            alertUpdateStmts.push(
+              env.DB.prepare(`
+                INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
+                  last_price = excluded.last_price,
+                  last_alerted_at = excluded.last_alerted_at
+              `).bind(
+                a.item.telegram_id,
+                a.item.network,
+                a.item.account_index,
+                a.item.market_id,
+                a.item.symbol,
+                a.currentPrice,
+                now,
+              ),
+            );
+          }
+        } catch (err: any) {
+          if (err?.error_code === 403) {
+            await removeBlockedUser(env.DB, telegramId);
+          } else if (err?.error_code === 429) {
+            console.warn(
+              `[telegram] Rate limited (429) for user ${telegramId}, retry_after: ${err?.parameters?.retry_after ?? "unknown"}s`,
+            );
+          } else {
+            console.error(`Failed to send alert to ${telegramId}:`, err);
+          }
+        }
+      }),
+    );
+  }
+
+  // 6. Единая пакетная транзакция в D1 чанками (кэш позиций + алерты + зомби)
+  if (cacheUpdates.size > 0) {
+    await batchUpdatePositionsCache(env.DB, Array.from(cacheUpdates.values()));
+  }
   const allUpdates = [...newPositionsToInit, ...alertUpdateStmts, ...zombieCleanupStmts];
   if (allUpdates.length > 0) {
     await executeD1BatchInChunks(env.DB, allUpdates);
