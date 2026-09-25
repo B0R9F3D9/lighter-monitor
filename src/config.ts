@@ -51,3 +51,25 @@ export const CONFIG = {
     SAFE: 0,
   } as Record<string, number>,
 };
+
+/**
+ * Возвращает токен авторизации Lighter API из переменных окружения.
+ * Сначала проверяется сеть-специфичный ключ (LIGHTER_API_KEY_MAINNET / LIGHTER_API_KEY_RH),
+ * затем глобальный запасной ключ LIGHTER_API_KEY.
+ */
+export function getLighterAuthToken(env?: any, network?: LighterNetwork): string | undefined {
+  if (!env) return undefined;
+  if (network === "mainnet" && env.LIGHTER_API_KEY_MAINNET) {
+    const val = String(env.LIGHTER_API_KEY_MAINNET).trim();
+    if (val) return val;
+  }
+  if (network === "rh" && env.LIGHTER_API_KEY_RH) {
+    const val = String(env.LIGHTER_API_KEY_RH).trim();
+    if (val) return val;
+  }
+  if (env.LIGHTER_API_KEY) {
+    const val = String(env.LIGHTER_API_KEY).trim();
+    if (val) return val;
+  }
+  return undefined;
+}

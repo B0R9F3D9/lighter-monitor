@@ -7,7 +7,7 @@ import {
   ActivePositionWatchItem,
   TrackedAccountKey,
 } from "../types";
-import { CONFIG } from "../config";
+import { CONFIG, getLighterAuthToken } from "../config";
 import {
   getNextAccountsForSync,
   touchFailedAccounts,
@@ -139,7 +139,12 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
   if (accountsToSync.length > 0) {
     const syncResults = await fetchInChunks(accountsToSync, 2, (acc) =>
-      fetchLighterAccount(acc.network, acc.accountIndex),
+      fetchLighterAccount(
+        acc.network,
+        acc.accountIndex,
+        false,
+        getLighterAuthToken(env, acc.network),
+      ),
     );
     subrequestsUsed += accountsToSync.length;
 
@@ -179,7 +184,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
   for (const net of networks) {
     if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 10) break;
-    const snap = await fetchExchangeStats(net);
+    const snap = await fetchExchangeStats(net, getLighterAuthToken(env, net));
     subrequestsUsed++;
     priceSnapshots.set(net, snap);
   }
@@ -306,7 +311,14 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     const chunk = pendingJitKeys.slice(i, i + JIT_CHUNK);
     const results = await Promise.allSettled(
-      chunk.map((acc) => fetchLighterAccount(acc.network, acc.accountIndex)),
+      chunk.map((acc) =>
+        fetchLighterAccount(
+          acc.network,
+          acc.accountIndex,
+          false,
+          getLighterAuthToken(env, acc.network),
+        ),
+      ),
     );
     subrequestsUsed += chunk.length;
     jitChecksDone += chunk.length;

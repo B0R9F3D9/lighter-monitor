@@ -213,7 +213,22 @@ bunx wrangler secret put ADMIN_TELEGRAM_ID
 
 # (Опционально) URL Heartbeat-мониторинга крона (Healthchecks.io / Better Stack)
 bunx wrangler secret put HEALTHCHECK_URL
+
+# (Рекомендуется) Мастер-ключ Lighter API для снятия лимитов 429 (расширяет лимит с 60 до 24 000+ req/min)
+bunx wrangler secret put LIGHTER_API_KEY
+
+# Либо раздельные ключи под каждую сеть при необходимости:
+# bunx wrangler secret put LIGHTER_API_KEY_MAINNET
+# bunx wrangler secret put LIGHTER_API_KEY_RH
 ```
+
+#### 🔑 Как получить Read-Only Token Lighter за 1 минуту:
+
+1. Перейдите в веб-интерфейс биржи: [https://app.lighter.xyz/read-only-tokens/](https://app.lighter.xyz/read-only-tokens/)
+2. Подключите ваш кошелек и нажмите **Create Read-Only Token** (выберите срок действия до 10 лет).
+3. Скопируйте сгенерированный токен (формата `ro:...`). Этот ключ полностью безопасен: он имеет права **только на чтение** (не может совершать сделки или выводить средства) и действует как единый мастер-ключ для чтения любых публичных счетов биржи.
+4. Выполните команду `bunx wrangler secret put LIGHTER_API_KEY` и вставьте скопированный токен.
+5. Проверьте подключение в Telegram командой `/stats` — статус изменится на `🟢 Авторизован (24,000+ req/min)`.
 
 ### 4. Деплой
 

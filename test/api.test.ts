@@ -39,3 +39,39 @@ describe("fetchInChunks", () => {
     expect(values).toEqual([10, 20, 30, 40, 50, 60, 70]);
   });
 });
+
+describe("getLighterAuthToken", () => {
+  const { getLighterAuthToken } = require("../src/config");
+
+  it("should return undefined when no env is provided", () => {
+    expect(getLighterAuthToken(undefined)).toBeUndefined();
+    expect(getLighterAuthToken({})).toBeUndefined();
+  });
+
+  it("should return global LIGHTER_API_KEY when specific is not set", () => {
+    const env = { LIGHTER_API_KEY: "global_token_123" };
+    expect(getLighterAuthToken(env, "rh")).toBe("global_token_123");
+    expect(getLighterAuthToken(env, "mainnet")).toBe("global_token_123");
+    expect(getLighterAuthToken(env)).toBe("global_token_123");
+  });
+
+  it("should prioritize network-specific token over global token", () => {
+    const env = {
+      LIGHTER_API_KEY: "global_token_123",
+      LIGHTER_API_KEY_MAINNET: "mainnet_token_456",
+      LIGHTER_API_KEY_RH: "rh_token_789",
+    };
+    expect(getLighterAuthToken(env, "mainnet")).toBe("mainnet_token_456");
+    expect(getLighterAuthToken(env, "rh")).toBe("rh_token_789");
+    expect(getLighterAuthToken(env)).toBe("global_token_123");
+  });
+
+  it("should trim whitespace and ignore empty strings", () => {
+    const env = {
+      LIGHTER_API_KEY: "   ",
+      LIGHTER_API_KEY_MAINNET: "  mainnet_token  ",
+    };
+    expect(getLighterAuthToken(env, "mainnet")).toBe("mainnet_token");
+    expect(getLighterAuthToken(env, "rh")).toBeUndefined();
+  });
+});

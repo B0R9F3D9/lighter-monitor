@@ -6,6 +6,9 @@ export interface Env {
   TELEGRAM_SECRET_TOKEN?: string;
   ADMIN_TELEGRAM_ID?: string;
   HEALTHCHECK_URL?: string;
+  LIGHTER_API_KEY?: string;
+  LIGHTER_API_KEY_MAINNET?: string;
+  LIGHTER_API_KEY_RH?: string;
 }
 
 export interface TrackedAccountKey {

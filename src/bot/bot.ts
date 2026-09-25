@@ -1,6 +1,6 @@
 import { Bot, InlineKeyboard, Keyboard } from "grammy";
 import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
-import { CONFIG } from "../config";
+import { CONFIG, getLighterAuthToken } from "../config";
 import { fetchLighterAccountWithStatus, fetchInChunks } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
 import {
@@ -372,7 +372,13 @@ export function getBot(env: Env): Bot {
       }
 
       await ctx.reply(`🔍 Проверяем аккаунт #${accountIndex} в ${netConfig.name}...`);
-      const result = await fetchLighterAccountWithStatus(state.network, accountIndex);
+      const authToken = getLighterAuthToken(currentEnv || env, state.network);
+      const result = await fetchLighterAccountWithStatus(
+        state.network,
+        accountIndex,
+        false,
+        authToken,
+      );
 
       if (result.status === "RATE_LIMIT") {
         return ctx.reply(
@@ -499,7 +505,8 @@ export function getBot(env: Env): Bot {
     }
 
     await ctx.reply(`Проверяем аккаунт в ${netConfig.name} API...`);
-    const result = await fetchLighterAccountWithStatus(network, accountIndex);
+    const authToken = getLighterAuthToken(currentEnv || env, network);
+    const result = await fetchLighterAccountWithStatus(network, accountIndex, false, authToken);
 
     if (result.status === "RATE_LIMIT") {
       return ctx.reply(
@@ -956,7 +963,12 @@ export function getBot(env: Env): Bot {
     const freshMap = new Map<string, any>();
     if (toFetch.length > 0) {
       const settled = await fetchInChunks(toFetch, 2, (item) =>
-        fetchLighterAccountWithStatus(item.network, item.account_index, true),
+        fetchLighterAccountWithStatus(
+          item.network,
+          item.account_index,
+          true,
+          getLighterAuthToken(currentEnv || env, item.network),
+        ),
       );
       toFetch.forEach((item, i) => {
         const res = settled[i];
@@ -1253,6 +1265,22 @@ export function getBot(env: Env): Bot {
           `  • Алертов отправлено: <b>${c.alerts_sent}</b>\n\n`;
       }
 
+      const hasAuth = Boolean(
+        activeEnv.LIGHTER_API_KEY ||
+        activeEnv.LIGHTER_API_KEY_MAINNET ||
+        activeEnv.LIGHTER_API_KEY_RH,
+      );
+      let authStatusText = "";
+      if (hasAuth) {
+        const parts: string[] = [];
+        if (activeEnv.LIGHTER_API_KEY) parts.push("Global");
+        if (activeEnv.LIGHTER_API_KEY_MAINNET) parts.push("Mainnet");
+        if (activeEnv.LIGHTER_API_KEY_RH) parts.push("RH");
+        authStatusText = `🟢 <b>Авторизован (${parts.join(", ")})</b> — <i>24,000+ req/min</i>`;
+      } else {
+        authStatusText = `⚪️ <b>Публичный IP-режим</b> — <i>60 req/min (без мастер-ключа)</i>`;
+      }
+
       const report =
         `📊 <b>Lighter Monitor — Системный Дашборд</b>\n\n` +
         `👥 <b>Пользователи и счета:</b>\n` +
@@ -1269,6 +1297,7 @@ export function getBot(env: Env): Bot {
         `  • Средний лаг кэша: <b>${stats.avgQueueLagMinutes} мин.</b>\n` +
         `  • Макс. лаг очереди: <b>${stats.maxQueueLagMinutes} мин.</b> <i>(норма &lt; 30–45 мин)</i>\n\n` +
         `${cronSection}` +
+        `🔑 <b>Статус API Lighter:</b> ${authStatusText}\n\n` +
         `🛡 <i>Cloudflare Free: 0-CLI, Zero-Dormant, Selective JIT</i>`;
 
       await ctx.reply(report, { parse_mode: "HTML" });

@@ -12,6 +12,7 @@ export async function fetchLighterAccountWithStatus(
   network: LighterNetwork,
   accountIndex: number,
   interactive: boolean = false,
+  authToken?: string,
 ): Promise<FetchAccountResult> {
   const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
   // В интерактивных запросах пользователя ретраи отключены для мгновенного ответа
@@ -19,12 +20,17 @@ export async function fetchLighterAccountWithStatus(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      const headers: Record<string, string> = {
+        Accept: "application/json",
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      };
+      if (authToken && authToken.trim()) {
+        headers["Authorization"] = authToken.trim();
+      }
+
       const res = await fetch(`${baseUrl}/account?by=index&value=${accountIndex}`, {
-        headers: {
-          Accept: "application/json",
-          "User-Agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        },
+        headers,
         signal: AbortSignal.timeout(CONFIG.FETCH_TIMEOUT_MS || 3000),
       });
 
@@ -90,31 +96,37 @@ export async function fetchLighterAccount(
   network: LighterNetwork,
   accountIndex: number,
   interactive?: boolean,
+  authToken?: string,
 ): Promise<LighterAccount | null>;
 export async function fetchLighterAccount(
   accountIndex: number,
   interactive?: boolean,
+  authToken?: string,
 ): Promise<LighterAccount | null>;
 export async function fetchLighterAccount(
   networkOrIndex: LighterNetwork | number,
   maybeIndexOrInteractive?: number | boolean,
-  maybeInteractive?: boolean,
+  maybeInteractiveOrToken?: boolean | string,
+  maybeToken?: string,
 ): Promise<LighterAccount | null> {
   let network: LighterNetwork = "rh";
   let index: number;
   let interactive = false;
+  let authToken: string | undefined;
 
   if (typeof networkOrIndex === "number") {
     index = networkOrIndex;
     network = "rh";
     interactive = typeof maybeIndexOrInteractive === "boolean" ? maybeIndexOrInteractive : false;
+    authToken = typeof maybeInteractiveOrToken === "string" ? maybeInteractiveOrToken : undefined;
   } else {
     network = networkOrIndex;
     index = maybeIndexOrInteractive as number;
-    interactive = maybeInteractive ?? false;
+    interactive = typeof maybeInteractiveOrToken === "boolean" ? maybeInteractiveOrToken : false;
+    authToken = maybeToken;
   }
 
-  const result = await fetchLighterAccountWithStatus(network, index, interactive);
+  const result = await fetchLighterAccountWithStatus(network, index, interactive, authToken);
   return result.account;
 }
 
@@ -138,17 +150,23 @@ export async function fetchInChunks<T, R>(
 
 export async function fetchExchangeStats(
   network: LighterNetwork,
+  authToken?: string,
 ): Promise<Map<string, MarketPriceSnapshot>> {
   const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
   const map = new Map<string, MarketPriceSnapshot>();
 
   try {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    };
+    if (authToken && authToken.trim()) {
+      headers["Authorization"] = authToken.trim();
+    }
+
     const res = await fetch(`${baseUrl}/exchangeStats`, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      },
+      headers,
     });
 
     if (!res.ok) return map;
