@@ -137,4 +137,33 @@ describe("Wizard State & Settings Logic", () => {
       expect(isUserAdmin(env, 111111, "stranger")).toBe(false);
     });
   });
+
+  describe("Main Keyboard & Stats Keyboard", () => {
+    const { getMainKeyboard, getStatsKeyboard } = require("../src/bot/bot");
+
+    it("returns 2-row keyboard without admin button for normal user", () => {
+      const env = mockEnv("999888777");
+      const kb = getMainKeyboard(env, 12345, "normal_user");
+      const json = JSON.stringify(kb);
+      expect(json).not.toContain("Админ статистика");
+      expect(kb.keyboard.length).toBe(2);
+    });
+
+    it("returns 3-row keyboard with big admin button for admin user", () => {
+      const env = mockEnv("999888777");
+      const kb = getMainKeyboard(env, 999888777, "admin");
+      const json = JSON.stringify(kb);
+      expect(json).toContain("📈 Админ статистика");
+      expect(kb.keyboard.length).toBe(3);
+      expect(kb.keyboard[2].length).toBe(1);
+      expect(kb.keyboard[2][0].text).toBe("📈 Админ статистика");
+    });
+
+    it("creates stats inline keyboard with refresh button", () => {
+      const kb = getStatsKeyboard();
+      const json = JSON.stringify(kb);
+      expect(json).toContain("🔄 Обновить");
+      expect(json).toContain("refresh_stats");
+    });
+  });
 });

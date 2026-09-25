@@ -89,6 +89,92 @@ function getSettingsKeyboard(threshold: number, mutedUntil: number): InlineKeybo
   return kb;
 }
 
+export function getStatsKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("🔄 Обновить", "refresh_stats");
+}
+
+export function getMainKeyboard(env?: Env, userId?: number, username?: string): Keyboard {
+  const activeEnv = env || currentEnv;
+  const isAdmin = activeEnv ? isUserAdmin(activeEnv, userId, username) : false;
+  const kb = new Keyboard()
+    .text("📊 Мои сделки")
+    .text("💼 Мои кошельки")
+    .row()
+    .text("➕ Добавить кошелек")
+    .text("⚙️ Настройки");
+
+  if (isAdmin) {
+    kb.row().text("📈 Админ статистика");
+  }
+
+  return kb.resized().persistent();
+}
+
+export async function renderAdminDashboard(env: Env): Promise<string> {
+  const stats = await getSystemStats(env.DB);
+  const tokenBreakdown =
+    stats.topTokens.length > 0
+      ? stats.topTokens.map((t) => `  • <b>${t.symbol}:</b> ${t.count} поз.`).join("\n") + "\n"
+      : "  • <i>нет открытых сделок</i>\n";
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  let cronSection = "";
+  if (stats.lastCron) {
+    const c = stats.lastCron;
+    const cronAgoSec = nowSec - c.timestamp;
+    const cronAgoText =
+      cronAgoSec < 60 ? `${cronAgoSec} сек назад` : `${Math.round(cronAgoSec / 60)} мин назад`;
+    cronSection =
+      `⚙️ <b>Последний тик крона (${cronAgoText}):</b>\n` +
+      `  • Длительность: <b>${c.duration_ms} мс</b>\n` +
+      `  • Subrequests: <b>${c.subrequests_used} / 50</b>\n` +
+      `  • Позиций проверено: <b>${c.total_positions_checked}</b> (JIT: <b>${c.jit_checks_performed}</b>)\n` +
+      `  • Алертов отправлено: <b>${c.alerts_sent}</b>\n\n`;
+  }
+
+  const hasAuth = Boolean(
+    env.LIGHTER_API_KEY || env.LIGHTER_API_KEY_MAINNET || env.LIGHTER_API_KEY_RH,
+  );
+  let authStatusText = "";
+  if (hasAuth) {
+    const parts: string[] = [];
+    if (env.LIGHTER_API_KEY) parts.push("Global");
+    if (env.LIGHTER_API_KEY_MAINNET) parts.push("Mainnet");
+    if (env.LIGHTER_API_KEY_RH) parts.push("RH");
+    authStatusText = `🟢 <b>Авторизован (${parts.join(", ")})</b> — <i>24,000+ req/min</i>`;
+  } else {
+    authStatusText = `⚪️ <b>Публичный IP-режим</b> — <i>60 req/min (без мастер-ключа)</i>`;
+  }
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString("ru-RU", {
+    timeZone: "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  return (
+    `📊 <b>Lighter Monitor — Системный Дашборд</b>\n\n` +
+    `👥 <b>Пользователи и счета:</b>\n` +
+    `  • Пользователи: <b>${stats.totalUsers}</b> (новых за 24ч: <b>+${stats.users24h}</b>)\n` +
+    `  • Всего кошельков: <b>${stats.totalTracked}</b> (🟠 RH: ${stats.trackedRh} | ⚡️ Mainnet: ${stats.trackedMainnet})\n` +
+    `  • Активных счетов: <b>${stats.activeAccountsCount}</b>\n\n` +
+    `💰 <b>Объем портфеля:</b>\n` +
+    `  • Совокупный залог: <b>$${stats.totalCollateralUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>\n` +
+    `  • Открытый интерес (OI): <b>$${stats.totalOpenInterestUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>\n` +
+    `  • Позиции: <b>${stats.activePositionsCount}</b> (🟢 Long: ${stats.totalLongs} | 🔴 Short: ${stats.totalShorts})\n` +
+    `${tokenBreakdown}\n` +
+    `⏱ <b>Здоровье очереди и лаги:</b>\n` +
+    `  • Мин. лаг синхронизации: <b>${stats.minQueueLagMinutes} мин.</b>\n` +
+    `  • Средний лаг кэша: <b>${stats.avgQueueLagMinutes} мин.</b>\n` +
+    `  • Макс. лаг очереди: <b>${stats.maxQueueLagMinutes} мин.</b> <i>(норма &lt; 30–45 мин)</i>\n\n` +
+    `${cronSection}` +
+    `🔑 <b>Статус API Lighter:</b>\n${authStatusText}\n\n` +
+    `🕒 <i>Срез данных: ${timeStr} UTC</i>`
+  );
+}
+
 export function getBot(env: Env): Bot {
   currentEnv = env;
   if (botInstance) return botInstance;
@@ -100,16 +186,7 @@ export function getBot(env: Env): Bot {
   });
 
   // Основная нижняя клавиатура пользователя (Zero-CLI Reply Keyboard)
-  const replyKeyboard = new Keyboard()
-    .text("📊 Мои сделки")
-    .text("💼 Мои кошельки")
-    .row()
-    .text("➕ Добавить кошелек")
-    .text("⚙️ Настройки")
-    .resized()
-    .persistent();
-
-  const mainKeyboard = replyKeyboard;
+  const getMainKb = (ctx?: any) => getMainKeyboard(env, ctx?.from?.id, ctx?.from?.username);
 
   // Сохранение пользователя в БД при первом взаимодействии в изоляте (защита от лишних D1 записей)
   bot.use(async (ctx, next) => {
@@ -155,14 +232,14 @@ export function getBot(env: Env): Bot {
         `• <b>XAU 15x–25x:</b> 3-слойные алерты с мгновенным переходом на биржу.\n\n` +
         `Подключите ваш первый кошелек для мониторинга:`;
       const kb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
-      await ctx.reply(welcomeText, { parse_mode: "HTML", reply_markup: mainKeyboard });
+      await ctx.reply(welcomeText, { parse_mode: "HTML", reply_markup: getMainKb(ctx) });
       return ctx.reply("Нажмите кнопку ниже, чтобы начать:", { reply_markup: kb });
     }
 
     await ctx.reply(
       `👋 <b>С возвращением в Lighter Monitor!</b>\n\n` +
         `Используйте кнопки меню ниже для управления кошельками, просмотра сделок и настройки алертов.`,
-      { parse_mode: "HTML", reply_markup: mainKeyboard },
+      { parse_mode: "HTML", reply_markup: getMainKb(ctx) },
     );
   });
 
@@ -188,7 +265,7 @@ export function getBot(env: Env): Bot {
           })
           .catch(() => {});
       }
-      return ctx.reply(msg, { reply_markup: mainKeyboard });
+      return ctx.reply(msg, { reply_markup: getMainKb(ctx) });
     }
 
     const text = `➕ <b>Подключение аккаунта Lighter</b>\n\nВыберите сеть биржи для подключения:`;
@@ -239,7 +316,7 @@ export function getBot(env: Env): Bot {
         reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list"),
       });
     } catch {
-      await ctx.reply("❌ Действие отменено.", { reply_markup: mainKeyboard });
+      await ctx.reply("❌ Действие отменено.", { reply_markup: getMainKb(ctx) });
     }
   });
 
@@ -335,6 +412,12 @@ export function getBot(env: Env): Bot {
         "Настройки",
         "⚙️ Порог алертов",
         "Порог алертов",
+        "📈 Админ статистика",
+        "Админ статистика",
+        "👑 Админ-панель",
+        "Админ-панель",
+        "📊 Статистика",
+        "Статистика",
       ].includes(text)
     ) {
       await setUserWizardState(env.DB, ctx.from!.id, null);
@@ -367,7 +450,7 @@ export function getBot(env: Env): Bot {
       if (exists) {
         await setUserWizardState(env.DB, ctx.from!.id, null);
         return ctx.reply(`Вы уже отслеживаете аккаунт #${accountIndex} в сети ${netConfig.name}.`, {
-          reply_markup: mainKeyboard,
+          reply_markup: getMainKb(ctx),
         });
       }
 
@@ -441,7 +524,7 @@ export function getBot(env: Env): Bot {
       await setUserWizardState(env.DB, ctx.from!.id, null);
       await ctx.reply(`✅ Имя аккаунта #${state.accountIndex} изменено на <b>${newAlias}</b>.`, {
         parse_mode: "HTML",
-        reply_markup: mainKeyboard,
+        reply_markup: getMainKb(ctx),
       });
       await showAccountCard(ctx, state.network, state.accountIndex, false);
       return;
@@ -464,7 +547,7 @@ export function getBot(env: Env): Bot {
       await setUserWizardState(env.DB, ctx.from!.id, null);
       await ctx.reply(`✅ Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.`, {
         parse_mode: "HTML",
-        reply_markup: mainKeyboard,
+        reply_markup: getMainKb(ctx),
       });
       await handleSettings(ctx);
       return;
@@ -500,7 +583,7 @@ export function getBot(env: Env): Bot {
     if (countRes && countRes.cnt >= CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER) {
       return ctx.reply(
         `Достигнут лимит: нельзя отслеживать более ${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER} аккаунтов суммарно.`,
-        { reply_markup: mainKeyboard },
+        { reply_markup: getMainKb(ctx) },
       );
     }
 
@@ -511,13 +594,13 @@ export function getBot(env: Env): Bot {
     if (result.status === "RATE_LIMIT") {
       return ctx.reply(
         `⚠️ API ${netConfig.name} временно ограничивает запросы (Rate Limit 429). Повторите через 30–60 секунд.`,
-        { reply_markup: mainKeyboard },
+        { reply_markup: getMainKb(ctx) },
       );
     }
 
     if (!result.account) {
       return ctx.reply(`Аккаунт #${accountIndex} не найден в ${netConfig.name}.`, {
-        reply_markup: mainKeyboard,
+        reply_markup: getMainKb(ctx),
       });
     }
 
@@ -548,12 +631,12 @@ export function getBot(env: Env): Bot {
           `Алиас: ${alias ? `<b>${alias}</b>` : "<i>нет</i>"}\n` +
           `Кошелек: <code>${account.l1_address}</code>\n\n` +
           `Мониторинг активен.`,
-        { parse_mode: "HTML", reply_markup: mainKeyboard },
+        { parse_mode: "HTML", reply_markup: getMainKb(ctx) },
       );
     } catch (e: any) {
       if (e?.message && e.message.includes("UNIQUE")) {
         return ctx.reply(`Вы уже отслеживаете аккаунт #${accountIndex} в сети ${netConfig.name}.`, {
-          reply_markup: mainKeyboard,
+          reply_markup: getMainKb(ctx),
         });
       }
       throw e;
@@ -603,13 +686,13 @@ export function getBot(env: Env): Bot {
     if (!removed) {
       return ctx.reply(
         `Аккаунт #${accountIndex} не найден среди ваших отслеживаемых в ${netConfig.name}.`,
-        { reply_markup: mainKeyboard },
+        { reply_markup: getMainKb(ctx) },
       );
     }
 
     await ctx.reply(
       `Аккаунт #${accountIndex} <code>${netConfig.badge}</code> удален из отслеживания.`,
-      { parse_mode: "HTML", reply_markup: mainKeyboard },
+      { parse_mode: "HTML", reply_markup: getMainKb(ctx) },
     );
   };
 
@@ -660,7 +743,7 @@ export function getBot(env: Env): Bot {
           })
           .catch(() => {});
       }
-      return ctx.reply(notFoundMsg, { reply_markup: mainKeyboard });
+      return ctx.reply(notFoundMsg, { reply_markup: getMainKb(ctx) });
     }
 
     const cacheRow = await env.DB.prepare(
@@ -884,7 +967,7 @@ export function getBot(env: Env): Bot {
     if (trackedList.length === 0) {
       if (filterIndex) {
         return ctx.reply(`Аккаунт #${filterIndex} не найден среди ваших отслеживаемых.`, {
-          reply_markup: mainKeyboard,
+          reply_markup: getMainKb(ctx),
         });
       }
       const emptyText =
@@ -1131,7 +1214,7 @@ export function getBot(env: Env): Bot {
       }
     } else if (filterIndex) {
       await ctx.reply(`Аккаунт #${filterIndex} не найден ни в одной из поддерживаемых сетей.`, {
-        reply_markup: mainKeyboard,
+        reply_markup: getMainKb(ctx),
       });
     }
   };
@@ -1216,7 +1299,7 @@ export function getBot(env: Env): Bot {
       await setUserThreshold(env.DB, ctx.from!.id, val);
       return ctx.reply(`Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.`, {
         parse_mode: "HTML",
-        reply_markup: mainKeyboard,
+        reply_markup: getMainKb(ctx),
       });
     }
     await handleSettings(ctx);
@@ -1226,7 +1309,7 @@ export function getBot(env: Env): Bot {
     await handleSettings(ctx);
   });
 
-  bot.command(["stats", "admin"], async (ctx) => {
+  const handleStats = async (ctx: any) => {
     const activeEnv = currentEnv || env;
     const userId = ctx.from?.id;
     const username = ctx.from?.username;
@@ -1239,70 +1322,45 @@ export function getBot(env: Env): Bot {
           `• Ваш Username: ${username ? `@${username}` : "<i>не задан</i>"}\n\n` +
           `<i>Чтобы получить доступ, укажите ваш Telegram ID или Username в секрете Cloudflare:</i>\n` +
           `<code>bunx wrangler secret put ADMIN_TELEGRAM_ID</code>`,
-        { parse_mode: "HTML" },
+        { parse_mode: "HTML", reply_markup: getMainKb(ctx) },
       );
     }
 
     try {
-      const stats = await getSystemStats(activeEnv.DB);
-      const tokenBreakdown =
-        stats.topTokens.length > 0
-          ? stats.topTokens.map((t) => `  • <b>${t.symbol}:</b> ${t.count} поз.`).join("\n") + "\n"
-          : "  • <i>нет открытых сделок</i>\n";
-
-      const nowSec = Math.floor(Date.now() / 1000);
-      let cronSection = "";
-      if (stats.lastCron) {
-        const c = stats.lastCron;
-        const cronAgoSec = nowSec - c.timestamp;
-        const cronAgoText =
-          cronAgoSec < 60 ? `${cronAgoSec} сек назад` : `${Math.round(cronAgoSec / 60)} мин назад`;
-        cronSection =
-          `⚙️ <b>Последний тик крона (${cronAgoText}):</b>\n` +
-          `  • Длительность: <b>${c.duration_ms} мс</b>\n` +
-          `  • Subrequests: <b>${c.subrequests_used} / 50</b>\n` +
-          `  • Позиций проверено: <b>${c.total_positions_checked}</b> (JIT: <b>${c.jit_checks_performed}</b>)\n` +
-          `  • Алертов отправлено: <b>${c.alerts_sent}</b>\n\n`;
-      }
-
-      const hasAuth = Boolean(
-        activeEnv.LIGHTER_API_KEY ||
-        activeEnv.LIGHTER_API_KEY_MAINNET ||
-        activeEnv.LIGHTER_API_KEY_RH,
-      );
-      let authStatusText = "";
-      if (hasAuth) {
-        const parts: string[] = [];
-        if (activeEnv.LIGHTER_API_KEY) parts.push("Global");
-        if (activeEnv.LIGHTER_API_KEY_MAINNET) parts.push("Mainnet");
-        if (activeEnv.LIGHTER_API_KEY_RH) parts.push("RH");
-        authStatusText = `🟢 <b>Авторизован (${parts.join(", ")})</b> — <i>24,000+ req/min</i>`;
-      } else {
-        authStatusText = `⚪️ <b>Публичный IP-режим</b> — <i>60 req/min (без мастер-ключа)</i>`;
-      }
-
-      const report =
-        `📊 <b>Lighter Monitor — Системный Дашборд</b>\n\n` +
-        `👥 <b>Пользователи и счета:</b>\n` +
-        `  • Пользователи: <b>${stats.totalUsers}</b> (новых за 24ч: <b>+${stats.users24h}</b>)\n` +
-        `  • Всего кошельков: <b>${stats.totalTracked}</b> (🟠 RH: ${stats.trackedRh} | ⚡️ Mainnet: ${stats.trackedMainnet})\n` +
-        `  • Активных счетов: <b>${stats.activeAccountsCount}</b>\n\n` +
-        `💰 <b>Объем портфеля:</b>\n` +
-        `  • Совокупный залог: <b>$${stats.totalCollateralUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>\n` +
-        `  • Открытый интерес (OI): <b>$${stats.totalOpenInterestUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>\n` +
-        `  • Позиции: <b>${stats.activePositionsCount}</b> (🟢 Long: ${stats.totalLongs} | 🔴 Short: ${stats.totalShorts})\n` +
-        `${tokenBreakdown}\n` +
-        `⏱ <b>Здоровье очереди и лаги:</b>\n` +
-        `  • Мин. лаг синхронизации: <b>${stats.minQueueLagMinutes} мин.</b>\n` +
-        `  • Средний лаг кэша: <b>${stats.avgQueueLagMinutes} мин.</b>\n` +
-        `  • Макс. лаг очереди: <b>${stats.maxQueueLagMinutes} мин.</b> <i>(норма &lt; 30–45 мин)</i>\n\n` +
-        `${cronSection}` +
-        `🔑 <b>Статус API Lighter:</b>\n${authStatusText}`;
-
-      await ctx.reply(report, { parse_mode: "HTML" });
+      const report = await renderAdminDashboard(activeEnv);
+      await ctx.reply(report, { parse_mode: "HTML", reply_markup: getStatsKeyboard() });
     } catch (err: any) {
       console.error("Failed to load /stats:", err);
       await ctx.reply(`⚠️ Ошибка загрузки дашборда: ${err?.message || err}`);
+    }
+  };
+
+  bot.command(["stats", "admin"], handleStats);
+
+  bot.callbackQuery("refresh_stats", async (ctx) => {
+    const activeEnv = currentEnv || env;
+    const userId = ctx.from?.id;
+    const username = ctx.from?.username;
+
+    if (!isUserAdmin(activeEnv, userId, username)) {
+      return ctx.answerCallbackQuery({ text: "⛔️ Доступ ограничен", show_alert: true });
+    }
+
+    try {
+      const report = await renderAdminDashboard(activeEnv);
+      await ctx.editMessageText(report, {
+        parse_mode: "HTML",
+        reply_markup: getStatsKeyboard(),
+      });
+      await ctx.answerCallbackQuery({ text: "🔄 Обновлено" });
+    } catch (err: any) {
+      const errMsg = String(err?.message || err);
+      if (errMsg.includes("message is not modified")) {
+        await ctx.answerCallbackQuery({ text: "Данные уже актуальны" });
+      } else {
+        console.error("Failed to refresh stats:", err);
+        await ctx.answerCallbackQuery({ text: "⚠️ Ошибка обновления" });
+      }
     }
   });
 
@@ -1367,6 +1425,20 @@ export function getBot(env: Env): Bot {
   bot.hears(["⚙️ Настройки", "Настройки", "⚙️ Порог алертов", "Порог алертов"], async (ctx) => {
     await handleSettings(ctx);
   });
+
+  bot.hears(
+    [
+      "📈 Админ статистика",
+      "Админ статистика",
+      "👑 Админ-панель",
+      "Админ-панель",
+      "📊 Статистика",
+      "Статистика",
+    ],
+    async (ctx) => {
+      await handleStats(ctx);
+    },
+  );
 
   botInstance = bot;
   return bot;
