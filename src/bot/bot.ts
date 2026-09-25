@@ -1,7 +1,7 @@
 import { Bot, InlineKeyboard, Keyboard } from "grammy";
 import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
 import { CONFIG } from "../config";
-import { fetchLighterAccount, fetchLighterAccountWithStatus } from "../lighter/api";
+import { fetchLighterAccount, fetchLighterAccountWithStatus, fetchInChunks } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
 import {
   batchUpdatePositionsCache,
@@ -949,12 +949,13 @@ export function getBot(env: Env): Bot {
 
     const freshMap = new Map<string, any>();
     if (toFetch.length > 0) {
-      const freshResults = await Promise.all(
-        toFetch.map((item) => fetchLighterAccount(item.network, item.account_index)),
+      const settled = await fetchInChunks(toFetch, 2, (item) =>
+        fetchLighterAccount(item.network, item.account_index),
       );
       toFetch.forEach((item, i) => {
-        if (freshResults[i]) {
-          freshMap.set(`${item.network}:${item.account_index}`, freshResults[i]);
+        const res = settled[i];
+        if (res && res.status === "fulfilled" && res.value) {
+          freshMap.set(`${item.network}:${item.account_index}`, res.value);
         }
       });
 

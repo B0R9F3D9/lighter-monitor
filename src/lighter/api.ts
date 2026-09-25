@@ -13,7 +13,7 @@ export async function fetchLighterAccountWithStatus(
   accountIndex: number,
 ): Promise<FetchAccountResult> {
   const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
-  const maxRetries = 1;
+  const maxRetries = 2;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -28,8 +28,15 @@ export async function fetchLighterAccountWithStatus(
 
       if (res.status === 429) {
         if (attempt < maxRetries) {
-          const delay = 300;
-          console.warn(`[${network}] #${accountIndex} got 429, retrying in ${delay}ms...`);
+          const retryHeader = res.headers.get("Retry-After");
+          const retryAfterSec = retryHeader ? parseInt(retryHeader, 10) : 0;
+          const delay =
+            retryAfterSec > 0
+              ? retryAfterSec * 1000
+              : (attempt + 1) * 600 + Math.floor(Math.random() * 300);
+          console.warn(
+            `[${network}] #${accountIndex} got 429, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`,
+          );
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }

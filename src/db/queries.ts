@@ -194,11 +194,12 @@ export async function removeBlockedUser(db: D1Database, telegramId: number): Pro
   ]);
 }
 
-// 6. Адаптивный фоновый Round-Robin (приоритет новым и активным аккаунтам)
+// 6. Адаптивный фоновый Round-Robin (приоритет новым и активным аккаунтам, защита от частого спама)
 export async function getNextAccountsForSync(
   db: D1Database,
   limit: number = 2,
   nowSec: number = Math.floor(Date.now() / 1000),
+  minStalenessSec: number = 300, // Минимум 5 минут между опросами одного счета (устраняет 429)
 ): Promise<TrackedAccountKey[]> {
   const query = `
     SELECT DISTINCT uta.network, uta.account_index
@@ -209,6 +210,7 @@ export async function getNextAccountsForSync(
       SELECT DISTINCT network, account_index FROM account_open_positions
     ) active
       ON uta.network = active.network AND uta.account_index = active.account_index
+    WHERE c.last_updated_at IS NULL OR (? - c.last_updated_at) >= ?
     ORDER BY
       CASE
         WHEN c.last_updated_at IS NULL THEN 0
@@ -222,7 +224,7 @@ export async function getNextAccountsForSync(
   `;
   const { results } = await db
     .prepare(query)
-    .bind(nowSec, nowSec, nowSec, limit)
+    .bind(nowSec, minStalenessSec, nowSec, nowSec, nowSec, limit)
     .all<{ network: LighterNetwork; account_index: number }>();
   if (!results || results.length === 0) return [];
   return results.map((row) => ({ network: row.network, accountIndex: row.account_index }));

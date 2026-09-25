@@ -264,29 +264,23 @@ export async function runCronMonitor(env: Env): Promise<void> {
     }
   }
 
-  // Шаг Б.2: Параллельный опрос пачками по 3 аккаунта
-  const JIT_CONCURRENCY = 3;
-  for (let i = 0; i < pendingJitKeys.length; i += JIT_CONCURRENCY) {
+  // Шаг Б.2: Опрос аккаунтов с мягким pacing (100ms) для защиты от burst rate limit WAF
+  for (let i = 0; i < pendingJitKeys.length; i++) {
     if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
       console.warn("Cron wall-clock budget reached (20s). Postponing remaining JIT checks.");
       break;
     }
-    if (subrequestsUsed + JIT_CONCURRENCY >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) {
-      break;
-    }
+    if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) break;
 
-    const chunk = pendingJitKeys.slice(i, i + JIT_CONCURRENCY);
-    const results = await Promise.allSettled(
-      chunk.map((acc) => fetchLighterAccount(acc.network, acc.accountIndex)),
-    );
-    subrequestsUsed += chunk.length;
-    jitChecksDone += chunk.length;
+    const acc = pendingJitKeys[i]!;
+    const syncedData = await fetchLighterAccount(acc.network, acc.accountIndex);
+    subrequestsUsed++;
+    jitChecksDone++;
+    jitCache.set(`${acc.network}:${acc.accountIndex}`, syncedData);
 
-    for (let j = 0; j < chunk.length; j++) {
-      const acc = chunk[j]!;
-      const res = results[j]!;
-      const cacheKey = `${acc.network}:${acc.accountIndex}`;
-      jitCache.set(cacheKey, res.status === "fulfilled" ? res.value : null);
+    // Мягкая пауза 100ms между запросами (предотвращает всплески параллельности)
+    if (i < pendingJitKeys.length - 1) {
+      await new Promise((r) => setTimeout(r, 100));
     }
   }
 
