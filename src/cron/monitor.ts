@@ -196,8 +196,6 @@ export async function runCronMonitor(env: Env): Promise<void> {
     ? await getActivePositionsForMonitoring(env.DB)
     : await getActivePositionsForMonitoring(env.DB, movedSymbols);
 
-  if (items.length === 0) return;
-
   const newPositionsToInit: D1PreparedStatement[] = [];
   const candidateAlerts: AlertCandidate[] = [];
 
