@@ -22,6 +22,8 @@ export async function fetchLighterAccountWithStatus(
     try {
       const headers: Record<string, string> = {
         Accept: "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       };
@@ -29,10 +31,38 @@ export async function fetchLighterAccountWithStatus(
         headers["Authorization"] = authToken.trim();
       }
 
-      const res = await fetch(`${baseUrl}/account?by=index&value=${accountIndex}`, {
+      const fetchOptions: any = {
         headers,
+        cache: "no-store",
+        cf: {
+          cacheTtl: -1,
+          cacheEverything: false,
+        },
         signal: AbortSignal.timeout(CONFIG.FETCH_TIMEOUT_MS || 3000),
-      });
+      };
+
+      // Добавляем микросекундный cache-buster _t=${Date.now()}, чтобы CloudFront и промежуточные CDN
+      // гарантированно не отдавали «застрявшие» кэшированные ответы при ручном обновлении
+      let res = await fetch(
+        `${baseUrl}/account?by=index&value=${accountIndex}&_t=${Date.now()}`,
+        fetchOptions,
+      );
+
+      // Защита от невалидного или протухшего токена авторизации:
+      // если биржа вернула 401 с токеном, пробуем резервный публичный запрос без него
+      if (res.status === 401 && authToken) {
+        console.warn(
+          `[${network}] #${accountIndex} got 401 with Authorization token. Retrying without auth token...`,
+        );
+        delete headers["Authorization"];
+        res = await fetch(
+          `${baseUrl}/account?by=index&value=${accountIndex}&_t=${Date.now()}`,
+          {
+            ...fetchOptions,
+            headers,
+          },
+        );
+      }
 
       if (res.status === 429) {
         if (attempt < maxRetries) {
@@ -63,6 +93,9 @@ export async function fetchLighterAccountWithStatus(
           return { account: null, status: "NOT_FOUND", statusCode: 404, message: "Not found" };
         }
         const errText = await res.text().catch(() => "");
+        console.error(
+          `[Lighter API Error] [${network}] #${accountIndex} HTTP ${res.status}: ${errText}`,
+        );
         return { account: null, status: "ERROR", statusCode: res.status, message: errText };
       }
 
@@ -79,12 +112,16 @@ export async function fetchLighterAccountWithStatus(
         return { account: null, status: "NOT_FOUND", statusCode: 200, message: "Not found" };
       }
 
+      console.error(
+        `[Lighter API Error] [${network}] #${accountIndex} code=${data.code}: ${data.message}`,
+      );
       return { account: null, status: "ERROR", statusCode: data.code, message: data.message };
     } catch (err: any) {
       if (attempt < maxRetries) {
         await new Promise((r) => setTimeout(r, 200));
         continue;
       }
+      console.error(`[Lighter API Exception] [${network}] #${accountIndex}:`, err);
       return { account: null, status: "ERROR", message: err?.message || String(err) };
     }
   }
@@ -158,6 +195,8 @@ export async function fetchExchangeStats(
   try {
     const headers: Record<string, string> = {
       Accept: "application/json",
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      Pragma: "no-cache",
       "User-Agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     };
@@ -165,9 +204,27 @@ export async function fetchExchangeStats(
       headers["Authorization"] = authToken.trim();
     }
 
-    const res = await fetch(`${baseUrl}/exchangeStats`, {
+    const fetchOptions: any = {
       headers,
-    });
+      cache: "no-store",
+      cf: {
+        cacheTtl: -1,
+        cacheEverything: false,
+      },
+    };
+
+    let res = await fetch(`${baseUrl}/exchangeStats?_t=${Date.now()}`, fetchOptions);
+
+    if (res.status === 401 && authToken) {
+      console.warn(
+        `[${network}] exchangeStats got 401 with Authorization token. Retrying without auth token...`,
+      );
+      delete headers["Authorization"];
+      res = await fetch(`${baseUrl}/exchangeStats?_t=${Date.now()}`, {
+        ...fetchOptions,
+        headers,
+      });
+    }
 
     if (!res.ok) return map;
     const data = (await res.json()) as any;

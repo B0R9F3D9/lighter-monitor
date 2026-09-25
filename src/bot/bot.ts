@@ -1021,22 +1021,14 @@ export function getBot(env: Env): Bot {
     const nowSec = Math.floor(Date.now() / 1000);
     let isRateLimited = false;
 
-    // С API-токеном Lighter рейт-лимиты практически отсутствуют.
-    // Если пользователь нажал "🔄 Обновить" (forceRefresh === true) — запрашиваем свежие данные (2с дебаунс от повторных кликов).
-    // В обычном режиме (/positions или меню) запрашиваем биржу, если кэш старше 15 секунд, чтобы не показывать закрытые сделки.
+    // При клике "🔄 Обновить" (forceRefresh === true) ВСЕГДА опрашиваем биржу напрямую без ограничений.
+    // В обычном режиме (/positions или меню) опрашиваем биржу, если кэш старше 5 секунд, либо отдаем из D1.
     const toFetch = forceRefresh
-      ? trackedList.filter((item) => {
-          const key = `${item.network}:${item.account_index}`;
-          const c = cacheMap.get(key);
-          if (c && c.last_updated_at && nowSec - c.last_updated_at < 2) {
-            return false;
-          }
-          return true;
-        })
+      ? trackedList
       : trackedList.filter((item) => {
           const key = `${item.network}:${item.account_index}`;
           const c = cacheMap.get(key);
-          return !c || !c.l1_address || !c.last_updated_at || nowSec - c.last_updated_at >= 15;
+          return !c || !c.l1_address || !c.last_updated_at || nowSec - c.last_updated_at >= 5;
         });
 
     const freshMap = new Map<string, any>();
@@ -1056,7 +1048,16 @@ export function getBot(env: Env): Bot {
             freshMap.set(`${item.network}:${item.account_index}`, res.value.account);
           } else if (res.value.status === "RATE_LIMIT") {
             isRateLimited = true;
+          } else {
+            console.warn(
+              `[handlePositions] Fetch ${item.network}:${item.account_index} status=${res.value.status}: ${res.value.message}`,
+            );
           }
+        } else if (res && res.status === "rejected") {
+          console.error(
+            `[handlePositions] Fetch ${item.network}:${item.account_index} rejected:`,
+            res.reason,
+          );
         }
       });
 
@@ -1173,8 +1174,10 @@ export function getBot(env: Env): Bot {
         minute: "2-digit",
         second: "2-digit",
       });
-      if (freshMap.size > 0 || toFetch.length === 0) {
-        combinedReport += `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+
+      let footerSuffix = "";
+      if (freshMap.size > 0) {
+        footerSuffix = `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
       } else {
         let oldestCacheSec = nowSec;
         for (const item of trackedList) {
@@ -1190,11 +1193,13 @@ export function getBot(env: Env): Bot {
           minute: "2-digit",
           second: "2-digit",
         });
-        combinedReport += `\n\n🕒 <i>Кэш от: ${cacheTimeStr} UTC</i>`;
+        footerSuffix = `\n\n🕒 <i>Кэш от: ${cacheTimeStr} UTC</i>`;
       }
       if (isRateLimited) {
-        combinedReport += `\n⚠️ <i>Биржа временно перегружена запросами. Показаны последние сохраненные данные.</i>`;
+        footerSuffix += `\n⚠️ <i>Биржа временно перегружена запросами. Показаны последние сохраненные данные.</i>`;
       }
+
+      combinedReport += footerSuffix;
 
       if (combinedReport.length > 3800) {
         let currentChunk = "";
@@ -1207,7 +1212,7 @@ export function getBot(env: Env): Bot {
             currentChunk += piece;
           }
         }
-        currentChunk += `${summaryBlock}\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+        currentChunk += `${summaryBlock}${footerSuffix}`;
         await ctx.reply(currentChunk, { parse_mode: "HTML", reply_markup: posKeyboard });
         return;
       }
