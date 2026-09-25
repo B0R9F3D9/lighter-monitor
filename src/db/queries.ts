@@ -233,10 +233,16 @@ export async function getActivePositionsForMonitoring(
   db: D1Database,
   filterSymbols?: string[],
 ): Promise<ActivePositionWatchItem[]> {
+  // Защита от лимита переменных SQLite D1 (SQLITE_MAX_VARIABLE_NUMBER / too many SQL variables):
+  // При волатильности рынка список filterSymbols может содержать сотни символов со всей биржи.
+  // Передача > 50 переменных в IN (...) приводит к ошибке D1_ERROR: too many SQL variables.
+  // В таком случае запрашиваем открытые позиции (таблица компактная) и фильтруем in-memory.
+  const shouldFilterInSql = filterSymbols && filterSymbols.length > 0 && filterSymbols.length <= 50;
+
   let whereClause = "";
   const params: any[] = [];
 
-  if (filterSymbols && filterSymbols.length > 0) {
+  if (shouldFilterInSql) {
     const placeholders = filterSymbols.map(() => "?").join(", ");
     whereClause = `WHERE aop.symbol IN (${placeholders}) OR uta.last_price IS NULL`;
     params.push(...filterSymbols);
@@ -272,7 +278,17 @@ export async function getActivePositionsForMonitoring(
   `;
   const stmt = params.length > 0 ? db.prepare(query).bind(...params) : db.prepare(query);
   const { results } = await stmt.all<ActivePositionWatchItem>();
-  return results || [];
+  const items = results || [];
+
+  // Если список символов был больше 50 и не фильтровался в SQL, фильтруем in-memory
+  if (filterSymbols && filterSymbols.length > 0 && !shouldFilterInSql) {
+    const filterSet = new Set(filterSymbols.map((s) => s.toUpperCase()));
+    return items.filter(
+      (item) => item.last_price === null || filterSet.has(item.symbol.toUpperCase()),
+    );
+  }
+
+  return items;
 }
 
 // 9. Синхронизация открытых позиций аккаунта (удаление закрытых, добавление новых)

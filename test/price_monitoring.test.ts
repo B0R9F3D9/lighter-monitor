@@ -7,6 +7,7 @@ import {
 import { findMarketPrice, fetchExchangeStats } from "../src/lighter/api";
 import { formatPriceStepAlert } from "../src/bot/formatters";
 import { MarketPriceSnapshot, PriceStepAlertParams, LighterNetwork } from "../src/types";
+import { getActivePositionsForMonitoring } from "../src/db/queries";
 
 describe("Price-Driven Monitoring Unit Tests", () => {
   describe("getSmartCooldownSeconds", () => {
@@ -267,6 +268,39 @@ describe("Price-Driven Monitoring Unit Tests", () => {
         const res = getMovedSymbols(snapshots, 1601);
         expect(res.isFullSweep).toBe(false);
         expect(res.movedSymbols).toContain("XAU");
+      });
+
+      it("safely handles filterSymbols with > 50 symbols without exceeding SQLite parameter limits", async () => {
+        let preparedSql = "";
+        let boundParams: any[] = [];
+        const mockDb: any = {
+          prepare: (sql: string) => {
+            preparedSql = sql;
+            return {
+              bind: (...args: any[]) => {
+                boundParams = args;
+                return {
+                  all: async () => ({ results: [] }),
+                };
+              },
+              all: async () => ({
+                results: [
+                  { symbol: "BTC", last_price: 60000 },
+                  { symbol: "DOGE", last_price: 0.1 },
+                  { symbol: "NEW", last_price: null },
+                ],
+              }),
+            };
+          },
+        };
+
+        const bigList = Array.from({ length: 250 }, (_, i) => `TOKEN_${i}`);
+        bigList.push("BTC");
+
+        const res = await getActivePositionsForMonitoring(mockDb, bigList);
+        expect(preparedSql.includes("WHERE aop.symbol IN")).toBe(false);
+        expect(boundParams.length).toBe(0);
+        expect(res.map((r) => r.symbol)).toEqual(["BTC", "NEW"]);
       });
     });
   });
