@@ -124,8 +124,8 @@ export async function runCronMonitor(env: Env): Promise<void> {
   let subrequestsUsed = 0;
   let jitChecksDone = 0;
 
-  // 1. АДАПТИВНЫЙ ФОНОВЫЙ ROUND-ROBIN (приоритет новым и активным аккаунтам, ускорен до 4)
-  const accountsToSync = await getNextAccountsForSync(env.DB, 4, now);
+  // 1. АДАПТИВНЫЙ ФОНОВЫЙ ROUND-ROBIN (приоритет новым и активным аккаунтам, ускоренный с API-токеном)
+  const accountsToSync = await getNextAccountsForSync(env.DB, 6, now, 60);
   const jitCache = new Map<string, LighterAccount | null>();
   const failedAccounts: TrackedAccountKey[] = [];
   const cacheUpdates = new Map<
@@ -138,7 +138,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
   >();
 
   if (accountsToSync.length > 0) {
-    const syncResults = await fetchInChunks(accountsToSync, 2, (acc) =>
+    const syncResults = await fetchInChunks(accountsToSync, 3, (acc) =>
       fetchLighterAccount(
         acc.network,
         acc.accountIndex,
@@ -264,9 +264,8 @@ export async function runCronMonitor(env: Env): Promise<void> {
   const zombieCleanupStmts: D1PreparedStatement[] = [];
   const cleanedZombieKeys = new Set<string>();
 
-  // Шаг Б.1: Селективный JIT отбор (только позиции близкие к ликвидации или требующие проверки на зомби)
-  // Динамический балансировщик квот: если алертов много (> 20), отдаем приоритет отправке сообщений в Telegram!
-  const maxJitForThisTick = candidateAlerts.length > 20 ? 4 : 8;
+  // Шаг Б.1: Селективный JIT отбор с API-токеном для надежного устранения «зомби»
+  const maxJitForThisTick = candidateAlerts.length > 20 ? 6 : 10;
   const pendingJitKeys: TrackedAccountKey[] = [];
   const seenAccKeys = new Set<string>();
 
@@ -283,12 +282,11 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     const stalenessSec = item.last_updated_at ? now - item.last_updated_at : Infinity;
 
-    // В JIT очередь попадают позиции в критической зоне риска (<= 1.0% от ликвидации)
-    // или сильно устаревшие (> 2 часов), И ТОЛЬКО если они не опрашивались за последние 300 секунд (5 мин)!
-    const isCriticalRisk = distancePercent !== null && distancePercent <= 1.0;
-    const isStale = stalenessSec >= 7200;
+    // С API-токеном верифицируем позиции через биржу: если в зоне риска (<= 5.0%) или данные старше 60 сек
+    const isRiskZone = distancePercent !== null && distancePercent <= 5.0;
+    const isStale = stalenessSec >= 60;
 
-    if ((isCriticalRisk || isStale) && stalenessSec >= 300) {
+    if (isRiskZone || isStale) {
       seenAccKeys.add(key);
       pendingJitKeys.push({
         network: item.network,
@@ -451,12 +449,12 @@ export async function runCronMonitor(env: Env): Promise<void> {
       console.warn("Cron wall-clock budget reached. Postponing remaining alert deliveries.");
       break;
     }
-    if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON) break;
+    if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 2) break;
 
     const chunk = userEntries.slice(i, i + ALERT_SEND_CONCURRENCY);
     await Promise.allSettled(
       chunk.map(async ([telegramId, alerts]) => {
-        if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON) return;
+        if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 1) return;
 
         const combinedText = alerts.map((a) => a.alertText).join("\n\n───────────────────\n\n");
         let keyboard: InlineKeyboard;

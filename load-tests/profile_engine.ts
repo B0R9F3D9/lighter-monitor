@@ -41,10 +41,9 @@ const rrQuery = `
   SELECT DISTINCT uta.network, uta.account_index, c.last_updated_at,
     CASE
       WHEN c.last_updated_at IS NULL THEN '0: NEW (never synced)'
-      WHEN active.account_index IS NOT NULL AND (? - c.last_updated_at) >= 900 THEN '1: HOT (>15m, active)'
-      WHEN c.collateral > 0 AND (? - c.last_updated_at) >= 3600 THEN '2: WARM (>1h, funded)'
-      WHEN (? - c.last_updated_at) >= 43200 THEN '3: COLD (>12h)'
-      ELSE '4: LOW'
+      WHEN active.account_index IS NOT NULL THEN '1: HOT (active positions)'
+      WHEN c.collateral > 0 THEN '2: WARM (funded)'
+      ELSE '3: LOW'
     END as priority_group
   FROM user_tracked_accounts uta
   LEFT JOIN account_positions_cache c
@@ -58,8 +57,8 @@ const rrQuery = `
   ORDER BY
     CASE
       WHEN c.last_updated_at IS NULL THEN 0
-      WHEN active.account_index IS NOT NULL AND (? - c.last_updated_at) >= 900 THEN 1
-      WHEN c.collateral > 0 AND (? - c.last_updated_at) >= 3600 THEN 2
+      WHEN active.account_index IS NOT NULL THEN 1
+      WHEN c.collateral > 0 THEN 2
       ELSE 3
     END ASC,
     COALESCE(c.last_updated_at, 0) ASC
@@ -67,7 +66,7 @@ const rrQuery = `
 `;
 
 const t0 = performance.now();
-const rrResults = sqlite.query(rrQuery).all(now, now, now, now, minStalenessSec, now, now) as any[];
+const rrResults = sqlite.query(rrQuery).all(now, minStalenessSec) as any[];
 const tRr = performance.now() - t0;
 
 console.log(`   • Время выполнения SQL: ${tRr.toFixed(3)} ms`);

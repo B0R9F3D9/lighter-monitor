@@ -1021,15 +1021,14 @@ export function getBot(env: Env): Bot {
     const nowSec = Math.floor(Date.now() / 1000);
     let isRateLimited = false;
 
-    // В штатном режиме (/positions или кнопка "Позиции") отдаем мгновенно из кэша D1 за 40-60 мс!
-    // Сетевой запрос к бирже отправляется ТОЛЬКО если:
-    // 1) Пользователь нажал кнопку "🔄 Обновить" (forceRefresh === true)
-    // 2) Либо для аккаунта ВООБЩЕ нет кэша в базе (первое подключение)
+    // С API-токеном Lighter рейт-лимиты практически отсутствуют.
+    // Если пользователь нажал "🔄 Обновить" (forceRefresh === true) — запрашиваем свежие данные (2с дебаунс от повторных кликов).
+    // В обычном режиме (/positions или меню) запрашиваем биржу, если кэш старше 15 секунд, чтобы не показывать закрытые сделки.
     const toFetch = forceRefresh
       ? trackedList.filter((item) => {
           const key = `${item.network}:${item.account_index}`;
           const c = cacheMap.get(key);
-          if (c && c.last_updated_at && nowSec - c.last_updated_at < 15) {
+          if (c && c.last_updated_at && nowSec - c.last_updated_at < 2) {
             return false;
           }
           return true;
@@ -1037,12 +1036,12 @@ export function getBot(env: Env): Bot {
       : trackedList.filter((item) => {
           const key = `${item.network}:${item.account_index}`;
           const c = cacheMap.get(key);
-          return !c || !c.l1_address;
+          return !c || !c.l1_address || !c.last_updated_at || nowSec - c.last_updated_at >= 15;
         });
 
     const freshMap = new Map<string, any>();
     if (toFetch.length > 0) {
-      const settled = await fetchInChunks(toFetch, 2, (item) =>
+      const settled = await fetchInChunks(toFetch, CONFIG.LIGHTER_CHUNK_CONCURRENCY || 5, (item) =>
         fetchLighterAccountWithStatus(
           item.network,
           item.account_index,
@@ -1174,7 +1173,25 @@ export function getBot(env: Env): Bot {
         minute: "2-digit",
         second: "2-digit",
       });
-      combinedReport += `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+      if (freshMap.size > 0 || toFetch.length === 0) {
+        combinedReport += `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+      } else {
+        let oldestCacheSec = nowSec;
+        for (const item of trackedList) {
+          const c = cacheMap.get(`${item.network}:${item.account_index}`);
+          if (c?.last_updated_at && c.last_updated_at < oldestCacheSec) {
+            oldestCacheSec = c.last_updated_at;
+          }
+        }
+        const cacheDate = new Date(oldestCacheSec * 1000);
+        const cacheTimeStr = cacheDate.toLocaleTimeString("ru-RU", {
+          timeZone: "UTC",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+        combinedReport += `\n\n🕒 <i>Кэш от: ${cacheTimeStr} UTC</i>`;
+      }
       if (isRateLimited) {
         combinedReport += `\n⚠️ <i>Биржа временно перегружена запросами. Показаны последние сохраненные данные.</i>`;
       }
