@@ -228,8 +228,6 @@ export function getBot(env: Env): Bot {
         `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
         `Бот в реальном времени мониторит ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
         `рассчитывает риски ликвидации и присылает сигналы при импульсах цены.\n\n` +
-        `• <b>Zero-CLI:</b> Управляйте кошельками и сделками кнопками ниже.\n` +
-        `• <b>XAU 15x–25x:</b> 3-слойные алерты с мгновенным переходом на биржу.\n\n` +
         `Подключите ваш первый кошелек для мониторинга:`;
       const kb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
       await ctx.reply(welcomeText, { parse_mode: "HTML", reply_markup: getMainKb(ctx) });
