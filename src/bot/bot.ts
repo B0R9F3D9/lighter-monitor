@@ -155,7 +155,6 @@ export async function renderAdminDashboard(env: Env): Promise<string> {
   });
 
   return (
-    `📊 <b>Lighter Monitor — Системный Дашборд</b>\n\n` +
     `👥 <b>Пользователи и счета:</b>\n` +
     `  • Пользователи: <b>${stats.totalUsers}</b> (новых за 24ч: <b>+${stats.users24h}</b>)\n` +
     `  • Всего кошельков: <b>${stats.totalTracked}</b> (🟠 RH: ${stats.trackedRh} | ⚡️ Mainnet: ${stats.trackedMainnet})\n` +
