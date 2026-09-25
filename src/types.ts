@@ -106,6 +106,8 @@ export interface ActivePositionWatchItem {
   is_long: number;
   entry_price: number;
   size: number;
+  liquidation_price?: number;
+  last_updated_at?: number;
   last_price: number | null;
   last_alerted_at: number | null;
 }

@@ -20,15 +20,17 @@ const MARKETS: MarketDef[] = [
   { symbol: "PEPE", marketId: 7, currentPrice: 0.00001234 },
 ];
 
+const SCALE = Math.max(1, parseFloat(process.env.SCALE || process.argv[2] || "1"));
+
 const CONFIG = {
-  USERS_COUNT: 50,
+  USERS_COUNT: Math.round(50 * SCALE),
   START_USER_ID: 10001,
-  ACCOUNTS_COUNT: 200,
+  ACCOUNTS_COUNT: Math.round(200 * SCALE),
   START_ACCOUNT_INDEX: 200001,
-  POSITIONS_COUNT: 500,
+  POSITIONS_COUNT: Math.round(500 * SCALE),
   NETWORKS: ["rh", "mainnet"] as const,
-  WHALE_ACCOUNTS_COUNT: 3,
-  WHALE_USERS_OVERLAP: 10,
+  WHALE_ACCOUNTS_COUNT: Math.min(50, Math.max(3, Math.round(3 * Math.sqrt(SCALE)))),
+  WHALE_USERS_OVERLAP: Math.min(200, Math.max(10, Math.round(10 * Math.sqrt(SCALE)))),
 };
 
 function generateSql(): string {
@@ -36,8 +38,11 @@ function generateSql(): string {
   const sqlLines: string[] = [];
 
   sqlLines.push("-- ========================================================");
-  sqlLines.push("-- SYNTHETIC SEED DATA FOR STRESS TESTING LIGHTER MONITOR");
+  sqlLines.push(`-- SYNTHETIC SEED DATA FOR STRESS TESTING (SCALE = ${SCALE}x)`);
   sqlLines.push(`-- Generated at: ${new Date().toISOString()}`);
+  sqlLines.push(
+    `-- Users: ${CONFIG.USERS_COUNT}, Accounts: ${CONFIG.ACCOUNTS_COUNT}, Positions: ${CONFIG.POSITIONS_COUNT}`,
+  );
   sqlLines.push("-- ========================================================");
   sqlLines.push("");
 
@@ -52,7 +57,7 @@ function generateSql(): string {
   sqlLines.push("DELETE FROM users WHERE telegram_id >= 10000;");
   sqlLines.push("");
 
-  // 2. Генерация users (50 юзеров с разными порогами и mute)
+  // 2. Генерация users (с разными порогами и mute)
   sqlLines.push("-- 2. Вставка пользователей");
   const userRows: string[] = [];
   const thresholds = [0.3, 0.4, 0.5, 0.8, 1.0, 1.5, 2.0];
@@ -63,11 +68,6 @@ function generateSql(): string {
     const firstName = `Trader ${i + 1}`;
     const threshold = thresholds[i % thresholds.length]!;
 
-    // КРАЕВЫЕ СЛУЧАИ MUTE:
-    // • Юзер 0 (10001): АКТИВНЫЙ (без мута, порог 0.3%) для теста мульти-алертов и троттлинга
-    // • Юзеры 1..3 (3 юзера): активный mute на 1 час (фильтруются из алертов)
-    // • Юзеры 4..6 (3 юзера): mute истек 60 секунд назад (ДОЛЖНЫ получать алерты)
-    // • Остальные юзеры: mute выключен (0)
     let mutedUntil = 0;
     if (i >= 1 && i <= 3) {
       mutedUntil = now + 3600;
@@ -82,15 +82,18 @@ function generateSql(): string {
     );
   }
 
-  // Пакетная вставка users
-  sqlLines.push(
-    `INSERT INTO users (telegram_id, username, first_name, alert_threshold, wizard_state, muted_until, created_at) VALUES\n` +
-      userRows.join(",\n") +
-      ";",
-  );
+  // Пакетная вставка users чанками по 250
+  for (let i = 0; i < userRows.length; i += 250) {
+    const chunk = userRows.slice(i, i + 250);
+    sqlLines.push(
+      `INSERT INTO users (telegram_id, username, first_name, alert_threshold, wizard_state, muted_until, created_at) VALUES\n` +
+        chunk.join(",\n") +
+        ";",
+    );
+  }
   sqlLines.push("");
 
-  // 3. Создаем 200 уникальных аккаунтов
+  // 3. Создаем уникальные аккаунты
   interface AccountItem {
     network: "rh" | "mainnet";
     accountIndex: number;
@@ -99,33 +102,32 @@ function generateSql(): string {
     lastUpdated: number | null;
   }
 
+  const newThreshold = Math.max(5, Math.floor(CONFIG.ACCOUNTS_COUNT * 0.025));
+  const hotThreshold = newThreshold + Math.max(35, Math.floor(CONFIG.ACCOUNTS_COUNT * 0.175));
+  const freshThreshold = hotThreshold + Math.max(110, Math.floor(CONFIG.ACCOUNTS_COUNT * 0.55));
+
   const accounts: AccountItem[] = [];
   for (let i = 0; i < CONFIG.ACCOUNTS_COUNT; i++) {
     const accountIndex = CONFIG.START_ACCOUNT_INDEX + i;
     const network = CONFIG.NETWORKS[i % CONFIG.NETWORKS.length]!;
 
-    // Распределяем по 4 группам Round-Robin
     let group: "NEW" | "HOT" | "FRESH" | "DEAD";
     let lastUpdated: number | null;
     let collateral: number;
 
-    if (i < 5) {
-      // Группа 1: «Новые» — last_updated_at IS NULL (приоритет 0 в Round-Robin)
+    if (i < newThreshold) {
       group = "NEW";
       lastUpdated = null;
       collateral = 1000.0;
-    } else if (i < 40) {
-      // Группа 2: «Горячие» — обновлялись 20 мин назад (должны забираться кроном, приоритет 1)
+    } else if (i < hotThreshold) {
       group = "HOT";
       lastUpdated = now - 1200;
       collateral = 2500.0;
-    } else if (i < 150) {
-      // Группа 3: «Свежие» — обновлялись 60 сек назад (крон ДОЛЖЕН их пропускать по minStalenessSec)
+    } else if (i < freshThreshold) {
       group = "FRESH";
       lastUpdated = now - 60;
       collateral = 500.0;
     } else {
-      // Группа 4: «Мертвые» — обновлялись сутки назад, нулевой залог
       group = "DEAD";
       lastUpdated = now - 86400;
       collateral = 0.0;
@@ -134,7 +136,7 @@ function generateSql(): string {
     accounts.push({ network, accountIndex, group, collateral, lastUpdated });
   }
 
-  // 4. Вставка account_positions_cache (для группы NEW запись отсутствует, чтобы LEFT JOIN давал NULL)
+  // 4. Вставка account_positions_cache
   sqlLines.push("-- 3. Вставка кэша аккаунтов (account_positions_cache)");
   const cacheRows: string[] = [];
   for (const acc of accounts) {
@@ -145,9 +147,8 @@ function generateSql(): string {
     );
   }
 
-  // Разбиваем вставки на чанки по 100 строк
-  for (let i = 0; i < cacheRows.length; i += 100) {
-    const chunk = cacheRows.slice(i, i + 100);
+  for (let i = 0; i < cacheRows.length; i += 250) {
+    const chunk = cacheRows.slice(i, i + 250);
     sqlLines.push(
       `INSERT INTO account_positions_cache (network, account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at) VALUES\n` +
         chunk.join(",\n") +
@@ -160,19 +161,24 @@ function generateSql(): string {
   sqlLines.push("-- 4. Вставка отслеживаемых аккаунтов (user_tracked_accounts)");
   const trackedRows: string[] = [];
   const seenTracked = new Set<string>();
+  const accountToUsersMap = new Map<string, number[]>();
 
   const addTracked = (tgId: number, net: string, idx: number, alias: string | null) => {
     const key = `${tgId}:${net}:${idx}`;
     if (seenTracked.has(key)) return;
     seenTracked.add(key);
+    const accKey = `${net}:${idx}`;
+    const trackers = accountToUsersMap.get(accKey) || [];
+    trackers.push(tgId);
+    accountToUsersMap.set(accKey, trackers);
     const aliasVal = alias ? `'${alias}'` : "NULL";
     trackedRows.push(`(${tgId}, '${net}', ${idx}, ${aliasVal}, ${now})`);
   };
 
-  // 5.1. Три китовых кошелька, отслеживаемых сразу 10 пользователями каждый
-  for (let w = 0; w < CONFIG.WHALE_ACCOUNTS_COUNT; w++) {
+  // 5.1. Китовые кошельки
+  for (let w = 0; w < CONFIG.WHALE_ACCOUNTS_COUNT && w < accounts.length; w++) {
     const whaleAcc = accounts[w]!;
-    for (let u = 0; u < CONFIG.WHALE_USERS_OVERLAP; u++) {
+    for (let u = 0; u < CONFIG.WHALE_USERS_OVERLAP && u < CONFIG.USERS_COUNT; u++) {
       const tgId = CONFIG.START_USER_ID + u;
       addTracked(tgId, whaleAcc.network, whaleAcc.accountIndex, `Whale #${w + 1}`);
     }
@@ -183,14 +189,15 @@ function generateSql(): string {
   for (let u = 0; u < CONFIG.USERS_COUNT; u++) {
     const tgId = CONFIG.START_USER_ID + u;
     const countForUser = 2 + (u % 3);
-    for (let c = 0; c < countForUser && accCursor < accounts.length; c++) {
-      const acc = accounts[accCursor++]!;
+    for (let c = 0; c < countForUser; c++) {
+      const acc = accounts[accCursor % accounts.length]!;
+      accCursor++;
       addTracked(tgId, acc.network, acc.accountIndex, `SubWallet ${c + 1}`);
     }
   }
 
-  for (let i = 0; i < trackedRows.length; i += 100) {
-    const chunk = trackedRows.slice(i, i + 100);
+  for (let i = 0; i < trackedRows.length; i += 250) {
+    const chunk = trackedRows.slice(i, i + 250);
     sqlLines.push(
       `INSERT INTO user_tracked_accounts (telegram_id, network, account_index, alias, created_at) VALUES\n` +
         chunk.join(",\n") +
@@ -199,7 +206,7 @@ function generateSql(): string {
   }
   sqlLines.push("");
 
-  // 6. Генерация 500 открытых сделок (account_open_positions)
+  // 6. Генерация открытых сделок (account_open_positions)
   sqlLines.push("-- 5. Вставка открытых позиций (account_open_positions)");
   const posRows: string[] = [];
   const generatedPositions: Array<{
@@ -213,10 +220,10 @@ function generateSql(): string {
   }> = [];
 
   const seenPos = new Set<string>();
+  const fundedAccountsCount = Math.max(1, Math.floor(accounts.length * 0.75));
 
   for (let i = 0; i < CONFIG.POSITIONS_COUNT; i++) {
-    // Выбираем аккаунт (в приоритете первые 150 с залогом > 0)
-    const acc = accounts[i % 150]!;
+    const acc = accounts[i % fundedAccountsCount]!;
     const market = MARKETS[i % MARKETS.length]!;
 
     const posKey = `${acc.network}:${acc.accountIndex}:${market.marketId}`;
@@ -224,11 +231,11 @@ function generateSql(): string {
     seenPos.add(posKey);
 
     const isLong = i % 2 === 0 ? 1 : 0;
-    // Цена входа близка к текущей (+- 0.5% .. 1.5%)
     const priceOffset = ((i % 11) - 5) * 0.003;
     const decimals = market.currentPrice < 0.001 ? 8 : 4;
     const entryPrice = parseFloat((market.currentPrice * (1 + priceOffset)).toFixed(decimals));
     const size = parseFloat((1.0 + (i % 10) * 0.5).toFixed(2));
+    const liqPrice = parseFloat((entryPrice * (isLong ? 0.85 : 1.15)).toFixed(decimals));
 
     generatedPositions.push({
       network: acc.network,
@@ -241,14 +248,14 @@ function generateSql(): string {
     });
 
     posRows.push(
-      `('${acc.network}', ${acc.accountIndex}, ${market.marketId}, '${market.symbol}', ${isLong}, ${entryPrice}, ${size}, ${now})`,
+      `('${acc.network}', ${acc.accountIndex}, ${market.marketId}, '${market.symbol}', ${isLong}, ${entryPrice}, ${size}, ${liqPrice}, ${now})`,
     );
   }
 
-  for (let i = 0; i < posRows.length; i += 100) {
-    const chunk = posRows.slice(i, i + 100);
+  for (let i = 0; i < posRows.length; i += 250) {
+    const chunk = posRows.slice(i, i + 250);
     sqlLines.push(
-      `INSERT INTO account_open_positions (network, account_index, market_id, symbol, is_long, entry_price, size, last_updated_at) VALUES\n` +
+      `INSERT INTO account_open_positions (network, account_index, market_id, symbol, is_long, entry_price, size, liquidation_price, last_updated_at) VALUES\n` +
         chunk.join(",\n") +
         ";",
     );
@@ -261,14 +268,11 @@ function generateSql(): string {
   const seenAlerts = new Set<string>();
   let user10001AlertCount = 0;
 
-  // Связываем позиции с пользователями, которые отслеживают эти аккаунты
   for (const pos of generatedPositions) {
-    // Находим пользователей, которые отслеживают этот аккаунт
-    for (let u = 0; u < CONFIG.USERS_COUNT; u++) {
-      const tgId = CONFIG.START_USER_ID + u;
-      const trackKey = `${tgId}:${pos.network}:${pos.accountIndex}`;
-      if (!seenTracked.has(trackKey)) continue;
+    const accKey = `${pos.network}:${pos.accountIndex}`;
+    const trackers = accountToUsersMap.get(accKey) || [];
 
+    for (const tgId of trackers) {
       const alertKey = `${tgId}:${pos.network}:${pos.accountIndex}:${pos.marketId}`;
       if (seenAlerts.has(alertKey)) continue;
       seenAlerts.add(alertKey);
@@ -276,27 +280,22 @@ function generateSql(): string {
       const market = MARKETS.find((m) => m.marketId === pos.marketId)!;
       let hash = (tgId + pos.accountIndex + pos.marketId) % 100;
 
-      // Для пользователя 10001: создаем ровно 4 алерта для стресс-теста троттлинга Telegram (850 мс)
       let lastPrice: number;
       let lastAlertedAt: number;
       const priceDecimals = market.currentPrice < 0.001 ? 8 : 4;
 
       if (tgId === CONFIG.START_USER_ID && user10001AlertCount < 4) {
-        // Сильный импульс 4.5% гарантирует первое место в сортировке по срочности
         const delta = 0.045;
         lastPrice = parseFloat((market.currentPrice * (1 - delta)).toFixed(priceDecimals));
         lastAlertedAt = now - 600;
         user10001AlertCount++;
       } else if (hash < 15) {
-        // Сценарий 1 (15%): Первый тик -> вообще НЕ создаем запись
         continue;
       } else if (hash >= 15 && hash < 40) {
-        // Сценарий 2 (25%): Кандидат на алерт -> импульс цены 1.5% - 2.5%
-        const delta = hash % 2 === 0 ? 0.022 : -0.018; // +2.2% или -1.8%
+        const delta = hash % 2 === 0 ? 0.022 : -0.018;
         lastPrice = parseFloat((market.currentPrice * (1 - delta)).toFixed(priceDecimals));
-        lastAlertedAt = now - 600; // 10 минут назад (кулдаун уже прошел)
+        lastAlertedAt = now - 600;
       } else {
-        // Сценарий 3 (60%): Спокойная позиция -> цена почти не изменилась (отсекается in-memory)
         lastPrice = market.currentPrice;
         lastAlertedAt = now - 120;
       }
@@ -307,8 +306,8 @@ function generateSql(): string {
     }
   }
 
-  for (let i = 0; i < alertRows.length; i += 100) {
-    const chunk = alertRows.slice(i, i + 100);
+  for (let i = 0; i < alertRows.length; i += 250) {
+    const chunk = alertRows.slice(i, i + 250);
     sqlLines.push(
       `INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at) VALUES\n` +
         chunk.join(",\n") +

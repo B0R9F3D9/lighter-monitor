@@ -210,21 +210,21 @@ export async function getNextAccountsForSync(
       SELECT DISTINCT network, account_index FROM account_open_positions
     ) active
       ON uta.network = active.network AND uta.account_index = active.account_index
-    WHERE c.last_updated_at IS NULL OR (? - c.last_updated_at) >= ?
+    WHERE (c.last_updated_at IS NULL OR (? - c.last_updated_at) >= ?)
+      AND (c.last_updated_at IS NULL OR active.account_index IS NOT NULL OR c.collateral > 0)
     ORDER BY
       CASE
         WHEN c.last_updated_at IS NULL THEN 0
         WHEN active.account_index IS NOT NULL AND (? - c.last_updated_at) >= 900 THEN 1
         WHEN c.collateral > 0 AND (? - c.last_updated_at) >= 3600 THEN 2
-        WHEN (? - c.last_updated_at) >= 43200 THEN 3
-        ELSE 4
+        ELSE 3
       END ASC,
       COALESCE(c.last_updated_at, 0) ASC
     LIMIT ?;
   `;
   const { results } = await db
     .prepare(query)
-    .bind(nowSec, minStalenessSec, nowSec, nowSec, nowSec, limit)
+    .bind(nowSec, minStalenessSec, nowSec, nowSec, limit)
     .all<{ network: LighterNetwork; account_index: number }>();
   if (!results || results.length === 0) return [];
   return results.map((row) => ({ network: row.network, accountIndex: row.account_index }));
@@ -248,6 +248,8 @@ export async function getActivePositionsForMonitoring(
     const placeholders = filterSymbols.map(() => "?").join(", ");
     whereClause = `WHERE aop.symbol IN (${placeholders}) OR uta.last_price IS NULL`;
     params.push(...filterSymbols);
+  } else if (filterSymbols && filterSymbols.length === 0) {
+    whereClause = `WHERE uta.last_price IS NULL`;
   }
 
   const query = `
@@ -259,6 +261,8 @@ export async function getActivePositionsForMonitoring(
       aop.is_long,
       aop.entry_price,
       aop.size,
+      COALESCE(aop.liquidation_price, 0) as liquidation_price,
+      aop.last_updated_at,
       u.telegram_id,
       COALESCE(u.alert_threshold, 0.5) as alert_threshold,
       COALESCE(u.muted_until, 0) as muted_until,
@@ -291,6 +295,23 @@ export async function getActivePositionsForMonitoring(
   }
 
   return items;
+}
+
+// 8. Авто-миграция схемы базы данных для безопасного запуска
+let isSchemaEnsured = false;
+export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
+  if (isSchemaEnsured) return;
+  isSchemaEnsured = true;
+  try {
+    await db
+      .prepare("ALTER TABLE account_open_positions ADD COLUMN liquidation_price REAL DEFAULT 0")
+      .run();
+  } catch {}
+  try {
+    await db
+      .prepare("CREATE INDEX IF NOT EXISTS idx_open_pos_symbol ON account_open_positions(symbol)")
+      .run();
+  } catch {}
 }
 
 // 9. Синхронизация открытых позиций аккаунта (удаление закрытых, добавление новых)
@@ -335,17 +356,19 @@ export async function syncAccountOpenPositions(
 
   for (const p of active) {
     const isLong = (p.sign ?? (parseFloat(p.position) > 0 ? 1 : -1)) > 0 ? 1 : 0;
+    const liqPrice = parseFloat(p.liquidation_price || "0");
     stmts.push(
       db
         .prepare(`
       INSERT INTO account_open_positions (
-        network, account_index, market_id, symbol, is_long, entry_price, size, last_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        network, account_index, market_id, symbol, is_long, entry_price, size, liquidation_price, last_updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(network, account_index, market_id) DO UPDATE SET
         symbol = excluded.symbol,
         is_long = excluded.is_long,
         entry_price = excluded.entry_price,
         size = excluded.size,
+        liquidation_price = excluded.liquidation_price,
         last_updated_at = excluded.last_updated_at
     `)
         .bind(
@@ -356,6 +379,7 @@ export async function syncAccountOpenPositions(
           isLong,
           parseFloat(p.avg_entry_price || "0"),
           Math.abs(parseFloat(p.position || "0")),
+          liqPrice,
           now,
         ),
     );

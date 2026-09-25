@@ -85,6 +85,8 @@ let simulatedActivePositionsReturned = 0;
 
 const originalFetch = globalThis.fetch;
 
+let tickNumber = 1;
+
 globalThis.fetch = async (input: string | URL | Request, init?: any): Promise<Response> => {
   const urlStr =
     typeof input === "string" ? input : input instanceof Request ? input.url : input.toString();
@@ -95,22 +97,34 @@ globalThis.fetch = async (input: string | URL | Request, init?: any): Promise<Re
     // 50ms сетевая задержка
     await new Promise((r) => setTimeout(r, 50));
 
-    return new Response(
-      JSON.stringify({
-        code: 200,
-        order_book_stats: [
-          { symbol: "XAU", last_trade_price: "4280.0" },
-          { symbol: "BTC", last_trade_price: "83850.0" },
-          { symbol: "ETH", last_trade_price: "2670.0" },
-          { symbol: "SOL", last_trade_price: "116.0" },
-          { symbol: "DOGE", last_trade_price: "0.095" },
-          { symbol: "AVAX", last_trade_price: "10.1" },
-          { symbol: "LINK", last_trade_price: "13.4" },
-          { symbol: "PEPE", last_trade_price: "0.00001234" },
-        ],
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    const prices =
+      tickNumber === 1
+        ? [
+            { symbol: "XAU", last_trade_price: "4280.0" },
+            { symbol: "BTC", last_trade_price: "83850.0" },
+            { symbol: "ETH", last_trade_price: "2670.0" },
+            { symbol: "SOL", last_trade_price: "116.0" },
+            { symbol: "DOGE", last_trade_price: "0.095" },
+            { symbol: "AVAX", last_trade_price: "10.1" },
+            { symbol: "LINK", last_trade_price: "13.4" },
+            { symbol: "PEPE", last_trade_price: "0.00001234" },
+          ]
+        : [
+            // Импульс рынка: XAU +0.35%, BTC +0.65%, ETH +0.93%
+            { symbol: "XAU", last_trade_price: "4295.0" },
+            { symbol: "BTC", last_trade_price: "84400.0" },
+            { symbol: "ETH", last_trade_price: "2695.0" },
+            { symbol: "SOL", last_trade_price: "116.0" },
+            { symbol: "DOGE", last_trade_price: "0.095" },
+            { symbol: "AVAX", last_trade_price: "10.1" },
+            { symbol: "LINK", last_trade_price: "13.4" },
+            { symbol: "PEPE", last_trade_price: "0.00001234" },
+          ];
+
+    return new Response(JSON.stringify({ code: 200, order_book_stats: prices }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   // 2. МОК /account?by=index (запрос позиций кошелька биржи)
@@ -249,6 +263,20 @@ console.log("==========================================================\n");
 
 // Фиксируем состояние открытых позиций в базе ДО теста
 const zombiesBefore = sqlite.query("SELECT COUNT(*) as c FROM account_open_positions").get() as any;
+
+console.log("❄️ ТИК 1: Холодный старт изолята (прогрев кэша цен без тяжелого полного среза)...");
+const tColdStart = performance.now();
+await runCronMonitor(mockEnv);
+const coldDuration = performance.now() - tColdStart;
+console.log(`✅ Кэш прогрет за ${coldDuration.toFixed(2)} ms (Full sweep устранен).\n`);
+
+console.log("⚡️ ТИК 2: Рабочий импульс рынка (+0.65% BTC, +0.35% XAU, +0.93% ETH)...");
+tickNumber = 2;
+exchangeStatsCalls = 0;
+accountApiCalls = 0;
+telegramSends = 0;
+simulatedZombiePositionsReturned = 0;
+simulatedActivePositionsReturned = 0;
 
 const start = performance.now();
 await runCronMonitor(mockEnv);

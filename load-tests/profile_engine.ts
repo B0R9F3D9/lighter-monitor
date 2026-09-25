@@ -53,23 +53,21 @@ const rrQuery = `
     SELECT DISTINCT network, account_index FROM account_open_positions
   ) active
     ON uta.network = active.network AND uta.account_index = active.account_index
-  WHERE c.last_updated_at IS NULL OR (? - c.last_updated_at) >= ?
+  WHERE (c.last_updated_at IS NULL OR (? - c.last_updated_at) >= ?)
+    AND (c.last_updated_at IS NULL OR active.account_index IS NOT NULL OR c.collateral > 0)
   ORDER BY
     CASE
       WHEN c.last_updated_at IS NULL THEN 0
       WHEN active.account_index IS NOT NULL AND (? - c.last_updated_at) >= 900 THEN 1
       WHEN c.collateral > 0 AND (? - c.last_updated_at) >= 3600 THEN 2
-      WHEN (? - c.last_updated_at) >= 43200 THEN 3
-      ELSE 4
+      ELSE 3
     END ASC,
     COALESCE(c.last_updated_at, 0) ASC
   LIMIT 5;
 `;
 
 const t0 = performance.now();
-const rrResults = sqlite
-  .query(rrQuery)
-  .all(now, now, now, now, minStalenessSec, now, now, now) as any[];
+const rrResults = sqlite.query(rrQuery).all(now, now, now, now, minStalenessSec, now, now) as any[];
 const tRr = performance.now() - t0;
 
 console.log(`   • Время выполнения SQL: ${tRr.toFixed(3)} ms`);
@@ -136,7 +134,7 @@ const tJoin0 = performance.now();
 const allPositions = sqlite.query(joinQueryFull).all() as any[];
 const tJoin = performance.now() - tJoin0;
 console.log(
-  `   • А. Полный JOIN 500 позиций (Full Sweep): ${tJoin.toFixed(3)} ms (записей: ${allPositions.length})`,
+  `   • А. Полный JOIN (Full Sweep): ${tJoin.toFixed(3)} ms (записей: ${allPositions.length})`,
 );
 
 // Вариант Б: SQL фильтрация Reverse Indexing (<= 50 токенов, например 3 токена с движением)
@@ -350,7 +348,7 @@ console.log("\n==========================================================");
 console.log("🏁 ВЫВОДЫ ПО БУТЫЛОЧНЫМ ГОРЛЫШКАМ (BOTTLENECK ANALYSIS)");
 console.log("==========================================================");
 console.log(
-  `1. CPU Latency: Полная обработка базы из 500 позиций занимает ~${(tRr + tJoin + tPhaseA).toFixed(2)} ms (Лимит Workers: 10-50 ms). ЗАПАС: > 10x!`,
+  `1. CPU Latency: Полная обработка базы из ${allPositions.length} позиций занимает ~${(tRr + tJoin + tPhaseA).toFixed(2)} ms (Лимит Workers: 10-50 ms).`,
 );
 console.log(
   `2. Reverse Indexing: Выборка по 3 токенам в SQL заняла ${tFiltered.toFixed(2)} ms (Full sweep: ${tJoin.toFixed(2)} ms).`,

@@ -15,6 +15,7 @@ import {
   syncAccountOpenPositions,
   getActivePositionsForMonitoring,
   removeBlockedUser,
+  ensureDatabaseSchema,
 } from "../db/queries";
 import {
   fetchLighterAccount,
@@ -73,7 +74,7 @@ export function getMovedSymbols(
   minMoveThreshold: number = 0.05, // 0.05% отсечка для надежного улавливания пользовательского шага 0.1%
   maxAgeSeconds: number = 600, // 10 минут принудительный пересчет для защиты от дрейфа
 ): { movedSymbols: string[]; isFullSweep: boolean } {
-  // Холодный старт изолята: наполняем кэш и делаем полный срез
+  // Холодный старт изолята: прогреваем кэш цен без тяжелого полного среза базы
   if (priceReferenceCache.size === 0) {
     for (const [, netMap] of currentSnapshots) {
       for (const [sym, snap] of netMap) {
@@ -82,7 +83,7 @@ export function getMovedSymbols(
         }
       }
     }
-    return { movedSymbols: [], isFullSweep: true };
+    return { movedSymbols: [], isFullSweep: false };
   }
 
   const moved = new Set<string>();
@@ -118,7 +119,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
   const startTime = Date.now();
   const MAX_WALL_CLOCK_MS = 14_000; // 14 сек безопасный таймаут (гарантирует завершение всего цикла до 15с)
-  const MAX_JIT_CHECKS_PER_CRON = 12; // Баланс между охватом и субзапросами/временем
+  await ensureDatabaseSchema(env.DB);
 
   let subrequestsUsed = 0;
   let jitChecksDone = 0;
@@ -260,19 +261,34 @@ export async function runCronMonitor(env: Env): Promise<void> {
   const zombieCleanupStmts: D1PreparedStatement[] = [];
   const cleanedZombieKeys = new Set<string>();
 
-  // Шаг Б.1: Отбираем уникальные аккаунты для JIT-проверки среди топ кандидатов
+  // Шаг Б.1: Селективный JIT отбор (только позиции близкие к ликвидации или требующие проверки на зомби)
+  // Динамический балансировщик квот: если алертов много (> 20), отдаем приоритет отправке сообщений в Telegram!
+  const maxJitForThisTick = candidateAlerts.length > 20 ? 4 : 8;
   const pendingJitKeys: TrackedAccountKey[] = [];
   const seenAccKeys = new Set<string>();
 
   for (const candidate of candidateAlerts) {
-    const key = `${candidate.item.network}:${candidate.item.account_index}`;
-    if (!jitCache.has(key) && !seenAccKeys.has(key)) {
+    const { item, currentPrice } = candidate;
+    const key = `${item.network}:${item.account_index}`;
+    if (jitCache.has(key) || seenAccKeys.has(key)) continue;
+
+    const liqPrice = item.liquidation_price || 0;
+    const distancePercent =
+      liqPrice > 0 && currentPrice > 0
+        ? Math.abs((currentPrice - liqPrice) / currentPrice) * 100
+        : null;
+
+    const isNearLiquidation = distancePercent !== null && distancePercent <= 3.5;
+    const isStale = item.last_updated_at ? now - item.last_updated_at >= 7200 : true;
+
+    // В JIT очередь попадают позиции в зоне риска (<= 3.5% от ликвидации) или не обновлявшиеся > 2 часов
+    if (isNearLiquidation || isStale) {
       seenAccKeys.add(key);
       pendingJitKeys.push({
-        network: candidate.item.network,
-        accountIndex: candidate.item.account_index,
+        network: item.network,
+        accountIndex: item.account_index,
       });
-      if (pendingJitKeys.length >= MAX_JIT_CHECKS_PER_CRON) break;
+      if (pendingJitKeys.length >= maxJitForThisTick) break;
     }
   }
 
@@ -324,29 +340,56 @@ export async function runCronMonitor(env: Env): Promise<void> {
     const cacheKey = `${item.network}:${item.account_index}`;
     const freshAccount = jitCache.get(cacheKey);
 
-    if (!freshAccount) continue;
+    let unPnl: number;
+    let liqPrice: number;
+    let distancePercent: number | null = null;
 
-    const livePosition = Array.isArray(freshAccount?.positions)
-      ? freshAccount.positions.find(
-          (p) => p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0,
-        )
-      : undefined;
+    if (freshAccount) {
+      // Аккаунт был проверен через JIT: ищем актуальную сделку на бирже
+      const livePosition = Array.isArray(freshAccount?.positions)
+        ? freshAccount.positions.find(
+            (p) => p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0,
+          )
+        : undefined;
 
-    // ЗОМБИ ЛИКВИДИРОВАН: пакетное накопление стейтментов удаления (с дедупликацией по ключу)
-    if (!livePosition) {
-      const zKey = `${item.network}:${item.account_index}:${item.market_id}`;
-      if (!cleanedZombieKeys.has(zKey)) {
-        cleanedZombieKeys.add(zKey);
-        zombieCleanupStmts.push(
-          env.DB.prepare(
-            "DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?",
-          ).bind(item.network, item.account_index, item.market_id),
-          env.DB.prepare(
-            "DELETE FROM user_token_alerts WHERE network = ? AND account_index = ? AND market_id = ?",
-          ).bind(item.network, item.account_index, item.market_id),
-        );
+      // ЗОМБИ ЛИКВИДИРОВАН: пакетное накопление стейтментов удаления (с дедупликацией по ключу)
+      if (!livePosition) {
+        const zKey = `${item.network}:${item.account_index}:${item.market_id}`;
+        if (!cleanedZombieKeys.has(zKey)) {
+          cleanedZombieKeys.add(zKey);
+          zombieCleanupStmts.push(
+            env.DB.prepare(
+              "DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?",
+            ).bind(item.network, item.account_index, item.market_id),
+            env.DB.prepare(
+              "DELETE FROM user_token_alerts WHERE network = ? AND account_index = ? AND market_id = ?",
+            ).bind(item.network, item.account_index, item.market_id),
+          );
+        }
+        continue;
       }
-      continue;
+
+      unPnl = parseFloat(livePosition.unrealized_pnl || "0");
+      liqPrice = parseFloat(livePosition.liquidation_price || "0");
+      distancePercent =
+        liqPrice > 0 && currentPrice > 0
+          ? Math.abs((currentPrice - liqPrice) / currentPrice) * 100
+          : null;
+    } else {
+      // СЕЛЕКТИВНЫЙ JIT: Безопасная позиция, UnPnL вычисляется математически прямо в памяти
+      const isLong = item.is_long === 1;
+      unPnl = (currentPrice - item.entry_price) * item.size * (isLong ? 1 : -1);
+      liqPrice = item.liquidation_price || 0;
+      distancePercent =
+        liqPrice > 0 && currentPrice > 0
+          ? Math.abs((currentPrice - liqPrice) / currentPrice) * 100
+          : null;
+
+      // Если расчетная ликвидация в опасной зоне (<= 3.5%), но аккаунт не попал в JIT этого тика,
+      // откладываем алерт до верификации биржей на следующем тике
+      if (distancePercent !== null && distancePercent <= 3.5) {
+        continue;
+      }
     }
 
     // Проверка режима «Тихий сон» (Mute)
@@ -372,13 +415,6 @@ export async function runCronMonitor(env: Env): Promise<void> {
     }
 
     const isLong = item.is_long === 1;
-    const unPnl = parseFloat(livePosition.unrealized_pnl || "0");
-    const liqPrice = parseFloat(livePosition.liquidation_price || "0");
-    const distancePercent =
-      liqPrice > 0 && currentPrice > 0
-        ? Math.abs((currentPrice - liqPrice) / currentPrice) * 100
-        : null;
-
     const alertText = formatPriceStepAlert({
       network: item.network,
       accountIndex: item.account_index,

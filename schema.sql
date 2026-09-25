@@ -46,11 +46,13 @@ CREATE TABLE IF NOT EXISTS account_open_positions (
     is_long INTEGER NOT NULL,
     entry_price REAL NOT NULL,
     size REAL NOT NULL,
+    liquidation_price REAL NOT NULL DEFAULT 0,
     last_updated_at INTEGER NOT NULL,
     PRIMARY KEY (network, account_index, market_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_open_pos_market ON account_open_positions(network, market_id);
+CREATE INDEX IF NOT EXISTS idx_open_pos_symbol ON account_open_positions(symbol);
 
 -- 5. Базовые отметки цен и анти-флаппинг кулдаун (Price-Driven Alerting)
 CREATE TABLE IF NOT EXISTS user_token_alerts (
