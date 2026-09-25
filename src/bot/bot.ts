@@ -18,6 +18,7 @@ import {
 } from "../db/queries";
 import { formatPositionsReport } from "./formatters";
 import { Tracer } from "../utils/tracer";
+import { runInBackground } from "../utils/background";
 
 let botInstance: Bot | null = null;
 let currentEnv: Env | null = null;
@@ -200,26 +201,28 @@ export function getBot(env: Env): Bot {
     }
   });
 
-  // Сохранение пользователя в БД при первом взаимодействии в изоляте (защита от лишних D1 записей)
+  // Сохранение пользователя в БД при первом взаимодействии в изоляте (в фоне без задержки ответа)
   bot.use(async (ctx, next) => {
     if (ctx.from) {
       const userId = ctx.from.id;
       if (!knownUsers.has(userId)) {
-        await env.DB.prepare(`
-          INSERT INTO users (telegram_id, username, first_name, created_at)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(telegram_id) DO UPDATE SET
-            username = excluded.username,
-            first_name = excluded.first_name
-        `)
-          .bind(
-            userId,
-            ctx.from.username || null,
-            ctx.from.first_name || null,
-            Math.floor(Date.now() / 1000),
-          )
-          .run();
         knownUsers.add(userId);
+        runInBackground(
+          env.DB.prepare(`
+            INSERT INTO users (telegram_id, username, first_name, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(telegram_id) DO UPDATE SET
+              username = excluded.username,
+              first_name = excluded.first_name
+          `)
+            .bind(
+              userId,
+              ctx.from.username || null,
+              ctx.from.first_name || null,
+              Math.floor(Date.now() / 1000),
+            )
+            .run(),
+        );
       }
     }
     return next();
@@ -1122,13 +1125,15 @@ export function getBot(env: Env): Bot {
             );
           }
         }
-        await Promise.all([
-          ...syncPromises,
-          batchUpdatePositionsCache(env.DB, updates).catch((e) =>
-            console.error("Cache update error:", e),
-          ),
-        ]);
-        trace.mark("d1_sync_and_cache");
+        runInBackground(
+          Promise.all([
+            ...syncPromises,
+            batchUpdatePositionsCache(env.DB, updates).catch((e) =>
+              console.error("Cache update error:", e),
+            ),
+          ]),
+        );
+        trace.mark("d1_sync_and_cache_dispatched");
       }
     }
 

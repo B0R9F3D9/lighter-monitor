@@ -2,9 +2,10 @@ import { webhookCallback } from "grammy";
 import { Env } from "./types";
 import { getBot } from "./bot/bot";
 import { runCronMonitor } from "./cron/monitor";
+import { executionContextStorage } from "./utils/background";
 
 export default {
-  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Health check эндпоинт
@@ -46,10 +47,10 @@ export default {
 
     const bot = getBot(env);
     const cb = webhookCallback(bot, "cloudflare-mod");
-    return await cb(request as any);
+    return await executionContextStorage.run(ctx, () => cb(request as any));
   },
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runCronMonitor(env));
+    ctx.waitUntil(runCronMonitor(env, ctx));
   },
 };

@@ -126,7 +126,7 @@ export function getMovedSymbols(
   return { movedSymbols: Array.from(moved), isFullSweep: false };
 }
 
-export async function runCronMonitor(env: Env): Promise<void> {
+export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<void> {
   const trace = new Tracer("cron_monitor");
   try {
     const bot = getBot(env);
@@ -162,6 +162,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
         ),
       );
       subrequestsUsed += accountsToSync.length;
+      const syncPromises: Promise<any>[] = [];
 
       for (let i = 0; i < accountsToSync.length; i++) {
         const accKey = accountsToSync[i]!;
@@ -172,11 +173,13 @@ export async function runCronMonitor(env: Env): Promise<void> {
         jitCache.set(cacheKey, syncedData);
 
         if (syncedData) {
-          await syncAccountOpenPositions(
-            env.DB,
-            accKey.network,
-            accKey.accountIndex,
-            syncedData.positions,
+          syncPromises.push(
+            syncAccountOpenPositions(
+              env.DB,
+              accKey.network,
+              accKey.accountIndex,
+              syncedData.positions,
+            ).catch((e) => console.error("syncAccountOpenPositions error:", e)),
           );
           cacheUpdates.set(cacheKey, {
             network: accKey.network,
@@ -186,6 +189,10 @@ export async function runCronMonitor(env: Env): Promise<void> {
         } else {
           failedAccounts.push(accKey);
         }
+      }
+
+      if (syncPromises.length > 0) {
+        await Promise.all(syncPromises);
       }
     }
 
@@ -364,6 +371,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
     subrequestsUsed += chunk.length;
     jitChecksDone += chunk.length;
 
+    const jitSyncPromises: Promise<any>[] = [];
     for (let j = 0; j < chunk.length; j++) {
       const acc = chunk[j]!;
       const res = results[j];
@@ -373,13 +381,19 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
       // JIT-СИНК: сразу актуализируем открытые позиции в D1 без ожидания Round-Robin очереди
       if (syncedData) {
-        await syncAccountOpenPositions(env.DB, acc.network, acc.accountIndex, syncedData.positions);
+        jitSyncPromises.push(
+          syncAccountOpenPositions(env.DB, acc.network, acc.accountIndex, syncedData.positions)
+            .catch((e) => console.error("jit syncAccountOpenPositions error:", e)),
+        );
         cacheUpdates.set(cacheKey, {
           network: acc.network,
           account: syncedData,
           cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
         });
       }
+    }
+    if (jitSyncPromises.length > 0) {
+      await Promise.all(jitSyncPromises);
     }
   }
   trace.mark("jit_checks");
@@ -593,28 +607,35 @@ export async function runCronMonitor(env: Env): Promise<void> {
   };
   console.log(JSON.stringify(executionMetrics));
 
-  // Сохраняем операционные метрики в D1 для системного дашборда (/stats)
-  try {
-    await env.DB.prepare(`
-      INSERT INTO bot_system_metrics (key, value_json, updated_at)
-      VALUES ('last_cron', ?, ?)
-      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-    `)
-      .bind(JSON.stringify(executionMetrics), now)
-      .run();
-  } catch (err) {
-    console.error("Failed to persist cron metrics:", err);
-  }
-
-  // 8. WATCHDOG / HEARTBEAT (Healthchecks.io / Better Stack)
-  if (env.HEALTHCHECK_URL) {
+  // 8. АСИНХРОННЫЕ ФОНОВЫЕ ОПЕРАЦИИ (сохранение метрик в D1 и пинг Healthcheck без блокировки крона)
+  const backgroundWork = async () => {
     try {
-      await fetch(env.HEALTHCHECK_URL);
+      await env.DB.prepare(`
+        INSERT INTO bot_system_metrics (key, value_json, updated_at)
+        VALUES ('last_cron', ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+      `)
+        .bind(JSON.stringify(executionMetrics), now)
+        .run();
     } catch (err) {
-      console.warn("Healthcheck ping failed:", err);
+      console.error("Failed to persist cron metrics:", err);
     }
+
+    if (env.HEALTHCHECK_URL) {
+      try {
+        await fetch(env.HEALTHCHECK_URL);
+      } catch (err) {
+        console.warn("Healthcheck ping failed:", err);
+      }
+    }
+  };
+
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(backgroundWork());
+  } else {
+    await backgroundWork();
   }
-  trace.mark("metrics_and_healthcheck");
+  trace.mark("metrics_and_healthcheck_dispatched");
   trace.set("subrequests", subrequestsUsed);
   trace.set("alertsSent", alertUpdateStmts.length);
   trace.set("positionsChecked", items.length);
