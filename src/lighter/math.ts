@@ -49,5 +49,8 @@ export function formatSmartPrice(price: number): string {
   if (price >= 1) {
     return price.toFixed(4);
   }
-  return price.toFixed(6);
+  if (price >= 0.0001) {
+    return price.toFixed(6);
+  }
+  return price.toFixed(8);
 }

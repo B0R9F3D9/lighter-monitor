@@ -55,7 +55,7 @@ export async function batchUpdatePositionsCache(
       .bind(
         item.network,
         acc.index,
-        acc.l1_address,
+        acc.l1_address ?? "0x0000000000000000000000000000000000000000",
         parseFloat(acc.collateral || "0"),
         parseFloat(acc.total_asset_value || "0"),
         JSON.stringify(item.cachedPositions),

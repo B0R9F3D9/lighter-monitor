@@ -145,8 +145,8 @@ describe("formatSmartPrice", () => {
     expect(formatSmartPrice(15.5)).toBe("15.5000");
   });
 
-  it("formats small numbers (< 1) with 6 decimals", () => {
+  it("formats small numbers (< 1) with 6 decimals, and micro prices with 8 decimals", () => {
     expect(formatSmartPrice(0.001234)).toBe("0.001234");
-    expect(formatSmartPrice(0.0000456)).toBe("0.000046");
+    expect(formatSmartPrice(0.00001234)).toBe("0.00001234");
   });
 });

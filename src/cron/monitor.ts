@@ -112,8 +112,8 @@ export async function runCronMonitor(env: Env): Promise<void> {
   const bot = getBot(env);
   const now = Math.floor(Date.now() / 1000);
   const startTime = Date.now();
-  const MAX_WALL_CLOCK_MS = 20_000; // 20 сек таймаут (Time-Budgeting)
-  const MAX_JIT_CHECKS_PER_CRON = 15;
+  const MAX_WALL_CLOCK_MS = 14_000; // 14 сек безопасный таймаут (гарантирует завершение всего цикла до 15с)
+  const MAX_JIT_CHECKS_PER_CRON = 12; // Баланс между охватом и субзапросами/временем
 
   let subrequestsUsed = 0;
   let jitChecksDone = 0;
@@ -215,6 +215,7 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     // Проверка шага цены
     const baseline = item.last_price;
+    if (baseline <= 0) continue;
     const priceDeltaPercent = ((currentPrice - baseline) / baseline) * 100;
     const absDelta = Math.abs(priceDeltaPercent);
 
@@ -375,11 +376,11 @@ export async function runCronMonitor(env: Env): Promise<void> {
 
     try {
       if (subrequestsUsed < CONFIG.MAX_SUBREQUESTS_PER_CRON) {
-        // Троттлинг Telegram: минимум 300 мс между сообщениями одному и тому же пользователю
+        // Троттлинг Telegram: минимум 850 мс между сообщениями одному и тому же пользователю (лимит Telegram 1 сообщ./сек на чат)
         const lastSentAt = lastSentTimeByUser.get(item.telegram_id) || 0;
         const timeSinceLastSent = Date.now() - lastSentAt;
-        if (timeSinceLastSent < 300) {
-          await new Promise((r) => setTimeout(r, 300 - timeSinceLastSent));
+        if (timeSinceLastSent < 850) {
+          await new Promise((r) => setTimeout(r, 850 - timeSinceLastSent));
         }
 
         await bot.api.sendMessage(item.telegram_id, alertText, {
@@ -410,6 +411,10 @@ export async function runCronMonitor(env: Env): Promise<void> {
     } catch (err: any) {
       if (err?.error_code === 403) {
         await removeBlockedUser(env.DB, item.telegram_id);
+      } else if (err?.error_code === 429) {
+        console.warn(
+          `[telegram] Rate limited (429) for user ${item.telegram_id}, retry_after: ${err?.parameters?.retry_after ?? "unknown"}s`,
+        );
       } else {
         console.error(`Failed to send alert to ${item.telegram_id}:`, err);
       }
