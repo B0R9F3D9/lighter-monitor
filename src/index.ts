@@ -20,14 +20,16 @@ export default {
       const bot = getBot(env);
       await bot.api.setMyCommands([
         { command: "positions", description: "📊 Открытые сделки и риски" },
-        { command: "list", description: "📋 Список ваших аккаунтов" },
+        { command: "list", description: "💼 Список ваших кошельков" },
         { command: "threshold", description: "⚙️ Настройка шага цены для алертов" },
+        { command: "settings", description: "⚙️ Параметры уведомлений и тихий сон" },
+        { command: "help", description: "ℹ️ Справка и возможности" },
         { command: "stats", description: "📊 Системный дашборд (админ)" },
         { command: "add_rh", description: "➕ Добавить аккаунт Robinhood Lighter" },
         { command: "add_mainnet", description: "➕ Добавить аккаунт Lighter Mainnet" },
         { command: "remove_rh", description: "➖ Удалить аккаунт Robinhood Lighter" },
         { command: "remove_mainnet", description: "➖ Удалить аккаунт Lighter Mainnet" },
-        { command: "start", description: "🚀 Главное меню и справка" },
+        { command: "start", description: "🚀 Главное меню" },
       ]);
       return new Response(
         JSON.stringify({ ok: true, message: "Commands registered successfully in Telegram" }),
