@@ -11,36 +11,36 @@ export function createRowElement(
   tr.dataset.symbol = r.symbol;
 
   tr.innerHTML = `
-    <td class="py-2 px-3 sticky-symbol font-semibold text-white">
-      <div class="flex items-center gap-2">
-        <span class="symbol-name font-bold"></span>
-        <span class="symbol-lev text-terminal-muted text-[11px]"></span>
+    <td class="py-1.5 sm:py-2 px-1.5 sm:px-2 md:px-2.5 sticky-symbol font-semibold text-white whitespace-nowrap">
+      <div class="flex items-center gap-1 sm:gap-1.5">
+        <span class="symbol-name font-bold text-xs"></span>
+        <span class="symbol-lev text-terminal-muted text-[10px] sm:text-[11px]"></span>
       </div>
     </td>
-    <td class="py-2 px-2 text-center">
-      <span class="verdict-badge text-[11px] font-semibold text-terminal-muted">○ NO DATA</span>
+    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-center whitespace-nowrap">
+      <span class="verdict-badge text-[10px] sm:text-[11px] font-semibold text-terminal-muted">○ NO DATA</span>
     </td>
-    <td class="py-2 px-3 text-right size-cell col-opt-size tabular-nums font-semibold text-terminal-accent text-xs">
+    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right size-cell col-opt-size tabular-nums font-semibold text-terminal-accent text-xs whitespace-nowrap">
       <span>—</span>
     </td>
-    <td class="py-2 px-3 text-right tabular-nums">
+    <td class="py-1.5 sm:py-2 px-1 sm:px-2 md:px-2.5 text-right tabular-nums whitespace-nowrap">
       <div class="rt-loss-val font-medium text-terminal-muted text-xs">—</div>
     </td>
-    <td class="py-2 px-3 text-right ptcost-cell tabular-nums font-medium text-terminal-muted text-xs">—</td>
-    <td class="py-2 px-2.5 text-right tabular-nums">
+    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right ptcost-cell tabular-nums font-medium text-terminal-muted text-xs whitespace-nowrap">—</td>
+    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right tabular-nums whitespace-nowrap">
       <div class="turnover-drag-val font-medium text-terminal-muted text-xs">—</div>
     </td>
-    <td class="py-2 px-2.5 text-right tabular-nums">
-      <div class="mid-price-val text-terminal-primary text-xs">—</div>
-      <div class="delta-mid-val text-[10px] text-terminal-muted tabular-nums">—</div>
+    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right tabular-nums whitespace-nowrap">
+      <div class="mid-price-val text-terminal-primary text-xs leading-tight">—</div>
+      <div class="delta-mid-val text-[10px] text-terminal-muted tabular-nums leading-tight">—</div>
     </td>
-    <td class="py-2 px-3 text-right vol-cell tabular-nums text-terminal-secondary text-xs">
+    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right vol-cell tabular-nums text-terminal-secondary text-xs whitespace-nowrap">
       <span>—</span>
     </td>
-    <td class="py-2 px-3 text-right oi-cell tabular-nums text-terminal-secondary text-xs">
+    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right oi-cell tabular-nums text-terminal-secondary text-xs whitespace-nowrap">
       <span>—</span>
     </td>
-    <td class="py-2 px-2 text-center text-terminal-muted chevron-cell">
+    <td class="py-1.5 sm:py-2 px-0.5 sm:px-1 text-center text-terminal-muted chevron-cell w-5 sm:w-7">
       <svg class="w-3 h-3 inline-block transition-transform opacity-40 hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
       </svg>
@@ -169,30 +169,30 @@ export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): vo
     setTextIfChanged(cache.ptCostEl, "—");
     setClassIfChanged(
       cache.ptCostEl,
-      "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs",
+      "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
     );
   } else if (!row.allFilled) {
     setTextIfChanged(cache.ptCostEl, "N/A");
     setClassIfChanged(
       cache.ptCostEl,
-      "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs",
+      "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
     );
   } else {
-    setTextIfChanged(cache.ptCostEl, `$${row.pointCostUsd.toFixed(2)} / pt`);
+    setTextIfChanged(cache.ptCostEl, `$${row.pointCostUsd.toFixed(2)}/pt`);
     if (row.pointCostUsd < 1.5) {
       setClassIfChanged(
         cache.ptCostEl,
-        "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums text-xs",
+        "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-bold text-terminal-emerald tabular-nums text-xs whitespace-nowrap",
       );
     } else if (row.pointCostUsd <= 3.0) {
       setClassIfChanged(
         cache.ptCostEl,
-        "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums text-xs",
+        "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-amber tabular-nums text-xs whitespace-nowrap",
       );
     } else {
       setClassIfChanged(
         cache.ptCostEl,
-        "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums text-xs",
+        "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-coral tabular-nums text-xs whitespace-nowrap",
       );
     }
   }
@@ -256,7 +256,7 @@ export function applyNullMetricsToDom(cache: RowDomCache, m: MarketInfo): void {
   setTextIfChanged(cache.ptCostEl, "—");
   setClassIfChanged(
     cache.ptCostEl,
-    "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs",
+    "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
   );
   setTextIfChanged(cache.turnoverDragEl, "—");
   setTextIfChanged(cache.midPriceEl, "—");

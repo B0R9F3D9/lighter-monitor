@@ -412,70 +412,66 @@
                 class="bg-terminal-bg border-b border-terminal-border text-terminal-muted uppercase text-[10px] tracking-wider select-none"
               >
                 <th
-                  class="py-2.5 px-3 font-semibold sticky-symbol cursor-pointer hover:text-white"
+                  class="py-2 px-1.5 sm:px-2 md:px-2.5 font-semibold sticky-symbol cursor-pointer hover:text-white min-w-[70px] sm:min-w-[85px] whitespace-nowrap"
                   data-sort="symbol"
-                  style="min-width: 130px"
                 >
                   Ticker <span class="sort-indicator text-terminal-accent"></span>
                 </th>
                 <th
-                  class="py-2.5 px-2.5 font-semibold text-center cursor-pointer hover:text-white"
+                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-center cursor-pointer hover:text-white min-w-[60px] sm:min-w-[72px] whitespace-nowrap"
                   data-sort="status"
-                  style="min-width: 90px"
                 >
                   Verdict <span class="sort-indicator"></span>
                 </th>
                 <th
-                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white col-opt-size"
+                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white col-opt-size min-w-[60px] sm:min-w-[70px] whitespace-nowrap"
                   data-sort="effectiveTargetUsd"
-                  style="min-width: 95px"
                   title="Dynamic optimal position size"
                 >
                   Opt Size <span class="sort-indicator"></span>
                 </th>
                 <th
-                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
+                  class="py-2 px-1 sm:px-2 md:px-2.5 font-semibold text-right cursor-pointer hover:text-white min-w-[70px] sm:min-w-[84px] whitespace-nowrap"
                   data-sort="costUsd"
-                  style="min-width: 120px"
                 >
-                  RT Loss ($) <span class="sort-indicator text-terminal-accent">▲</span>
+                  RT Loss <span class="hidden sm:inline">($)</span>
+                  <span class="sort-indicator text-terminal-accent">▲</span>
                 </th>
                 <th
-                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
+                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white min-w-[66px] sm:min-w-[78px] whitespace-nowrap"
                   data-sort="pointCostUsd"
-                  style="min-width: 110px"
+                  title="Point Cost ($/pt)"
                 >
-                  Point Cost <span class="sort-indicator"></span>
+                  <span class="hidden lg:inline">Point </span>Pt Cost
+                  <span class="sort-indicator"></span>
                 </th>
                 <th
-                  class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
+                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white min-w-[58px] sm:min-w-[72px] whitespace-nowrap"
                   data-sort="vwapTotalDragBps"
-                  style="min-width: 110px"
+                  title="Turnover Drag in basis points"
                 >
-                  Turnover Drag <span class="sort-indicator"></span>
+                  <span class="hidden lg:inline">Turnover </span>Drag
+                  <span class="sort-indicator"></span>
                 </th>
                 <th
-                  class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
+                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white min-w-[62px] sm:min-w-[74px] whitespace-nowrap"
                   data-sort="midPrice"
-                  style="min-width: 95px"
                 >
                   Mid Price <span class="sort-indicator"></span>
                 </th>
                 <th
-                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
+                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white min-w-[54px] sm:min-w-[64px] whitespace-nowrap"
                   data-sort="totalVolume24h"
-                  style="min-width: 105px"
                 >
                   24h Vol <span class="sort-indicator"></span>
                 </th>
                 <th
-                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
+                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white min-w-[54px] sm:min-w-[64px] whitespace-nowrap"
                   data-sort="totalOiUsd"
-                  style="min-width: 105px"
                 >
                   24h OI <span class="sort-indicator"></span>
                 </th>
-                <th class="py-2.5 px-2 text-center text-terminal-muted" style="width: 40px">
+                <th class="py-2 px-0.5 sm:px-1 text-center text-terminal-muted w-5 sm:w-7">
                   <!-- Expand Details Header -->
                 </th>
               </tr>
