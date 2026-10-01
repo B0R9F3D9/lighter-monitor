@@ -21,26 +21,26 @@
         theme: {
           extend: {
             fontFamily: {
-              sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"],
-              mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+              sans: ["Inter", "-apple-system", "system-ui", "sans-serif"],
+              mono: ["JetBrains Mono", "monospace"],
             },
             colors: {
               terminal: {
-                bg: "#090A0F",
-                surface: "#111622",
-                surfaceHover: "#161D2D",
-                border: "#1E2638",
-                borderSubtle: "#171E2E",
-                muted: "#64748B",
-                secondary: "#94A3B8",
-                primary: "#F8FAFC",
-                emerald: "#10B981",
-                emeraldMuted: "rgba(16, 185, 129, 0.12)",
-                amber: "#F59E0B",
-                amberMuted: "rgba(245, 158, 11, 0.12)",
-                coral: "#F43F5E",
-                coralMuted: "rgba(244, 63, 94, 0.12)",
-                accent: "#38BDF8",
+                bg: "#0B0C0E", // Neutral dark, no blue wash
+                surface: "#121417", // Flat dark
+                surfaceHover: "#181B20",
+                border: "#1F2328", // Clean sharp border
+                borderSubtle: "#16191D",
+                muted: "#6E7681", // WCAG readable gray
+                secondary: "#8B949E",
+                primary: "#F0F6FC", // Crisp high contrast white
+                emerald: "#2EA043", // Financial calm green
+                emeraldMuted: "rgba(46, 160, 67, 0.12)",
+                coral: "#F85149", // Financial calm red
+                coralMuted: "rgba(248, 81, 73, 0.12)",
+                amber: "#D29922",
+                amberMuted: "rgba(210, 153, 34, 0.12)",
+                accent: "#58A6FF",
               },
             },
           },
@@ -55,14 +55,14 @@
         height: 5px;
       }
       ::-webkit-scrollbar-track {
-        background: #090a0f;
+        background: #0b0c0e;
       }
       ::-webkit-scrollbar-thumb {
-        background: #1e2638;
+        background: #1f2328;
         border-radius: 2px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #334155;
+        background: #30363d;
       }
 
       .tabular-nums {
@@ -74,10 +74,10 @@
         position: sticky;
         left: 0;
         z-index: 10;
-        background-color: #111622;
+        background-color: #121417;
       }
       tr:hover .sticky-symbol {
-        background-color: #161d2d;
+        background-color: #181b20;
       }
 
       /* Smooth CSS progress bar for re-rank timer */
@@ -93,7 +93,7 @@
     <header
       class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md"
     >
-      <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5">
+      <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <!-- Brand & Strategy Context -->
           <div class="flex items-center gap-3">
@@ -107,31 +107,27 @@
                 <span class="text-sm font-bold tracking-tight text-white uppercase"
                   >Lighter × Robinhood Terminal</span
                 >
-                <span
-                  class="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-terminal-accent/10 text-terminal-accent border border-terminal-accent/20"
-                >
-                  5.0x HEDGE
-                </span>
+                <span class="text-[11px] font-mono text-terminal-muted">5.0× Hedge</span>
               </div>
               <div class="text-[11px] text-terminal-muted font-mono flex items-center gap-1.5">
                 <span>RH Long 2.0x (Mobile)</span>
-                <span>/</span>
+                <span>•</span>
                 <span>Core Short 2.5x (Web)</span>
-                <span>/</span>
-                <span>Delta-Neutral VWAP Engine</span>
+                <span>•</span>
+                <span>Delta-Neutral VWAP</span>
               </div>
             </div>
           </div>
 
           <!-- Connection Diagnostics & Auto Re-rank Progress -->
-          <div class="flex flex-wrap items-center gap-3 text-xs font-mono">
+          <div class="flex flex-wrap items-center gap-2.5 text-xs font-mono">
             <!-- Re-rank Timer & Button -->
             <div
-              class="flex items-center gap-2 bg-terminal-bg border border-terminal-border px-2.5 py-1 rounded"
+              class="flex items-center gap-2 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
             >
-              <span class="text-[11px] text-terminal-muted">Sort Freeze:</span>
+              <span class="text-terminal-muted">Freeze:</span>
               <div
-                class="w-16 h-1.5 bg-terminal-surface rounded-full overflow-hidden border border-terminal-borderSubtle"
+                class="w-12 h-1 bg-terminal-surface rounded-full overflow-hidden border border-terminal-borderSubtle"
               >
                 <div
                   id="rerankProgress"
@@ -139,13 +135,11 @@
                   style="width: 100%"
                 ></div>
               </div>
-              <span id="rerankTimerText" class="text-[11px] text-terminal-secondary tabular-nums"
-                >15s</span
-              >
+              <span id="rerankTimerText" class="text-terminal-secondary tabular-nums">5s</span>
               <button
                 id="manualRerankBtn"
                 title="Manual Re-rank"
-                class="ml-1 text-[11px] px-1.5 py-0.5 rounded bg-terminal-surface hover:bg-terminal-border text-terminal-secondary hover:text-white border border-terminal-border transition flex items-center gap-1"
+                class="ml-1 px-1.5 py-0.5 rounded bg-terminal-surface hover:bg-terminal-border text-terminal-secondary hover:text-white border border-terminal-border transition flex items-center gap-1"
               >
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -159,7 +153,7 @@
               </button>
               <button
                 id="toggleFreezeBtn"
-                class="text-[11px] px-1.5 py-0.5 rounded bg-terminal-surface text-terminal-muted hover:text-white border border-terminal-border"
+                class="px-1.5 py-0.5 rounded bg-terminal-surface text-terminal-muted hover:text-white border border-terminal-border"
                 title="Toggle Auto Sort"
               >
                 Auto: ON
@@ -168,7 +162,7 @@
 
             <!-- Streams Status -->
             <div
-              class="flex items-center gap-2 bg-terminal-bg border border-terminal-border px-2 py-1 rounded text-[11px]"
+              class="flex items-center gap-2 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
             >
               <span class="flex items-center gap-1">
                 <span id="coreWsDot" class="w-1.5 h-1.5 rounded-full bg-terminal-amber"></span>
@@ -183,7 +177,7 @@
 
             <!-- Market Count -->
             <div
-              class="bg-terminal-bg border border-terminal-border px-2 py-1 rounded text-[11px] text-terminal-secondary"
+              class="bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
             >
               <span class="text-terminal-muted">Markets:</span>
               <span id="marketCountBadge" class="font-bold text-white tabular-nums">0</span>
@@ -194,107 +188,67 @@
     </header>
 
     <!-- MAIN VIEWPORT -->
-    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-4 space-y-3">
-      <!-- INSTITUTIONAL EXECUTIVE SUMMARY STRIP -->
+    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 space-y-2">
+      <!-- REFACTORED: Compact Lead Strip -->
       <div
         id="topRankCard"
-        class="bg-terminal-surface border border-terminal-border rounded p-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+        class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono"
       >
-        <div class="flex items-center gap-4">
-          <div class="space-y-1">
-            <div class="flex items-center gap-2">
-              <span
-                class="text-[10px] font-mono font-bold tracking-wider uppercase px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald border border-terminal-emerald/30"
-              >
-                TOP ARBITRAGE ENTRY
-              </span>
-              <span
-                id="topVerdictBadge"
-                class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald"
-              >
-                [READY]
-              </span>
-            </div>
-            <div class="flex items-baseline gap-2">
-              <span id="topSymbol" class="text-xl font-bold font-mono text-white tracking-tight"
-                >--</span
-              >
-              <span
-                id="topLeverage"
-                class="text-xs font-mono font-semibold px-1 py-0.2 rounded bg-terminal-border text-terminal-secondary"
-                >20x</span
-              >
-              <button
-                id="topCopyQtyBtn"
-                class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-accent hover:border-terminal-accent/50 hover:bg-terminal-surface transition flex items-center gap-1 cursor-pointer select-none"
-                title="Click to copy base asset size"
-              >
-                <span id="topQtyText">-- sh</span>
-              </button>
-              <span
-                id="topMidPrice"
-                class="text-sm font-mono text-terminal-secondary tabular-nums ml-1"
-                >$0.00</span
-              >
-            </div>
-          </div>
+        <div class="flex items-center gap-2.5 shrink-0">
+          <span class="text-terminal-muted text-[11px] uppercase tracking-wider"
+            >Top Arbitrage:</span
+          >
+          <span id="topSymbol" class="text-white font-bold text-sm tracking-tight">--</span>
+          <span id="topLeverage" class="text-terminal-muted text-[11px]">20×</span>
+          <button
+            id="topCopyQtyBtn"
+            class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-accent hover:border-terminal-muted transition text-[11px] tabular-nums"
+            title="Click to copy base asset size"
+          >
+            <span id="topQtyText">-- sh</span>
+          </button>
+          <span id="topVerdictBadge" class="text-[11px] font-semibold text-terminal-emerald"
+            >● READY</span
+          >
         </div>
 
-        <!-- Financial Metrics Grid -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs">
-          <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
-            <div class="text-[10px] text-terminal-muted uppercase">Round-Trip Loss</div>
-            <div
-              id="topLossUsd"
-              class="text-base font-bold text-terminal-emerald tabular-nums"
+        <!-- Inline metrics without sub-boxes -->
+        <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px]">
+          <div>
+            <span class="text-terminal-muted mr-1.5">RT LOSS:</span>
+            <span id="topLossUsd" class="font-bold text-terminal-emerald tabular-nums">$--</span>
+            <span id="topEntryLossUsd" class="text-terminal-muted text-[10px] ml-1 tabular-nums"
+              >(Entry: $--)</span
             >
-              $--
-            </div>
-            <div id="topEntryLossUsd" class="text-[10px] text-terminal-muted tabular-nums">
-              Entry: $--
-            </div>
           </div>
-
-          <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
-            <div class="text-[10px] text-terminal-muted uppercase">Point Cost ($/pt)</div>
-            <div id="topPointCost" class="text-base font-bold text-terminal-emerald tabular-nums">
-              $-- / pt
-            </div>
-            <div class="text-[10px] text-terminal-muted">5.0x farming rate</div>
+          <div class="hidden sm:block">
+            <span class="text-terminal-muted mr-1.5">PT COST:</span>
+            <span id="topPointCost" class="font-bold text-terminal-emerald tabular-nums"
+              >$--/pt</span
+            >
           </div>
-
-          <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
-            <div class="text-[10px] text-terminal-muted uppercase">Turnover Drag</div>
-            <div id="topVwapDrag" class="text-base font-bold text-terminal-primary tabular-nums">
-              -- bps
-            </div>
-            <div id="topDeltaMid" class="text-[10px] text-terminal-muted tabular-nums">
-              Δ Mid: --
-            </div>
+          <div class="hidden md:block">
+            <span class="text-terminal-muted mr-1.5">TURNOVER DRAG:</span>
+            <span id="topVwapDrag" class="font-bold text-terminal-primary tabular-nums"
+              >-- bps</span
+            >
           </div>
-
-          <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
-            <div class="text-[10px] text-terminal-muted uppercase">24h Vol / Liquidity</div>
-            <div id="topVolume" class="text-base font-bold text-terminal-secondary tabular-nums">
-              $--
-            </div>
-            <div id="topLiquidity" class="text-[10px] text-terminal-muted">Depth: $--</div>
+          <div class="hidden lg:block">
+            <span class="text-terminal-muted mr-1.5">DEPTH:</span>
+            <span id="topLiquidity" class="text-terminal-secondary tabular-nums">$--</span>
           </div>
         </div>
       </div>
 
-      <!-- CONTROLS & TRADING PARAMETERS BAR -->
+      <!-- REFACTORED: Controls Toolbar -->
       <div
-        class="bg-terminal-surface border border-terminal-border rounded p-2.5 flex flex-col md:flex-row md:items-center justify-between gap-3"
+        class="bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2.5 text-xs font-mono"
       >
-        <!-- Size Configuration (Instant Sub-millisecond Execution) -->
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs font-mono font-medium text-terminal-muted uppercase tracking-wider"
-            >Position Size:</span
-          >
+        <!-- Size Config -->
+        <div class="flex items-center gap-2">
+          <span class="text-terminal-muted text-[11px] uppercase">Size:</span>
           <div class="relative">
-            <span
-              class="absolute left-2.5 top-1/2 -translate-y-1/2 text-terminal-muted font-mono text-xs"
+            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-terminal-muted text-xs"
               >$</span
             >
             <input
@@ -304,37 +258,40 @@
               min="500"
               max="1000000"
               step="1000"
-              class="w-28 pl-6 pr-2 py-1 bg-terminal-bg border border-terminal-border rounded font-mono text-xs text-white focus:outline-none focus:border-terminal-accent tabular-nums"
+              class="w-24 pl-5 pr-2 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-xs focus:outline-none focus:border-terminal-accent tabular-nums"
             />
           </div>
-          <!-- Quick Size Selector Buttons -->
-          <div class="flex items-center gap-1 font-mono text-xs">
+
+          <!-- Segmented Control for Sizes -->
+          <div
+            class="inline-flex rounded border border-terminal-border bg-terminal-bg p-0.5 text-xs"
+          >
             <button
-              class="size-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+              class="size-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition"
               data-size="5000"
             >
               5K
             </button>
             <button
-              class="size-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+              class="size-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition"
               data-size="8000"
             >
               8K
             </button>
             <button
-              class="size-btn size-btn-active px-2 py-1 rounded border border-terminal-accent/50 bg-terminal-accent/10 text-terminal-accent font-bold"
+              class="size-btn size-btn-active px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition"
               data-size="10000"
             >
               10K
             </button>
             <button
-              class="size-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+              class="size-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition"
               data-size="15000"
             >
               15K
             </button>
             <button
-              class="size-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+              class="size-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition"
               data-size="20000"
             >
               20K
@@ -342,51 +299,48 @@
           </div>
         </div>
 
-        <!-- Filters & Search -->
-        <div class="flex flex-wrap items-center gap-2">
-          <!-- Leverage Filter (Compact) -->
-          <div class="flex items-center gap-1.5 font-mono text-xs">
-            <span class="text-xs font-mono font-medium text-terminal-muted uppercase tracking-wider"
-              >Lev:</span
+        <!-- Filters Group -->
+        <div class="flex items-center gap-2">
+          <!-- Segmented Leverage -->
+          <div
+            class="inline-flex rounded border border-terminal-border bg-terminal-bg p-0.5 text-xs"
+          >
+            <button
+              class="lev-btn lev-btn-active px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition"
+              data-lev="0"
             >
-            <div class="flex items-center gap-1">
-              <button
-                class="lev-btn lev-btn-active px-2 py-1 rounded border border-terminal-accent/50 bg-terminal-accent/10 text-terminal-accent font-bold"
-                data-lev="0"
-              >
-                All
-              </button>
-              <button
-                class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
-                data-lev="5"
-              >
-                ≥5x
-              </button>
-              <button
-                class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
-                data-lev="10"
-              >
-                ≥10x
-              </button>
-              <button
-                class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
-                data-lev="20"
-              >
-                20x
-              </button>
-            </div>
+              All
+            </button>
+            <button
+              class="lev-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition"
+              data-lev="5"
+            >
+              ≥5x
+            </button>
+            <button
+              class="lev-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition"
+              data-lev="10"
+            >
+              ≥10x
+            </button>
+            <button
+              class="lev-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition"
+              data-lev="20"
+            >
+              20x
+            </button>
           </div>
 
-          <!-- Search with Hotkey & Clear Button -->
+          <!-- Search Box -->
           <div class="relative">
             <input
               type="text"
               id="searchBox"
-              placeholder='Filter ticker ("/" to focus)...'
-              class="w-48 sm:w-56 pl-7 pr-7 py-1 bg-terminal-bg border border-terminal-border rounded font-mono text-xs text-white placeholder-terminal-muted focus:outline-none focus:border-terminal-accent focus:ring-1 focus:ring-terminal-accent/30 transition"
+              placeholder="Ticker (/)..."
+              class="w-36 pl-6 pr-6 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white placeholder-terminal-muted focus:outline-none focus:border-terminal-accent text-xs"
             />
             <svg
-              class="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-terminal-muted pointer-events-none"
+              class="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-terminal-muted pointer-events-none"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -396,41 +350,35 @@
                 stroke-linejoin="round"
                 stroke-width="2"
                 d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              ></path>
+              />
             </svg>
             <button
               id="clearSearchBtn"
-              class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-terminal-muted hover:text-white text-xs px-1 select-none"
-              title="Clear search (Esc)"
+              class="hidden absolute right-1.5 top-1/2 -translate-y-1/2 text-terminal-muted hover:text-white text-[10px] select-none"
+              title="Clear (Esc)"
             >
               ✕
             </button>
           </div>
 
-          <!-- Equities Only Toggle -->
+          <!-- Minimal Toggles without neon dots -->
           <button
             id="equitiesToggle"
-            class="px-2.5 py-1 rounded border border-terminal-accent/30 bg-terminal-accent/10 text-terminal-accent text-xs font-mono font-medium flex items-center gap-1.5 transition"
+            class="px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition"
           >
-            <span>Equities Only</span>
-            <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent"></span>
+            Equities Only
           </button>
-
-          <!-- Ready Only Toggle (Active by default) -->
           <button
             id="readyToggle"
-            class="px-2.5 py-1 rounded border border-terminal-emerald/40 bg-terminal-emeraldMuted text-terminal-emerald text-xs font-mono font-medium flex items-center gap-1.5 transition"
+            class="px-2 py-0.5 rounded border border-terminal-emerald/40 bg-terminal-bg text-terminal-emerald text-[11px] font-semibold transition"
           >
-            <span>[READY] Only</span>
-            <span class="w-1.5 h-1.5 rounded-full bg-terminal-emerald" id="readyDot"></span>
+            ● Ready Only
           </button>
         </div>
       </div>
 
       <!-- MAIN TERMINAL TABLE -->
-      <div
-        class="border border-terminal-border rounded bg-terminal-surface overflow-hidden shadow-lg"
-      >
+      <div class="border border-terminal-border rounded bg-terminal-surface overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-left font-mono text-xs border-collapse" id="terminalTable">
             <thead>
@@ -540,7 +488,7 @@
         RH_API_URL: "https://api.rh.lighter.xyz/api/v1",
         CORE_WS_URL: "wss://mainnet.zklighter.elliot.ai/stream?readonly=true",
         RH_WS_URL: "wss://api.rh.lighter.xyz/stream?readonly=true",
-        RERANK_INTERVAL_SEC: 15,
+        RERANK_INTERVAL_SEC: 5,
         EMA_ALPHA: 0.25, // 0.25 New + 0.75 Prev
         THROTTLE_MS: 100, // Max 10 updates per second for render loop
       };
@@ -1231,19 +1179,21 @@
 
       // Applies metrics to DOM without touching row order
       function applyRowMetricsToDom(cache, row) {
-        // 1. Verdict badge
+        // 1. Verdict indicator
         if (cache.verdictText !== row.status) {
           cache.verdictText = row.status;
-          cache.verdictEl.textContent = `[${row.status}]`;
           if (row.status === "READY") {
+            cache.verdictEl.textContent = "● READY";
             cache.verdictEl.className =
-              "verdict-badge px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald border border-terminal-emerald/30 text-[10px] font-bold";
+              "verdict-badge text-[11px] font-semibold text-terminal-emerald";
           } else if (row.status === "SLIPPAGE") {
+            cache.verdictEl.textContent = "▲ SLIP";
             cache.verdictEl.className =
-              "verdict-badge px-1.5 py-0.5 rounded bg-terminal-amberMuted text-terminal-amber border border-terminal-amber/30 text-[10px] font-bold";
+              "verdict-badge text-[11px] font-semibold text-terminal-amber";
           } else {
+            cache.verdictEl.textContent = "✕ THIN";
             cache.verdictEl.className =
-              "verdict-badge px-1.5 py-0.5 rounded bg-terminal-coralMuted text-terminal-coral border border-terminal-coral/30 text-[10px] font-bold";
+              "verdict-badge text-[11px] font-semibold text-terminal-coral";
           }
         }
 
@@ -1256,69 +1206,62 @@
           }
         }
 
-        // 3. Round-Trip Loss ($) [Primary] & Entry Loss ($) [Subtext]
+        // 3. Round-Trip Loss ($)
         if (!row.allFilled) {
-          cache.rtLossEl.textContent = "N/A";
-          cache.rtLossEl.className = "rt-loss-val font-bold text-terminal-muted tabular-nums text-sm";
-          cache.entryLossEl.textContent = `< ${formatMoney(state.targetSizeUsd)} depth`;
-          cache.entryLossEl.className = "entry-loss-val text-[10px] text-terminal-coral tabular-nums";
+          cache.rtLossEl.textContent = "N/A (< liq)";
+          cache.rtLossEl.className =
+            "rt-loss-val font-semibold text-terminal-coral tabular-nums text-xs";
         } else {
           cache.rtLossEl.textContent = formatMoney(row.costUsd);
           if (row.costUsd <= 3.0) {
             cache.rtLossEl.className =
-              "rt-loss-val font-bold text-terminal-emerald tabular-nums text-sm";
+              "rt-loss-val font-bold text-terminal-emerald tabular-nums text-xs";
           } else if (row.costUsd <= 7.0) {
             cache.rtLossEl.className =
-              "rt-loss-val font-bold text-terminal-primary tabular-nums text-sm";
+              "rt-loss-val font-semibold text-terminal-primary tabular-nums text-xs";
           } else {
             cache.rtLossEl.className =
-              "rt-loss-val font-bold text-terminal-secondary tabular-nums text-sm";
+              "rt-loss-val font-medium text-terminal-secondary tabular-nums text-xs";
           }
-          const sign = row.entryLossUsd > 0 ? "+" : "";
-          cache.entryLossEl.textContent = `Entry: ${sign}${formatMoney(row.entryLossUsd)}`;
-          cache.entryLossEl.className = "entry-loss-val text-[10px] text-terminal-muted tabular-nums";
         }
 
         // 4. Point Cost ($/pt)
         if (!row.allFilled) {
           cache.ptCostEl.textContent = "N/A";
           cache.ptCostEl.className =
-            "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums";
+            "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
         } else {
           cache.ptCostEl.textContent = `$${row.pointCostUsd.toFixed(2)} / pt`;
           if (row.pointCostUsd < 1.5) {
             cache.ptCostEl.className =
-              "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums";
+              "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums text-xs";
           } else if (row.pointCostUsd <= 3.0) {
             cache.ptCostEl.className =
-              "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums";
+              "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums text-xs";
           } else {
             cache.ptCostEl.className =
-              "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums";
+              "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums text-xs";
           }
         }
 
-        // 5. Turnover Drag & Entry Drag in bps
+        // 5. Turnover Drag in bps
         if (!row.allFilled) {
           cache.turnoverDragEl.textContent = "N/A";
-          cache.entryDragEl.textContent = "Thin Book";
         } else {
           cache.turnoverDragEl.textContent = formatBps(row.vwapTotalDragBps);
-          cache.entryDragEl.textContent = `Entry: ${formatBps(row.entryDragBps, true)}`;
         }
 
         // 6. Mid Price & Inter-Exchange Basis (Delta Mid)
         cache.midPriceEl.textContent = formatPrice(row.midPrice);
-        cache.deltaMidEl.textContent = formatDeltaMid(row.deltaMidUsd, row.deltaMidBps);
-        if (Math.abs(row.deltaMidBps) > 6.0) {
-          cache.deltaMidEl.className =
-            "delta-mid-val text-[10px] font-mono tabular-nums text-terminal-amber font-semibold";
-        } else if (Math.abs(row.deltaMidBps) > 3.0) {
-          cache.deltaMidEl.className =
-            "delta-mid-val text-[10px] font-mono tabular-nums text-terminal-secondary";
-        } else {
-          cache.deltaMidEl.className =
-            "delta-mid-val text-[10px] font-mono tabular-nums text-terminal-muted";
+        if (cache.deltaMidEl) {
+          cache.deltaMidEl.textContent = `Δ ${formatPrice(Math.abs(row.deltaMidUsd))}`;
+          if (Math.abs(row.deltaMidBps) > 6.0) {
+            cache.deltaMidEl.className =
+              "delta-mid-val text-[10px] text-terminal-amber font-semibold tabular-nums";
+          } else {
+            cache.deltaMidEl.className =
+              "delta-mid-val text-[10px] text-terminal-muted tabular-nums";
+          }
         }
 
         // 7. Depth
@@ -1376,43 +1319,44 @@
       }
 
       function updateExecutiveSummary(r) {
-        document.getElementById("topSymbol").textContent = r.symbol;
-        document.getElementById("topLeverage").textContent = r.leverage;
-        document.getElementById("topMidPrice").textContent = formatPrice(r.midPrice);
+        const setEl = (id, text) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = text;
+        };
+        setEl("topSymbol", r.symbol);
+        setEl("topLeverage", r.leverage);
+        setEl("topMidPrice", formatPrice(r.midPrice));
 
         const topQtyBtn = document.getElementById("topCopyQtyBtn");
         if (topQtyBtn) {
           topQtyBtn.dataset.rawQty = r.copyQty;
           topQtyBtn.dataset.label = r.qtyLabel;
           if (!topQtyBtn.dataset.isCopied) {
-            document.getElementById("topQtyText").textContent = r.qtyLabel;
+            setEl("topQtyText", r.qtyLabel);
           }
         }
 
-        document.getElementById("topLossUsd").textContent = formatMoney(r.costUsd);
+        setEl("topLossUsd", formatMoney(r.costUsd));
         const sign = r.entryLossUsd > 0 ? "+" : "";
-        document.getElementById("topEntryLossUsd").textContent = `Entry: ${sign}${formatMoney(r.entryLossUsd)}`;
-        document.getElementById("topPointCost").textContent = `$${r.pointCostUsd.toFixed(2)} / pt`;
-        document.getElementById("topVwapDrag").textContent = formatBps(r.vwapTotalDragBps);
-        document.getElementById("topDeltaMid").textContent = formatDeltaMid(
-          r.deltaMidUsd,
-          r.deltaMidBps,
-        );
-        document.getElementById("topVolume").textContent = formatMoney(r.totalVolume24h);
-        document.getElementById("topLiquidity").textContent =
-          `Depth: ${formatMoney(r.minDepthUsd)} (${r.maxLevelsSwept} lvls)`;
+        setEl("topEntryLossUsd", `(${sign}${formatMoney(r.entryLossUsd)} entry)`);
+        setEl("topPointCost", `$${r.pointCostUsd.toFixed(2)}/pt`);
+        setEl("topVwapDrag", formatBps(r.vwapTotalDragBps));
+        setEl("topDeltaMid", formatDeltaMid(r.deltaMidUsd, r.deltaMidBps));
+        setEl("topVolume", formatMoney(r.totalVolume24h));
+        setEl("topLiquidity", formatMoney(r.minDepthUsd));
 
         const vBadge = document.getElementById("topVerdictBadge");
-        vBadge.textContent = `[${r.status}]`;
-        if (r.status === "READY") {
-          vBadge.className =
-            "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald";
-        } else if (r.status === "SLIPPAGE") {
-          vBadge.className =
-            "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-terminal-amberMuted text-terminal-amber";
-        } else {
-          vBadge.className =
-            "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-terminal-coralMuted text-terminal-coral";
+        if (vBadge) {
+          if (r.status === "READY") {
+            vBadge.textContent = "● READY";
+            vBadge.className = "text-[11px] font-semibold text-terminal-emerald";
+          } else if (r.status === "SLIPPAGE") {
+            vBadge.textContent = "▲ SLIP";
+            vBadge.className = "text-[11px] font-semibold text-terminal-amber";
+          } else {
+            vBadge.textContent = "✕ THIN";
+            vBadge.className = "text-[11px] font-semibold text-terminal-coral";
+          }
         }
       }
 
@@ -1448,8 +1392,8 @@
             return ((rank[a.status] || 9) - (rank[b.status] || 9)) * dir;
           }
           // Push non-ready markets (SLIPPAGE, LOW LIQ) to the bottom below READY markets
-          const rankA = a.status === "READY" ? 0 : (a.status === "SLIPPAGE" ? 1 : 2);
-          const rankB = b.status === "READY" ? 0 : (b.status === "SLIPPAGE" ? 1 : 2);
+          const rankA = a.status === "READY" ? 0 : a.status === "SLIPPAGE" ? 1 : 2;
+          const rankB = b.status === "READY" ? 0 : b.status === "SLIPPAGE" ? 1 : 2;
           if (rankA !== rankB) return rankA - rankB;
           return ((a[state.sortColumn] || 0) - (b[state.sortColumn] || 0)) * dir;
         });
@@ -1532,46 +1476,45 @@
       function createRowElement(r) {
         const tr = document.createElement("tr");
         tr.className =
-          "hover:bg-terminal-surfaceHover/80 cursor-pointer select-none transition-colors border-b border-terminal-borderSubtle";
+          "hover:bg-terminal-surfaceHover cursor-pointer select-none border-b border-terminal-borderSubtle";
         tr.dataset.symbol = r.symbol;
 
         tr.innerHTML = `
         <td class="py-2 px-3 sticky-symbol font-semibold text-white">
-          <div class="flex items-center gap-1.5">
-            <span class="symbol-name font-bold tracking-tight">${r.symbol}</span>
-            <span class="text-[10px] font-mono px-1 py-0.2 rounded bg-terminal-border text-terminal-secondary">${r.leverage}</span>
+          <div class="flex items-center gap-2">
+            <span class="symbol-name font-bold">${r.symbol}</span>
+            <span class="text-terminal-muted text-[11px]">${r.leverage}</span>
             <button
               type="button"
-              class="copy-qty-btn text-[10px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-accent hover:border-terminal-accent/50 hover:bg-terminal-surface transition tabular-nums cursor-pointer"
-              title="Click to copy base asset size"
+              class="copy-qty-btn text-[11px] font-mono px-1 py-0.2 rounded border border-terminal-border text-terminal-muted hover:text-terminal-accent hover:border-terminal-accent transition tabular-nums"
+              title="Click to copy size"
             >
               ${r.qtyLabel}
             </button>
           </div>
         </td>
-        <td class="py-2 px-2.5 text-center">
-          <span class="verdict-badge px-1.5 py-0.5 rounded text-[10px] font-bold">[READY]</span>
+        <td class="py-2 px-2 text-center">
+          <span class="verdict-badge text-[11px] font-semibold text-terminal-emerald">● READY</span>
         </td>
-        <td class="py-2 px-3 text-right loss-cell tabular-nums">
-          <div class="rt-loss-val font-bold text-terminal-emerald tabular-nums text-sm">$0.00</div>
-          <div class="entry-loss-val text-[10px] text-terminal-muted tabular-nums">Entry: +$0.00</div>
+        <td class="py-2 px-3 text-right tabular-nums">
+          <div class="rt-loss-val font-bold text-terminal-emerald text-xs">$0.00</div>
         </td>
-        <td class="py-2 px-3 text-right ptcost-cell tabular-nums font-medium text-terminal-emerald">$0.00 / pt</td>
-        <td class="py-2 px-2.5 text-right vwap-cell tabular-nums">
-          <div class="turnover-drag-val font-semibold text-terminal-primary tabular-nums">0.00 bps</div>
-          <div class="entry-drag-val text-[10px] text-terminal-muted tabular-nums">Entry: +0.00 bps</div>
+        <td class="py-2 px-3 text-right ptcost-cell tabular-nums font-medium text-terminal-primary text-xs">$0.00 / pt</td>
+        <td class="py-2 px-2.5 text-right tabular-nums">
+          <div class="turnover-drag-val font-medium text-terminal-primary text-xs">0.00 bps</div>
         </td>
-        <td class="py-2 px-2.5 text-right price-cell tabular-nums">
-          <div class="mid-price-val font-medium text-white tabular-nums">$0.00</div>
-          <div class="delta-mid-val text-[10px] font-mono tabular-nums text-terminal-muted">Δ: +$0.00</div>
+        <td class="py-2 px-2.5 text-right tabular-nums">
+          <div class="mid-price-val text-terminal-primary text-xs">$0.00</div>
+          <div class="delta-mid-val text-[10px] text-terminal-muted tabular-nums">Δ $0.00</div>
         </td>
-        <td class="py-2 px-3 text-right depth-cell tabular-nums text-terminal-muted">$0.00</td>
-        <td class="py-2 px-3 text-right vol-cell tabular-nums text-terminal-secondary">
-          <span class="font-medium text-white">${formatMoney(r.totalVolume24h)}</span>
-          <span class="text-[10px] text-terminal-muted block">RH: ${formatMoney(r.rhVolume24h)}</span>
+        <td class="py-2 px-3 text-right depth-cell tabular-nums text-terminal-muted text-xs">$0.00</td>
+        <td class="py-2 px-3 text-right vol-cell tabular-nums text-terminal-secondary text-xs">
+          <span>${formatMoney(r.totalVolume24h)}</span>
         </td>
         <td class="py-2 px-2 text-center text-terminal-muted chevron-cell">
-          <svg class="w-3.5 h-3.5 inline-block transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+          <svg class="w-3 h-3 inline-block transition-transform opacity-40 hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
         </td>
       `;
 
@@ -1592,10 +1535,8 @@
           verdictEl: tr.querySelector(".verdict-badge"),
           copyBtn,
           rtLossEl: tr.querySelector(".rt-loss-val"),
-          entryLossEl: tr.querySelector(".entry-loss-val"),
           ptCostEl: tr.querySelector(".ptcost-cell"),
           turnoverDragEl: tr.querySelector(".turnover-drag-val"),
-          entryDragEl: tr.querySelector(".entry-drag-val"),
           midPriceEl: tr.querySelector(".mid-price-val"),
           deltaMidEl: tr.querySelector(".delta-mid-val"),
           depthEl: tr.querySelector(".depth-cell"),
@@ -1789,24 +1730,30 @@
           if (!isNaN(val) && val > 0) {
             state.targetSizeUsd = val;
             document.querySelectorAll(".size-btn").forEach((btn) => {
-              btn.classList.remove(
-                "size-btn-active",
-                "border-terminal-accent/50",
-                "bg-terminal-accent/10",
-                "text-terminal-accent",
-                "font-bold",
-              );
-              btn.classList.add(
-                "border-terminal-border",
-                "bg-terminal-bg",
-                "text-terminal-secondary",
-              );
+              const sz = parseFloat(btn.dataset.size);
+              if (sz === val) {
+                btn.classList.add(
+                  "size-btn-active",
+                  "bg-terminal-border",
+                  "text-white",
+                  "font-bold",
+                );
+                btn.classList.remove("text-terminal-muted");
+              } else {
+                btn.classList.remove(
+                  "size-btn-active",
+                  "bg-terminal-border",
+                  "text-white",
+                  "font-bold",
+                );
+                btn.classList.add("text-terminal-muted");
+              }
             });
             rerank();
           }
         });
 
-        // Quick Size Chips
+        // Quick Size Segmented Control
         document.querySelectorAll(".size-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
             const sz = parseFloat(btn.dataset.size);
@@ -1816,66 +1763,31 @@
             document.querySelectorAll(".size-btn").forEach((b) => {
               b.classList.remove(
                 "size-btn-active",
-                "border-terminal-accent/50",
-                "bg-terminal-accent/10",
-                "text-terminal-accent",
+                "bg-terminal-border",
+                "text-white",
                 "font-bold",
               );
-              b.classList.add(
-                "border-terminal-border",
-                "bg-terminal-bg",
-                "text-terminal-secondary",
-              );
+              b.classList.add("text-terminal-muted");
             });
-            btn.classList.add(
-              "size-btn-active",
-              "border-terminal-accent/50",
-              "bg-terminal-accent/10",
-              "text-terminal-accent",
-              "font-bold",
-            );
-            btn.classList.remove(
-              "border-terminal-border",
-              "bg-terminal-bg",
-              "text-terminal-secondary",
-            );
+            btn.classList.add("size-btn-active", "bg-terminal-border", "text-white", "font-bold");
+            btn.classList.remove("text-terminal-muted");
 
             rerank();
           });
         });
 
-        // Leverage Filter Chips
+        // Leverage Filter Segmented Control
         document.querySelectorAll(".lev-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
             const lev = parseInt(btn.dataset.lev, 10);
             state.minLeverageFilter = lev;
 
             document.querySelectorAll(".lev-btn").forEach((b) => {
-              b.classList.remove(
-                "lev-btn-active",
-                "border-terminal-accent/50",
-                "bg-terminal-accent/10",
-                "text-terminal-accent",
-                "font-bold",
-              );
-              b.classList.add(
-                "border-terminal-border",
-                "bg-terminal-bg",
-                "text-terminal-secondary",
-              );
+              b.classList.remove("lev-btn-active", "bg-terminal-border", "text-white", "font-bold");
+              b.classList.add("text-terminal-muted");
             });
-            btn.classList.add(
-              "lev-btn-active",
-              "border-terminal-accent/50",
-              "bg-terminal-accent/10",
-              "text-terminal-accent",
-              "font-bold",
-            );
-            btn.classList.remove(
-              "border-terminal-border",
-              "bg-terminal-bg",
-              "text-terminal-secondary",
-            );
+            btn.classList.add("lev-btn-active", "bg-terminal-border", "text-white", "font-bold");
+            btn.classList.remove("text-terminal-muted");
 
             rerank();
           });
@@ -1943,31 +1855,28 @@
           state.filterEquities = !state.filterEquities;
           if (state.filterEquities) {
             eqBtn.className =
-              "px-2.5 py-1 rounded border border-terminal-accent/30 bg-terminal-accent/10 text-terminal-accent text-xs font-mono font-medium flex items-center gap-1.5 transition";
-            eqBtn.innerHTML =
-              '<span>Equities Only</span><span class="w-1.5 h-1.5 rounded-full bg-terminal-accent"></span>';
+              "px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition";
+            eqBtn.textContent = "Equities Only";
           } else {
             eqBtn.className =
-              "px-2.5 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-xs font-mono font-medium flex items-center gap-1.5 transition";
-            eqBtn.innerHTML =
-              '<span>All Markets</span><span class="w-1.5 h-1.5 rounded-full bg-terminal-border"></span>';
+              "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition";
+            eqBtn.textContent = "All Markets";
           }
           rerank();
         });
 
         // 6. Ready Only Toggle
         const readyBtn = document.getElementById("readyToggle");
-        const readyDot = document.getElementById("readyDot");
         readyBtn.addEventListener("click", () => {
           state.filterReadyOnly = !state.filterReadyOnly;
           if (state.filterReadyOnly) {
             readyBtn.className =
-              "px-2.5 py-1 rounded border border-terminal-emerald/40 bg-terminal-emeraldMuted text-terminal-emerald text-xs font-mono font-medium flex items-center gap-1.5 transition";
-            readyDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-emerald";
+              "px-2 py-0.5 rounded border border-terminal-emerald/40 bg-terminal-bg text-terminal-emerald text-[11px] font-semibold transition";
+            readyBtn.textContent = "● Ready Only";
           } else {
             readyBtn.className =
-              "px-2.5 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-xs font-mono font-medium flex items-center gap-1.5 transition";
-            readyDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-border";
+              "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition";
+            readyBtn.textContent = "All Statuses";
           }
           rerank();
         });
