@@ -3,10 +3,8 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-[[rules]]
-type = "Text"
-globs = ["**/*.html"]
-fallthrough = true
+[build]
+command = "bun scripts/build_web.ts"
 
 [triggers]
 crons = ["* * * * *"]

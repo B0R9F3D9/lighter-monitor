@@ -36,3 +36,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Load testing artifacts
 load-tests/*.sql
+
+# Generated web assets
+/src/spread_assets.ts
+/src/*.html
+

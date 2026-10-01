@@ -54,7 +54,6 @@ const hubHtmlPath = path.resolve(outDir, "index.html");
 const rawHubHtml = fs.readFileSync(hubHtmlPath, "utf-8");
 const minifiedHubHtml = injectVersionMeta(await minify(rawHubHtml, minifyConfig), buildVersion);
 fs.writeFileSync(hubHtmlPath, minifiedHubHtml, "utf-8");
-fs.writeFileSync(path.resolve(rootDir, "src/hub.html"), minifiedHubHtml, "utf-8");
 
 // 2. Minify Spread Monitor HTML (/spread)
 const spreadHtmlPath = path.resolve(outDir, "spread.html");
@@ -64,7 +63,6 @@ const minifiedSpreadHtml = injectVersionMeta(
   buildVersion,
 );
 fs.writeFileSync(spreadHtmlPath, minifiedSpreadHtml, "utf-8");
-fs.writeFileSync(path.resolve(rootDir, "src/spread.html"), minifiedSpreadHtml, "utf-8");
 
 // 3. Minify Analytics Terminal HTML (/analytics)
 const analyticsHtmlPath = path.resolve(outDir, "analytics.html");
@@ -74,7 +72,6 @@ const minifiedAnalyticsHtml = injectVersionMeta(
   buildVersion,
 );
 fs.writeFileSync(analyticsHtmlPath, minifiedAnalyticsHtml, "utf-8");
-fs.writeFileSync(path.resolve(rootDir, "src/analytics.html"), minifiedAnalyticsHtml, "utf-8");
 
 function getContentType(file: string): string {
   const ext = path.extname(file).toLowerCase();
@@ -188,6 +185,4 @@ console.log("✓ Hub Router HTML minified:", minifiedHubHtml.length, "bytes");
 console.log("✓ Spread HTML minified:", minifiedSpreadHtml.length, "bytes");
 console.log("✓ Analytics HTML minified:", minifiedAnalyticsHtml.length, "bytes");
 console.log("✓ Registered assets:", Object.keys(assetsMap).join(", "));
-console.log(
-  "✓ Generated src/spread_assets.ts & synced src/hub.html / src/spread.html / src/analytics.html",
-);
+console.log("✓ Generated src/spread_assets.ts (HTML & assets bundled)");
