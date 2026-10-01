@@ -16,26 +16,38 @@ export default {
       });
     }
 
-    // Static assets for Spread Terminal (CSS & JS) with immutable 1-year cache
-    if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/spread/assets/")) {
-      const filename = url.pathname.split("/").pop() || "";
-      const asset = SPREAD_ASSETS[filename];
+    // Static assets for Spread Terminal (CSS, JS, Favicons, Logos)
+    const filename = url.pathname.split("/").pop() || "";
+    const asset = SPREAD_ASSETS[filename];
 
-      if (asset) {
-        const clientEtag = request.headers.get("if-none-match");
-        if (clientEtag && (clientEtag === asset.hash || clientEtag === `"${asset.hash}"`)) {
-          return new Response(null, { status: 304 });
-        }
-
-        return new Response(asset.content, {
-          headers: {
-            "Content-Type": asset.contentType,
-            "ETag": `"${asset.hash}"`,
-            "Cache-Control": "public, max-age=31536000, immutable",
-          },
-        });
+    if (
+      asset &&
+      (url.pathname.startsWith("/assets/") ||
+        url.pathname.startsWith("/spread/assets/") ||
+        url.pathname.startsWith("/favicon") ||
+        url.pathname.startsWith("/apple-touch-icon") ||
+        url.pathname.startsWith("/lighter-logo"))
+    ) {
+      const clientEtag = request.headers.get("if-none-match");
+      if (clientEtag && (clientEtag === asset.hash || clientEtag === `"${asset.hash}"`)) {
+        return new Response(null, { status: 304 });
       }
 
+      const isImmutable = url.pathname.includes("/assets/");
+      const body = asset.isBase64
+        ? Uint8Array.from(atob(asset.content), (c) => c.charCodeAt(0))
+        : asset.content;
+
+      return new Response(body, {
+        headers: {
+          "Content-Type": asset.contentType,
+          "ETag": `"${asset.hash}"`,
+          "Cache-Control": isImmutable ? "public, max-age=31536000, immutable" : "public, max-age=86400",
+        },
+      });
+    }
+
+    if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/spread/assets/")) {
       return new Response("Asset Not Found", { status: 404 });
     }
 

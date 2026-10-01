@@ -37,24 +37,70 @@ const minifiedHtml = await minify(rawHtml, {
 fs.writeFileSync(htmlPath, minifiedHtml, "utf-8");
 fs.writeFileSync(path.resolve(rootDir, "src/spread.html"), minifiedHtml, "utf-8");
 
-const assetsDir = path.resolve(outDir, "assets");
-const assetFiles = fs.readdirSync(assetsDir);
-
-const assetsMap: Record<string, { content: string; contentType: string; hash: string }> = {};
-
-for (const file of assetFiles) {
-  const filePath = path.resolve(assetsDir, file);
-  const content = fs.readFileSync(filePath, "utf-8");
+function getContentType(file: string): string {
   const ext = path.extname(file).toLowerCase();
-  const contentType =
-    ext === ".css" ? "text/css; charset=utf-8" : "application/javascript; charset=utf-8";
-  const hash = crypto.createHash("sha256").update(content).digest("hex").slice(0, 10);
+  switch (ext) {
+    case ".css":
+      return "text/css; charset=utf-8";
+    case ".js":
+      return "application/javascript; charset=utf-8";
+    case ".svg":
+      return "image/svg+xml";
+    case ".png":
+      return "image/png";
+    case ".ico":
+      return "image/x-icon";
+    case ".html":
+      return "text/html; charset=utf-8";
+    default:
+      return "application/octet-stream";
+  }
+}
 
-  assetsMap[file] = {
+function isBinaryFile(file: string): boolean {
+  const ext = path.extname(file).toLowerCase();
+  return ext === ".png" || ext === ".ico" || ext === ".webp" || ext === ".jpg";
+}
+
+export interface AssetEntry {
+  content: string;
+  contentType: string;
+  hash: string;
+  isBase64?: boolean;
+}
+
+const assetsMap: Record<string, AssetEntry> = {};
+
+function registerAsset(filePath: string, fileName: string) {
+  const binary = isBinaryFile(fileName);
+  const raw = fs.readFileSync(filePath);
+  const content = binary ? raw.toString("base64") : raw.toString("utf-8");
+  const contentType = getContentType(fileName);
+  const hash = crypto.createHash("sha256").update(raw).digest("hex").slice(0, 10);
+
+  assetsMap[fileName] = {
     content,
     contentType,
     hash,
+    ...(binary ? { isBase64: true } : {}),
   };
+}
+
+// 1. Files in dist/assets/
+const assetsDir = path.resolve(outDir, "assets");
+if (fs.existsSync(assetsDir)) {
+  for (const file of fs.readdirSync(assetsDir)) {
+    registerAsset(path.resolve(assetsDir, file), file);
+  }
+}
+
+// 2. Public static files in dist/ (favicons, logos)
+for (const file of fs.readdirSync(outDir)) {
+  if (file === "index.html" || file === "assets") continue;
+  const filePath = path.resolve(outDir, file);
+  if (fs.statSync(filePath).isFile()) {
+    registerAsset(filePath, file);
+  }
 }
 
 const htmlHash = crypto.createHash("sha256").update(minifiedHtml).digest("hex").slice(0, 10);
@@ -67,6 +113,7 @@ export interface SpreadAsset {
   content: string;
   contentType: string;
   hash: string;
+  isBase64?: boolean;
 }
 
 export const SPREAD_ASSETS: Record<string, SpreadAsset> = ${JSON.stringify(assetsMap, null, 2)};
@@ -74,6 +121,6 @@ export const SPREAD_ASSETS: Record<string, SpreadAsset> = ${JSON.stringify(asset
 
 fs.writeFileSync(path.resolve(rootDir, "src/spread_assets.ts"), assetsModuleContent, "utf-8");
 
-console.log("✓ HTML minified:", minifiedHtml.length, "bytes (down from ~73KB singlefile)");
-console.log("✓ Separate cached assets:", Object.keys(assetsMap).join(", "));
+console.log("✓ HTML minified:", minifiedHtml.length, "bytes");
+console.log("✓ Registered assets:", Object.keys(assetsMap).join(", "));
 console.log("✓ Generated src/spread_assets.ts & synced src/spread.html");

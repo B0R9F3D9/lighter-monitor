@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lighter × Robinhood Arbitrage Terminal | 5.0x Delta-Neutral</title>
+    <title>Lighter × Robinhood Spread Monitor</title>
+
+    <!-- Favicon & Touch Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 
     <!-- Fonts: Inter & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -23,26 +29,20 @@
       <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <!-- Brand & Strategy Context -->
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2.5">
             <div
-              class="w-7 h-7 rounded border border-terminal-border bg-terminal-bg flex items-center justify-center font-mono font-bold text-xs text-terminal-accent"
+              class="w-7 h-7 rounded border border-terminal-border bg-terminal-bg flex items-center justify-center p-1.5 shrink-0"
+              title="Lighter"
             >
-              LR
+              <svg class="h-3.5 w-auto text-white" viewBox="0 0 14 26" fill="currentColor">
+                <path d="M5.989 20.388 0 25.498V5.888L5.989.502zm7.811.012-5.989 5.098V17.85l5.989-5.37z" />
+              </svg>
             </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-bold tracking-tight text-white uppercase"
-                  >Lighter × Robinhood Terminal</span
-                >
-                <span class="text-[11px] font-mono text-terminal-muted">5.0× Hedge</span>
-              </div>
-              <div class="text-[11px] text-terminal-muted font-mono flex items-center gap-1.5">
-                <span>RH Long 2.0x (Mobile)</span>
-                <span>•</span>
-                <span>Core Short 2.5x (Web)</span>
-                <span>•</span>
-                <span>Delta-Neutral VWAP</span>
-              </div>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold tracking-tight text-white uppercase"
+                >Lighter × Robinhood</span
+              >
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Spread Monitor</span>
             </div>
           </div>
 
@@ -109,7 +109,7 @@
       >
         <div class="flex items-center gap-2.5 shrink-0">
           <span class="text-terminal-muted text-[11px] uppercase tracking-wider"
-            >Top Arbitrage:</span
+            >Best Spread:</span
           >
           <span id="topSymbol" class="text-white font-bold text-sm tracking-tight">--</span>
           <span id="topLeverage" class="text-terminal-muted text-[11px]">20×</span>
