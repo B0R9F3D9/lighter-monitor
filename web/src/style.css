@@ -64,3 +64,26 @@ button:focus-visible {
   user-select: none;
 }
 
+:root {
+  --font-selected: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+body,
+#terminalTable,
+#terminalTable th,
+#terminalTable td,
+#topRankCard,
+header,
+main,
+footer,
+button,
+input,
+select,
+.font-mono {
+  font-family: var(--font-selected) !important;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+

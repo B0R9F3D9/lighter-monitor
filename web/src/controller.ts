@@ -501,7 +501,46 @@ export class TerminalController {
     }, 200);
   }
 
+  private applyFont(fontName: string): void {
+    const validFonts = [
+      "Inter",
+      "Roboto",
+      "Montserrat",
+      "Poppins",
+      "Open Sans",
+      "JetBrains Mono",
+    ];
+    const font = validFonts.includes(fontName) ? fontName : "Inter";
+    const fontStack =
+      font === "JetBrains Mono"
+        ? `"JetBrains Mono", monospace`
+        : `"${font}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+
+    document.documentElement.style.setProperty("--font-selected", fontStack);
+    document.documentElement.style.setProperty("--font-sans", fontStack);
+    document.body.style.fontFamily = fontStack;
+  }
+
   private setupEventListeners(): void {
+    // 0. Font selector
+    const fontSelector = document.getElementById("fontSelector") as HTMLSelectElement | null;
+    let savedFont = "Inter";
+    try {
+      savedFont = localStorage.getItem("terminal_font") || "Inter";
+    } catch {}
+
+    if (fontSelector) {
+      fontSelector.value = savedFont;
+      this.applyFont(savedFont);
+      fontSelector.addEventListener("change", (e) => {
+        const selected = (e.target as HTMLSelectElement).value;
+        this.applyFont(selected);
+        try {
+          localStorage.setItem("terminal_font", selected);
+        } catch {}
+      });
+    }
+
     // 1. Auto-sort toggle button & manual rerank button
     const autoSortBtn = document.getElementById("autoSortToggle");
     const manualRerankBtn = document.getElementById("manualRerankBtn");

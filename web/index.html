@@ -11,13 +11,26 @@
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 
-    <!-- Fonts: Inter & JetBrains Mono -->
+    <!-- Fonts: Top 5 Google Fonts (Inter, Roboto, Montserrat, Poppins, Open Sans) + JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      try {
+        const f = localStorage.getItem("terminal_font");
+        if (f) {
+          const stack =
+            f === "JetBrains Mono"
+              ? '"JetBrains Mono", monospace'
+              : `"${f}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+          document.documentElement.style.setProperty("--font-selected", stack);
+          document.documentElement.style.setProperty("--font-sans", stack);
+        }
+      } catch {}
+    </script>
   </head>
   <body
     class="bg-terminal-bg text-terminal-primary font-sans antialiased min-h-screen selection:bg-terminal-accent/30 selection:text-white"
@@ -94,6 +107,25 @@
             >
               <span class="text-terminal-muted">Markets:</span>
               <span id="marketCountBadge" class="font-bold text-white tabular-nums">0</span>
+            </div>
+
+            <!-- Font Selector -->
+            <div
+              class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
+            >
+              <label for="fontSelector" class="text-terminal-muted cursor-pointer select-none">Font:</label>
+              <select
+                id="fontSelector"
+                class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
+                title="Select Interface Font"
+              >
+                <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
+                <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
+                <option value="Montserrat" class="bg-terminal-surface text-white">Montserrat</option>
+                <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
+                <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
+                <option value="JetBrains Mono" class="bg-terminal-surface text-white">JetBrains Mono</option>
+              </select>
             </div>
           </div>
         </div>
