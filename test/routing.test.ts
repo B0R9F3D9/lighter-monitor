@@ -22,15 +22,43 @@ describe("Worker HTTP Routing", () => {
     expect(data.status).toBe("ok");
   });
 
-  it("serves spread HTML on GET /", async () => {
+  it("serves terminal hub router HTML on GET /", async () => {
     const req = new Request("https://worker.dev/", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Select Terminal Workspace");
+    expect(html).toContain("Hub | Lighter");
+  });
+
+  it("serves spread monitor HTML on GET /spread", async () => {
+    const req = new Request("https://worker.dev/spread", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Spread | Lighter");
+  });
+
+  it("serves spread monitor HTML on GET /spread/", async () => {
+    const req = new Request("https://worker.dev/spread/", { method: "GET" });
     const res = await worker.fetch(req, mockEnv, mockCtx);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
   });
 
-  it("serves spread HTML on GET /spread", async () => {
-    const req = new Request("https://worker.dev/spread", { method: "GET" });
+  it("serves analytics HTML on GET /analytics", async () => {
+    const req = new Request("https://worker.dev/analytics", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Analytics | Lighter");
+  });
+
+  it("serves analytics HTML on GET /analytics/", async () => {
+    const req = new Request("https://worker.dev/analytics/", { method: "GET" });
     const res = await worker.fetch(req, mockEnv, mockCtx);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
@@ -47,5 +75,28 @@ describe("Worker HTTP Routing", () => {
     expect(res.status).toBe(403);
     const body = await res.text();
     expect(body).toBe("Unauthorized");
+  });
+
+  it("never invokes Telegram bot logic on unknown GET requests even if TELEGRAM_BOT_TOKEN is empty", async () => {
+    const emptyEnv: Env = {
+      DB: {} as any,
+      TELEGRAM_BOT_TOKEN: "",
+      TELEGRAM_SECRET_TOKEN: "",
+    };
+    const req = new Request("https://worker.dev/some-unknown-route", { method: "GET" });
+    const res = await worker.fetch(req, emptyEnv, mockCtx);
+    expect(res.status).toBe(404);
+    const body = await res.text();
+    expect(body).toBe("Not Found");
+  });
+
+  it("returns 404 on POST to non-root paths", async () => {
+    const req = new Request("https://worker.dev/spread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(404);
   });
 });

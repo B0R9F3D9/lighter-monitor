@@ -11,5 +11,12 @@ export default defineConfig({
     emptyOutDir: true,
     minify: "esbuild",
     cssMinify: "esbuild",
+    rollupOptions: {
+      input: {
+        index: path.resolve(import.meta.dirname, "web/index.html"),
+        spread: path.resolve(import.meta.dirname, "web/spread.html"),
+        analytics: path.resolve(import.meta.dirname, "web/analytics.html"),
+      },
+    },
   },
 });

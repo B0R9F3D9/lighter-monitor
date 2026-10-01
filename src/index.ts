@@ -3,7 +3,15 @@ import { Env } from "./types";
 import { getBot } from "./bot/bot";
 import { runCronMonitor } from "./cron/monitor";
 import { executionContextStorage } from "./utils/background";
-import { SPREAD_HTML, SPREAD_HTML_HASH, SPREAD_ASSETS } from "./spread_assets";
+import {
+  HUB_HTML,
+  HUB_HTML_HASH,
+  SPREAD_HTML,
+  SPREAD_HTML_HASH,
+  ANALYTICS_HTML,
+  ANALYTICS_HTML_HASH,
+  SPREAD_ASSETS,
+} from "./spread_assets";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -18,7 +26,7 @@ export default {
 
     const isGetOrHead = request.method === "GET" || request.method === "HEAD";
 
-    // Static assets for Spread Terminal (CSS, JS, Favicons, Logos)
+    // Static assets for Spread & Analytics Terminals (CSS, JS, Favicons, Logos)
     const filename = url.pathname.split("/").pop() || "";
     const asset = SPREAD_ASSETS[filename];
 
@@ -27,6 +35,7 @@ export default {
       asset &&
       (url.pathname.startsWith("/assets/") ||
         url.pathname.startsWith("/spread/assets/") ||
+        url.pathname.startsWith("/analytics/assets/") ||
         url.pathname.startsWith("/favicon") ||
         url.pathname.startsWith("/apple-touch-icon") ||
         url.pathname.startsWith("/lighter-logo"))
@@ -50,12 +59,33 @@ export default {
       });
     }
 
-    if (isGetOrHead && (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/spread/assets/"))) {
+    if (
+      isGetOrHead &&
+      (url.pathname.startsWith("/assets/") ||
+        url.pathname.startsWith("/spread/assets/") ||
+        url.pathname.startsWith("/analytics/assets/"))
+    ) {
       return new Response("Asset Not Found", { status: 404 });
     }
 
-    // Spread & Arbitrage Terminal (только GET/HEAD; POST на "/" передается в Telegram webhook)
-    if (isGetOrHead && (url.pathname === "/spread" || url.pathname === "/spread/" || url.pathname === "/")) {
+    // Terminal Workspace Hub Router (только GET/HEAD; POST на "/" передается в Telegram webhook)
+    if (isGetOrHead && (url.pathname === "/" || url.pathname === "")) {
+      const clientEtag = request.headers.get("if-none-match");
+      if (clientEtag && (clientEtag === HUB_HTML_HASH || clientEtag === `"${HUB_HTML_HASH}"`)) {
+        return new Response(null, { status: 304 });
+      }
+
+      return new Response(HUB_HTML, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "ETag": `"${HUB_HTML_HASH}"`,
+          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+        },
+      });
+    }
+
+    // Spread & Arbitrage Terminal (только GET/HEAD)
+    if (isGetOrHead && (url.pathname === "/spread" || url.pathname === "/spread/")) {
       const clientEtag = request.headers.get("if-none-match");
       if (clientEtag && (clientEtag === SPREAD_HTML_HASH || clientEtag === `"${SPREAD_HTML_HASH}"`)) {
         return new Response(null, { status: 304 });
@@ -70,8 +100,33 @@ export default {
       });
     }
 
+    // Spread & Basis Analytics Terminal (только GET/HEAD)
+    if (isGetOrHead && (url.pathname === "/analytics" || url.pathname === "/analytics/")) {
+      const clientEtag = request.headers.get("if-none-match");
+      if (clientEtag && (clientEtag === ANALYTICS_HTML_HASH || clientEtag === `"${ANALYTICS_HTML_HASH}"`)) {
+        return new Response(null, { status: 304 });
+      }
+
+      return new Response(ANALYTICS_HTML, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "ETag": `"${ANALYTICS_HTML_HASH}"`,
+          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+        },
+      });
+    }
+
     // Регистрация команд в Telegram Bot API (setMyCommands)
     if (url.pathname === "/setup-commands") {
+      if (!env.TELEGRAM_BOT_TOKEN) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "TELEGRAM_BOT_TOKEN is not configured" }),
+          {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
       const bot = getBot(env);
       await bot.api.setMyCommands([
         { command: "positions", description: "📊 Открытые сделки и риски" },
@@ -94,12 +149,26 @@ export default {
       );
     }
 
+    // Для любых не-POST запросов Telegram логика никогда не вызывается
+    if (request.method !== "POST") {
+      return new Response("Not Found", { status: 404 });
+    }
+
+    // Вебхук Telegram обрабатывается только на корневом эндпоинте "/"
+    if (url.pathname !== "/") {
+      return new Response("Not Found", { status: 404 });
+    }
+
     // Проверка Secret Token для безопасности вебхука Telegram
     if (env.TELEGRAM_SECRET_TOKEN) {
       const headerSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
       if (headerSecret !== env.TELEGRAM_SECRET_TOKEN) {
         return new Response("Unauthorized", { status: 403 });
       }
+    }
+
+    if (!env.TELEGRAM_BOT_TOKEN) {
+      return new Response("Bot token not configured", { status: 503 });
     }
 
     const bot = getBot(env);
