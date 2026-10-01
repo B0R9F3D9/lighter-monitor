@@ -34,3 +34,12 @@ export const NON_EQUITY_SYMBOLS: ReadonlySet<string> = new Set([
   "SOXL",
   "SGOV",
 ]);
+
+export const STORAGE_KEYS = {
+  FONT: "terminal_font",
+  SIZE: "terminal_size",
+  LEVERAGE: "terminal_leverage",
+  FILTER_EQUITIES: "terminal_filter_equities",
+  FILTER_READY: "terminal_filter_ready",
+} as const;
+

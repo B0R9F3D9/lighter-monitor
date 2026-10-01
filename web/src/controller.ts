@@ -1,5 +1,5 @@
 import type { MarketInfo, MarketMetrics, RowDomCache, TerminalState } from "./types";
-import { CONFIG, NON_EQUITY_SYMBOLS } from "./config";
+import { CONFIG, NON_EQUITY_SYMBOLS, STORAGE_KEYS } from "./config";
 import { getMetrics } from "./metrics";
 import { getOrCreateBook, updateBookFromWs, type WsOrderBookData } from "./orderbook";
 import { WebSocketManager } from "./ws";
@@ -98,6 +98,7 @@ export class TerminalController {
   }
 
   public init(): void {
+    this.restoreFilterSettings();
     this.setupEventListeners();
     this.setupHysteresisTimer();
     this.fetchMarkets();
@@ -521,12 +522,141 @@ export class TerminalController {
     document.body.style.fontFamily = fontStack;
   }
 
+  private updateSizeControls(val: number): void {
+    const sizeInput = document.getElementById("sizeInput") as HTMLInputElement | null;
+    if (sizeInput) {
+      sizeInput.value = String(val);
+    }
+    document.querySelectorAll(".size-btn").forEach((btn) => {
+      const sz = parseFloat((btn as HTMLElement).dataset.size || "0");
+      if (sz === val) {
+        btn.className =
+          "size-btn size-btn-active px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer";
+      } else {
+        btn.className =
+          "size-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer";
+      }
+    });
+  }
+
+  private updateLeverageControls(lev: number): void {
+    document.querySelectorAll(".lev-btn").forEach((btn) => {
+      const l = parseInt((btn as HTMLElement).dataset.lev || "0", 10);
+      if (l === lev) {
+        btn.className =
+          "lev-btn lev-btn-active px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer";
+      } else {
+        btn.className =
+          "lev-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer";
+      }
+    });
+  }
+
+  private updateEquitiesControl(active: boolean): void {
+    const eqBtn = document.getElementById("equitiesToggle");
+    if (!eqBtn) return;
+    if (active) {
+      eqBtn.className =
+        "px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer";
+      eqBtn.textContent = "Equities Only";
+    } else {
+      eqBtn.className =
+        "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer";
+      eqBtn.textContent = "All Markets";
+    }
+  }
+
+  private updateReadyControl(active: boolean): void {
+    const readyBtn = document.getElementById("readyToggle");
+    if (!readyBtn) return;
+    if (active) {
+      readyBtn.className =
+        "px-2 py-0.5 rounded border border-terminal-emerald/40 bg-terminal-bg text-terminal-emerald text-[11px] font-semibold transition cursor-pointer";
+      readyBtn.textContent = "● Ready Only";
+    } else {
+      readyBtn.className =
+        "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer";
+      readyBtn.textContent = "All Statuses";
+    }
+  }
+
+  private saveFilterSettings(): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SIZE, String(this.state.targetSizeUsd));
+      localStorage.setItem(STORAGE_KEYS.LEVERAGE, String(this.state.minLeverageFilter));
+      localStorage.setItem(STORAGE_KEYS.FILTER_EQUITIES, String(this.state.filterEquities));
+      localStorage.setItem(STORAGE_KEYS.FILTER_READY, String(this.state.filterReadyOnly));
+    } catch {}
+  }
+
+  private restoreFilterSettings(): void {
+    try {
+      const savedSize = localStorage.getItem(STORAGE_KEYS.SIZE);
+      if (savedSize !== null) {
+        const val = parseFloat(savedSize);
+        if (!isNaN(val) && val > 0) {
+          this.state.targetSizeUsd = val;
+          this.updateSizeControls(val);
+        }
+      }
+
+      const savedLev = localStorage.getItem(STORAGE_KEYS.LEVERAGE);
+      if (savedLev !== null) {
+        const lev = parseInt(savedLev, 10);
+        if (!isNaN(lev) && [0, 5, 10, 20].includes(lev)) {
+          this.state.minLeverageFilter = lev;
+          this.updateLeverageControls(lev);
+        }
+      }
+
+      const savedEq = localStorage.getItem(STORAGE_KEYS.FILTER_EQUITIES);
+      if (savedEq !== null) {
+        this.state.filterEquities = savedEq === "true";
+        this.updateEquitiesControl(this.state.filterEquities);
+      }
+
+      const savedReady = localStorage.getItem(STORAGE_KEYS.FILTER_READY);
+      if (savedReady !== null) {
+        this.state.filterReadyOnly = savedReady === "true";
+        this.updateReadyControl(this.state.filterReadyOnly);
+      }
+    } catch {}
+  }
+
+  private resetFiltersToDefault(): void {
+    this.state.targetSizeUsd = 10000;
+    this.state.minLeverageFilter = 0;
+    this.state.filterEquities = true;
+    this.state.filterReadyOnly = true;
+    this.state.searchQuery = "";
+    this.state.emaMap.clear();
+
+    const searchBox = document.getElementById("searchBox") as HTMLInputElement | null;
+    const clearSearchBtn = document.getElementById("clearSearchBtn");
+    if (searchBox) searchBox.value = "";
+    clearSearchBtn?.classList.add("hidden");
+
+    this.updateSizeControls(10000);
+    this.updateLeverageControls(0);
+    this.updateEquitiesControl(true);
+    this.updateReadyControl(true);
+
+    try {
+      localStorage.removeItem(STORAGE_KEYS.SIZE);
+      localStorage.removeItem(STORAGE_KEYS.LEVERAGE);
+      localStorage.removeItem(STORAGE_KEYS.FILTER_EQUITIES);
+      localStorage.removeItem(STORAGE_KEYS.FILTER_READY);
+    } catch {}
+
+    this.rerank();
+  }
+
   private setupEventListeners(): void {
     // 0. Font selector
     const fontSelector = document.getElementById("fontSelector") as HTMLSelectElement | null;
     let savedFont = "Inter";
     try {
-      savedFont = localStorage.getItem("terminal_font") || "Inter";
+      savedFont = localStorage.getItem(STORAGE_KEYS.FONT) || "Inter";
     } catch {}
 
     if (fontSelector) {
@@ -536,7 +666,7 @@ export class TerminalController {
         const selected = (e.target as HTMLSelectElement).value;
         this.applyFont(selected);
         try {
-          localStorage.setItem("terminal_font", selected);
+          localStorage.setItem(STORAGE_KEYS.FONT, selected);
         } catch {}
       });
     }
@@ -573,14 +703,8 @@ export class TerminalController {
       if (!isNaN(val) && val > 0) {
         this.state.targetSizeUsd = val;
         this.state.emaMap.clear();
-        document.querySelectorAll(".size-btn").forEach((btn) => {
-          const sz = parseFloat((btn as HTMLElement).dataset.size || "0");
-          if (sz === val) {
-            btn.className = "size-btn size-btn-active px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer";
-          } else {
-            btn.className = "size-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer";
-          }
-        });
+        this.updateSizeControls(val);
+        this.saveFilterSettings();
         this.rerank();
       }
     });
@@ -590,13 +714,8 @@ export class TerminalController {
         const sz = parseFloat((btn as HTMLElement).dataset.size || "0");
         this.state.targetSizeUsd = sz;
         this.state.emaMap.clear();
-        if (sizeInput) sizeInput.value = String(sz);
-
-        document.querySelectorAll(".size-btn").forEach((b) => {
-          b.className = "size-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer";
-        });
-        btn.className = "size-btn size-btn-active px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer";
-
+        this.updateSizeControls(sz);
+        this.saveFilterSettings();
         this.rerank();
       });
     });
@@ -606,12 +725,8 @@ export class TerminalController {
       btn.addEventListener("click", () => {
         const lev = parseInt((btn as HTMLElement).dataset.lev || "0", 10);
         this.state.minLeverageFilter = lev;
-
-        document.querySelectorAll(".lev-btn").forEach((b) => {
-          b.className = "lev-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer";
-        });
-        btn.className = "lev-btn lev-btn-active px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer";
-
+        this.updateLeverageControls(lev);
+        this.saveFilterSettings();
         this.rerank();
       });
     });
@@ -660,15 +775,8 @@ export class TerminalController {
     const eqBtn = document.getElementById("equitiesToggle");
     eqBtn?.addEventListener("click", () => {
       this.state.filterEquities = !this.state.filterEquities;
-      if (this.state.filterEquities) {
-        eqBtn.className =
-          "px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer";
-        eqBtn.textContent = "Equities Only";
-      } else {
-        eqBtn.className =
-          "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer";
-        eqBtn.textContent = "All Markets";
-      }
+      this.updateEquitiesControl(this.state.filterEquities);
+      this.saveFilterSettings();
       this.rerank();
     });
 
@@ -676,19 +784,18 @@ export class TerminalController {
     const readyBtn = document.getElementById("readyToggle");
     readyBtn?.addEventListener("click", () => {
       this.state.filterReadyOnly = !this.state.filterReadyOnly;
-      if (this.state.filterReadyOnly) {
-        readyBtn.className =
-          "px-2 py-0.5 rounded border border-terminal-emerald/40 bg-terminal-bg text-terminal-emerald text-[11px] font-semibold transition cursor-pointer";
-        readyBtn.textContent = "● Ready Only";
-      } else {
-        readyBtn.className =
-          "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer";
-        readyBtn.textContent = "All Statuses";
-      }
+      this.updateReadyControl(this.state.filterReadyOnly);
+      this.saveFilterSettings();
       this.rerank();
     });
 
-    // 7. Column Header Sorting
+    // 7. Reset filters
+    const resetBtn = document.getElementById("resetFiltersBtn");
+    resetBtn?.addEventListener("click", () => {
+      this.resetFiltersToDefault();
+    });
+
+    // 8. Column Header Sorting
     document.querySelectorAll("#terminalTable th[data-sort]").forEach((th) => {
       th.addEventListener("click", () => {
         const col = (th as HTMLElement).dataset.sort as keyof MarketMetrics;
