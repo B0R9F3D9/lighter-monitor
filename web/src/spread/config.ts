@@ -35,9 +35,18 @@ export const COMMODITY_SYMBOLS: ReadonlySet<string> = new Set([
   "SLV",
 ]);
 
+export const INDEX_ETF_SYMBOLS: ReadonlySet<string> = new Set([
+  "SPY",
+  "QQQ",
+  "SOXL",
+  "SPCX",
+  "SGOV",
+]);
+
 export const NON_EQUITY_SYMBOLS: ReadonlySet<string> = new Set([
   ...CRYPTO_SYMBOLS,
   ...COMMODITY_SYMBOLS,
+  ...INDEX_ETF_SYMBOLS,
 ]);
 
 export const STORAGE_KEYS = {

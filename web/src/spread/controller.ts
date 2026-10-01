@@ -607,7 +607,7 @@ export class TerminalController {
     if (active) {
       eqBtn.className =
         "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
-      eqBtn.textContent = "Equities Only";
+      eqBtn.textContent = "Stocks Only";
     } else {
       eqBtn.className =
         "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer whitespace-nowrap text-center";
