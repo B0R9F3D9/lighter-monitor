@@ -531,10 +531,10 @@ export class TerminalController {
       const sz = parseFloat((btn as HTMLElement).dataset.size || "0");
       if (sz === val) {
         btn.className =
-          "size-btn size-btn-active px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer";
+          "size-btn size-btn-active px-1.5 sm:px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap";
       } else {
         btn.className =
-          "size-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer";
+          "size-btn px-1.5 sm:px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap";
       }
     });
   }
@@ -544,10 +544,10 @@ export class TerminalController {
       const l = parseInt((btn as HTMLElement).dataset.lev || "0", 10);
       if (l === lev) {
         btn.className =
-          "lev-btn lev-btn-active px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer";
+          "lev-btn lev-btn-active px-1.5 sm:px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap";
       } else {
         btn.className =
-          "lev-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer";
+          "lev-btn px-1.5 sm:px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap";
       }
     });
   }
@@ -557,11 +557,11 @@ export class TerminalController {
     if (!eqBtn) return;
     if (active) {
       eqBtn.className =
-        "px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer";
+        "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
       eqBtn.textContent = "Equities Only";
     } else {
       eqBtn.className =
-        "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer";
+        "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer whitespace-nowrap text-center";
       eqBtn.textContent = "All Markets";
     }
   }
@@ -571,11 +571,11 @@ export class TerminalController {
     if (!readyBtn) return;
     if (active) {
       readyBtn.className =
-        "px-2 py-0.5 rounded border border-terminal-emerald/40 bg-terminal-bg text-terminal-emerald text-[11px] font-semibold transition cursor-pointer";
+        "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-emerald/40 bg-terminal-bg text-terminal-emerald text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
       readyBtn.textContent = "● Ready Only";
     } else {
       readyBtn.className =
-        "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer";
+        "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer whitespace-nowrap text-center";
       readyBtn.textContent = "All Statuses";
     }
   }

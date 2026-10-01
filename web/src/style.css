@@ -58,6 +58,41 @@ button:focus-visible {
   box-shadow: none !important;
 }
 
+.table-scroll-container {
+  overflow-x: auto;
+  container-type: inline-size;
+}
+
+.detail-expanded-container {
+  position: sticky;
+  left: 0.5rem;
+  margin-left: 0;
+  margin-right: auto;
+  width: calc(100vw - 2.5rem);
+  max-width: calc(100cqw - 1rem);
+  box-sizing: border-box;
+}
+
+@media (min-width: 640px) {
+  .detail-expanded-container {
+    left: 0.5rem;
+    margin-left: 0;
+    margin-right: auto;
+    width: calc(100vw - 3.5rem);
+    max-width: calc(100cqw - 1rem);
+  }
+}
+
+@media (min-width: 1024px) {
+  .detail-expanded-container {
+    position: static;
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+    max-width: 64rem;
+  }
+}
+
 .size-btn,
 .lev-btn {
   cursor: pointer !important;

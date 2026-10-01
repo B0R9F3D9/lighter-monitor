@@ -201,73 +201,99 @@ export function createDetailRowElement(r: MarketMetrics, targetSizeUsd: number):
   detailTr.className = "bg-terminal-surface/70 border-b border-terminal-border";
 
   detailTr.innerHTML = `
-    <td colspan="9" class="p-3">
-      <div class="rounded border border-terminal-border bg-terminal-bg p-3">
-        <div class="flex items-center justify-between border-b border-terminal-border pb-2.5 mb-2.5 text-xs">
-          <div class="flex items-center gap-3">
-            <span id="dtlHeader" class="font-bold text-white uppercase tracking-wider"></span>
-            <span id="dtlSize" class="text-terminal-secondary"></span>
-            <span id="dtlLev" class="text-terminal-muted font-mono"></span>
+    <td colspan="9" class="py-2 sm:py-3 px-1 sm:px-2">
+      <div class="detail-expanded-container mx-auto space-y-2 font-mono text-xs">
+        <!-- Top Info Bar -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-terminal-border pb-1.5 text-[11px] gap-1">
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="text-white font-bold">Execution Breakdown (4 Legs):</span>
+            <span id="dtlSymbol" class="text-terminal-secondary font-semibold"></span>
+            <span id="dtlLev" class="text-terminal-accent font-semibold"></span>
+            <span id="dtlLevVenues" class="text-terminal-muted text-[10px]"></span>
+            <span id="dtlSize" class="text-white font-semibold"></span>
           </div>
-          <div class="flex items-center gap-4">
-            <div class="text-[11px]"><span class="text-terminal-muted">Basis:</span> <span id="dtlBasis" class="font-mono font-semibold"></span></div>
-            <div class="text-[11px]"><span class="text-terminal-muted">RT Drag:</span> <span id="dtlRtDrag" class="font-mono text-terminal-accent font-semibold"></span></div>
-            <div class="text-[11px]"><span class="text-terminal-muted">Net RT Loss:</span> <span id="dtlNetLoss" class="font-mono text-terminal-coral font-bold"></span></div>
+          <div class="text-terminal-muted flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px]">
+            <div>Basis: <span id="dtlBasis" class="font-bold tabular-nums"></span></div>
+            <div>Entry: <span id="dtlEntry" class="text-terminal-emerald font-bold tabular-nums"></span> <span id="dtlEntryDrag" class="text-terminal-muted tabular-nums"></span></div>
+            <div>Exit: <span id="dtlExit" class="text-terminal-secondary font-bold tabular-nums"></span> <span id="dtlExitDrag" class="text-terminal-muted tabular-nums"></span></div>
           </div>
         </div>
 
-        <div class="overflow-x-auto">
-          <table class="w-full text-xs font-mono">
-            <thead>
-              <tr class="border-b border-terminal-borderSubtle text-[10px] text-terminal-muted uppercase">
-                <th class="py-1 px-2 text-left">Leg / Action</th>
-                <th class="py-1 px-2 text-left">Venue & Side</th>
-                <th class="py-1 px-2 text-right">Top of Book</th>
-                <th class="py-1 px-2 text-right">VWAP Fill</th>
-                <th class="py-1 px-2 text-right">Slippage</th>
-                <th class="py-1 px-2 text-right">Levels</th>
-                <th class="py-1 px-2 text-right">Avail. Depth</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-terminal-borderSubtle/50 text-[11px]">
-              <tr>
-                <td class="py-1.5 px-2 font-bold text-terminal-emerald">LEG 1: Open Long</td>
-                <td class="py-1.5 px-2 text-terminal-secondary">Robinhood (Buy Ask)</td>
-                <td id="dtlL1Top" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-                <td id="dtlL1Fill" class="py-1.5 px-2 text-right text-white font-semibold"></td>
-                <td id="dtlL1Slip" class="py-1.5 px-2 text-right"></td>
-                <td id="dtlL1Swept" class="py-1.5 px-2 text-right text-terminal-secondary"></td>
-                <td id="dtlL1Depth" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-              </tr>
-              <tr>
-                <td class="py-1.5 px-2 font-bold text-terminal-coral">LEG 2: Open Short</td>
-                <td class="py-1.5 px-2 text-terminal-secondary">Lighter Core (Sell Bid)</td>
-                <td id="dtlL2Top" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-                <td id="dtlL2Fill" class="py-1.5 px-2 text-right text-white font-semibold"></td>
-                <td id="dtlL2Slip" class="py-1.5 px-2 text-right"></td>
-                <td id="dtlL2Swept" class="py-1.5 px-2 text-right text-terminal-secondary"></td>
-                <td id="dtlL2Depth" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-              </tr>
-              <tr>
-                <td class="py-1.5 px-2 font-medium text-terminal-secondary">LEG 3: Close Long</td>
-                <td class="py-1.5 px-2 text-terminal-muted">Robinhood (Sell Bid)</td>
-                <td id="dtlL3Top" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-                <td id="dtlL3Fill" class="py-1.5 px-2 text-right text-white"></td>
-                <td id="dtlL3Slip" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-                <td id="dtlL3Swept" class="py-1.5 px-2 text-right text-terminal-secondary"></td>
-                <td id="dtlL3Depth" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-              </tr>
-              <tr>
-                <td class="py-1.5 px-2 font-medium text-terminal-secondary">LEG 4: Close Short</td>
-                <td class="py-1.5 px-2 text-terminal-muted">Lighter Core (Buy Ask)</td>
-                <td id="dtlL4Top" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-                <td id="dtlL4Fill" class="py-1.5 px-2 text-right text-white"></td>
-                <td id="dtlL4Slip" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-                <td id="dtlL4Swept" class="py-1.5 px-2 text-right text-terminal-secondary"></td>
-                <td id="dtlL4Depth" class="py-1.5 px-2 text-right text-terminal-muted"></td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- 4 Leg Cards (4 вертикальные блока) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 min-w-0">
+          <!-- Leg 1: RH LONG -->
+          <div class="bg-terminal-surface border border-terminal-emerald/30 p-2 sm:p-2.5 rounded space-y-1 min-w-0">
+            <div class="flex items-center justify-between text-[11px] font-bold text-terminal-emerald">
+              <span>LEG 1: RH LONG</span>
+              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-emeraldMuted border border-terminal-emerald/30">Buy Ask</span>
+            </div>
+            <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL1Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL1Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL1Slip" class="text-terminal-emerald tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Levels Swept:</span> <span id="dtlL1Swept" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Asks Depth:</span> <span id="dtlL1Depth" class="tabular-nums shrink-0"></span></div>
+            </div>
+          </div>
+
+          <!-- Leg 2: CORE SHORT -->
+          <div class="bg-terminal-surface border border-terminal-coral/30 p-2 sm:p-2.5 rounded space-y-1 min-w-0">
+            <div class="flex items-center justify-between text-[11px] font-bold text-terminal-coral">
+              <span>LEG 2: CORE SHORT</span>
+              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-coralMuted border border-terminal-coral/30">Sell Bid</span>
+            </div>
+            <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL2Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL2Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL2Slip" class="text-terminal-coral tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Levels Swept:</span> <span id="dtlL2Swept" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Bids Depth:</span> <span id="dtlL2Depth" class="tabular-nums shrink-0"></span></div>
+            </div>
+          </div>
+
+          <!-- Leg 3: CLOSE RH -->
+          <div class="bg-terminal-surface border border-terminal-border p-2 sm:p-2.5 rounded space-y-1 min-w-0">
+            <div class="flex items-center justify-between text-[11px] font-bold text-terminal-secondary">
+              <span>LEG 3: CLOSE RH</span>
+              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Sell Bid</span>
+            </div>
+            <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL3Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL3Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL3Slip" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Levels Swept:</span> <span id="dtlL3Swept" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Bids Depth:</span> <span id="dtlL3Depth" class="tabular-nums shrink-0"></span></div>
+            </div>
+          </div>
+
+          <!-- Leg 4: CLOSE CORE -->
+          <div class="bg-terminal-surface border border-terminal-border p-2 sm:p-2.5 rounded space-y-1 min-w-0">
+            <div class="flex items-center justify-between text-[11px] font-bold text-terminal-secondary">
+              <span>LEG 4: CLOSE CORE</span>
+              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Buy Ask</span>
+            </div>
+            <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL4Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL4Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL4Slip" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Levels Swept:</span> <span id="dtlL4Swept" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Asks Depth:</span> <span id="dtlL4Depth" class="tabular-nums shrink-0"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary Footnote -->
+        <div class="p-1.5 sm:p-2 bg-terminal-surface rounded border border-terminal-borderSubtle text-[10px] text-terminal-muted flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span>Size: <strong id="dtlFntSize" class="text-white"></strong></span>
+            <span>@ Mid <strong id="dtlFntMid" class="text-white"></strong></span>
+            <span>Entry: <strong id="dtlFntEntryCost" class="text-white"></strong></span>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span>Turnover Drag: <strong id="dtlFntDrag" class="text-terminal-primary"></strong></span>
+            <span>(RT Loss: <strong id="dtlFntRtLoss" class="text-terminal-coral"></strong>)</span>
+            <span>Cost/pt: <strong id="dtlFntPtCost"></strong></span>
+          </div>
         </div>
       </div>
     </td>
@@ -285,60 +311,73 @@ function setElementText(id: string, text: string): void {
 export function updateDetailRow(r: MarketMetrics, targetSizeUsd: number): void {
   const l = r.legs;
 
-  setElementText("dtlHeader", `${r.symbol} 4-LEG EXECUTION BLOTTER`);
-  setElementText("dtlSize", `${formatMoney(targetSizeUsd)} (${r.qtyLabel})`);
-  setElementText("dtlLev", `RH ${r.rhLeverage} / Core ${r.coreLeverage}`);
+  // Header info
+  setElementText("dtlSymbol", r.symbol);
+  setElementText("dtlLev", `[Min Lev: ${r.leverage}]`);
+  setElementText("dtlLevVenues", `(RH: ${r.rhLeverage} • Core: ${r.coreLeverage})`);
+  setElementText("dtlSize", `Size: ${formatMoney(targetSizeUsd)}`);
 
   const basisEl = document.getElementById("dtlBasis");
   if (basisEl) {
     basisEl.textContent = formatDeltaMid(r.deltaMidUsd, r.deltaMidBps);
-    basisEl.className = Math.abs(r.deltaMidBps) > 6 ? "text-terminal-amber" : "text-terminal-primary";
+    basisEl.className =
+      Math.abs(r.deltaMidBps) > 6
+        ? "text-terminal-amber font-bold tabular-nums"
+        : "text-white font-bold tabular-nums";
   }
 
-  setElementText("dtlRtDrag", formatBps(r.vwapTotalDragBps));
-  setElementText("dtlNetLoss", formatMoney(r.costUsd));
+  setElementText("dtlEntry", formatMoney(r.entryLossUsd));
+  setElementText("dtlEntryDrag", `(${formatBps(r.entryDragBps, true)})`);
+  setElementText("dtlExit", formatMoney(r.exitLossUsd));
+  setElementText("dtlExitDrag", `(${formatBps(r.exitDragBps, true)})`);
 
-  // Leg 1
+  // Leg 1: RH LONG
   setElementText("dtlL1Top", formatPrice(l.rhBestAsk));
   setElementText("dtlL1Fill", formatPrice(l.entryRh.avgPrice));
-  const l1Slip = document.getElementById("dtlL1Slip");
-  if (l1Slip) {
-    l1Slip.textContent = formatBps(l.entryRh.slippageBps, true);
-    l1Slip.className =
-      l.entryRh.slippageBps > 5
-        ? "py-1.5 px-2 text-right text-terminal-coral"
-        : "py-1.5 px-2 text-right text-terminal-secondary";
-  }
+  setElementText("dtlL1Slip", formatBps(l.entryRh.slippageBps, true));
   setElementText("dtlL1Swept", String(l.entryRh.levelsSwept));
   setElementText("dtlL1Depth", formatMoney(l.entryRh.totalAvailableUsd));
 
-  // Leg 2
+  // Leg 2: CORE SHORT
   setElementText("dtlL2Top", formatPrice(l.coreBestBid));
   setElementText("dtlL2Fill", formatPrice(l.entryCore.avgPrice));
-  const l2Slip = document.getElementById("dtlL2Slip");
-  if (l2Slip) {
-    l2Slip.textContent = formatBps(l.entryCore.slippageBps, true);
-    l2Slip.className =
-      l.entryCore.slippageBps > 5
-        ? "py-1.5 px-2 text-right text-terminal-coral"
-        : "py-1.5 px-2 text-right text-terminal-secondary";
-  }
+  setElementText("dtlL2Slip", formatBps(l.entryCore.slippageBps, true));
   setElementText("dtlL2Swept", String(l.entryCore.levelsSwept));
   setElementText("dtlL2Depth", formatMoney(l.entryCore.totalAvailableUsd));
 
-  // Leg 3
+  // Leg 3: CLOSE RH
   setElementText("dtlL3Top", formatPrice(l.rhBestBid));
   setElementText("dtlL3Fill", formatPrice(l.exitRh.avgPrice));
   setElementText("dtlL3Slip", formatBps(l.exitRh.slippageBps, true));
   setElementText("dtlL3Swept", String(l.exitRh.levelsSwept));
   setElementText("dtlL3Depth", formatMoney(l.exitRh.totalAvailableUsd));
 
-  // Leg 4
+  // Leg 4: CLOSE CORE
   setElementText("dtlL4Top", formatPrice(l.coreBestAsk));
   setElementText("dtlL4Fill", formatPrice(l.exitCore.avgPrice));
   setElementText("dtlL4Slip", formatBps(l.exitCore.slippageBps, true));
   setElementText("dtlL4Swept", String(l.exitCore.levelsSwept));
   setElementText("dtlL4Depth", formatMoney(l.exitCore.totalAvailableUsd));
+
+  // Footnote summary
+  setElementText("dtlFntSize", `${r.copyQty} (${r.qtyLabel})`);
+  setElementText("dtlFntMid", formatPrice(r.midPrice));
+
+  const fntEntryCost = document.getElementById("dtlFntEntryCost");
+  if (fntEntryCost) {
+    fntEntryCost.textContent = formatMoney(r.entryLossUsd);
+    fntEntryCost.className = r.entryLossUsd <= 0 ? "text-terminal-emerald" : "text-white";
+  }
+
+  setElementText("dtlFntDrag", formatBps(r.vwapTotalDragBps));
+  setElementText("dtlFntRtLoss", formatMoney(r.costUsd));
+
+  const fntPtCost = document.getElementById("dtlFntPtCost");
+  if (fntPtCost) {
+    fntPtCost.textContent = `$${r.pointCostUsd.toFixed(2)} / pt`;
+    fntPtCost.className =
+      r.pointCostUsd < 1.5 ? "text-terminal-emerald font-bold" : "text-terminal-amber font-bold";
+  }
 }
 
 export function updateExecutiveSummary(r: MarketMetrics | null): void {
