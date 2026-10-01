@@ -121,11 +121,13 @@
               class="flex items-center gap-1.5 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
             >
               <span class="text-terminal-muted">Freeze:</span>
-              <span id="rerankTimerText" class="text-white font-bold tabular-nums w-4 text-center">5s</span>
+              <span id="rerankTimerText" class="text-white font-bold tabular-nums w-4 text-center"
+                >5s</span
+              >
               <button
                 id="manualRerankBtn"
                 title="Force Re-rank"
-                class="px-1 py-0.2 rounded hover:bg-terminal-surface text-terminal-secondary hover:text-white transition"
+                class="px-1 py-0.5 rounded hover:bg-terminal-surface text-terminal-secondary hover:text-white transition"
               >
                 ↻
               </button>
@@ -184,7 +186,7 @@
             class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-accent hover:border-terminal-muted transition text-[11px] tabular-nums"
             title="Click to copy base asset size"
           >
-            <span id="topQtyText">-- sh</span>
+            -- sh
           </button>
           <span id="topVerdictBadge" class="text-[11px] font-semibold text-terminal-emerald"
             >● READY</span
@@ -543,11 +545,15 @@
       // ------------------------------------------------------------------------
       function formatMoney(num) {
         if (num === undefined || num === null || isNaN(num)) return "$0.00";
-        if (num >= 1e9) return "$" + (num / 1e9).toFixed(2) + "B";
-        if (num >= 1e6) return "$" + (num / 1e6).toFixed(2) + "M";
-        if (num >= 1e3) return "$" + (num / 1e3).toFixed(1) + "K";
+        const sign = num < 0 ? "-" : "";
+        const abs = Math.abs(num);
+        if (abs >= 1e9) return sign + "$" + (abs / 1e9).toFixed(2) + "B";
+        if (abs >= 1e6) return sign + "$" + (abs / 1e6).toFixed(2) + "M";
+        if (abs >= 1e3) return sign + "$" + (abs / 1e3).toFixed(1) + "K";
         return (
-          "$" + num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          sign +
+          "$" +
+          abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         );
       }
 
@@ -579,31 +585,39 @@
       }
 
       function copyToClipboard(text, btnEl, originalLabel) {
+        if (btnEl.dataset.isCopied === "true") return;
+
+        const originalClass = btnEl.dataset.originalClass || btnEl.className;
+        btnEl.dataset.originalClass = originalClass;
+
+        const doCopyFeedback = () => {
+          btnEl.dataset.isCopied = "true";
+          btnEl.textContent = "COPIED";
+          btnEl.classList.remove("text-terminal-muted", "text-terminal-accent");
+          btnEl.classList.add("text-terminal-emerald");
+
+          setTimeout(() => {
+            delete btnEl.dataset.isCopied;
+            btnEl.textContent = btnEl.dataset.label || originalLabel;
+            btnEl.className = originalClass;
+            delete btnEl.dataset.originalClass;
+          }, 1000);
+        };
+
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+          navigator.clipboard
+            .writeText(text)
+            .then(doCopyFeedback)
+            .catch(() => {
+              if (fallbackCopy(text)) {
+                doCopyFeedback();
+              }
+            });
         } else {
-          fallbackCopy(text);
+          if (fallbackCopy(text)) {
+            doCopyFeedback();
+          }
         }
-
-        btnEl.dataset.isCopied = "true";
-        btnEl.textContent = "COPIED";
-        btnEl.classList.remove("text-terminal-accent", "border-terminal-border", "bg-terminal-bg");
-        btnEl.classList.add(
-          "text-terminal-emerald",
-          "border-terminal-emerald/40",
-          "bg-terminal-emeraldMuted",
-        );
-
-        setTimeout(() => {
-          delete btnEl.dataset.isCopied;
-          btnEl.textContent = btnEl.dataset.label || originalLabel;
-          btnEl.classList.remove(
-            "text-terminal-emerald",
-            "border-terminal-emerald/40",
-            "bg-terminal-emeraldMuted",
-          );
-          btnEl.classList.add("text-terminal-accent", "border-terminal-border", "bg-terminal-bg");
-        }, 1000);
       }
 
       function fallbackCopy(text) {
@@ -613,10 +627,12 @@
         ta.style.opacity = "0";
         document.body.appendChild(ta);
         ta.select();
+        let success = false;
         try {
-          document.execCommand("copy");
+          success = document.execCommand("copy");
         } catch {}
         document.body.removeChild(ta);
+        return success;
       }
 
       // ------------------------------------------------------------------------
@@ -625,13 +641,23 @@
       function getOrCreateBook(bookMap, marketId) {
         let b = bookMap.get(marketId);
         if (!b) {
-          b = { asks: new Map(), bids: new Map(), isSnapshotReceived: false };
+          b = {
+            asks: new Map(),
+            bids: new Map(),
+            isSnapshotReceived: false,
+            lastUpdatedTs: 0,
+            offset: 0,
+          };
           bookMap.set(marketId, b);
         }
         return b;
       }
 
-      function updateBookFromWs(book, orderBook) {
+      function updateBookFromWs(book, orderBook, isSnapshot = false, offset = 0) {
+        if (isSnapshot) {
+          book.asks.clear();
+          book.bids.clear();
+        }
         if (orderBook.asks) {
           for (const { price, size } of orderBook.asks) {
             const p = parseFloat(price);
@@ -651,62 +677,71 @@
           }
         }
         book.isSnapshotReceived = true;
+        book.lastUpdatedTs = Date.now();
+        if (offset) book.offset = offset;
       }
 
-      // Optimized sorted levels: takes top levels necessary for size simulation
-      function getSortedLevels(map, isAsk, minNeededUsd = 0) {
+      function getSortedLevels(map, isAsk) {
         const arr = [];
         for (const [price, totalBase] of map.entries()) {
           arr.push({ price, totalBase, totalUsd: price * totalBase });
         }
         arr.sort((a, b) => (isAsk ? a.price - b.price : b.price - a.price));
-        if (arr.length <= 20) return arr;
-        let sum = 0;
-        for (let i = 0; i < arr.length; i++) {
-          sum += arr[i].totalUsd;
-          if (sum >= minNeededUsd && i >= 12) {
-            return arr.slice(0, i + 1);
-          }
-        }
-        return arr.slice(0, 25);
+        return arr.length > 40 ? arr.slice(0, 40) : arr;
       }
 
-      function simulateFill(levels, targetUsd, isAsk) {
-        if (!levels || levels.length === 0) {
+      function simulateFillBase(levels, targetBaseQty, isAsk) {
+        if (!levels || levels.length === 0 || targetBaseQty <= 0) {
           return {
             isComplete: false,
             avgPrice: 0,
             bestPrice: 0,
             slippageBps: 0,
             levelsSwept: 0,
+            totalCostUsd: 0,
+            filledBase: 0,
             totalAvailableUsd: 0,
+            totalAvailableBase: 0,
           };
         }
         const bestPrice = levels[0].price;
-        let remainingUsd = targetUsd;
+        let remainingBase = targetBaseQty;
         let totalCostUsd = 0;
-        let totalBase = 0;
+        let filledBase = 0;
         let levelsSwept = 0;
         let totalAvailableUsd = 0;
+        let totalAvailableBase = 0;
 
         for (const lvl of levels) {
+          totalAvailableBase += lvl.totalBase;
           totalAvailableUsd += lvl.totalUsd;
-          if (remainingUsd > 0) {
+          if (remainingBase > 0) {
             levelsSwept++;
-            const fillUsd = Math.min(remainingUsd, lvl.totalUsd);
-            totalCostUsd += fillUsd;
-            totalBase += fillUsd / lvl.price;
-            remainingUsd -= fillUsd;
+            const takeBase = Math.min(remainingBase, lvl.totalBase);
+            totalCostUsd += takeBase * lvl.price;
+            filledBase += takeBase;
+            remainingBase -= takeBase;
           }
         }
 
-        const isComplete = remainingUsd <= 0.01;
-        const avgPrice = totalBase > 0 ? totalCostUsd / totalBase : bestPrice;
+        const tolerance = Math.max(1e-5, targetBaseQty * 0.0005);
+        const isComplete = remainingBase <= tolerance;
+        const avgPrice = filledBase > 0 ? totalCostUsd / filledBase : bestPrice;
         const slippageBps = isAsk
           ? ((avgPrice - bestPrice) / bestPrice) * 10000
           : ((bestPrice - avgPrice) / bestPrice) * 10000;
 
-        return { isComplete, avgPrice, bestPrice, slippageBps, levelsSwept, totalAvailableUsd };
+        return {
+          isComplete,
+          avgPrice,
+          bestPrice,
+          slippageBps,
+          levelsSwept,
+          totalCostUsd,
+          filledBase,
+          totalAvailableUsd,
+          totalAvailableBase,
+        };
       }
 
       function calculateMarketMetrics(m, targetUsd) {
@@ -722,15 +757,33 @@
         )
           return null;
 
-        const rhAsks = getSortedLevels(rhBook.asks, true, targetUsd);
-        const rhBids = getSortedLevels(rhBook.bids, false, targetUsd);
-        const coreAsks = getSortedLevels(coreBook.asks, true, targetUsd);
-        const coreBids = getSortedLevels(coreBook.bids, false, targetUsd);
+        const now = Date.now();
+        const isStale =
+          (lastCoreMsgAt > 0 && now - lastCoreMsgAt > 20000) ||
+          (lastRhMsgAt > 0 && now - lastRhMsgAt > 20000);
+
+        const rhAsks = getSortedLevels(rhBook.asks, true);
+        const rhBids = getSortedLevels(rhBook.bids, false);
+        const coreAsks = getSortedLevels(coreBook.asks, true);
+        const coreBids = getSortedLevels(coreBook.bids, false);
+
+        if (
+          rhAsks.length === 0 ||
+          rhBids.length === 0 ||
+          coreAsks.length === 0 ||
+          coreBids.length === 0
+        )
+          return null;
 
         const rhBestAsk = rhAsks[0].price;
         const rhBestBid = rhBids[0].price;
         const coreBestAsk = coreAsks[0].price;
         const coreBestBid = coreBids[0].price;
+
+        // Crossed book check (reject corrupted book ticks)
+        if (rhBestBid >= rhBestAsk || coreBestBid >= coreBestAsk) {
+          return null;
+        }
 
         const rhMid = (rhBestAsk + rhBestBid) / 2;
         const coreMid = (coreBestAsk + coreBestBid) / 2;
@@ -741,24 +794,24 @@
         const deltaMidUsd = rhMid - coreMid;
         const deltaMidBps = (deltaMidUsd / midPrice) * 10000;
 
-        // Base Asset Quantity for target size
+        // Base Asset Quantity for target size (Strict Delta-Neutral)
         const baseQty = targetUsd / midPrice;
         const copyQty = formatBaseQty(baseQty);
         const isEquity = !NON_EQUITY_SYMBOLS.has(m.symbol);
         const qtyLabel = isEquity ? `${copyQty} sh` : `${copyQty}`;
 
-        // 4-Leg VWAP fills
-        const simEntryRh = simulateFill(rhAsks, targetUsd, true);
-        const simEntryCore = simulateFill(coreBids, targetUsd, false);
-        const simExitRh = simulateFill(rhBids, targetUsd, false);
-        const simExitCore = simulateFill(coreAsks, targetUsd, true);
+        // 4-Leg VWAP fills by EXACT baseQty
+        const simEntryRh = simulateFillBase(rhAsks, baseQty, true);
+        const simEntryCore = simulateFillBase(coreBids, baseQty, false);
+        const simExitRh = simulateFillBase(rhBids, baseQty, false);
+        const simExitCore = simulateFillBase(coreAsks, baseQty, true);
 
-        // Raw theoretical top-of-book spread
+        // Theoretical top-of-book spread
         const rawEntryDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
         const rawExitDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
         const rawSpreadBps = (rawEntryDragBps + rawExitDragBps) / 2;
 
-        // Real VWAP drag
+        // Real VWAP drag in bps
         const vwapEntryDragBps = ((simEntryRh.avgPrice - simEntryCore.avgPrice) / midPrice) * 10000;
         const vwapExitDragBps = ((simExitCore.avgPrice - simExitRh.avgPrice) / midPrice) * 10000;
         const rawVwapDragBps = (vwapEntryDragBps + vwapExitDragBps) / 2;
@@ -766,23 +819,15 @@
 
         if (isNaN(rawVwapDragBps) || !isFinite(rawVwapDragBps)) return null;
 
-        // Instant Entry Drag ($) vs Round-Trip Turnover Cost ($)
-        const entryLossUsd = (vwapEntryDragBps / 10000) * targetUsd;
-        const exitLossUsd = (vwapExitDragBps / 10000) * targetUsd;
+        // Instant Entry Drag ($) vs Exit Drag ($)
+        // Entry: Trader buys baseQty on RH (pays simEntryRh.totalCostUsd) and sells baseQty on Core (gets simEntryCore.totalCostUsd)
+        const entryLossUsd = simEntryRh.totalCostUsd - simEntryCore.totalCostUsd;
+        // Exit: Trader buys baseQty on Core (pays simExitCore.totalCostUsd) and sells baseQty on RH (gets simExitRh.totalCostUsd)
+        const exitLossUsd = simExitCore.totalCostUsd - simExitRh.totalCostUsd;
 
-        // EMA Noise Filtering on Turnover Drag
-        let ema = state.emaMap.get(m.symbol);
-        if (!ema || isNaN(ema.smoothedDrag) || !isFinite(ema.smoothedDrag)) {
-          ema = { smoothedDrag: rawVwapDragBps };
-          state.emaMap.set(m.symbol, ema);
-        } else {
-          ema.smoothedDrag =
-            CONFIG.EMA_ALPHA * rawVwapDragBps + (1 - CONFIG.EMA_ALPHA) * ema.smoothedDrag;
-        }
-        const vwapTotalDragBps = ema.smoothedDrag;
-
-        // Round-trip estimated loss
-        const costUsd = (vwapTotalDragBps / 10000) * targetUsd;
+        // Real Round-Trip Dollar Loss: Sum of Entry Loss + Exit Loss
+        const costUsd = entryLossUsd + exitLossUsd;
+        const vwapTotalDragBps = rawVwapDragBps;
 
         // Point cost calculation:
         // Volume on RH round-trip = 2 * targetUsd
@@ -813,15 +858,16 @@
           simExitCore.isComplete;
 
         let status = "READY";
-        if (!allFilled) {
+        if (isStale) {
+          status = "STALE";
+        } else if (!allFilled) {
           status = "LOW LIQ";
         } else if (maxLevelsSwept > 6 || slippageBps > 8.0) {
           status = "SLIPPAGE";
         }
 
-        // If order books cannot fill the target size, do not extrapolate fake metrics
-        const effectiveCostUsd = allFilled ? costUsd : 999999;
-        const effectivePointCostUsd = allFilled ? pointCostUsd : 999999;
+        const effectiveCostUsd = allFilled && !isStale ? costUsd : 999999;
+        const effectivePointCostUsd = allFilled && !isStale ? pointCostUsd : 999999;
 
         return {
           symbol: m.symbol,
@@ -838,6 +884,7 @@
           copyQty,
           qtyLabel,
           allFilled,
+          isStale,
           totalVolume24h: m.totalVolume24h,
           rhVolume24h: m.rhVolume24h,
           totalOiUsd: m.totalOiUsd,
@@ -870,17 +917,63 @@
         };
       }
 
+      function getMetrics(m) {
+        const r = calculateMarketMetrics(m, state.targetSizeUsd);
+        if (!r) {
+          m.latestMetrics = null;
+          return null;
+        }
+        const now = performance.now();
+        if (r.allFilled && !r.isStale && isFinite(r.rawCostUsd) && !isNaN(r.rawCostUsd)) {
+          let e = state.emaMap.get(m.symbol);
+          if (!e || !isFinite(e.cost) || isNaN(e.cost)) {
+            e = { cost: r.rawCostUsd, lastTs: now };
+            state.emaMap.set(m.symbol, e);
+          } else {
+            const dt = Math.max(0, now - (e.lastTs || now));
+            const tau = 2500;
+            const a = 1 - Math.exp(-dt / tau);
+            e.cost = a * r.rawCostUsd + (1 - a) * e.cost;
+            e.lastTs = now;
+          }
+          r.costUsd = e.cost;
+          r.pointCostUsd = r.pointsEarned > 0 ? e.cost / r.pointsEarned : 0;
+          r.vwapTotalDragBps = state.targetSizeUsd > 0 ? (e.cost / state.targetSizeUsd) * 10000 : 0;
+        } else {
+          r.costUsd = 999999;
+          r.pointCostUsd = 999999;
+          r.vwapTotalDragBps = state.targetSizeUsd > 0 ? (r.rawCostUsd / state.targetSizeUsd) * 10000 : 0;
+        }
+        r.computedAt = now;
+        m.latestMetrics = r;
+        return r;
+      }
+
       // ------------------------------------------------------------------------
       // 5. REST DISCOVERY & LEVERAGE PARSING
       // ------------------------------------------------------------------------
+      let fetchInFlight = false;
+      let nextFetchTimer = null;
+
+      function scheduleNextFetch(delayMs) {
+        if (nextFetchTimer) clearTimeout(nextFetchTimer);
+        nextFetchTimer = setTimeout(fetchMarkets, delayMs);
+      }
+
       async function fetchMarkets() {
+        if (fetchInFlight) return;
+        fetchInFlight = true;
         try {
           const [coreRes, rhRes] = await Promise.all([
             fetch(`${CONFIG.CORE_API_URL}/orderBookDetails`),
             fetch(`${CONFIG.RH_API_URL}/orderBookDetails`),
           ]);
 
-          if (!coreRes.ok || !rhRes.ok) return;
+          if (!coreRes.ok || !rhRes.ok) {
+            console.warn("Failed to fetch orderBookDetails, retrying in 5s");
+            scheduleNextFetch(5000);
+            return;
+          }
 
           const [coreJson, rhJson] = await Promise.all([coreRes.json(), rhRes.json()]);
 
@@ -908,18 +1001,28 @@
             const coreLev = Math.round(10000 / coreMargin);
             const minLeverageNum = Math.min(rhLev, coreLev);
 
+            // daily_quote_token_volume is already in USD (quote asset); fallback to base * price only if 0
+            const rhQuoteVol = parseFloat(rm.daily_quote_token_volume);
             const rhVol =
-              (parseFloat(rm.daily_quote_token_volume) || 0) +
-              (parseFloat(rm.daily_base_token_volume) || 0) *
-                (parseFloat(rm.last_trade_price) || 0);
+              !isNaN(rhQuoteVol) && rhQuoteVol > 0
+                ? rhQuoteVol
+                : (parseFloat(rm.daily_base_token_volume) || 0) *
+                  (parseFloat(rm.last_trade_price) || 0);
+
+            const coreQuoteVol = parseFloat(cm.daily_quote_token_volume);
             const coreVol =
-              (parseFloat(cm.daily_quote_token_volume) || 0) +
-              (parseFloat(cm.daily_base_token_volume) || 0) *
-                (parseFloat(cm.last_trade_price) || 0);
+              !isNaN(coreQuoteVol) && coreQuoteVol > 0
+                ? coreQuoteVol
+                : (parseFloat(cm.daily_base_token_volume) || 0) *
+                  (parseFloat(cm.last_trade_price) || 0);
+
             const rhOi =
               (parseFloat(rm.open_interest) || 0) * (parseFloat(rm.last_trade_price) || 0);
             const coreOi =
               (parseFloat(cm.open_interest) || 0) * (parseFloat(cm.last_trade_price) || 0);
+
+            const oldMarket = state.markets.get(rm.symbol);
+            const isNewMarket = !state.markets.has(rm.symbol);
 
             map.set(rm.symbol, {
               symbol: rm.symbol,
@@ -935,7 +1038,36 @@
               rhOiUsd: rhOi,
               coreOiUsd: coreOi,
               totalOiUsd: rhOi + coreOi,
+              latestMetrics: oldMarket?.latestMetrics,
             });
+
+            // Dynamically subscribe to newly listed markets without full reconnect
+            if (isNewMarket && window._wsInitialized) {
+              if (coreWs && coreWs.readyState === WebSocket.OPEN) {
+                coreWs.send(
+                  JSON.stringify({ type: "subscribe", channel: `order_book/${cm.market_id}` }),
+                );
+              }
+              if (rhWs && rhWs.readyState === WebSocket.OPEN) {
+                rhWs.send(
+                  JSON.stringify({ type: "subscribe", channel: `order_book/${rm.market_id}` }),
+                );
+              }
+            }
+          }
+
+          // Clean up delisted markets from maps
+          for (const [mid, sym] of marketIdToSymbol.core.entries()) {
+            if (!map.has(sym)) marketIdToSymbol.core.delete(mid);
+          }
+          for (const [mid, sym] of marketIdToSymbol.rh.entries()) {
+            if (!map.has(sym)) marketIdToSymbol.rh.delete(mid);
+          }
+          for (const sym of dirtySymbols) {
+            if (!map.has(sym)) dirtySymbols.delete(sym);
+          }
+          for (const sym of state.emaMap.keys()) {
+            if (!map.has(sym)) state.emaMap.delete(sym);
           }
 
           state.markets = map;
@@ -949,8 +1081,14 @@
 
           // Trigger initial sync once snapshots begin arriving
           triggerWarmupSync();
+
+          // Schedule regular refresh in 60s
+          scheduleNextFetch(60000);
         } catch (e) {
           console.error("Error fetching market metadata:", e);
+          scheduleNextFetch(5000);
+        } finally {
+          fetchInFlight = false;
         }
       }
 
@@ -965,6 +1103,17 @@
       let rhReconnectDelay = 2000;
       let coreWs = null;
       let rhWs = null;
+      let lastCoreMsgAt = 0;
+      let lastRhMsgAt = 0;
+
+      let lastWsErrLog = 0;
+      function logWsError(prefix, err) {
+        const now = performance.now();
+        if (now - lastWsErrLog > 5000) {
+          lastWsErrLog = now;
+          console.error(`[WS] ${prefix}:`, err);
+        }
+      }
 
       function initWebSockets() {
         const coreDot = document.getElementById("coreWsDot");
@@ -993,6 +1142,7 @@
 
           ws.addEventListener("open", () => {
             state.isCoreConnected = true;
+            lastCoreMsgAt = Date.now();
             coreReconnectDelay = 2000; // Reset backoff on success
             coreDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-emerald";
             for (const m of state.markets.values()) {
@@ -1010,21 +1160,34 @@
           });
 
           ws.addEventListener("message", (e) => {
+            lastCoreMsgAt = Date.now();
             try {
               const d = JSON.parse(e.data);
+              if (d.type === "ping") {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: "pong" }));
+                }
+                return;
+              }
               if (d.channel?.startsWith("order_book:") && d.order_book) {
                 const mid = parseInt(d.channel.split(":")[1], 10);
                 const symbol = marketIdToSymbol.core.get(mid);
                 const book = getOrCreateBook(state.coreBooks, mid);
-                updateBookFromWs(book, d.order_book);
+                const isSnapshot = d.type === "subscribed/order_book";
+                updateBookFromWs(book, d.order_book, isSnapshot, d.offset || d.order_book?.offset);
                 if (symbol) dirtySymbols.add(symbol);
                 scheduleInPlaceUpdate();
               }
-            } catch {}
+            } catch (err) {
+              logWsError("core message parse error", err);
+            }
           });
 
           ws.addEventListener("close", () => {
             state.isCoreConnected = false;
+            for (const b of state.coreBooks.values()) {
+              b.isSnapshotReceived = false;
+            }
             if (corePingTimer) {
               clearInterval(corePingTimer);
               corePingTimer = null;
@@ -1035,7 +1198,8 @@
             coreReconnectTimer = setTimeout(connectCore, delay);
           });
 
-          ws.addEventListener("error", () => {
+          ws.addEventListener("error", (err) => {
+            logWsError("core ws error", err);
             try {
               ws.close();
             } catch {}
@@ -1065,6 +1229,7 @@
 
           ws.addEventListener("open", () => {
             state.isRhConnected = true;
+            lastRhMsgAt = Date.now();
             rhReconnectDelay = 2000; // Reset backoff on success
             rhDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-emerald";
             for (const m of state.markets.values()) {
@@ -1080,21 +1245,34 @@
           });
 
           ws.addEventListener("message", (e) => {
+            lastRhMsgAt = Date.now();
             try {
               const d = JSON.parse(e.data);
+              if (d.type === "ping") {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: "pong" }));
+                }
+                return;
+              }
               if (d.channel?.startsWith("order_book:") && d.order_book) {
                 const mid = parseInt(d.channel.split(":")[1], 10);
                 const symbol = marketIdToSymbol.rh.get(mid);
                 const book = getOrCreateBook(state.rhBooks, mid);
-                updateBookFromWs(book, d.order_book);
+                const isSnapshot = d.type === "subscribed/order_book";
+                updateBookFromWs(book, d.order_book, isSnapshot, d.offset || d.order_book?.offset);
                 if (symbol) dirtySymbols.add(symbol);
                 scheduleInPlaceUpdate();
               }
-            } catch {}
+            } catch (err) {
+              logWsError("rh message parse error", err);
+            }
           });
 
           ws.addEventListener("close", () => {
             state.isRhConnected = false;
+            for (const b of state.rhBooks.values()) {
+              b.isSnapshotReceived = false;
+            }
             if (rhPingTimer) {
               clearInterval(rhPingTimer);
               rhPingTimer = null;
@@ -1105,7 +1283,8 @@
             rhReconnectTimer = setTimeout(connectRh, delay);
           });
 
-          ws.addEventListener("error", () => {
+          ws.addEventListener("error", (err) => {
+            logWsError("rh ws error", err);
             try {
               ws.close();
             } catch {}
@@ -1122,6 +1301,7 @@
       let updateScheduled = false;
       let lastRenderTime = 0;
       let isWarmupActive = true;
+      let hasInitialRenderHappened = false;
       setTimeout(() => {
         isWarmupActive = false;
       }, 3500);
@@ -1136,7 +1316,7 @@
       }
 
       function scheduleInPlaceUpdate() {
-        if (state.displayedSymbolsOrder.length === 0 || isWarmupActive) {
+        if (!hasInitialRenderHappened || isWarmupActive) {
           triggerWarmupSync();
         }
 
@@ -1156,6 +1336,33 @@
         }, wait);
       }
 
+      function applyNullMetricsToDom(cache, m) {
+        if (cache.verdictText !== "NO_DATA") {
+          cache.verdictText = "NO_DATA";
+          cache.verdictEl.textContent = "○ NO DATA";
+          cache.verdictEl.className =
+            "verdict-badge text-[11px] font-semibold text-terminal-muted";
+        }
+        if (cache.copyBtn && !cache.copyBtn.dataset.isCopied) {
+          cache.copyBtn.textContent = "—";
+          delete cache.copyBtn.dataset.rawQty;
+          delete cache.copyBtn.dataset.label;
+        }
+        cache.rtLossEl.textContent = "—";
+        cache.rtLossEl.className =
+          "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs";
+        cache.ptCostEl.textContent = "—";
+        cache.ptCostEl.className =
+          "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
+        cache.turnoverDragEl.textContent = "—";
+        cache.midPriceEl.textContent = "—";
+        if (cache.deltaMidEl) {
+          cache.deltaMidEl.textContent = "—";
+          cache.deltaMidEl.className = "delta-mid-val text-[10px] text-terminal-muted tabular-nums";
+        }
+        cache.depthEl.textContent = "—";
+      }
+
       // Applies metrics to DOM without touching row order
       function applyRowMetricsToDom(cache, row) {
         // 1. Verdict indicator
@@ -1167,6 +1374,10 @@
               "verdict-badge text-[11px] font-semibold text-terminal-emerald";
           } else if (row.status === "SLIPPAGE") {
             cache.verdictEl.textContent = "▲ SLIP";
+            cache.verdictEl.className =
+              "verdict-badge text-[11px] font-semibold text-terminal-amber";
+          } else if (row.status === "STALE") {
+            cache.verdictEl.textContent = "● STALE";
             cache.verdictEl.className =
               "verdict-badge text-[11px] font-semibold text-terminal-amber";
           } else {
@@ -1186,7 +1397,11 @@
         }
 
         // 3. Round-Trip Loss ($)
-        if (!row.allFilled) {
+        if (row.isStale) {
+          cache.rtLossEl.textContent = "—";
+          cache.rtLossEl.className =
+            "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs";
+        } else if (!row.allFilled) {
           cache.rtLossEl.textContent = "N/A (< liq)";
           cache.rtLossEl.className =
             "rt-loss-val font-semibold text-terminal-coral tabular-nums text-xs";
@@ -1205,7 +1420,11 @@
         }
 
         // 4. Point Cost ($/pt)
-        if (!row.allFilled) {
+        if (row.isStale) {
+          cache.ptCostEl.textContent = "—";
+          cache.ptCostEl.className =
+            "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
+        } else if (!row.allFilled) {
           cache.ptCostEl.textContent = "N/A";
           cache.ptCostEl.className =
             "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
@@ -1224,7 +1443,9 @@
         }
 
         // 5. Turnover Drag in bps
-        if (!row.allFilled) {
+        if (row.isStale) {
+          cache.turnoverDragEl.textContent = "—";
+        } else if (!row.allFilled) {
           cache.turnoverDragEl.textContent = "N/A";
         } else {
           cache.turnoverDragEl.textContent = formatBps(row.vwapTotalDragBps);
@@ -1243,12 +1464,14 @@
           }
         }
 
-        // 7. Depth
+        // 7. Depth & 24h Vol
         cache.depthEl.textContent = formatMoney(row.minDepthUsd);
+        if (cache.volEl) {
+          cache.volEl.textContent = formatMoney(row.totalVolume24h);
+        }
       }
 
       function updateCellsInPlace(forceAll = false) {
-        const targetUsd = state.targetSizeUsd;
         const symbols = forceAll
           ? state.displayedSymbolsOrder
           : state.displayedSymbolsOrder.filter((sym) => dirtySymbols.has(sym));
@@ -1260,11 +1483,14 @@
           const m = state.markets.get(symbol);
           if (!m) continue;
 
-          const row = calculateMarketMetrics(m, targetUsd);
-          if (!row) continue;
-          m.latestMetrics = row;
-
+          const row = getMetrics(m);
           const cache = rowDomCache.get(symbol);
+
+          if (!row) {
+            if (cache) applyNullMetricsToDom(cache, m);
+            continue;
+          }
+
           if (!cache) continue;
 
           applyRowMetricsToDom(cache, row);
@@ -1274,27 +1500,28 @@
           }
         }
 
-        // Update executive summary card with current leader
-        // Must be a legitimate [READY] market with all legs filled, positive roundtrip cost, and normal spread
+        // Update executive summary card with absolute current leader from visible, non-filtered markets
         let topRow = null;
-        for (const symbol of state.displayedSymbolsOrder) {
-          const m = state.markets.get(symbol);
+        let bestCost = Infinity;
+        const nowTime = performance.now();
+        for (const sym of state.displayedSymbolsOrder) {
+          const m = state.markets.get(sym);
           const r = m?.latestMetrics;
           if (
             r &&
             r.status === "READY" &&
             r.allFilled &&
-            r.costUsd > 0 &&
+            !r.isStale &&
+            r.costUsd > -50 &&
             r.costUsd < 1000 &&
-            r.entryDragBps > -20.0
+            nowTime - (r.computedAt || 0) < 3500 &&
+            r.costUsd < bestCost
           ) {
+            bestCost = r.costUsd;
             topRow = r;
-            break;
           }
         }
-        if (topRow) {
-          updateExecutiveSummary(topRow);
-        }
+        updateExecutiveSummary(topRow);
       }
 
       function updateExecutiveSummary(r) {
@@ -1302,46 +1529,55 @@
           const el = document.getElementById(id);
           if (el) el.textContent = text;
         };
-        setEl("topSymbol", r.symbol);
-        setEl("topLeverage", r.leverage);
-        setEl("topMidPrice", formatPrice(r.midPrice));
 
         const topQtyBtn = document.getElementById("topCopyQtyBtn");
-        if (topQtyBtn) {
-          topQtyBtn.dataset.rawQty = r.copyQty;
-          topQtyBtn.dataset.label = r.qtyLabel;
-          if (!topQtyBtn.dataset.isCopied) {
-            setEl("topQtyText", r.qtyLabel);
+        const vBadge = document.getElementById("topVerdictBadge");
+
+        if (!r) {
+          setEl("topSymbol", "--");
+          setEl("topLeverage", "--");
+          setEl("topLossUsd", "$--");
+          setEl("topEntryLossUsd", "");
+          setEl("topPointCost", "$--/pt");
+          setEl("topVwapDrag", "-- bps");
+          setEl("topLiquidity", "$--");
+          if (topQtyBtn) {
+            topQtyBtn.textContent = "-- sh";
+            delete topQtyBtn.dataset.rawQty;
+            delete topQtyBtn.dataset.label;
           }
+          if (vBadge) {
+            vBadge.textContent = "○ SCANNING";
+            vBadge.className = "text-[11px] font-semibold text-terminal-muted";
+          }
+          return;
         }
 
+        setEl("topSymbol", r.symbol);
+        setEl("topLeverage", r.leverage);
         setEl("topLossUsd", formatMoney(r.costUsd));
         const sign = r.entryLossUsd > 0 ? "+" : "";
         setEl("topEntryLossUsd", `(${sign}${formatMoney(r.entryLossUsd)} entry)`);
         setEl("topPointCost", `$${r.pointCostUsd.toFixed(2)}/pt`);
         setEl("topVwapDrag", formatBps(r.vwapTotalDragBps));
-        setEl("topDeltaMid", formatDeltaMid(r.deltaMidUsd, r.deltaMidBps));
-        setEl("topVolume", formatMoney(r.totalVolume24h));
         setEl("topLiquidity", formatMoney(r.minDepthUsd));
 
-        const vBadge = document.getElementById("topVerdictBadge");
-        if (vBadge) {
-          if (r.status === "READY") {
-            vBadge.textContent = "● READY";
-            vBadge.className = "text-[11px] font-semibold text-terminal-emerald";
-          } else if (r.status === "SLIPPAGE") {
-            vBadge.textContent = "▲ SLIP";
-            vBadge.className = "text-[11px] font-semibold text-terminal-amber";
-          } else {
-            vBadge.textContent = "✕ THIN";
-            vBadge.className = "text-[11px] font-semibold text-terminal-coral";
+        if (topQtyBtn) {
+          topQtyBtn.dataset.rawQty = r.copyQty;
+          topQtyBtn.dataset.label = r.qtyLabel;
+          if (!topQtyBtn.dataset.isCopied) {
+            topQtyBtn.textContent = r.qtyLabel;
           }
+        }
+
+        if (vBadge) {
+          vBadge.textContent = "● READY";
+          vBadge.className = "text-[11px] font-semibold text-terminal-emerald";
         }
       }
 
       // Full Re-ranking: computes order, builds DOM rows once or reorders them without flickering
       function rerank() {
-        const targetUsd = state.targetSizeUsd;
         const rows = [];
 
         for (const m of state.markets.values()) {
@@ -1353,9 +1589,8 @@
           )
             continue;
 
-          const row = calculateMarketMetrics(m, targetUsd);
+          const row = getMetrics(m);
           if (row) {
-            m.latestMetrics = row;
             if (state.filterReadyOnly && row.status !== "READY") continue;
             rows.push(row);
           }
@@ -1367,10 +1602,10 @@
           if (state.sortColumn === "symbol") return a.symbol.localeCompare(b.symbol) * dir;
           if (state.sortColumn === "leverage") return (a.leverageNum - b.leverageNum) * dir;
           if (state.sortColumn === "status") {
-            const rank = { READY: 1, SLIPPAGE: 2, "LOW LIQ": 3 };
+            const rank = { READY: 1, SLIPPAGE: 2, "LOW LIQ": 3, STALE: 4 };
             return ((rank[a.status] || 9) - (rank[b.status] || 9)) * dir;
           }
-          // Push non-ready markets (SLIPPAGE, LOW LIQ) to the bottom below READY markets
+          // Push non-ready markets (SLIPPAGE, LOW LIQ, STALE) to the bottom below READY markets
           const rankA = a.status === "READY" ? 0 : a.status === "SLIPPAGE" ? 1 : 2;
           const rankB = b.status === "READY" ? 0 : b.status === "SLIPPAGE" ? 1 : 2;
           if (rankA !== rankB) return rankA - rankB;
@@ -1409,6 +1644,8 @@
             </tr>
           `;
           }
+          hasInitialRenderHappened = true;
+          updateExecutiveSummary(null);
           return;
         }
 
@@ -1432,24 +1669,13 @@
         tableBody.innerHTML = "";
         tableBody.appendChild(fragment);
 
-        // Immediate full update of rendered cells
+        // Immediate full update of rendered cells (also updates executive summary)
         updateCellsInPlace(true);
 
-        // Update executive summary card with current leader immediately
-        const topLead = rows.find(
-          (r) =>
-            r.status === "READY" &&
-            r.allFilled &&
-            r.costUsd > 0 &&
-            r.costUsd < 1000 &&
-            r.entryDragBps > -20.0,
-        );
-        if (topLead) {
-          updateExecutiveSummary(topLead);
-        }
-
+        hasInitialRenderHappened = true;
         // Reset timer
         state.rerankTimerRemaining = CONFIG.RERANK_INTERVAL_SEC;
+        window.resetHysteresisTimer?.();
       }
 
       function createRowElement(r) {
@@ -1461,15 +1687,13 @@
         tr.innerHTML = `
         <td class="py-2 px-3 sticky-symbol font-semibold text-white">
           <div class="flex items-center gap-2">
-            <span class="symbol-name font-bold">${r.symbol}</span>
-            <span class="text-terminal-muted text-[11px]">${r.leverage}</span>
+            <span class="symbol-name font-bold"></span>
+            <span class="symbol-lev text-terminal-muted text-[11px]"></span>
             <button
               type="button"
               class="copy-qty-btn text-[11px] text-terminal-muted hover:text-terminal-accent hover:underline transition tabular-nums ml-1"
               title="Click to copy size"
-            >
-              ${r.qtyLabel}
-            </button>
+            ></button>
           </div>
         </td>
         <td class="py-2 px-2 text-center">
@@ -1488,7 +1712,7 @@
         </td>
         <td class="py-2 px-3 text-right depth-cell tabular-nums text-terminal-muted text-xs">$0.00</td>
         <td class="py-2 px-3 text-right vol-cell tabular-nums text-terminal-secondary text-xs">
-          <span>${formatMoney(r.totalVolume24h)}</span>
+          <span>$0.00</span>
         </td>
         <td class="py-2 px-2 text-center text-terminal-muted chevron-cell">
           <svg class="w-3 h-3 inline-block transition-transform opacity-40 hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1497,9 +1721,10 @@
         </td>
       `;
 
-        tr.addEventListener("click", () => toggleExpand(r.symbol));
-
+        tr.querySelector(".symbol-name").textContent = r.symbol;
+        tr.querySelector(".symbol-lev").textContent = r.leverage;
         const copyBtn = tr.querySelector(".copy-qty-btn");
+        copyBtn.textContent = r.qtyLabel;
         copyBtn.dataset.rawQty = r.copyQty;
         copyBtn.dataset.label = r.qtyLabel;
         copyBtn.addEventListener("click", (e) => {
@@ -1508,6 +1733,8 @@
           if (!raw) return;
           copyToClipboard(raw, copyBtn, copyBtn.dataset.label || raw);
         });
+
+        tr.addEventListener("click", () => toggleExpand(r.symbol));
 
         return {
           tr,
@@ -1519,7 +1746,7 @@
           midPriceEl: tr.querySelector(".mid-price-val"),
           deltaMidEl: tr.querySelector(".delta-mid-val"),
           depthEl: tr.querySelector(".depth-cell"),
-          volEl: tr.querySelector(".vol-cell"),
+          volEl: tr.querySelector(".vol-cell span"),
           chevronEl: tr.querySelector(".chevron-cell svg"),
           verdictText: "",
         };
@@ -1531,11 +1758,12 @@
           if (detailRowDom) detailRowDom.remove();
           detailRowDom = null;
         } else {
-          state.expandedSymbol = symbol;
           const m = state.markets.get(symbol);
           if (!m) return;
           const row = calculateMarketMetrics(m, state.targetSizeUsd);
           if (!row) return;
+
+          state.expandedSymbol = symbol;
 
           if (!detailRowDom) {
             detailRowDom = document.createElement("tr");
@@ -1564,84 +1792,152 @@
 
       function updateDetailRow(r) {
         const l = r.legs;
-        detailRowDom.innerHTML = `
-        <td colspan="9" class="p-3 bg-[#0e1013] border-b border-terminal-border">
-          <div class="max-w-5xl mx-auto space-y-2 font-mono text-xs">
-            <!-- Sub-header Meta -->
-            <div class="flex flex-wrap items-center justify-between text-[11px] pb-1.5 border-b border-terminal-borderSubtle text-terminal-muted gap-2">
-              <div class="flex items-center gap-3">
-                <span class="text-white font-bold tracking-tight">${r.symbol} 4-LEG EXECUTION BLOTTER</span>
-                <span>Size: <strong class="text-terminal-primary">${formatMoney(state.targetSizeUsd)}</strong> (${r.qtyLabel})</span>
-                <span>Lev: <span class="text-terminal-secondary">RH ${r.rhLeverage} / Core ${r.coreLeverage}</span></span>
-              </div>
-              <div class="flex items-center gap-4">
-                <span>Basis (Δ Mid): <strong class="${Math.abs(r.deltaMidBps) > 6 ? "text-terminal-amber" : "text-terminal-primary"}">${formatDeltaMid(r.deltaMidUsd, r.deltaMidBps)}</strong></span>
-                <span>RT Drag: <strong class="text-terminal-primary">${formatBps(r.vwapTotalDragBps)}</strong></span>
-                <span>Net Loss: <strong class="text-terminal-emerald">${formatMoney(r.costUsd)}</strong></span>
-              </div>
-            </div>
+        if (!detailRowDom) return;
 
-            <!-- Execution Table Ladder (Strict Data Alignment) -->
-            <div class="overflow-x-auto">
-              <table class="w-full text-left text-[11px] border-collapse">
-                <thead>
-                  <tr class="text-terminal-muted border-b border-terminal-borderSubtle text-[10px] uppercase">
-                    <th class="py-1 px-2 font-medium">Leg / Order</th>
-                    <th class="py-1 px-2 font-medium">Side & Action</th>
-                    <th class="py-1 px-2 text-right font-medium">Top of Book</th>
-                    <th class="py-1 px-2 text-right font-medium">VWAP Fill</th>
-                    <th class="py-1 px-2 text-right font-medium">Slippage</th>
-                    <th class="py-1 px-2 text-right font-medium">Levels Swept</th>
-                    <th class="py-1 px-2 text-right font-medium">Book Depth</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-terminal-borderSubtle/60 tabular-nums">
-                  <!-- Leg 1 -->
-                  <tr>
-                    <td class="py-1.5 px-2 font-bold text-terminal-emerald">LEG 1: Open Long</td>
-                    <td class="py-1.5 px-2 text-terminal-secondary">Robinhood (Buy Ask)</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatPrice(l.rhBestAsk)}</td>
-                    <td class="py-1.5 px-2 text-right text-white font-semibold">${formatPrice(l.entryRh.avgPrice)}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-emerald">${formatBps(l.entryRh.slippageBps, true)}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-secondary">${l.entryRh.levelsSwept}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatMoney(l.entryRh.totalAvailableUsd)}</td>
-                  </tr>
-                  <!-- Leg 2 -->
-                  <tr>
-                    <td class="py-1.5 px-2 font-bold text-terminal-coral">LEG 2: Open Short</td>
-                    <td class="py-1.5 px-2 text-terminal-secondary">Lighter Core (Sell Bid)</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatPrice(l.coreBestBid)}</td>
-                    <td class="py-1.5 px-2 text-right text-white font-semibold">${formatPrice(l.entryCore.avgPrice)}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-coral">${formatBps(l.entryCore.slippageBps, true)}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-secondary">${l.entryCore.levelsSwept}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatMoney(l.entryCore.totalAvailableUsd)}</td>
-                  </tr>
-                  <!-- Leg 3 -->
-                  <tr>
-                    <td class="py-1.5 px-2 font-medium text-terminal-secondary">LEG 3: Close Long</td>
-                    <td class="py-1.5 px-2 text-terminal-muted">Robinhood (Sell Bid)</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatPrice(l.rhBestBid)}</td>
-                    <td class="py-1.5 px-2 text-right text-white">${formatPrice(l.exitRh.avgPrice)}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatBps(l.exitRh.slippageBps, true)}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-secondary">${l.exitRh.levelsSwept}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatMoney(l.exitRh.totalAvailableUsd)}</td>
-                  </tr>
-                  <!-- Leg 4 -->
-                  <tr>
-                    <td class="py-1.5 px-2 font-medium text-terminal-secondary">LEG 4: Close Short</td>
-                    <td class="py-1.5 px-2 text-terminal-muted">Lighter Core (Buy Ask)</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatPrice(l.coreBestAsk)}</td>
-                    <td class="py-1.5 px-2 text-right text-white">${formatPrice(l.exitCore.avgPrice)}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatBps(l.exitCore.slippageBps, true)}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-secondary">${l.exitCore.levelsSwept}</td>
-                    <td class="py-1.5 px-2 text-right text-terminal-muted">${formatMoney(l.exitCore.totalAvailableUsd)}</td>
-                  </tr>
-                </tbody>
-              </table>
+        // If we switched to a different symbol, rebuild template
+        if (detailRowDom.dataset.symbol !== r.symbol) {
+          detailRowDom.dataset.symbol = r.symbol;
+          detailRowDom.innerHTML = `
+          <td colspan="9" class="p-3 bg-[#0e1013] border-b border-terminal-border">
+            <div class="max-w-5xl mx-auto space-y-2 font-mono text-xs">
+              <!-- Sub-header Meta -->
+              <div class="flex flex-wrap items-center justify-between text-[11px] pb-1.5 border-b border-terminal-borderSubtle text-terminal-muted gap-2">
+                <div class="flex items-center gap-3">
+                  <span id="dtlHeader" class="text-white font-bold tracking-tight"></span>
+                  <span>Size: <strong id="dtlSize" class="text-terminal-primary"></strong></span>
+                  <span>Lev: <span id="dtlLev" class="text-terminal-secondary"></span></span>
+                </div>
+                <div class="flex items-center gap-4">
+                  <span>Basis (Δ Mid): <strong id="dtlBasis"></strong></span>
+                  <span>RT Drag: <strong id="dtlRtDrag" class="text-terminal-primary"></strong></span>
+                  <span>RT Loss: <strong id="dtlNetLoss" class="text-terminal-emerald"></strong></span>
+                </div>
+              </div>
+
+              <!-- Execution Table Ladder (Strict Data Alignment) -->
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-[11px] border-collapse">
+                  <thead>
+                    <tr class="text-terminal-muted border-b border-terminal-borderSubtle text-[10px] uppercase">
+                      <th class="py-1 px-2 font-medium">Leg / Order</th>
+                      <th class="py-1 px-2 font-medium">Side & Action</th>
+                      <th class="py-1 px-2 text-right font-medium">Top of Book</th>
+                      <th class="py-1 px-2 text-right font-medium">VWAP Fill</th>
+                      <th class="py-1 px-2 text-right font-medium">Slippage</th>
+                      <th class="py-1 px-2 text-right font-medium">Levels Swept</th>
+                      <th class="py-1 px-2 text-right font-medium">Book Depth</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-terminal-borderSubtle/60 tabular-nums">
+                    <!-- Leg 1 -->
+                    <tr>
+                      <td class="py-1.5 px-2 font-bold text-terminal-emerald">LEG 1: Open Long</td>
+                      <td class="py-1.5 px-2 text-terminal-secondary">Robinhood (Buy Ask)</td>
+                      <td id="dtlL1Top" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                      <td id="dtlL1Fill" class="py-1.5 px-2 text-right text-white font-semibold"></td>
+                      <td id="dtlL1Slip" class="py-1.5 px-2 text-right"></td>
+                      <td id="dtlL1Swept" class="py-1.5 px-2 text-right text-terminal-secondary"></td>
+                      <td id="dtlL1Depth" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                    </tr>
+                    <!-- Leg 2 -->
+                    <tr>
+                      <td class="py-1.5 px-2 font-bold text-terminal-coral">LEG 2: Open Short</td>
+                      <td class="py-1.5 px-2 text-terminal-secondary">Lighter Core (Sell Bid)</td>
+                      <td id="dtlL2Top" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                      <td id="dtlL2Fill" class="py-1.5 px-2 text-right text-white font-semibold"></td>
+                      <td id="dtlL2Slip" class="py-1.5 px-2 text-right"></td>
+                      <td id="dtlL2Swept" class="py-1.5 px-2 text-right text-terminal-secondary"></td>
+                      <td id="dtlL2Depth" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                    </tr>
+                    <!-- Leg 3 -->
+                    <tr>
+                      <td class="py-1.5 px-2 font-medium text-terminal-secondary">LEG 3: Close Long</td>
+                      <td class="py-1.5 px-2 text-terminal-muted">Robinhood (Sell Bid)</td>
+                      <td id="dtlL3Top" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                      <td id="dtlL3Fill" class="py-1.5 px-2 text-right text-white"></td>
+                      <td id="dtlL3Slip" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                      <td id="dtlL3Swept" class="py-1.5 px-2 text-right text-terminal-secondary"></td>
+                      <td id="dtlL3Depth" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                    </tr>
+                    <!-- Leg 4 -->
+                    <tr>
+                      <td class="py-1.5 px-2 font-medium text-terminal-secondary">LEG 4: Close Short</td>
+                      <td class="py-1.5 px-2 text-terminal-muted">Lighter Core (Buy Ask)</td>
+                      <td id="dtlL4Top" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                      <td id="dtlL4Fill" class="py-1.5 px-2 text-right text-white"></td>
+                      <td id="dtlL4Slip" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                      <td id="dtlL4Swept" class="py-1.5 px-2 text-right text-terminal-secondary"></td>
+                      <td id="dtlL4Depth" class="py-1.5 px-2 text-right text-terminal-muted"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        </td>
-      `;
+          </td>
+          `;
+        }
+
+        // Granular in-place text updates without resetting selection or re-parsing HTML
+        const setEl = (id, text) => {
+          const el = document.getElementById(id);
+          if (el && el.textContent !== text) el.textContent = text;
+        };
+
+        setEl("dtlHeader", `${r.symbol} 4-LEG EXECUTION BLOTTER`);
+        setEl("dtlSize", `${formatMoney(state.targetSizeUsd)} (${r.qtyLabel})`);
+        setEl("dtlLev", `RH ${r.rhLeverage} / Core ${r.coreLeverage}`);
+
+        const basisEl = document.getElementById("dtlBasis");
+        if (basisEl) {
+          basisEl.textContent = formatDeltaMid(r.deltaMidUsd, r.deltaMidBps);
+          basisEl.className =
+            Math.abs(r.deltaMidBps) > 6 ? "text-terminal-amber" : "text-terminal-primary";
+        }
+
+        setEl("dtlRtDrag", formatBps(r.vwapTotalDragBps));
+        setEl("dtlNetLoss", formatMoney(r.costUsd));
+
+        // Leg 1
+        setEl("dtlL1Top", formatPrice(l.rhBestAsk));
+        setEl("dtlL1Fill", formatPrice(l.entryRh.avgPrice));
+        const l1Slip = document.getElementById("dtlL1Slip");
+        if (l1Slip) {
+          l1Slip.textContent = formatBps(l.entryRh.slippageBps, true);
+          l1Slip.className =
+            l.entryRh.slippageBps > 5
+              ? "py-1.5 px-2 text-right text-terminal-coral"
+              : "py-1.5 px-2 text-right text-terminal-secondary";
+        }
+        setEl("dtlL1Swept", String(l.entryRh.levelsSwept));
+        setEl("dtlL1Depth", formatMoney(l.entryRh.totalAvailableUsd));
+
+        // Leg 2
+        setEl("dtlL2Top", formatPrice(l.coreBestBid));
+        setEl("dtlL2Fill", formatPrice(l.entryCore.avgPrice));
+        const l2Slip = document.getElementById("dtlL2Slip");
+        if (l2Slip) {
+          l2Slip.textContent = formatBps(l.entryCore.slippageBps, true);
+          l2Slip.className =
+            l.entryCore.slippageBps > 5
+              ? "py-1.5 px-2 text-right text-terminal-coral"
+              : "py-1.5 px-2 text-right text-terminal-secondary";
+        }
+        setEl("dtlL2Swept", String(l.entryCore.levelsSwept));
+        setEl("dtlL2Depth", formatMoney(l.entryCore.totalAvailableUsd));
+
+        // Leg 3
+        setEl("dtlL3Top", formatPrice(l.rhBestBid));
+        setEl("dtlL3Fill", formatPrice(l.exitRh.avgPrice));
+        setEl("dtlL3Slip", formatBps(l.exitRh.slippageBps, true));
+        setEl("dtlL3Swept", String(l.exitRh.levelsSwept));
+        setEl("dtlL3Depth", formatMoney(l.exitRh.totalAvailableUsd));
+
+        // Leg 4
+        setEl("dtlL4Top", formatPrice(l.coreBestAsk));
+        setEl("dtlL4Fill", formatPrice(l.exitCore.avgPrice));
+        setEl("dtlL4Slip", formatBps(l.exitCore.slippageBps, true));
+        setEl("dtlL4Swept", String(l.exitCore.levelsSwept));
+        setEl("dtlL4Depth", formatMoney(l.exitCore.totalAvailableUsd));
       }
 
       // ------------------------------------------------------------------------
@@ -1649,12 +1945,21 @@
       // ------------------------------------------------------------------------
       function setupHysteresisTimer() {
         const timerText = document.getElementById("rerankTimerText");
+        let targetExpiry = performance.now() + CONFIG.RERANK_INTERVAL_SEC * 1000;
+
+        window.resetHysteresisTimer = () => {
+          targetExpiry = performance.now() + CONFIG.RERANK_INTERVAL_SEC * 1000;
+        };
 
         setInterval(() => {
           if (!state.isAutoSortEnabled) return;
 
-          state.rerankTimerRemaining -= 0.2;
-          if (state.rerankTimerRemaining <= 0) {
+          const now = performance.now();
+          const remainingSec = Math.max(0, (targetExpiry - now) / 1000);
+          state.rerankTimerRemaining = remainingSec;
+
+          if (remainingSec <= 0) {
+            targetExpiry = performance.now() + CONFIG.RERANK_INTERVAL_SEC * 1000;
             state.rerankTimerRemaining = CONFIG.RERANK_INTERVAL_SEC;
             rerank();
           }
@@ -1692,6 +1997,7 @@
           const val = parseFloat(e.target.value);
           if (!isNaN(val) && val > 0) {
             state.targetSizeUsd = val;
+            state.emaMap.clear();
             document.querySelectorAll(".size-btn").forEach((btn) => {
               const sz = parseFloat(btn.dataset.size);
               if (sz === val) {
@@ -1721,6 +2027,7 @@
           btn.addEventListener("click", () => {
             const sz = parseFloat(btn.dataset.size);
             state.targetSizeUsd = sz;
+            state.emaMap.clear();
             sizeInput.value = sz;
 
             document.querySelectorAll(".size-btn").forEach((b) => {
@@ -1876,9 +2183,6 @@
       setupEventListeners();
       setupHysteresisTimer();
       fetchMarkets();
-
-      // Background refresh of 24h volumes & OI every 60s
-      setInterval(fetchMarkets, 60000);
     </script>
   </body>
 </html>
