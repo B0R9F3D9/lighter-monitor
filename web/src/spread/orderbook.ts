@@ -32,19 +32,29 @@ export function updateBookFromWs(
     book.asks.clear();
     book.bids.clear();
   }
-  if (orderBook.asks) {
-    for (const { price, size } of orderBook.asks) {
-      const p = typeof price === "number" ? price : parseFloat(price);
-      const s = typeof size === "number" ? size : parseFloat(size);
+  const asks = orderBook.asks;
+  if (asks) {
+    const len = asks.length;
+    for (let i = 0; i < len; i++) {
+      const item = asks[i]!;
+      const price = item.price;
+      const size = item.size;
+      const p = typeof price === "number" ? price : +price;
+      const s = typeof size === "number" ? size : +size;
       if (isNaN(p) || isNaN(s)) continue;
       if (s <= 0) book.asks.delete(p);
       else book.asks.set(p, s);
     }
   }
-  if (orderBook.bids) {
-    for (const { price, size } of orderBook.bids) {
-      const p = typeof price === "number" ? price : parseFloat(price);
-      const s = typeof size === "number" ? size : parseFloat(size);
+  const bids = orderBook.bids;
+  if (bids) {
+    const len = bids.length;
+    for (let i = 0; i < len; i++) {
+      const item = bids[i]!;
+      const price = item.price;
+      const size = item.size;
+      const p = typeof price === "number" ? price : +price;
+      const s = typeof size === "number" ? size : +size;
       if (isNaN(p) || isNaN(s)) continue;
       if (s <= 0) book.bids.delete(p);
       else book.bids.set(p, s);
@@ -60,10 +70,22 @@ export function getSortedLevels(
   isAsk: boolean,
   limit: number = CONFIG.ORDERBOOK_LEVELS_LIMIT,
 ): OrderBookLevel[] {
-  const arr: OrderBookLevel[] = [];
-  for (const [price, totalBase] of map.entries()) {
-    arr.push({ price, totalBase, totalUsd: price * totalBase });
+  const size = map.size;
+  if (size === 0) return [];
+
+  const prices: number[] = [];
+  for (const price of map.keys()) {
+    prices.push(price);
   }
-  arr.sort((a, b) => (isAsk ? a.price - b.price : b.price - a.price));
-  return arr.length > limit ? arr.slice(0, limit) : arr;
+
+  prices.sort(isAsk ? (a, b) => a - b : (a, b) => b - a);
+
+  const count = size > limit ? limit : size;
+  const result: OrderBookLevel[] = [];
+  for (let i = 0; i < count; i++) {
+    const p = prices[i]!;
+    const totalBase = map.get(p)!;
+    result.push({ price: p, totalBase, totalUsd: p * totalBase });
+  }
+  return result;
 }

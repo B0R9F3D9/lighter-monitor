@@ -5,9 +5,7 @@ export function formatMoney(num: number | undefined | null): string {
   if (abs >= 1e9) return sign + "$" + (abs / 1e9).toFixed(2) + "B";
   if (abs >= 1e6) return sign + "$" + (abs / 1e6).toFixed(2) + "M";
   if (abs >= 1e3) return sign + "$" + (abs / 1e3).toFixed(1) + "K";
-  return (
-    sign + "$" + abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  );
+  return sign + "$" + abs.toFixed(2);
 }
 
 export function formatPrice(p: number | undefined | null): string {

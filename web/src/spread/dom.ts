@@ -68,138 +68,210 @@ export function createRowElement(
   };
 }
 
+export function setTextIfChanged(el: HTMLElement | null, text: string): void {
+  if (el && el.textContent !== text) {
+    el.textContent = text;
+  }
+}
+
+export function setClassIfChanged(el: HTMLElement | null, className: string): void {
+  if (el && el.className !== className) {
+    el.className = className;
+  }
+}
+
 export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): void {
   // 1. Verdict indicator
   if (cache.verdictText !== row.status) {
     cache.verdictText = row.status;
     if (row.status === "READY") {
-      cache.verdictEl.textContent = "● READY";
-      cache.verdictEl.className = "verdict-badge text-[11px] font-semibold text-terminal-emerald";
+      setTextIfChanged(cache.verdictEl, "● READY");
+      setClassIfChanged(
+        cache.verdictEl,
+        "verdict-badge text-[11px] font-semibold text-terminal-emerald",
+      );
     } else if (row.status === "SLIPPAGE") {
-      cache.verdictEl.textContent = "▲ SLIP";
-      cache.verdictEl.className = "verdict-badge text-[11px] font-semibold text-terminal-amber";
+      setTextIfChanged(cache.verdictEl, "▲ SLIP");
+      setClassIfChanged(
+        cache.verdictEl,
+        "verdict-badge text-[11px] font-semibold text-terminal-amber",
+      );
     } else if (row.status === "STALE") {
-      cache.verdictEl.textContent = "● STALE";
-      cache.verdictEl.className = "verdict-badge text-[11px] font-semibold text-terminal-amber";
+      setTextIfChanged(cache.verdictEl, "● STALE");
+      setClassIfChanged(
+        cache.verdictEl,
+        "verdict-badge text-[11px] font-semibold text-terminal-amber",
+      );
     } else {
-      cache.verdictEl.textContent = "✕ THIN";
-      cache.verdictEl.className = "verdict-badge text-[11px] font-semibold text-terminal-coral";
+      setTextIfChanged(cache.verdictEl, "✕ THIN");
+      setClassIfChanged(
+        cache.verdictEl,
+        "verdict-badge text-[11px] font-semibold text-terminal-coral",
+      );
     }
   }
 
   // 1.5. Target / Optimal Size ($)
   if (cache.sizeEl) {
-    cache.sizeEl.textContent =
-      row.effectiveTargetUsd > 0 ? formatMoney(row.effectiveTargetUsd) : "—";
+    setTextIfChanged(
+      cache.sizeEl,
+      row.effectiveTargetUsd > 0 ? formatMoney(row.effectiveTargetUsd) : "—",
+    );
     if (row.isDynamic) {
-      cache.sizeEl.className = "tabular-nums font-bold text-terminal-accent text-xs";
-      cache.sizeEl.title = "Dynamically optimized size from live order book";
+      setClassIfChanged(cache.sizeEl, "tabular-nums font-bold text-terminal-accent text-xs");
+      if (cache.sizeEl.title !== "Dynamically optimized size from live order book") {
+        cache.sizeEl.title = "Dynamically optimized size from live order book";
+      }
     } else {
-      cache.sizeEl.className = "tabular-nums font-medium text-white text-xs";
-      cache.sizeEl.title = `Fixed target size: ${formatMoney(row.effectiveTargetUsd)}`;
+      setClassIfChanged(cache.sizeEl, "tabular-nums font-medium text-white text-xs");
+      const title = `Fixed target size: ${formatMoney(row.effectiveTargetUsd)}`;
+      if (cache.sizeEl.title !== title) {
+        cache.sizeEl.title = title;
+      }
     }
   }
 
   // 2. Round-Trip Loss ($)
   if (row.isStale) {
-    cache.rtLossEl.textContent = "—";
-    cache.rtLossEl.className = "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs";
+    setTextIfChanged(cache.rtLossEl, "—");
+    setClassIfChanged(
+      cache.rtLossEl,
+      "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs",
+    );
   } else if (!row.allFilled) {
-    cache.rtLossEl.textContent = "N/A (< liq)";
-    cache.rtLossEl.className = "rt-loss-val font-semibold text-terminal-coral tabular-nums text-xs";
+    setTextIfChanged(cache.rtLossEl, "N/A (< liq)");
+    setClassIfChanged(
+      cache.rtLossEl,
+      "rt-loss-val font-semibold text-terminal-coral tabular-nums text-xs",
+    );
   } else {
-    cache.rtLossEl.textContent = formatMoney(row.costUsd);
+    setTextIfChanged(cache.rtLossEl, formatMoney(row.costUsd));
     if (row.costUsd <= 3.0) {
-      cache.rtLossEl.className = "rt-loss-val font-bold text-terminal-emerald tabular-nums text-xs";
+      setClassIfChanged(
+        cache.rtLossEl,
+        "rt-loss-val font-bold text-terminal-emerald tabular-nums text-xs",
+      );
     } else if (row.costUsd <= 7.0) {
-      cache.rtLossEl.className =
-        "rt-loss-val font-semibold text-terminal-primary tabular-nums text-xs";
+      setClassIfChanged(
+        cache.rtLossEl,
+        "rt-loss-val font-semibold text-terminal-primary tabular-nums text-xs",
+      );
     } else {
-      cache.rtLossEl.className =
-        "rt-loss-val font-medium text-terminal-secondary tabular-nums text-xs";
+      setClassIfChanged(
+        cache.rtLossEl,
+        "rt-loss-val font-medium text-terminal-secondary tabular-nums text-xs",
+      );
     }
   }
 
   // 3. Point Cost ($/pt)
   if (row.isStale) {
-    cache.ptCostEl.textContent = "—";
-    cache.ptCostEl.className =
-      "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
+    setTextIfChanged(cache.ptCostEl, "—");
+    setClassIfChanged(
+      cache.ptCostEl,
+      "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs",
+    );
   } else if (!row.allFilled) {
-    cache.ptCostEl.textContent = "N/A";
-    cache.ptCostEl.className =
-      "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
+    setTextIfChanged(cache.ptCostEl, "N/A");
+    setClassIfChanged(
+      cache.ptCostEl,
+      "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs",
+    );
   } else {
-    cache.ptCostEl.textContent = `$${row.pointCostUsd.toFixed(2)} / pt`;
+    setTextIfChanged(cache.ptCostEl, `$${row.pointCostUsd.toFixed(2)} / pt`);
     if (row.pointCostUsd < 1.5) {
-      cache.ptCostEl.className =
-        "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums text-xs";
+      setClassIfChanged(
+        cache.ptCostEl,
+        "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums text-xs",
+      );
     } else if (row.pointCostUsd <= 3.0) {
-      cache.ptCostEl.className =
-        "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums text-xs";
+      setClassIfChanged(
+        cache.ptCostEl,
+        "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums text-xs",
+      );
     } else {
-      cache.ptCostEl.className =
-        "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums text-xs";
+      setClassIfChanged(
+        cache.ptCostEl,
+        "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums text-xs",
+      );
     }
   }
 
   // 4. Turnover Drag in bps
   if (row.isStale) {
-    cache.turnoverDragEl.textContent = "—";
+    setTextIfChanged(cache.turnoverDragEl, "—");
   } else if (!row.allFilled) {
-    cache.turnoverDragEl.textContent = "N/A";
+    setTextIfChanged(cache.turnoverDragEl, "N/A");
   } else {
-    cache.turnoverDragEl.textContent = formatBps(row.vwapTotalDragBps);
+    setTextIfChanged(cache.turnoverDragEl, formatBps(row.vwapTotalDragBps));
   }
 
   // 5. Mid Price & Inter-Exchange Basis (Delta Mid)
-  cache.midPriceEl.textContent = row.midPrice > 0 ? formatPrice(row.midPrice) : "—";
+  setTextIfChanged(cache.midPriceEl, row.midPrice > 0 ? formatPrice(row.midPrice) : "—");
   if (cache.deltaMidEl) {
-    cache.deltaMidEl.textContent =
-      row.midPrice > 0 ? `Δ ${formatPrice(Math.abs(row.deltaMidUsd))}` : "—";
+    setTextIfChanged(
+      cache.deltaMidEl,
+      row.midPrice > 0 ? `Δ ${formatPrice(Math.abs(row.deltaMidUsd))}` : "—",
+    );
     if (Math.abs(row.deltaMidBps) > 6.0) {
-      cache.deltaMidEl.className =
-        "delta-mid-val text-[10px] text-terminal-amber font-semibold tabular-nums";
+      setClassIfChanged(
+        cache.deltaMidEl,
+        "delta-mid-val text-[10px] text-terminal-amber font-semibold tabular-nums",
+      );
     } else {
-      cache.deltaMidEl.className = "delta-mid-val text-[10px] text-terminal-muted tabular-nums";
+      setClassIfChanged(
+        cache.deltaMidEl,
+        "delta-mid-val text-[10px] text-terminal-muted tabular-nums",
+      );
     }
   }
 
   // 6. 24h Vol & 24h OI
   if (cache.volEl) {
-    cache.volEl.textContent = formatMoney(row.totalVolume24h);
+    setTextIfChanged(cache.volEl, formatMoney(row.totalVolume24h));
   }
   if (cache.oiEl) {
-    cache.oiEl.textContent = formatMoney(row.totalOiUsd);
+    setTextIfChanged(cache.oiEl, formatMoney(row.totalOiUsd));
   }
 }
 
 export function applyNullMetricsToDom(cache: RowDomCache, m: MarketInfo): void {
   if (cache.verdictText !== "NO_DATA") {
     cache.verdictText = "NO_DATA";
-    cache.verdictEl.textContent = "○ NO DATA";
-    cache.verdictEl.className = "verdict-badge text-[11px] font-semibold text-terminal-muted";
+    setTextIfChanged(cache.verdictEl, "○ NO DATA");
+    setClassIfChanged(
+      cache.verdictEl,
+      "verdict-badge text-[11px] font-semibold text-terminal-muted",
+    );
   }
   if (cache.sizeEl) {
-    cache.sizeEl.textContent = "—";
-    cache.sizeEl.className = "tabular-nums font-medium text-terminal-muted text-xs";
+    setTextIfChanged(cache.sizeEl, "—");
+    setClassIfChanged(cache.sizeEl, "tabular-nums font-medium text-terminal-muted text-xs");
   }
-  cache.rtLossEl.textContent = "—";
-  cache.rtLossEl.className = "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs";
-  cache.ptCostEl.textContent = "—";
-  cache.ptCostEl.className =
-    "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
-  cache.turnoverDragEl.textContent = "—";
-  cache.midPriceEl.textContent = "—";
+  setTextIfChanged(cache.rtLossEl, "—");
+  setClassIfChanged(
+    cache.rtLossEl,
+    "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs",
+  );
+  setTextIfChanged(cache.ptCostEl, "—");
+  setClassIfChanged(
+    cache.ptCostEl,
+    "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs",
+  );
+  setTextIfChanged(cache.turnoverDragEl, "—");
+  setTextIfChanged(cache.midPriceEl, "—");
   if (cache.deltaMidEl) {
-    cache.deltaMidEl.textContent = "—";
-    cache.deltaMidEl.className = "delta-mid-val text-[10px] text-terminal-muted tabular-nums";
+    setTextIfChanged(cache.deltaMidEl, "—");
+    setClassIfChanged(
+      cache.deltaMidEl,
+      "delta-mid-val text-[10px] text-terminal-muted tabular-nums",
+    );
   }
   if (cache.volEl) {
-    cache.volEl.textContent = m.totalVolume24h > 0 ? formatMoney(m.totalVolume24h) : "—";
+    setTextIfChanged(cache.volEl, m.totalVolume24h > 0 ? formatMoney(m.totalVolume24h) : "—");
   }
   if (cache.oiEl) {
-    cache.oiEl.textContent = m.totalOiUsd > 0 ? formatMoney(m.totalOiUsd) : "—";
+    setTextIfChanged(cache.oiEl, m.totalOiUsd > 0 ? formatMoney(m.totalOiUsd) : "—");
   }
 }
 
@@ -412,8 +484,8 @@ export function updateExecutiveSummary(
     setElementText("topVwapDrag", "-- bps");
     setElementText("topLiquidity", "$--");
     if (vBadge) {
-      vBadge.textContent = "○ SCANNING";
-      vBadge.className = "text-[11px] font-semibold text-terminal-muted";
+      setTextIfChanged(vBadge, "○ SCANNING");
+      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-muted");
     }
     return;
   }
@@ -431,17 +503,17 @@ export function updateExecutiveSummary(
 
   if (vBadge) {
     if (r.costUsd <= 0) {
-      vBadge.textContent = "● ARB EDGE";
-      vBadge.className = "text-[11px] font-semibold text-terminal-accent animate-pulse";
+      setTextIfChanged(vBadge, "● ARB EDGE");
+      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-accent animate-pulse");
     } else if (dynamicMode === "min_burn" || (isDynamic && dynamicMode !== "max_vol")) {
-      vBadge.textContent = "● MIN BURN";
-      vBadge.className = "text-[11px] font-semibold text-terminal-accent";
+      setTextIfChanged(vBadge, "● MIN BURN");
+      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-accent");
     } else if (dynamicMode === "max_vol") {
-      vBadge.textContent = "● MAX VOL";
-      vBadge.className = "text-[11px] font-semibold text-terminal-accent";
+      setTextIfChanged(vBadge, "● MAX VOL");
+      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-accent");
     } else {
-      vBadge.textContent = "● READY";
-      vBadge.className = "text-[11px] font-semibold text-terminal-emerald";
+      setTextIfChanged(vBadge, "● READY");
+      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-emerald");
     }
   }
 }

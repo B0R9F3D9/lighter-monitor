@@ -25,7 +25,12 @@ export function getTokenIcon(symbol: string): string {
 export function formatMarketPrice(p: number | undefined | null): string {
   if (p === undefined || p === null || isNaN(p) || p <= 0) return "--";
   if (p >= 1000) {
-    return p.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+    const s = p.toFixed(2);
+    const trimmed = s.endsWith("0") ? s.slice(0, -1) : s;
+    const dot = trimmed.indexOf(".");
+    const intPart = dot === -1 ? trimmed : trimmed.slice(0, dot);
+    const decPart = dot === -1 ? "" : trimmed.slice(dot);
+    return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + decPart;
   }
   if (p >= 1) {
     return p.toFixed(2);

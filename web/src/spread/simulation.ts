@@ -26,12 +26,14 @@ export function simulateFillBase(
   let totalAvailableUsd = 0;
   let totalAvailableBase = 0;
 
-  for (const lvl of levels) {
+  const len = levels.length;
+  for (let i = 0; i < len; i++) {
+    const lvl = levels[i]!;
     totalAvailableBase += lvl.totalBase;
     totalAvailableUsd += lvl.totalUsd;
     if (remainingBase > 0) {
       levelsSwept++;
-      const takeBase = Math.min(remainingBase, lvl.totalBase);
+      const takeBase = remainingBase < lvl.totalBase ? remainingBase : lvl.totalBase;
       totalCostUsd += takeBase * lvl.price;
       filledBase += takeBase;
       remainingBase -= takeBase;

@@ -143,7 +143,7 @@ export class TerminalController {
     this.warmupDebounceTimer = setTimeout(() => {
       this.warmupDebounceTimer = null;
       this.rerank();
-    }, 120);
+    }, 350);
   }
 
   private scheduleInPlaceUpdate(): void {
@@ -168,15 +168,17 @@ export class TerminalController {
   }
 
   public updateCellsInPlace(forceAll = false): void {
-    const symbols = forceAll
-      ? this.state.displayedSymbolsOrder
-      : this.state.displayedSymbolsOrder.filter((sym) => this.dirtySymbols.has(sym));
-
-    if (symbols.length === 0 && !forceAll) return;
+    const order = this.state.displayedSymbolsOrder;
+    const len = order.length;
+    if (len === 0) return;
+    if (!forceAll && this.dirtySymbols.size === 0) return;
 
     const now = performance.now();
-    for (const symbol of symbols) {
+    for (let i = 0; i < len; i++) {
+      const symbol = order[i]!;
+      if (!forceAll && !this.dirtySymbols.has(symbol)) continue;
       this.dirtySymbols.delete(symbol);
+
       const m = this.state.markets.get(symbol);
       if (!m) continue;
 
@@ -391,7 +393,7 @@ export class TerminalController {
       return;
     }
 
-    const fragment = document.createDocumentFragment();
+    const activeNodes = new Set<Node>();
 
     for (const r of rows) {
       let cache = this.rowDomCache.get(r.symbol);
@@ -399,15 +401,23 @@ export class TerminalController {
         cache = createRowElement(r, (sym) => this.toggleExpand(sym));
         this.rowDomCache.set(r.symbol, cache);
       }
-      fragment.appendChild(cache.tr);
+      tableBody.appendChild(cache.tr);
+      activeNodes.add(cache.tr);
 
       if (this.state.expandedSymbol === r.symbol && this.detailRowDom) {
-        fragment.appendChild(this.detailRowDom);
+        tableBody.appendChild(this.detailRowDom);
+        activeNodes.add(this.detailRowDom);
       }
     }
 
-    tableBody.innerHTML = "";
-    tableBody.appendChild(fragment);
+    let child = tableBody.firstElementChild;
+    while (child) {
+      const next = child.nextElementSibling;
+      if (!activeNodes.has(child)) {
+        tableBody.removeChild(child);
+      }
+      child = next;
+    }
 
     this.updateCellsInPlace(true);
     this.hasInitialRenderHappened = true;
@@ -644,13 +654,8 @@ export class TerminalController {
           parseFloat(sz || "0") === val);
 
       if (isActive) {
-        if (sz?.startsWith("auto")) {
-          btn.className =
-            "size-btn size-btn-active px-2 py-0.5 rounded text-terminal-accent bg-terminal-accent/15 border border-terminal-accent/40 font-bold transition cursor-pointer whitespace-nowrap";
-        } else {
-          btn.className =
-            "size-btn size-btn-active px-1.5 sm:px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap";
-        }
+        btn.className =
+          "size-btn size-btn-active px-1.5 sm:px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap";
       } else {
         btn.className =
           "size-btn px-1.5 sm:px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap";

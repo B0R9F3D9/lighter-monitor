@@ -19,6 +19,11 @@ function formatOptSize(sz: number): number {
   return Math.round(sz / 100) * 100;
 }
 
+const BASE_SIZE_GRID: readonly number[] = [
+  1000, 2000, 3000, 4000, 5000, 6000, 7500, 10000, 12500, 15000, 20000, 25000, 35000, 50000, 75000,
+  100000,
+];
+
 export function findOptimalSize(
   rhAsks: OrderBookLevel[],
   coreBids: OrderBookLevel[],
@@ -38,13 +43,19 @@ export function findOptimalSize(
     return 10000;
   }
 
-  const depths = [
-    rhAsks.reduce((s, l) => s + l.totalUsd, 0),
-    coreBids.reduce((s, l) => s + l.totalUsd, 0),
-    rhBids.reduce((s, l) => s + l.totalUsd, 0),
-    coreAsks.reduce((s, l) => s + l.totalUsd, 0),
-  ];
-  const maxAvail = Math.min(...depths);
+  let d0 = 0;
+  for (let i = 0; i < rhAsks.length; i++) d0 += rhAsks[i]!.totalUsd;
+  let d1 = 0;
+  for (let i = 0; i < coreBids.length; i++) d1 += coreBids[i]!.totalUsd;
+  let d2 = 0;
+  for (let i = 0; i < rhBids.length; i++) d2 += rhBids[i]!.totalUsd;
+  let d3 = 0;
+  for (let i = 0; i < coreAsks.length; i++) d3 += coreAsks[i]!.totalUsd;
+
+  let maxAvail = d0 < d1 ? d0 : d1;
+  if (d2 < maxAvail) maxAvail = d2;
+  if (d3 < maxAvail) maxAvail = d3;
+
   const upperLimit = Math.min(maxAvail, maxCapUsd > 0 ? maxCapUsd : 50000);
   if (upperLimit < 500) return Math.max(100, Math.floor(upperLimit));
 
@@ -57,11 +68,6 @@ export function findOptimalSize(
   const rawExitDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
   const rawSpreadBps = (rawEntryDragBps + rawExitDragBps) / 2;
 
-  const sizeGrid = [
-    1000, 2000, 3000, 4000, 5000, 6000, 7500, 10000, 12500, 15000, 20000, 25000, 35000, 50000,
-    75000, 100000,
-  ];
-
   const l1Depth = Math.floor(
     Math.min(
       rhAsks[0]?.totalUsd || 0,
@@ -70,12 +76,21 @@ export function findOptimalSize(
       coreAsks[0]?.totalUsd || 0,
     ),
   );
-  if (l1Depth >= 500 && l1Depth <= upperLimit) sizeGrid.push(l1Depth);
-  if (maxCapUsd >= 500 && maxCapUsd <= upperLimit) sizeGrid.push(maxCapUsd);
 
-  const candidates = Array.from(
-    new Set(sizeGrid.filter((s) => s >= 500 && s <= upperLimit)),
-  ).toSorted((a, b) => a - b);
+  const candidates: number[] = [];
+  for (let i = 0; i < BASE_SIZE_GRID.length; i++) {
+    const s = BASE_SIZE_GRID[i]!;
+    if (s >= 500 && s <= upperLimit) {
+      candidates.push(s);
+    }
+  }
+  if (l1Depth >= 500 && l1Depth <= upperLimit && !candidates.includes(l1Depth)) {
+    candidates.push(l1Depth);
+  }
+  if (maxCapUsd >= 500 && maxCapUsd <= upperLimit && !candidates.includes(maxCapUsd)) {
+    candidates.push(maxCapUsd);
+  }
+  candidates.sort((a, b) => a - b);
 
   if (candidates.length === 0) return Math.min(10000, Math.floor(upperLimit));
 
@@ -90,21 +105,17 @@ export function findOptimalSize(
 
   const sims: SimStats[] = [];
 
-  for (const s of candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const s = candidates[i]!;
     const q = s / midPrice;
     const simEntryRh = simulateFillBase(rhAsks, q, true);
+    if (!simEntryRh.isComplete) continue;
     const simEntryCore = simulateFillBase(coreBids, q, false);
+    if (!simEntryCore.isComplete) continue;
     const simExitRh = simulateFillBase(rhBids, q, false);
+    if (!simExitRh.isComplete) continue;
     const simExitCore = simulateFillBase(coreAsks, q, true);
-
-    if (
-      !simEntryRh.isComplete ||
-      !simEntryCore.isComplete ||
-      !simExitRh.isComplete ||
-      !simExitCore.isComplete
-    ) {
-      continue;
-    }
+    if (!simExitCore.isComplete) continue;
 
     const entryLossUsd = simEntryRh.totalCostUsd - simEntryCore.totalCostUsd;
     const exitLossUsd = simExitCore.totalCostUsd - simExitRh.totalCostUsd;
@@ -232,16 +243,10 @@ export function calculateMarketMetrics(
   if (midPrice <= 0) return null;
 
   const isDynamic = dynamicMode !== "none";
-  const optimalSizeUsd = findOptimalSize(
-    rhAsks,
-    coreBids,
-    rhBids,
-    coreAsks,
-    midPrice,
-    isDynamic ? dynamicMode : "min_burn",
-    isDynamic ? maxCapUsd : targetUsd,
-  );
-  const effectiveTargetUsd = isDynamic ? optimalSizeUsd : targetUsd;
+  const optimalSizeUsd = isDynamic
+    ? findOptimalSize(rhAsks, coreBids, rhBids, coreAsks, midPrice, dynamicMode, maxCapUsd)
+    : targetUsd;
+  const effectiveTargetUsd = optimalSizeUsd;
 
   // Inter-exchange basis (RH vs Core)
   const deltaMidUsd = rhMid - coreMid;

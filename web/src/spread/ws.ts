@@ -92,8 +92,9 @@ export class WebSocketManager {
           }
           return;
         }
-        if (d.channel?.startsWith("order_book:") && d.order_book) {
-          const mid = parseInt(d.channel.split(":")[1], 10);
+        const ch = d.channel;
+        if (typeof ch === "string" && ch.startsWith("order_book:") && d.order_book) {
+          const mid = Number(ch.slice(11));
           const isSnapshot = d.type === "subscribed/order_book";
           this.callbacks.onCoreBookUpdate?.(
             mid,
@@ -170,8 +171,9 @@ export class WebSocketManager {
           }
           return;
         }
-        if (d.channel?.startsWith("order_book:") && d.order_book) {
-          const mid = parseInt(d.channel.split(":")[1], 10);
+        const ch = d.channel;
+        if (typeof ch === "string" && ch.startsWith("order_book:") && d.order_book) {
+          const mid = Number(ch.slice(11));
           const isSnapshot = d.type === "subscribed/order_book";
           this.callbacks.onRhBookUpdate?.(
             mid,
