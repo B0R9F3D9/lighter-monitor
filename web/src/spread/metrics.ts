@@ -7,8 +7,8 @@ import type {
   TerminalState,
 } from "./types";
 import { CONFIG } from "./config";
-import { getSortedLevels } from "./orderbook";
-import { simulateFillBase } from "./simulation";
+import { ASC_COMP, getSortedLevels } from "./orderbook";
+import { fastSimFill, simulateFillBase } from "./simulation";
 
 function formatOptSize(sz: number): number {
   if (sz >= 10000) {
@@ -90,36 +90,42 @@ export function findOptimalSize(
   if (maxCapUsd >= 500 && maxCapUsd <= upperLimit && !candidates.includes(maxCapUsd)) {
     candidates.push(maxCapUsd);
   }
-  candidates.sort((a, b) => a - b);
+  candidates.sort(ASC_COMP);
 
   if (candidates.length === 0) return Math.min(10000, Math.floor(upperLimit));
 
-  interface SimStats {
-    size: number;
-    costUsd: number;
-    vwapDragBps: number;
-    slippageBps: number;
-    pointCostUsd: number;
-    levelsSwept: number;
-  }
-
-  const sims: SimStats[] = [];
+  let hasCompletedSim = false;
+  let bestSize = candidates[0]!;
+  let bestArbSize = 0;
+  let basePtCost = -1;
+  let bestScore = -Infinity;
 
   for (let i = 0; i < candidates.length; i++) {
     const s = candidates[i]!;
     const q = s / midPrice;
-    const simEntryRh = simulateFillBase(rhAsks, q, true);
-    if (!simEntryRh.isComplete) continue;
-    const simEntryCore = simulateFillBase(coreBids, q, false);
-    if (!simEntryCore.isComplete) continue;
-    const simExitRh = simulateFillBase(rhBids, q, false);
-    if (!simExitRh.isComplete) continue;
-    const simExitCore = simulateFillBase(coreAsks, q, true);
-    if (!simExitCore.isComplete) continue;
+
+    const simEntryRh = fastSimFill(rhAsks, q);
+    if (!simEntryRh.isComplete) break;
+    const simEntryCore = fastSimFill(coreBids, q);
+    if (!simEntryCore.isComplete) break;
+    const simExitRh = fastSimFill(rhBids, q);
+    if (!simExitRh.isComplete) break;
+    const simExitCore = fastSimFill(coreAsks, q);
+    if (!simExitCore.isComplete) break;
+
+    hasCompletedSim = true;
 
     const entryLossUsd = simEntryRh.totalCostUsd - simEntryCore.totalCostUsd;
     const exitLossUsd = simExitCore.totalCostUsd - simExitRh.totalCostUsd;
     const costUsd = entryLossUsd + exitLossUsd;
+
+    if (costUsd <= 0) {
+      bestArbSize = s;
+    } else if (bestArbSize > 0) {
+      // Cost turned positive; larger sizes will only have higher costs
+      break;
+    }
+
     const vwapDragBps = (costUsd / s) * 10000;
     const slippageBps = Math.max(0, vwapDragBps - rawSpreadBps);
     const pointsEarned = ((s * 2) / 1000000) * 52 * 5.0;
@@ -131,58 +137,41 @@ export function findOptimalSize(
       simExitCore.levelsSwept,
     );
 
-    sims.push({
-      size: s,
-      costUsd,
-      vwapDragBps,
-      slippageBps,
-      pointCostUsd,
-      levelsSwept: maxSwept,
-    });
-  }
-
-  if (sims.length === 0) return Math.min(10000, Math.floor(upperLimit));
-
-  // Pure Arbitrage / Zero-cost check (applies to both modes)
-  // If there's an arb or zero cost, take the largest size where cost remains <= 0
-  const arbSims = sims.filter((sim) => sim.costUsd <= 0);
-  if (arbSims.length > 0) {
-    const bestArb = arbSims[arbSims.length - 1]!;
-    return formatOptSize(bestArb.size);
-  }
-
-  let bestSize = sims[0]!.size;
-
-  if (mode === "max_vol") {
-    // ALGORITHM 2: Max Volume (Push maximum size while maintaining reasonable slippage <= 3.5 bps)
-    let bestScore = -Infinity;
-    for (const sim of sims) {
+    if (mode === "max_vol") {
       let score = 0;
-      if (sim.slippageBps <= 3.5 && sim.levelsSwept <= 4) {
-        score = sim.size / Math.max(0.3, sim.pointCostUsd);
-      } else if (sim.slippageBps <= 6.0 && sim.levelsSwept <= 6) {
-        score = (sim.size / Math.max(0.3, sim.pointCostUsd)) * 0.4;
+      if (slippageBps <= 3.5 && maxSwept <= 4) {
+        score = s / Math.max(0.3, pointCostUsd);
+      } else if (slippageBps <= 6.0 && maxSwept <= 6) {
+        score = (s / Math.max(0.3, pointCostUsd)) * 0.4;
       } else {
-        score = (sim.size / Math.max(0.3, sim.pointCostUsd)) * 0.05;
+        score = (s / Math.max(0.3, pointCostUsd)) * 0.05;
       }
       if (score > bestScore) {
         bestScore = score;
-        bestSize = sim.size;
+        bestSize = s;
+      }
+    } else {
+      // ALGORITHM 1: Min Burn (Strict minimum unit cost $/pt & bps, stops immediately on price degradation)
+      if (basePtCost < 0) {
+        basePtCost = pointCostUsd;
+        bestSize = s;
+      } else {
+        const costInflation = basePtCost > 0 ? (pointCostUsd - basePtCost) / basePtCost : 0;
+        // Stop increasing size if slippage exceeds 0.8 bps or point cost inflates by > 5% or > 3 levels swept
+        if (slippageBps > 0.8 || costInflation > 0.05 || maxSwept > 3) {
+          break;
+        }
+        bestSize = s;
       }
     }
-  } else {
-    // ALGORITHM 1: Min Burn (Strict minimum unit cost $/pt & bps, stops immediately on price degradation)
-    const baseSim = sims[0]!;
-    const basePtCost = baseSim.pointCostUsd;
+  }
 
-    for (const sim of sims) {
-      const costInflation = basePtCost > 0 ? (sim.pointCostUsd - basePtCost) / basePtCost : 0;
-      // Stop increasing size if slippage exceeds 0.8 bps or point cost inflates by > 5% or > 3 levels swept
-      if (sim.slippageBps > 0.8 || costInflation > 0.05 || sim.levelsSwept > 3) {
-        break;
-      }
-      bestSize = sim.size;
-    }
+  if (!hasCompletedSim) {
+    return Math.min(10000, Math.floor(upperLimit));
+  }
+
+  if (bestArbSize > 0) {
+    return formatOptSize(bestArbSize);
   }
 
   return formatOptSize(bestSize);
@@ -213,10 +202,10 @@ export function calculateMarketMetrics(
     (lastCoreMsgAt > 0 && now - lastCoreMsgAt > CONFIG.SOCKET_SILENCE_TIMEOUT_MS) ||
     (lastRhMsgAt > 0 && now - lastRhMsgAt > CONFIG.SOCKET_SILENCE_TIMEOUT_MS);
 
-  const rhAsks = getSortedLevels(rhBook.asks, true);
-  const rhBids = getSortedLevels(rhBook.bids, false);
-  const coreAsks = getSortedLevels(coreBook.asks, true);
-  const coreBids = getSortedLevels(coreBook.bids, false);
+  const rhAsks = getSortedLevels(rhBook, true);
+  const rhBids = getSortedLevels(rhBook, false);
+  const coreAsks = getSortedLevels(coreBook, true);
+  const coreBids = getSortedLevels(coreBook, false);
 
   if (
     rhAsks.length === 0 ||

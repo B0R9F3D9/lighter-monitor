@@ -11,6 +11,8 @@ export interface OrderBook {
   isSnapshotReceived: boolean;
   lastUpdatedTs: number;
   offset: number;
+  cachedAsks?: OrderBookLevel[] | null;
+  cachedBids?: OrderBookLevel[] | null;
 }
 
 export interface SimFillResult {

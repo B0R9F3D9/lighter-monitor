@@ -59,3 +59,45 @@ export function simulateFillBase(
     totalAvailableBase,
   };
 }
+
+export interface FastSimResult {
+  isComplete: boolean;
+  totalCostUsd: number;
+  levelsSwept: number;
+  avgPrice: number;
+}
+
+/**
+ * Ультра-быстрая симуляция для оптимизатора:
+ * прерывает обход стакана мгновенно, как только набран объем,
+ * не аллоцирует объекты и не обходит лишние 35+ уровней.
+ */
+export function fastSimFill(levels: OrderBookLevel[], targetBaseQty: number): FastSimResult {
+  if (!levels || levels.length === 0 || targetBaseQty <= 0) {
+    return { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+  }
+
+  let remaining = targetBaseQty;
+  let totalCost = 0;
+  let swept = 0;
+
+  const len = levels.length;
+  for (let i = 0; i < len; i++) {
+    const lvl = levels[i]!;
+    swept++;
+    if (lvl.totalBase >= remaining) {
+      totalCost += remaining * lvl.price;
+      remaining = 0;
+      break; // Мгновенный выход, не идем по остальным уровням!
+    } else {
+      totalCost += lvl.totalUsd;
+      remaining -= lvl.totalBase;
+    }
+  }
+
+  const isComplete = remaining <= Math.max(1e-5, targetBaseQty * 0.0005);
+  const filled = targetBaseQty - remaining;
+  const avgPrice = filled > 0 ? totalCost / filled : levels[0]?.price || 0;
+
+  return { isComplete, totalCostUsd: totalCost, levelsSwept: swept, avgPrice };
+}

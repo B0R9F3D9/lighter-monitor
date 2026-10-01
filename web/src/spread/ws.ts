@@ -86,6 +86,7 @@ export class WebSocketManager {
       this.lastCoreMsgAt = Date.now();
       try {
         const d = JSON.parse(e.data);
+
         if (d.type === "ping") {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "pong" }));
@@ -165,6 +166,7 @@ export class WebSocketManager {
       this.lastRhMsgAt = Date.now();
       try {
         const d = JSON.parse(e.data);
+
         if (d.type === "ping") {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "pong" }));

@@ -11,6 +11,8 @@ export function getOrCreateBook(bookMap: Map<number, OrderBook>, marketId: numbe
       isSnapshotReceived: false,
       lastUpdatedTs: 0,
       offset: 0,
+      cachedAsks: null,
+      cachedBids: null,
     };
     bookMap.set(marketId, b);
   }
@@ -28,15 +30,17 @@ export function updateBookFromWs(
   isSnapshot = false,
   offset = 0,
 ): void {
+  let asksChanged = isSnapshot;
+  let bidsChanged = isSnapshot;
+
   if (isSnapshot) {
     book.asks.clear();
     book.bids.clear();
   }
-  const asks = orderBook.asks;
-  if (asks) {
-    const len = asks.length;
-    for (let i = 0; i < len; i++) {
-      const item = asks[i]!;
+  if (orderBook.asks && orderBook.asks.length > 0) {
+    asksChanged = true;
+    for (let i = 0; i < orderBook.asks.length; i++) {
+      const item = orderBook.asks[i]!;
       const price = item.price;
       const size = item.size;
       const p = typeof price === "number" ? price : +price;
@@ -46,11 +50,10 @@ export function updateBookFromWs(
       else book.asks.set(p, s);
     }
   }
-  const bids = orderBook.bids;
-  if (bids) {
-    const len = bids.length;
-    for (let i = 0; i < len; i++) {
-      const item = bids[i]!;
+  if (orderBook.bids && orderBook.bids.length > 0) {
+    bidsChanged = true;
+    for (let i = 0; i < orderBook.bids.length; i++) {
+      const item = orderBook.bids[i]!;
       const price = item.price;
       const size = item.size;
       const p = typeof price === "number" ? price : +price;
@@ -60,32 +63,64 @@ export function updateBookFromWs(
       else book.bids.set(p, s);
     }
   }
+
+  // Сбрасываем кэш ТОЛЬКО если были изменения!
+  if (asksChanged) book.cachedAsks = null;
+  if (bidsChanged) book.cachedBids = null;
+
   book.isSnapshotReceived = true;
   book.lastUpdatedTs = Date.now();
   if (offset) book.offset = offset;
 }
 
+export const ASC_COMP = (a: number, b: number): number => a - b;
+export const DESC_COMP = (a: number, b: number): number => b - a;
+
 export function getSortedLevels(
-  map: Map<number, number>,
+  bookOrMap: OrderBook | Map<number, number>,
   isAsk: boolean,
   limit: number = CONFIG.ORDERBOOK_LEVELS_LIMIT,
 ): OrderBookLevel[] {
-  const size = map.size;
-  if (size === 0) return [];
+  let book: OrderBook | null = null;
+  let map: Map<number, number>;
 
-  const prices: number[] = [];
-  for (const price of map.keys()) {
-    prices.push(price);
+  if ("asks" in bookOrMap) {
+    book = bookOrMap;
+    if (isAsk && book.cachedAsks != null) return book.cachedAsks;
+    if (!isAsk && book.cachedBids != null) return book.cachedBids;
+    map = isAsk ? book.asks : book.bids;
+  } else {
+    map = bookOrMap;
   }
 
-  prices.sort(isAsk ? (a, b) => a - b : (a, b) => b - a);
+  const n = map.size;
+  if (n === 0) return [];
 
-  const count = size > limit ? limit : size;
-  const result: OrderBookLevel[] = [];
-  for (let i = 0; i < count; i++) {
-    const p = prices[i]!;
-    const totalBase = map.get(p)!;
-    result.push({ price: p, totalBase, totalUsd: p * totalBase });
+  const keys = Array.from(map.keys());
+  keys.sort(isAsk ? ASC_COMP : DESC_COMP);
+
+  // 1. Прунинг мертвых/устаревших уровней: защищаем Map от бесконечного разрастания
+  // Сохраняем безопасную глубину (80 уровней = 2x от 40), чтобы гарантированно не отбросить нужные уровни
+  const maxRetain = Math.max(limit * 2, CONFIG.ORDERBOOK_PRUNE_LIMIT ?? 80);
+  if (keys.length > maxRetain) {
+    for (let i = maxRetain; i < keys.length; i++) {
+      map.delete(keys[i]!);
+    }
   }
-  return result;
+
+  // 2. Отбираем топ-уровни для симуляции и расчета
+  const take = Math.min(keys.length, limit);
+  const arr: OrderBookLevel[] = [];
+  for (let i = 0; i < take; i++) {
+    const p = keys[i]!;
+    const base = map.get(p)!;
+    arr.push({ price: p, totalBase: base, totalUsd: p * base });
+  }
+
+  if (book) {
+    if (isAsk) book.cachedAsks = arr;
+    else book.cachedBids = arr;
+  }
+
+  return arr;
 }

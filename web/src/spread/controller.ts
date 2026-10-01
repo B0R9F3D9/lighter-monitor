@@ -168,17 +168,16 @@ export class TerminalController {
   }
 
   public updateCellsInPlace(forceAll = false): void {
-    const order = this.state.displayedSymbolsOrder;
-    const len = order.length;
-    if (len === 0) return;
-    if (!forceAll && this.dirtySymbols.size === 0) return;
+    const symbols = forceAll
+      ? this.state.displayedSymbolsOrder
+      : this.state.displayedSymbolsOrder.filter((sym) => this.dirtySymbols.has(sym));
+
+    if (symbols.length === 0 && !forceAll) return;
 
     const now = performance.now();
-    for (let i = 0; i < len; i++) {
-      const symbol = order[i]!;
-      if (!forceAll && !this.dirtySymbols.has(symbol)) continue;
-      this.dirtySymbols.delete(symbol);
 
+    for (const symbol of symbols) {
+      this.dirtySymbols.delete(symbol);
       const m = this.state.markets.get(symbol);
       if (!m) continue;
 
@@ -189,23 +188,20 @@ export class TerminalController {
         this.wsManager.lastRhMsgAt,
         now,
       );
-      const cache = this.rowDomCache.get(symbol);
 
+      const cache = this.rowDomCache.get(symbol);
       if (!row) {
         if (cache) applyNullMetricsToDom(cache, m);
         continue;
       }
-
       if (!cache) continue;
 
       applyRowMetricsToDom(cache, row);
-
       if (this.state.expandedSymbol === symbol && this.detailRowDom) {
         updateDetailRow(row, this.state.targetSizeUsd);
       }
     }
 
-    // Update executive summary card with current leader from visible, non-filtered markets
     let topRow: MarketMetrics | null = null;
     let bestCost = Infinity;
     const nowTime = performance.now();
@@ -311,13 +307,19 @@ export class TerminalController {
         continue;
       }
 
-      const row = getMetrics(
-        m,
-        this.state,
-        this.wsManager.lastCoreMsgAt,
-        this.wsManager.lastRhMsgAt,
-        now,
-      );
+      // ЕСЛИ У НАС ЕСТЬ СВЕЖИЕ МЕТРИКИ И РЫНОК НЕ БЫЛ ПОМЕЧЕН КАК DIRTY — БЕРЕМ ГОТОВЫЕ!
+      let row = m.latestMetrics;
+      if (!row || this.dirtySymbols.has(m.symbol)) {
+        row = getMetrics(
+          m,
+          this.state,
+          this.wsManager.lastCoreMsgAt,
+          this.wsManager.lastRhMsgAt,
+          now,
+        );
+        this.dirtySymbols.delete(m.symbol);
+      }
+
       if (row) {
         if (this.state.filterReadyOnly && row.status !== "READY") continue;
         rows.push(row);
@@ -326,7 +328,6 @@ export class TerminalController {
       }
     }
 
-    // Sort
     const dir = this.state.sortDirection === "asc" ? 1 : -1;
     rows.sort((a, b) => {
       if (this.state.sortColumn === "symbol") return a.symbol.localeCompare(b.symbol) * dir;
@@ -354,10 +355,26 @@ export class TerminalController {
       return (valA - valB) * dir;
     });
 
-    this.state.displayedSymbolsOrder = rows.map((r) => r.symbol);
+    const newOrder = rows.map((r) => r.symbol);
+
+    // Проверяем: изменился ли порядок относительно прошлого реранка?
+    let isOrderUnchanged = this.state.displayedSymbolsOrder.length === newOrder.length;
+
+    if (isOrderUnchanged) {
+      for (let i = 0; i < newOrder.length; i++) {
+        if (this.state.displayedSymbolsOrder[i] !== newOrder[i]) {
+          isOrderUnchanged = false;
+          break;
+        }
+      }
+    }
+
+    this.state.displayedSymbolsOrder = newOrder;
 
     const tableBody = document.getElementById("tableBody");
-    if (!tableBody) return;
+    if (!tableBody) {
+      return;
+    }
 
     const emptyRow = document.getElementById("emptyRow");
     if (emptyRow) emptyRow.remove();
@@ -393,31 +410,29 @@ export class TerminalController {
       return;
     }
 
-    const activeNodes = new Set<Node>();
+    // ЕСЛИ ПОРЯДОК НЕ ИЗМЕНИЛСЯ — ПРОПУСКАЕМ ДОМ-МУТАЦИИ ПОЛНОСТЬЮ!
+    if (isOrderUnchanged && this.hasInitialRenderHappened) {
+      this.updateCellsInPlace(true);
+      this.state.rerankTimerRemaining = CONFIG.RERANK_INTERVAL_SEC;
+      this.resetHysteresisTimerCallback?.();
+      return;
+    }
 
+    // 3. Если порядок изменился — обновляем через DocumentFragment в 1 операцию:
+    const fragment = document.createDocumentFragment();
     for (const r of rows) {
       let cache = this.rowDomCache.get(r.symbol);
       if (!cache) {
         cache = createRowElement(r, (sym) => this.toggleExpand(sym));
         this.rowDomCache.set(r.symbol, cache);
       }
-      tableBody.appendChild(cache.tr);
-      activeNodes.add(cache.tr);
+      fragment.appendChild(cache.tr);
 
       if (this.state.expandedSymbol === r.symbol && this.detailRowDom) {
-        tableBody.appendChild(this.detailRowDom);
-        activeNodes.add(this.detailRowDom);
+        fragment.appendChild(this.detailRowDom);
       }
     }
-
-    let child = tableBody.firstElementChild;
-    while (child) {
-      const next = child.nextElementSibling;
-      if (!activeNodes.has(child)) {
-        tableBody.removeChild(child);
-      }
-      child = next;
-    }
+    tableBody.replaceChildren(fragment);
 
     this.updateCellsInPlace(true);
     this.hasInitialRenderHappened = true;

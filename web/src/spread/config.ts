@@ -9,6 +9,7 @@ export const CONFIG = {
   LEADER_FRESHNESS_WINDOW_MS: 3500,
   EMA_TAU_MS: 2500,
   ORDERBOOK_LEVELS_LIMIT: 40,
+  ORDERBOOK_PRUNE_LIMIT: 80,
 } as const;
 
 export const CRYPTO_SYMBOLS: ReadonlySet<string> = new Set([

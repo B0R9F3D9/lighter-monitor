@@ -124,6 +124,66 @@ describe("Spread Terminal: Order Book Management", () => {
     expect(bids[0]!.price).toBe(60);
     expect(bids[39]!.price).toBe(21);
   });
+
+  it("caches sorted levels on OrderBook and invalidates on updateBookFromWs", () => {
+    const book: OrderBook = {
+      marketId: 1,
+      asks: new Map([
+        [100, 1.0],
+        [102, 2.0],
+      ]),
+      bids: new Map([[99, 1.0]]),
+      isSnapshotReceived: true,
+      lastUpdatedTs: 0,
+      offset: 0,
+    };
+
+    const asks1 = getSortedLevels(book, true);
+    expect(asks1.length).toBe(2);
+    expect(book.cachedAsks).toBe(asks1);
+
+    // Second call returns exactly the same cached reference
+    const asks2 = getSortedLevels(book, true);
+    expect(asks2).toBe(asks1);
+
+    // updateBookFromWs invalidates cache
+    updateBookFromWs(book, { asks: [{ price: 101, size: 5.0 }] });
+    expect(book.cachedAsks).toBeNull();
+
+    const asks3 = getSortedLevels(book, true);
+    expect(asks3).not.toBe(asks1);
+    expect(asks3.length).toBe(3);
+    expect(book.cachedAsks).toBe(asks3);
+  });
+
+  it("prunes deep stale order book levels beyond retention limit to prevent map bloat", () => {
+    const book: OrderBook = {
+      marketId: 1,
+      asks: new Map(),
+      bids: new Map(),
+      isSnapshotReceived: true,
+      lastUpdatedTs: 0,
+      offset: 0,
+    };
+
+    // Populate 200 ask levels
+    for (let i = 1; i <= 200; i++) {
+      book.asks.set(i, 1.0);
+    }
+    expect(book.asks.size).toBe(200);
+
+    // Call getSortedLevels with limit=40
+    const topAsks = getSortedLevels(book, true, 40);
+    expect(topAsks.length).toBe(40);
+    expect(topAsks[0]!.price).toBe(1);
+    expect(topAsks[39]!.price).toBe(40);
+
+    // Deep levels (> 80) should have been pruned from book.asks Map
+    expect(book.asks.size).toBe(80);
+    expect(book.asks.has(80)).toBe(true);
+    expect(book.asks.has(81)).toBe(false);
+    expect(book.asks.has(200)).toBe(false);
+  });
 });
 
 describe("Spread Terminal: VWAP Simulation", () => {
@@ -303,8 +363,12 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     // After 1 second with a spike in price, EMA dampens the move
     const dtNow = now + 1000;
     // Simulate spike: raw cost increases
-    rhBook.asks.delete(100.1);
-    rhBook.asks.set(100.3, 100);
+    updateBookFromWs(rhBook, {
+      asks: [
+        { price: 100.1, size: 0 },
+        { price: 100.3, size: 100 },
+      ],
+    });
     const m2 = getMetrics(dummyMarket, state, Date.now(), Date.now(), dtNow);
     expect(m2).not.toBeNull();
     if (!m2) return;
