@@ -134,6 +134,19 @@ export async function renderAdminDashboard(env: Env): Promise<string> {
       `  • Алертов отправлено: <b>${c.alerts_sent}</b>\n\n`;
   }
 
+  if (
+    stats.lastCronError &&
+    (!stats.lastCron || stats.lastCronError.timestamp >= stats.lastCron.timestamp)
+  ) {
+    const errAgoSec = nowSec - stats.lastCronError.timestamp;
+    const errAgoText =
+      errAgoSec < 60 ? `${errAgoSec} сек назад` : `${Math.round(errAgoSec / 60)} мин назад`;
+    cronSection +=
+      `⚠️ <b>Сбой в последнем тике крона (${errAgoText}):</b>\n` +
+      `  • Ошибка: <code>${stats.lastCronError.error.slice(0, 100)}</code>\n` +
+      `  • Длительность: <b>${stats.lastCronError.duration_ms} мс</b>\n\n`;
+  }
+
   const hasAuth = Boolean(
     env.LIGHTER_API_KEY || env.LIGHTER_API_KEY_MAINNET || env.LIGHTER_API_KEY_RH,
   );
@@ -1056,238 +1069,242 @@ export function getBot(env: Env): Bot {
 
       trace.mark("d1_load_cache");
 
-    const nowSec = Math.floor(Date.now() / 1000);
-    let isRateLimited = false;
+      const nowSec = Math.floor(Date.now() / 1000);
+      let isRateLimited = false;
 
-    // При клике "🔄 Обновить" (forceRefresh === true) ВСЕГДА опрашиваем биржу напрямую без ограничений.
-    // В обычном режиме (/positions или меню) опрашиваем биржу, если кэш старше 5 секунд, либо отдаем из D1.
-    const toFetch = forceRefresh
-      ? trackedList
-      : trackedList.filter((item) => {
-          const key = `${item.network}:${item.account_index}`;
-          const c = cacheMap.get(key);
-          return !c || !c.l1_address || !c.last_updated_at || nowSec - c.last_updated_at >= 5;
+      // При клике "🔄 Обновить" (forceRefresh === true) ВСЕГДА опрашиваем биржу напрямую без ограничений.
+      // В обычном режиме (/positions или меню) опрашиваем биржу, если кэш старше 5 секунд, либо отдаем из D1.
+      const toFetch = forceRefresh
+        ? trackedList
+        : trackedList.filter((item) => {
+            const key = `${item.network}:${item.account_index}`;
+            const c = cacheMap.get(key);
+            return !c || !c.l1_address || !c.last_updated_at || nowSec - c.last_updated_at >= 5;
+          });
+
+      const freshMap = new Map<string, any>();
+      trace.set("toFetchCount", toFetch.length);
+      if (toFetch.length > 0) {
+        const settled = await fetchInChunks(
+          toFetch,
+          CONFIG.LIGHTER_CHUNK_CONCURRENCY || 5,
+          (item) =>
+            fetchLighterAccountWithStatus(
+              item.network,
+              item.account_index,
+              true,
+              getLighterAuthToken(currentEnv || env, item.network),
+            ),
+        );
+        trace.mark("lighter_api_fetch");
+        toFetch.forEach((item, i) => {
+          const res = settled[i];
+          if (res && res.status === "fulfilled") {
+            if (res.value.status === "OK" && res.value.account) {
+              freshMap.set(`${item.network}:${item.account_index}`, res.value.account);
+            } else if (res.value.status === "RATE_LIMIT") {
+              isRateLimited = true;
+            } else {
+              console.warn(
+                `[handlePositions] Fetch ${item.network}:${item.account_index} status=${res.value.status}: ${res.value.message}`,
+              );
+            }
+          } else if (res && res.status === "rejected") {
+            console.error(
+              `[handlePositions] Fetch ${item.network}:${item.account_index} rejected:`,
+              res.reason,
+            );
+          }
         });
 
-    const freshMap = new Map<string, any>();
-    trace.set("toFetchCount", toFetch.length);
-    if (toFetch.length > 0) {
-      const settled = await fetchInChunks(toFetch, CONFIG.LIGHTER_CHUNK_CONCURRENCY || 5, (item) =>
-        fetchLighterAccountWithStatus(
-          item.network,
-          item.account_index,
-          true,
-          getLighterAuthToken(currentEnv || env, item.network),
-        ),
-      );
-      trace.mark("lighter_api_fetch");
-      toFetch.forEach((item, i) => {
-        const res = settled[i];
-        if (res && res.status === "fulfilled") {
-          if (res.value.status === "OK" && res.value.account) {
-            freshMap.set(`${item.network}:${item.account_index}`, res.value.account);
-          } else if (res.value.status === "RATE_LIMIT") {
-            isRateLimited = true;
-          } else {
-            console.warn(
-              `[handlePositions] Fetch ${item.network}:${item.account_index} status=${res.value.status}: ${res.value.message}`,
-            );
-          }
-        } else if (res && res.status === "rejected") {
-          console.error(
-            `[handlePositions] Fetch ${item.network}:${item.account_index} rejected:`,
-            res.reason,
-          );
-        }
-      });
+        if (freshMap.size > 0) {
+          const updates: Array<{ network: LighterNetwork; account: any; cachedPositions: any[] }> =
+            [];
+          const syncPromises: Promise<any>[] = [];
 
-      if (freshMap.size > 0) {
-        const updates: Array<{ network: LighterNetwork; account: any; cachedPositions: any[] }> =
-          [];
-        const syncPromises: Promise<any>[] = [];
-
-        for (const item of toFetch) {
-          const key = `${item.network}:${item.account_index}`;
-          const acc = freshMap.get(key);
-          if (acc) {
-            updates.push({
-              network: item.network,
-              account: acc,
-              cachedPositions: acc.positions.map(analyzePositionRisk).filter(Boolean),
-            });
-            syncPromises.push(
-              syncAccountOpenPositions(
-                env.DB,
-                item.network,
-                item.account_index,
-                acc.positions,
-              ).catch((e) => console.error("syncAccountOpenPositions error:", e)),
-            );
-          }
-        }
-        runInBackground(
-          Promise.all([
-            ...syncPromises,
-            batchUpdatePositionsCache(env.DB, updates).catch((e) =>
-              console.error("Cache update error:", e),
-            ),
-          ]),
-        );
-        trace.mark("d1_sync_and_cache_dispatched");
-      }
-    }
-
-    const userThreshold = await getUserThreshold(env.DB, ctx.from.id);
-    let totalUnPnl = 0;
-    let totalCollateral = 0;
-    const cards: string[] = [];
-
-    for (const item of trackedList) {
-      const key = `${item.network}:${item.account_index}`;
-      const fresh = freshMap.get(key);
-      const cached = cacheMap.get(key);
-      let card = "";
-      let accPositions: PositionRiskAnalysis[] = [];
-      let accCollateral = 0;
-
-      if (fresh) {
-        accPositions = fresh.positions
-          .map(analyzePositionRisk)
-          .filter(Boolean) as PositionRiskAnalysis[];
-        accCollateral = parseFloat(fresh.collateral || "0");
-        card = formatPositionsReport(
-          item.network,
-          item.account_index,
-          item.alias,
-          accCollateral,
-          accPositions,
-          userThreshold,
-        );
-      } else if (cached && cached.l1_address && cached.positions_json) {
-        const parsedPositions = JSON.parse(cached.positions_json) as any[];
-        accPositions = parsedPositions
-          .map((p: any) => {
-            if (p.marketId !== undefined && p.tier !== undefined) {
-              return p as PositionRiskAnalysis;
+          for (const item of toFetch) {
+            const key = `${item.network}:${item.account_index}`;
+            const acc = freshMap.get(key);
+            if (acc) {
+              updates.push({
+                network: item.network,
+                account: acc,
+                cachedPositions: acc.positions.map(analyzePositionRisk).filter(Boolean),
+              });
+              syncPromises.push(
+                syncAccountOpenPositions(
+                  env.DB,
+                  item.network,
+                  item.account_index,
+                  acc.positions,
+                ).catch((e) => console.error("syncAccountOpenPositions error:", e)),
+              );
             }
-            return analyzePositionRisk(p);
-          })
-          .filter(Boolean) as PositionRiskAnalysis[];
-        accCollateral = parseFloat(String(cached.collateral || 0));
-
-        card = formatPositionsReport(
-          item.network,
-          item.account_index,
-          item.alias,
-          accCollateral,
-          accPositions,
-          userThreshold,
-        );
-      } else {
-        if (filterIndex && !fresh && !cached) continue;
-        const netBadge = CONFIG.NETWORKS[item.network]?.badge || `[${item.network.toUpperCase()}]`;
-        card = `Аккаунт #${item.account_index} ${netBadge}: данные временно недоступны.\n`;
-      }
-
-      const trimmedCard = card.trim();
-      if (!trimmedCard) continue;
-
-      cards.push(trimmedCard);
-      totalCollateral += accCollateral;
-      for (const pos of accPositions) {
-        totalUnPnl += pos.unrealizedPnl;
-      }
-    }
-
-    const posKeyboard = getPositionsKeyboard(filterIndex, filterNetwork);
-
-    if (cards.length > 0) {
-      const separator = "\n───────────────────\n";
-      let combinedReport = cards.join(separator);
-
-      const pnlSign = totalUnPnl >= 0 ? "📈 +" : "📉 -";
-      const totalPnlStr = `${pnlSign}$${Math.abs(totalUnPnl).toFixed(2)}`;
-      const summaryBlock = `${separator}📊 <b>ИТОГО:</b>\n• UnPnL: <b>${totalPnlStr}</b>\n• Маржа: <b>$${totalCollateral.toFixed(2)}</b>`;
-      combinedReport += summaryBlock;
-
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString("ru-RU", {
-        timeZone: "UTC",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-
-      let footerSuffix = "";
-      if (freshMap.size > 0) {
-        footerSuffix = `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
-      } else {
-        let oldestCacheSec = nowSec;
-        for (const item of trackedList) {
-          const c = cacheMap.get(`${item.network}:${item.account_index}`);
-          if (c?.last_updated_at && c.last_updated_at < oldestCacheSec) {
-            oldestCacheSec = c.last_updated_at;
           }
+          runInBackground(
+            Promise.all([
+              ...syncPromises,
+              batchUpdatePositionsCache(env.DB, updates).catch((e) =>
+                console.error("Cache update error:", e),
+              ),
+            ]),
+          );
+          trace.mark("d1_sync_and_cache_dispatched");
         }
-        const cacheDate = new Date(oldestCacheSec * 1000);
-        const cacheTimeStr = cacheDate.toLocaleTimeString("ru-RU", {
+      }
+
+      const userThreshold = await getUserThreshold(env.DB, ctx.from.id);
+      let totalUnPnl = 0;
+      let totalCollateral = 0;
+      const cards: string[] = [];
+
+      for (const item of trackedList) {
+        const key = `${item.network}:${item.account_index}`;
+        const fresh = freshMap.get(key);
+        const cached = cacheMap.get(key);
+        let card = "";
+        let accPositions: PositionRiskAnalysis[] = [];
+        let accCollateral = 0;
+
+        if (fresh) {
+          accPositions = fresh.positions
+            .map(analyzePositionRisk)
+            .filter(Boolean) as PositionRiskAnalysis[];
+          accCollateral = parseFloat(fresh.collateral || "0");
+          card = formatPositionsReport(
+            item.network,
+            item.account_index,
+            item.alias,
+            accCollateral,
+            accPositions,
+            userThreshold,
+          );
+        } else if (cached && cached.l1_address && cached.positions_json) {
+          const parsedPositions = JSON.parse(cached.positions_json) as any[];
+          accPositions = parsedPositions
+            .map((p: any) => {
+              if (p.marketId !== undefined && p.tier !== undefined) {
+                return p as PositionRiskAnalysis;
+              }
+              return analyzePositionRisk(p);
+            })
+            .filter(Boolean) as PositionRiskAnalysis[];
+          accCollateral = parseFloat(String(cached.collateral || 0));
+
+          card = formatPositionsReport(
+            item.network,
+            item.account_index,
+            item.alias,
+            accCollateral,
+            accPositions,
+            userThreshold,
+          );
+        } else {
+          if (filterIndex && !fresh && !cached) continue;
+          const netBadge =
+            CONFIG.NETWORKS[item.network]?.badge || `[${item.network.toUpperCase()}]`;
+          card = `Аккаунт #${item.account_index} ${netBadge}: данные временно недоступны.\n`;
+        }
+
+        const trimmedCard = card.trim();
+        if (!trimmedCard) continue;
+
+        cards.push(trimmedCard);
+        totalCollateral += accCollateral;
+        for (const pos of accPositions) {
+          totalUnPnl += pos.unrealizedPnl;
+        }
+      }
+
+      const posKeyboard = getPositionsKeyboard(filterIndex, filterNetwork);
+
+      if (cards.length > 0) {
+        const separator = "\n───────────────────\n";
+        let combinedReport = cards.join(separator);
+
+        const pnlSign = totalUnPnl >= 0 ? "📈 +" : "📉 -";
+        const totalPnlStr = `${pnlSign}$${Math.abs(totalUnPnl).toFixed(2)}`;
+        const summaryBlock = `${separator}📊 <b>ИТОГО:</b>\n• UnPnL: <b>${totalPnlStr}</b>\n• Маржа: <b>$${totalCollateral.toFixed(2)}</b>`;
+        combinedReport += summaryBlock;
+
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString("ru-RU", {
           timeZone: "UTC",
           hour: "2-digit",
           minute: "2-digit",
           second: "2-digit",
         });
-        footerSuffix = `\n\n🕒 <i>Кэш от: ${cacheTimeStr} UTC</i>`;
-      }
-      if (isRateLimited) {
-        footerSuffix += `\n⚠️ <i>Биржа временно перегружена запросами. Показаны последние сохраненные данные.</i>`;
-      }
 
-      combinedReport += footerSuffix;
-      trace.mark("calc_and_render");
-      trace.set("cardsCount", cards.length);
-
-      if (combinedReport.length > 3800) {
-        let currentChunk = "";
-        for (let i = 0; i < cards.length; i++) {
-          const piece = i === 0 ? cards[i] : separator + cards[i];
-          if ((currentChunk + piece).length > 3800) {
-            await ctx.reply(currentChunk, { parse_mode: "HTML" });
-            currentChunk = cards[i];
-          } else {
-            currentChunk += piece;
+        let footerSuffix = "";
+        if (freshMap.size > 0) {
+          footerSuffix = `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+        } else {
+          let oldestCacheSec = nowSec;
+          for (const item of trackedList) {
+            const c = cacheMap.get(`${item.network}:${item.account_index}`);
+            if (c?.last_updated_at && c.last_updated_at < oldestCacheSec) {
+              oldestCacheSec = c.last_updated_at;
+            }
           }
-        }
-        currentChunk += `${summaryBlock}${footerSuffix}`;
-        await ctx.reply(currentChunk, { parse_mode: "HTML", reply_markup: posKeyboard });
-        trace.mark("telegram_send");
-        return;
-      }
-
-      if (isEdit) {
-        try {
-          await ctx.editMessageText(combinedReport, {
-            parse_mode: "HTML",
-            reply_markup: posKeyboard,
+          const cacheDate = new Date(oldestCacheSec * 1000);
+          const cacheTimeStr = cacheDate.toLocaleTimeString("ru-RU", {
+            timeZone: "UTC",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
           });
-        } catch (err: any) {
-          if (!err?.message?.includes("message is not modified")) {
-            await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
-          }
+          footerSuffix = `\n\n🕒 <i>Кэш от: ${cacheTimeStr} UTC</i>`;
         }
-      } else {
-        await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
+        if (isRateLimited) {
+          footerSuffix += `\n⚠️ <i>Биржа временно перегружена запросами. Показаны последние сохраненные данные.</i>`;
+        }
+
+        combinedReport += footerSuffix;
+        trace.mark("calc_and_render");
+        trace.set("cardsCount", cards.length);
+
+        if (combinedReport.length > 3800) {
+          let currentChunk = "";
+          for (let i = 0; i < cards.length; i++) {
+            const piece = i === 0 ? cards[i] : separator + cards[i];
+            if ((currentChunk + piece).length > 3800) {
+              await ctx.reply(currentChunk, { parse_mode: "HTML" });
+              currentChunk = cards[i];
+            } else {
+              currentChunk += piece;
+            }
+          }
+          currentChunk += `${summaryBlock}${footerSuffix}`;
+          await ctx.reply(currentChunk, { parse_mode: "HTML", reply_markup: posKeyboard });
+          trace.mark("telegram_send");
+          return;
+        }
+
+        if (isEdit) {
+          try {
+            await ctx.editMessageText(combinedReport, {
+              parse_mode: "HTML",
+              reply_markup: posKeyboard,
+            });
+          } catch (err: any) {
+            if (!err?.message?.includes("message is not modified")) {
+              await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
+            }
+          }
+        } else {
+          await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
+        }
+        trace.mark("telegram_send");
+      } else if (filterIndex) {
+        await ctx.reply(`Аккаунт #${filterIndex} не найден ни в одной из поддерживаемых сетей.`, {
+          reply_markup: getMainKb(ctx),
+        });
+        trace.mark("telegram_send");
       }
-      trace.mark("telegram_send");
-    } else if (filterIndex) {
-      await ctx.reply(`Аккаунт #${filterIndex} не найден ни в одной из поддерживаемых сетей.`, {
-        reply_markup: getMainKb(ctx),
-      });
-      trace.mark("telegram_send");
+    } finally {
+      trace.end();
     }
-  } finally {
-    trace.end();
-  }
-};
+  };
 
   bot.command("positions", async (ctx) => {
     const arg = ctx.match ? ctx.match.trim() : "";

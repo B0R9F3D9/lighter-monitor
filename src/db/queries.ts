@@ -455,21 +455,30 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
       LIMIT 5
     `),
     db.prepare(`
-      SELECT value_json, updated_at FROM bot_system_metrics WHERE key = 'last_cron'
+      SELECT key, value_json, updated_at FROM bot_system_metrics WHERE key IN ('last_cron', 'last_cron_error')
     `),
   ]);
 
   const summary = ((summaryRes as any)?.results?.[0] || {}) as any;
   const topTokens = ((tokensRes as any)?.results || []) as Array<{ symbol: string; count: number }>;
-  const metricsRow = (metricsRes as any)?.results?.[0] as
-    | { value_json: string; updated_at: number }
-    | undefined;
+  const metricsRows = ((metricsRes as any)?.results || []) as Array<{
+    key: string;
+    value_json: string;
+    updated_at: number;
+  }>;
 
   let lastCron: any = null;
-  if (metricsRow?.value_json) {
-    try {
-      lastCron = JSON.parse(metricsRow.value_json);
-    } catch {}
+  let lastCronError: any = null;
+  for (const row of metricsRows) {
+    if (row.key === "last_cron" && row.value_json) {
+      try {
+        lastCron = JSON.parse(row.value_json);
+      } catch {}
+    } else if (row.key === "last_cron_error" && row.value_json) {
+      try {
+        lastCronError = JSON.parse(row.value_json);
+      } catch {}
+    }
   }
 
   const oldest = summary.oldest_cache;
@@ -497,5 +506,6 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
     maxQueueLagMinutes: maxLagMinutes,
     topTokens,
     lastCron,
+    lastCronError,
   };
 }

@@ -149,6 +149,15 @@ export interface CronExecutionMetrics {
   timestamp: number;
 }
 
+export interface CronErrorMetrics {
+  event: string;
+  error: string;
+  stack?: string;
+  duration_ms: number;
+  subrequests_used: number;
+  timestamp: number;
+}
+
 export interface SystemStats {
   totalUsers: number;
   users24h: number;
@@ -166,4 +175,5 @@ export interface SystemStats {
   maxQueueLagMinutes: number;
   topTokens: Array<{ symbol: string; count: number }>;
   lastCron?: CronExecutionMetrics | null;
+  lastCronError?: CronErrorMetrics | null;
 }

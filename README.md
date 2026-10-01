@@ -211,7 +211,8 @@ bunx wrangler secret put TELEGRAM_SECRET_TOKEN
 # (Опционально) Telegram ID администратора для доступа к /stats и /admin
 bunx wrangler secret put ADMIN_TELEGRAM_ID
 
-# (Опционально) URL Heartbeat-мониторинга крона (Healthchecks.io / Better Stack)
+# (Опционально) URL Heartbeat-мониторинга крона (Healthchecks.io / Cronitor / Better Stack)
+# При успехе отправляет heartbeat с метриками, а при сбое крона шлет запрос на /fail с диагностическим логом и стеком ошибки
 bunx wrangler secret put HEALTHCHECK_URL
 
 # (Рекомендуется) Мастер-ключ Lighter API для снятия лимитов 429 (расширяет лимит с 60 до 24 000+ req/min)
