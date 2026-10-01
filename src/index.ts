@@ -3,6 +3,7 @@ import { Env } from "./types";
 import { getBot } from "./bot/bot";
 import { runCronMonitor } from "./cron/monitor";
 import { executionContextStorage } from "./utils/background";
+import SPREAD_HTML from "./spread.html";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -12,6 +13,26 @@ export default {
     if (url.pathname === "/health") {
       return new Response(JSON.stringify({ status: "ok", timestamp: Date.now() }), {
         headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Spread & Arbitrage Terminal
+    if (url.pathname === "/spread" || url.pathname === "/spread/") {
+      let html: string = typeof SPREAD_HTML === "string" ? SPREAD_HTML : "";
+      if (!html) {
+        const fileIndex = (SPREAD_HTML as unknown as { index?: string })?.index;
+        if (fileIndex && typeof Bun !== "undefined") {
+          html = await (Bun as any).file(fileIndex).text();
+        } else {
+          html = String(SPREAD_HTML);
+        }
+      }
+
+      return new Response(html, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "public, max-age=300",
+        },
       });
     }
 

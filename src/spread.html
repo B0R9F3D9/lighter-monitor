@@ -1,0 +1,1581 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lighter × Robinhood Arbitrage Terminal | 5.0x Delta-Neutral</title>
+
+    <!-- Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "system-ui", "sans-serif"],
+              mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+            },
+            colors: {
+              terminal: {
+                bg: "#090A0F",
+                surface: "#111622",
+                surfaceHover: "#161D2D",
+                border: "#1E2638",
+                borderSubtle: "#171E2E",
+                muted: "#64748B",
+                secondary: "#94A3B8",
+                primary: "#F8FAFC",
+                emerald: "#10B981",
+                emeraldMuted: "rgba(16, 185, 129, 0.12)",
+                amber: "#F59E0B",
+                amberMuted: "rgba(245, 158, 11, 0.12)",
+                coral: "#F43F5E",
+                coralMuted: "rgba(244, 63, 94, 0.12)",
+                accent: "#38BDF8",
+              },
+            },
+          },
+        },
+      };
+    </script>
+
+    <style>
+      /* Institutional Scrollbars */
+      ::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #090a0f;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #1e2638;
+        border-radius: 2px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #334155;
+      }
+
+      .tabular-nums {
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Fixed table styling for zero layout shift */
+      .sticky-symbol {
+        position: sticky;
+        left: 0;
+        z-index: 10;
+        background-color: #111622;
+      }
+      tr:hover .sticky-symbol {
+        background-color: #161d2d;
+      }
+
+      /* Smooth CSS progress bar for re-rank timer */
+      #rerankProgress {
+        transition: width 0.1s linear;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-terminal-bg text-terminal-primary font-sans antialiased min-h-screen selection:bg-terminal-accent/30 selection:text-white"
+  >
+    <!-- TOP HEADER / APP BAR -->
+    <header
+      class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md"
+    >
+      <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <!-- Brand & Strategy Context -->
+          <div class="flex items-center gap-3">
+            <div
+              class="w-7 h-7 rounded border border-terminal-border bg-terminal-bg flex items-center justify-center font-mono font-bold text-xs text-terminal-accent"
+            >
+              LR
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-bold tracking-tight text-white uppercase"
+                  >Lighter × Robinhood Terminal</span
+                >
+                <span
+                  class="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-terminal-accent/10 text-terminal-accent border border-terminal-accent/20"
+                >
+                  5.0x HEDGE
+                </span>
+              </div>
+              <div class="text-[11px] text-terminal-muted font-mono flex items-center gap-1.5">
+                <span>RH Long 2.0x (Mobile)</span>
+                <span>/</span>
+                <span>Core Short 2.5x (Web)</span>
+                <span>/</span>
+                <span>Delta-Neutral VWAP Engine</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Connection Diagnostics & Auto Re-rank Progress -->
+          <div class="flex flex-wrap items-center gap-3 text-xs font-mono">
+            <!-- Re-rank Timer & Button -->
+            <div
+              class="flex items-center gap-2 bg-terminal-bg border border-terminal-border px-2.5 py-1 rounded"
+            >
+              <span class="text-[11px] text-terminal-muted">Sort Freeze:</span>
+              <div
+                class="w-16 h-1.5 bg-terminal-surface rounded-full overflow-hidden border border-terminal-borderSubtle"
+              >
+                <div
+                  id="rerankProgress"
+                  class="h-full bg-terminal-accent"
+                  style="width: 100%"
+                ></div>
+              </div>
+              <span id="rerankTimerText" class="text-[11px] text-terminal-secondary tabular-nums"
+                >15s</span
+              >
+              <button
+                id="manualRerankBtn"
+                title="Manual Re-rank"
+                class="ml-1 text-[11px] px-1.5 py-0.5 rounded bg-terminal-surface hover:bg-terminal-border text-terminal-secondary hover:text-white border border-terminal-border transition flex items-center gap-1"
+              >
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  ></path>
+                </svg>
+                <span>Re-rank</span>
+              </button>
+              <button
+                id="toggleFreezeBtn"
+                class="text-[11px] px-1.5 py-0.5 rounded bg-terminal-surface text-terminal-muted hover:text-white border border-terminal-border"
+                title="Toggle Auto Sort"
+              >
+                Auto: ON
+              </button>
+            </div>
+
+            <!-- Streams Status -->
+            <div
+              class="flex items-center gap-2 bg-terminal-bg border border-terminal-border px-2 py-1 rounded text-[11px]"
+            >
+              <span class="flex items-center gap-1">
+                <span id="coreWsDot" class="w-1.5 h-1.5 rounded-full bg-terminal-amber"></span>
+                <span class="text-terminal-muted">Core</span>
+              </span>
+              <span class="text-terminal-border">|</span>
+              <span class="flex items-center gap-1">
+                <span id="rhWsDot" class="w-1.5 h-1.5 rounded-full bg-terminal-amber"></span>
+                <span class="text-terminal-muted">RH</span>
+              </span>
+            </div>
+
+            <!-- Market Count -->
+            <div
+              class="bg-terminal-bg border border-terminal-border px-2 py-1 rounded text-[11px] text-terminal-secondary"
+            >
+              <span class="text-terminal-muted">Markets:</span>
+              <span id="marketCountBadge" class="font-bold text-white tabular-nums">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- MAIN VIEWPORT -->
+    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-4 space-y-3">
+      <!-- INSTITUTIONAL EXECUTIVE SUMMARY STRIP -->
+      <div
+        id="topRankCard"
+        class="bg-terminal-surface border border-terminal-border rounded p-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+      >
+        <div class="flex items-center gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span
+                class="text-[10px] font-mono font-bold tracking-wider uppercase px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald border border-terminal-emerald/30"
+              >
+                TOP ARBITRAGE ENTRY
+              </span>
+              <span
+                id="topVerdictBadge"
+                class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald"
+              >
+                [READY]
+              </span>
+            </div>
+            <div class="flex items-baseline gap-2">
+              <span id="topSymbol" class="text-xl font-bold font-mono text-white tracking-tight"
+                >--</span
+              >
+              <span
+                id="topLeverage"
+                class="text-xs font-mono font-semibold px-1 py-0.2 rounded bg-terminal-border text-terminal-secondary"
+                >20x</span
+              >
+              <span
+                id="topMidPrice"
+                class="text-sm font-mono text-terminal-secondary tabular-nums ml-2"
+                >$0.00</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- Financial Metrics Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs">
+          <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
+            <div class="text-[10px] text-terminal-muted uppercase">Round-Trip Loss</div>
+            <div id="topLossUsd" class="text-base font-bold text-terminal-emerald tabular-nums">
+              $--
+            </div>
+            <div class="text-[10px] text-terminal-muted">entry + exit fill</div>
+          </div>
+
+          <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
+            <div class="text-[10px] text-terminal-muted uppercase">Point Cost ($/pt)</div>
+            <div id="topPointCost" class="text-base font-bold text-terminal-emerald tabular-nums">
+              $-- / pt
+            </div>
+            <div class="text-[10px] text-terminal-muted">5.0x farming rate</div>
+          </div>
+
+          <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
+            <div class="text-[10px] text-terminal-muted uppercase">VWAP Total Drag</div>
+            <div id="topVwapDrag" class="text-base font-bold text-terminal-primary tabular-nums">
+              -- bps
+            </div>
+            <div id="topRawSpread" class="text-[10px] text-terminal-muted">Raw: -- bps</div>
+          </div>
+
+          <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
+            <div class="text-[10px] text-terminal-muted uppercase">24h Vol / Liquidity</div>
+            <div id="topVolume" class="text-base font-bold text-terminal-secondary tabular-nums">
+              $--
+            </div>
+            <div id="topLiquidity" class="text-[10px] text-terminal-muted">Depth: $--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTROLS & TRADING PARAMETERS BAR -->
+      <div
+        class="bg-terminal-surface border border-terminal-border rounded p-2.5 flex flex-col md:flex-row md:items-center justify-between gap-3"
+      >
+        <!-- Size Configuration (Instant Sub-millisecond Execution) -->
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs font-mono font-medium text-terminal-muted uppercase tracking-wider"
+            >Position Size:</span
+          >
+          <div class="relative">
+            <span
+              class="absolute left-2.5 top-1/2 -translate-y-1/2 text-terminal-muted font-mono text-xs"
+              >$</span
+            >
+            <input
+              type="number"
+              id="sizeInput"
+              value="10000"
+              min="500"
+              max="1000000"
+              step="1000"
+              class="w-28 pl-6 pr-2 py-1 bg-terminal-bg border border-terminal-border rounded font-mono text-xs text-white focus:outline-none focus:border-terminal-accent tabular-nums"
+            />
+          </div>
+          <!-- Quick Size Selector Buttons -->
+          <div class="flex items-center gap-1 font-mono text-xs">
+            <button
+              class="size-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+              data-size="5000"
+            >
+              5K
+            </button>
+            <button
+              class="size-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+              data-size="8000"
+            >
+              8K
+            </button>
+            <button
+              class="size-btn size-btn-active px-2 py-1 rounded border border-terminal-accent/50 bg-terminal-accent/10 text-terminal-accent font-bold"
+              data-size="10000"
+            >
+              10K
+            </button>
+            <button
+              class="size-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+              data-size="15000"
+            >
+              15K
+            </button>
+            <button
+              class="size-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+              data-size="20000"
+            >
+              20K
+            </button>
+          </div>
+        </div>
+
+        <!-- Filters & Search -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Search -->
+          <div class="relative">
+            <input
+              type="text"
+              id="searchBox"
+              placeholder="Filter ticker (e.g. AAPL)..."
+              class="w-44 sm:w-52 pl-7 pr-2 py-1 bg-terminal-bg border border-terminal-border rounded font-mono text-xs text-white placeholder-terminal-muted focus:outline-none focus:border-terminal-accent"
+            />
+            <svg
+              class="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-terminal-muted pointer-events-none"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              ></path>
+            </svg>
+          </div>
+
+          <!-- Equities Only Toggle -->
+          <button
+            id="equitiesToggle"
+            class="px-2.5 py-1 rounded border border-terminal-accent/30 bg-terminal-accent/10 text-terminal-accent text-xs font-mono font-medium flex items-center gap-1.5 transition"
+          >
+            <span>Equities Only</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent"></span>
+          </button>
+
+          <!-- Ready Only Toggle -->
+          <button
+            id="readyToggle"
+            class="px-2.5 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-xs font-mono font-medium flex items-center gap-1.5 transition"
+          >
+            <span>[READY] Only</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-terminal-border" id="readyDot"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- MAIN TERMINAL TABLE -->
+      <div
+        class="border border-terminal-border rounded bg-terminal-surface overflow-hidden shadow-lg"
+      >
+        <div class="overflow-x-auto">
+          <table class="w-full text-left font-mono text-xs border-collapse" id="terminalTable">
+            <thead>
+              <tr
+                class="bg-terminal-bg border-b border-terminal-border text-terminal-muted uppercase text-[10px] tracking-wider select-none"
+              >
+                <th
+                  class="py-2.5 px-3 font-semibold sticky-symbol cursor-pointer hover:text-white"
+                  data-sort="symbol"
+                  style="min-width: 140px"
+                >
+                  Ticker & Lev <span class="sort-indicator text-terminal-accent"></span>
+                </th>
+                <th
+                  class="py-2.5 px-2.5 font-semibold text-center cursor-pointer hover:text-white"
+                  data-sort="status"
+                  style="min-width: 95px"
+                >
+                  Verdict <span class="sort-indicator"></span>
+                </th>
+                <th
+                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
+                  data-sort="costUsd"
+                  style="min-width: 110px"
+                >
+                  Loss USD ($) <span class="sort-indicator text-terminal-accent">▲</span>
+                </th>
+                <th
+                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
+                  data-sort="pointCostUsd"
+                  style="min-width: 110px"
+                >
+                  Point Cost <span class="sort-indicator"></span>
+                </th>
+                <th
+                  class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
+                  data-sort="vwapTotalDragBps"
+                  style="min-width: 95px"
+                >
+                  VWAP Drag <span class="sort-indicator"></span>
+                </th>
+                <th
+                  class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
+                  data-sort="slippageBps"
+                  style="min-width: 90px"
+                >
+                  Slippage <span class="sort-indicator"></span>
+                </th>
+                <th
+                  class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
+                  data-sort="midPrice"
+                  style="min-width: 90px"
+                >
+                  Mid Price <span class="sort-indicator"></span>
+                </th>
+                <th
+                  class="py-2.5 px-2.5 font-semibold text-center cursor-pointer hover:text-white"
+                  data-sort="maxLevelsSwept"
+                  style="min-width: 80px"
+                >
+                  Swept Lvl <span class="sort-indicator"></span>
+                </th>
+                <th
+                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
+                  data-sort="minDepthUsd"
+                  style="min-width: 95px"
+                >
+                  Min Depth <span class="sort-indicator"></span>
+                </th>
+                <th
+                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
+                  data-sort="totalVolume24h"
+                  style="min-width: 105px"
+                >
+                  24h Vol (RH) <span class="sort-indicator"></span>
+                </th>
+                <th class="py-2.5 px-2 text-center text-terminal-muted" style="width: 40px">
+                  <!-- Expand Details Header -->
+                </th>
+              </tr>
+            </thead>
+            <tbody id="tableBody" class="divide-y divide-terminal-borderSubtle">
+              <!-- Initialized with loading skeleton -->
+              <tr id="emptyRow">
+                <td colspan="11" class="py-12 text-center text-terminal-muted">
+                  <div class="inline-flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-terminal-accent animate-ping"></span>
+                    <span>Connecting to Lighter Core & Robinhood WebSocket Streams...</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- FOOTER EXPLANATION & CALCULATION LEGEND -->
+      <footer
+        class="border border-terminal-borderSubtle rounded bg-terminal-surface/60 p-3 text-[11px] font-mono text-terminal-muted flex flex-col md:flex-row md:items-center justify-between gap-3"
+      >
+        <div class="flex flex-wrap items-center gap-4">
+          <span
+            ><strong>Point Cost Formula:</strong> Loss_USD / (RoundTripVol_RH / 1M * 52 * 5.0)</span
+          >
+          <span class="text-terminal-border">|</span>
+          <span class="text-terminal-emerald">&lt; $1.50/pt (High Profit)</span>
+          <span class="text-terminal-amber">$1.50–$3.00/pt (Fair)</span>
+          <span class="text-terminal-coral">&gt; $3.00/pt (Unfavorable)</span>
+        </div>
+        <div>Click any row to inspect 4-leg order execution breakdown (RH / Core).</div>
+      </footer>
+    </main>
+
+    <!-- SCRIPT ENGINE -->
+    <script>
+      // ------------------------------------------------------------------------
+      // 1. CONFIG & INSTITUTIONAL FILTER CONSTANTS
+      // ------------------------------------------------------------------------
+      const CONFIG = {
+        CORE_API_URL: "https://mainnet.zklighter.elliot.ai/api/v1",
+        RH_API_URL: "https://api.rh.lighter.xyz/api/v1",
+        CORE_WS_URL: "wss://mainnet.zklighter.elliot.ai/stream?readonly=true",
+        RH_WS_URL: "wss://api.rh.lighter.xyz/stream?readonly=true",
+        RERANK_INTERVAL_SEC: 15,
+        EMA_ALPHA: 0.25, // 0.25 New + 0.75 Prev
+      };
+
+      const NON_EQUITY_SYMBOLS = new Set([
+        "BTC",
+        "ETH",
+        "SOL",
+        "XRP",
+        "SUI",
+        "NEAR",
+        "HYPE",
+        "ZEC",
+        "CASHCAT",
+        "PONS",
+        "VVV",
+        "LIT",
+        "BE",
+        "XAU",
+        "XAG",
+        "USO",
+        "SLV",
+        "SPY",
+        "QQQ",
+        "SOXL",
+        "SGOV",
+      ]);
+
+      // ------------------------------------------------------------------------
+      // 2. RUNTIME STATE (Separation of Data, Sort Order & DOM)
+      // ------------------------------------------------------------------------
+      const state = {
+        markets: new Map(), // symbol -> MarketInfo
+        coreBooks: new Map(), // marketId -> { asks: Map, bids: Map, isSnapshot: bool }
+        rhBooks: new Map(), // marketId -> { asks: Map, bids: Map, isSnapshot: bool }
+
+        // Filter & Trading Config
+        targetSizeUsd: 10000,
+        filterEquities: true,
+        filterReadyOnly: false,
+        searchQuery: "",
+
+        // Sorting Lock & Hysteresis State
+        sortColumn: "costUsd",
+        sortDirection: "asc",
+        isAutoSortEnabled: true,
+        displayedSymbolsOrder: [], // FIXED row order, does not shift on ticks!
+        rerankTimerRemaining: CONFIG.RERANK_INTERVAL_SEC,
+
+        // EMA smoothing store: symbol -> { smoothedDrag, smoothedLoss }
+        emaMap: new Map(),
+
+        // UI state
+        expandedSymbol: null,
+        isCoreConnected: false,
+        isRhConnected: false,
+      };
+
+      // DOM references cache to avoid querying DOM
+      const rowDomCache = new Map(); // symbol -> { tr, symbolEl, verdictEl, ... }
+      let detailRowDom = null;
+
+      // ------------------------------------------------------------------------
+      // 3. UTILITIES & HIGH-PERFORMANCE FORMATTERS
+      // ------------------------------------------------------------------------
+      function formatMoney(num) {
+        if (num === undefined || num === null || isNaN(num)) return "$0.00";
+        if (num >= 1e9) return "$" + (num / 1e9).toFixed(2) + "B";
+        if (num >= 1e6) return "$" + (num / 1e6).toFixed(2) + "M";
+        if (num >= 1e3) return "$" + (num / 1e3).toFixed(1) + "K";
+        return (
+          "$" + num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        );
+      }
+
+      function formatPrice(p) {
+        if (p === undefined || p === null || isNaN(p)) return "$0.00";
+        if (p < 1) return "$" + p.toFixed(4);
+        if (p < 10) return "$" + p.toFixed(3);
+        return "$" + p.toFixed(2);
+      }
+
+      function formatBps(b, withSign = false) {
+        if (b === undefined || b === null || isNaN(b)) return "0.00 bps";
+        const sign = b > 0 && withSign ? "+" : "";
+        return sign + b.toFixed(2) + " bps";
+      }
+
+      // ------------------------------------------------------------------------
+      // 4. ORDER BOOK & 4-LEG VWAP MATH
+      // ------------------------------------------------------------------------
+      function getOrCreateBook(bookMap, marketId) {
+        let b = bookMap.get(marketId);
+        if (!b) {
+          b = { asks: new Map(), bids: new Map(), isSnapshotReceived: false };
+          bookMap.set(marketId, b);
+        }
+        return b;
+      }
+
+      function updateBookFromWs(book, orderBook) {
+        if (orderBook.asks) {
+          for (const { price, size } of orderBook.asks) {
+            const p = parseFloat(price);
+            const s = parseFloat(size);
+            if (isNaN(p) || isNaN(s)) continue;
+            if (s <= 0) book.asks.delete(p);
+            else book.asks.set(p, s);
+          }
+        }
+        if (orderBook.bids) {
+          for (const { price, size } of orderBook.bids) {
+            const p = parseFloat(price);
+            const s = parseFloat(size);
+            if (isNaN(p) || isNaN(s)) continue;
+            if (s <= 0) book.bids.delete(p);
+            else book.bids.set(p, s);
+          }
+        }
+        book.isSnapshotReceived = true;
+      }
+
+      function getSortedLevels(map, isAsk) {
+        const arr = [];
+        for (const [price, totalBase] of map.entries()) {
+          arr.push({ price, totalBase, totalUsd: price * totalBase });
+        }
+        arr.sort((a, b) => (isAsk ? a.price - b.price : b.price - a.price));
+        return arr;
+      }
+
+      function simulateFill(levels, targetUsd, isAsk) {
+        if (!levels || levels.length === 0) {
+          return {
+            isComplete: false,
+            avgPrice: 0,
+            bestPrice: 0,
+            slippageBps: 0,
+            levelsSwept: 0,
+            totalAvailableUsd: 0,
+          };
+        }
+        const bestPrice = levels[0].price;
+        let remainingUsd = targetUsd;
+        let totalCostUsd = 0;
+        let totalBase = 0;
+        let levelsSwept = 0;
+        let totalAvailableUsd = 0;
+
+        for (const lvl of levels) {
+          totalAvailableUsd += lvl.totalUsd;
+          if (remainingUsd > 0) {
+            levelsSwept++;
+            const fillUsd = Math.min(remainingUsd, lvl.totalUsd);
+            totalCostUsd += fillUsd;
+            totalBase += fillUsd / lvl.price;
+            remainingUsd -= fillUsd;
+          }
+        }
+
+        const isComplete = remainingUsd <= 0.01;
+        const avgPrice = totalBase > 0 ? totalCostUsd / totalBase : bestPrice;
+        const slippageBps = isAsk
+          ? ((avgPrice - bestPrice) / bestPrice) * 10000
+          : ((bestPrice - avgPrice) / bestPrice) * 10000;
+
+        return { isComplete, avgPrice, bestPrice, slippageBps, levelsSwept, totalAvailableUsd };
+      }
+
+      function calculateMarketMetrics(m, targetUsd) {
+        const rhBook = state.rhBooks.get(m.rhMarketId);
+        const coreBook = state.coreBooks.get(m.coreMarketId);
+
+        if (!rhBook?.isSnapshotReceived || !coreBook?.isSnapshotReceived) return null;
+        if (
+          rhBook.asks.size === 0 ||
+          rhBook.bids.size === 0 ||
+          coreBook.asks.size === 0 ||
+          coreBook.bids.size === 0
+        )
+          return null;
+
+        const rhAsks = getSortedLevels(rhBook.asks, true);
+        const rhBids = getSortedLevels(rhBook.bids, false);
+        const coreAsks = getSortedLevels(coreBook.asks, true);
+        const coreBids = getSortedLevels(coreBook.bids, false);
+
+        const rhBestAsk = rhAsks[0].price;
+        const rhBestBid = rhBids[0].price;
+        const coreBestAsk = coreAsks[0].price;
+        const coreBestBid = coreBids[0].price;
+
+        const midPrice = ((rhBestAsk + rhBestBid) / 2 + (coreBestAsk + coreBestBid) / 2) / 2;
+        if (midPrice <= 0) return null;
+
+        // 4-Leg VWAP fills
+        const simEntryRh = simulateFill(rhAsks, targetUsd, true);
+        const simEntryCore = simulateFill(coreBids, targetUsd, false);
+        const simExitRh = simulateFill(rhBids, targetUsd, false);
+        const simExitCore = simulateFill(coreAsks, targetUsd, true);
+
+        // Raw theoretical top-of-book spread
+        const rawEntryDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
+        const rawExitDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
+        const rawSpreadBps = (rawEntryDragBps + rawExitDragBps) / 2;
+
+        // Real VWAP drag
+        const vwapEntryDragBps = ((simEntryRh.avgPrice - simEntryCore.avgPrice) / midPrice) * 10000;
+        const vwapExitDragBps = ((simExitCore.avgPrice - simExitRh.avgPrice) / midPrice) * 10000;
+        const rawVwapDragBps = (vwapEntryDragBps + vwapExitDragBps) / 2;
+        const slippageBps = rawVwapDragBps - rawSpreadBps;
+
+        if (isNaN(rawVwapDragBps) || !isFinite(rawVwapDragBps)) return null;
+
+        // EMA Noise Filtering
+        let ema = state.emaMap.get(m.symbol);
+        if (!ema || isNaN(ema.smoothedDrag) || !isFinite(ema.smoothedDrag)) {
+          ema = { smoothedDrag: rawVwapDragBps };
+          state.emaMap.set(m.symbol, ema);
+        } else {
+          ema.smoothedDrag =
+            CONFIG.EMA_ALPHA * rawVwapDragBps + (1 - CONFIG.EMA_ALPHA) * ema.smoothedDrag;
+        }
+        const vwapTotalDragBps = ema.smoothedDrag;
+
+        // Financials
+        const costUsd = (vwapTotalDragBps / 10000) * targetUsd;
+
+        // Point cost calculation:
+        // Volume on RH round-trip = 2 * targetUsd
+        // Points earned = (Volume_RH / 1_000_000) * 52 * 5.0
+        // Point Cost = costUsd / pointsEarned
+        const rhRoundTripVol = targetUsd * 2;
+        const pointsEarned = (rhRoundTripVol / 1000000) * 52 * 5.0;
+        const pointCostUsd = pointsEarned > 0 ? costUsd / pointsEarned : 0;
+
+        const maxLevelsSwept = Math.max(
+          simEntryRh.levelsSwept,
+          simEntryCore.levelsSwept,
+          simExitRh.levelsSwept,
+          simExitCore.levelsSwept,
+        );
+
+        const minDepthUsd = Math.min(
+          simEntryRh.totalAvailableUsd,
+          simEntryCore.totalAvailableUsd,
+          simExitRh.totalAvailableUsd,
+          simExitCore.totalAvailableUsd,
+        );
+
+        const allFilled =
+          simEntryRh.isComplete &&
+          simEntryCore.isComplete &&
+          simExitRh.isComplete &&
+          simExitCore.isComplete;
+
+        let status = "READY";
+        if (!allFilled) {
+          status = "LOW LIQ";
+        } else if (maxLevelsSwept > 6 || slippageBps > 8.0) {
+          status = "SLIPPAGE";
+        }
+
+        return {
+          symbol: m.symbol,
+          leverage: m.leverage,
+          midPrice,
+          totalVolume24h: m.totalVolume24h,
+          rhVolume24h: m.rhVolume24h,
+          totalOiUsd: m.totalOiUsd,
+          rawSpreadBps,
+          slippageBps,
+          entryDragBps: vwapEntryDragBps,
+          exitDragBps: vwapExitDragBps,
+          vwapTotalDragBps,
+          costUsd,
+          pointCostUsd,
+          pointsEarned,
+          maxLevelsSwept,
+          minDepthUsd,
+          status,
+          legs: {
+            entryRh: simEntryRh,
+            entryCore: simEntryCore,
+            exitRh: simExitRh,
+            exitCore: simExitCore,
+            rhBestAsk,
+            coreBestBid,
+            rhBestBid,
+            coreBestAsk,
+          },
+        };
+      }
+
+      // ------------------------------------------------------------------------
+      // 5. REST DISCOVERY & LEVERAGE PARSING
+      // ------------------------------------------------------------------------
+      async function fetchMarkets() {
+        try {
+          const [coreRes, rhRes] = await Promise.all([
+            fetch(`${CONFIG.CORE_API_URL}/orderBookDetails`),
+            fetch(`${CONFIG.RH_API_URL}/orderBookDetails`),
+          ]);
+
+          if (!coreRes.ok || !rhRes.ok) return;
+
+          const [coreJson, rhJson] = await Promise.all([coreRes.json(), rhRes.json()]);
+
+          const coreMap = new Map();
+          for (const m of coreJson.order_book_details || []) {
+            if (m.status === "active" && !m.is_frozen) {
+              coreMap.set(m.symbol, m);
+            }
+          }
+
+          const map = new Map();
+          for (const rm of rhJson.order_book_details || []) {
+            if (rm.status !== "active" || rm.is_frozen) continue;
+            const cm = coreMap.get(rm.symbol);
+            if (!cm) continue;
+
+            // Leverage calculation from min_initial_margin_fraction (bps)
+            const levMargin = cm.min_initial_margin_fraction || 500;
+            const leverage = Math.round(10000 / levMargin);
+
+            const rhVol =
+              (parseFloat(rm.daily_quote_token_volume) || 0) +
+              (parseFloat(rm.daily_base_token_volume) || 0) *
+                (parseFloat(rm.last_trade_price) || 0);
+            const coreVol =
+              (parseFloat(cm.daily_quote_token_volume) || 0) +
+              (parseFloat(cm.daily_base_token_volume) || 0) *
+                (parseFloat(cm.last_trade_price) || 0);
+            const rhOi =
+              (parseFloat(rm.open_interest) || 0) * (parseFloat(rm.last_trade_price) || 0);
+            const coreOi =
+              (parseFloat(cm.open_interest) || 0) * (parseFloat(cm.last_trade_price) || 0);
+
+            map.set(rm.symbol, {
+              symbol: rm.symbol,
+              leverage: `${leverage}x`,
+              rhMarketId: rm.market_id,
+              coreMarketId: cm.market_id,
+              rhVolume24h: rhVol,
+              coreVolume24h: coreVol,
+              totalVolume24h: rhVol + coreVol,
+              rhOiUsd: rhOi,
+              coreOiUsd: coreOi,
+              totalOiUsd: rhOi + coreOi,
+            });
+          }
+
+          state.markets = map;
+          document.getElementById("marketCountBadge").textContent = map.size;
+
+          // Initialize WebSockets if first run
+          if (!window._wsInitialized) {
+            window._wsInitialized = true;
+            initWebSockets();
+          }
+
+          // Trigger initial sync once snapshots begin arriving
+          triggerWarmupSync();
+        } catch (e) {
+          console.error("Error fetching market metadata:", e);
+        }
+      }
+
+      // ------------------------------------------------------------------------
+      // 6. WEBSOCKET REAL-TIME STREAM CONNECTIONS
+      // ------------------------------------------------------------------------
+      function initWebSockets() {
+        const coreDot = document.getElementById("coreWsDot");
+        const rhDot = document.getElementById("rhWsDot");
+
+        function connectCore() {
+          coreDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-amber animate-pulse";
+          const ws = new WebSocket(CONFIG.CORE_WS_URL);
+
+          ws.addEventListener("open", () => {
+            state.isCoreConnected = true;
+            coreDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-emerald";
+            for (const m of state.markets.values()) {
+              ws.send(
+                JSON.stringify({ type: "subscribe", channel: `order_book/${m.coreMarketId}` }),
+              );
+            }
+          });
+
+          ws.addEventListener("message", (e) => {
+            try {
+              const d = JSON.parse(e.data);
+              if (d.channel?.startsWith("order_book:") && d.order_book) {
+                const mid = parseInt(d.channel.split(":")[1], 10);
+                const book = getOrCreateBook(state.coreBooks, mid);
+                updateBookFromWs(book, d.order_book);
+                scheduleInPlaceUpdate();
+              }
+            } catch {}
+          });
+
+          ws.addEventListener("close", () => {
+            state.isCoreConnected = false;
+            coreDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-coral animate-pulse";
+            setTimeout(connectCore, 2000);
+          });
+
+          ws.addEventListener("error", () => {
+            try {
+              ws.close();
+            } catch {}
+          });
+
+          setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              try {
+                ws.send(JSON.stringify({ type: "ping" }));
+              } catch {}
+            }
+          }, 25000);
+        }
+
+        function connectRh() {
+          rhDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-amber animate-pulse";
+          const ws = new WebSocket(CONFIG.RH_WS_URL);
+
+          ws.addEventListener("open", () => {
+            state.isRhConnected = true;
+            rhDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-emerald";
+            for (const m of state.markets.values()) {
+              ws.send(JSON.stringify({ type: "subscribe", channel: `order_book/${m.rhMarketId}` }));
+            }
+          });
+
+          ws.addEventListener("message", (e) => {
+            try {
+              const d = JSON.parse(e.data);
+              if (d.channel?.startsWith("order_book:") && d.order_book) {
+                const mid = parseInt(d.channel.split(":")[1], 10);
+                const book = getOrCreateBook(state.rhBooks, mid);
+                updateBookFromWs(book, d.order_book);
+                scheduleInPlaceUpdate();
+              }
+            } catch {}
+          });
+
+          ws.addEventListener("close", () => {
+            state.isRhConnected = false;
+            rhDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-coral animate-pulse";
+            setTimeout(connectRh, 2000);
+          });
+
+          ws.addEventListener("error", () => {
+            try {
+              ws.close();
+            } catch {}
+          });
+
+          setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              try {
+                ws.send(JSON.stringify({ type: "ping" }));
+              } catch {}
+            }
+          }, 25000);
+        }
+
+        connectCore();
+        connectRh();
+      }
+
+      // ------------------------------------------------------------------------
+      // 7. IN-PLACE DOM RENDERING & SORT FREEZE ENGINE
+      // ------------------------------------------------------------------------
+      let updateScheduled = false;
+      let isWarmupActive = true;
+      setTimeout(() => {
+        isWarmupActive = false;
+      }, 3500);
+
+      let warmupDebounceTimer = null;
+      function triggerWarmupSync() {
+        if (warmupDebounceTimer) return;
+        warmupDebounceTimer = setTimeout(() => {
+          warmupDebounceTimer = null;
+          rerank();
+        }, 120);
+      }
+
+      function scheduleInPlaceUpdate() {
+        // If table has not populated yet, or we are in the initial warmup window
+        if (state.displayedSymbolsOrder.length === 0 || isWarmupActive) {
+          triggerWarmupSync();
+        }
+
+        if (updateScheduled) return;
+        updateScheduled = true;
+        requestAnimationFrame(() => {
+          updateCellsInPlace();
+          updateScheduled = false;
+        });
+      }
+
+      // Re-calculate all rows and update text nodes without touching row order
+      function updateCellsInPlace() {
+        const targetUsd = state.targetSizeUsd;
+        let topRow = null;
+
+        for (const symbol of state.displayedSymbolsOrder) {
+          const m = state.markets.get(symbol);
+          if (!m) continue;
+
+          const row = calculateMarketMetrics(m, targetUsd);
+          if (!row) continue;
+
+          if (!topRow && row.status === "READY") {
+            topRow = row;
+          }
+
+          const cache = rowDomCache.get(symbol);
+          if (!cache) continue;
+
+          // 1. Verdict badge
+          if (cache.verdictText !== row.status) {
+            cache.verdictText = row.status;
+            cache.verdictEl.textContent = `[${row.status}]`;
+            if (row.status === "READY") {
+              cache.verdictEl.className =
+                "px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald border border-terminal-emerald/30 text-[10px] font-bold";
+            } else if (row.status === "SLIPPAGE") {
+              cache.verdictEl.className =
+                "px-1.5 py-0.5 rounded bg-terminal-amberMuted text-terminal-amber border border-terminal-amber/30 text-[10px] font-bold";
+            } else {
+              cache.verdictEl.className =
+                "px-1.5 py-0.5 rounded bg-terminal-coralMuted text-terminal-coral border border-terminal-coral/30 text-[10px] font-bold";
+            }
+          }
+
+          // 2. Loss USD ($)
+          cache.lossEl.textContent = formatMoney(row.costUsd);
+          if (row.status === "READY" && row.vwapTotalDragBps < 4.0) {
+            cache.lossEl.className =
+              "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums";
+          } else if (row.status === "READY" && row.vwapTotalDragBps <= 8.0) {
+            cache.lossEl.className =
+              "py-2 px-3 text-right font-medium text-terminal-primary tabular-nums";
+          } else {
+            cache.lossEl.className =
+              "py-2 px-3 text-right font-medium text-terminal-secondary tabular-nums";
+          }
+
+          // 3. Point Cost ($/pt)
+          cache.ptCostEl.textContent = `$${row.pointCostUsd.toFixed(2)} / pt`;
+          if (row.pointCostUsd < 1.5) {
+            cache.ptCostEl.className =
+              "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums";
+          } else if (row.pointCostUsd <= 3.0) {
+            cache.ptCostEl.className =
+              "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums";
+          } else {
+            cache.ptCostEl.className =
+              "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums";
+          }
+
+          // 4. VWAP Drag
+          cache.vwapEl.textContent = formatBps(row.vwapTotalDragBps);
+
+          // 5. Slippage
+          cache.slipEl.textContent = formatBps(row.slippageBps, true);
+          cache.slipEl.className =
+            row.slippageBps > 8
+              ? "py-2 px-2.5 text-right text-terminal-amber tabular-nums font-semibold"
+              : "py-2 px-2.5 text-right text-terminal-secondary tabular-nums";
+
+          // 6. Mid Price
+          cache.priceEl.textContent = formatPrice(row.midPrice);
+
+          // 7. Swept Levels & Depth
+          cache.levelsEl.textContent = `${row.maxLevelsSwept} lvls`;
+          cache.depthEl.textContent = formatMoney(row.minDepthUsd);
+
+          // If this row is expanded, update accordion values
+          if (state.expandedSymbol === symbol && detailRowDom) {
+            updateDetailRow(row);
+          }
+        }
+
+        // Update executive summary card with current leader
+        if (topRow) {
+          updateExecutiveSummary(topRow);
+        }
+      }
+
+      function updateExecutiveSummary(r) {
+        document.getElementById("topSymbol").textContent = r.symbol;
+        document.getElementById("topLeverage").textContent = r.leverage;
+        document.getElementById("topMidPrice").textContent = formatPrice(r.midPrice);
+        document.getElementById("topLossUsd").textContent = formatMoney(r.costUsd);
+        document.getElementById("topPointCost").textContent = `$${r.pointCostUsd.toFixed(2)} / pt`;
+        document.getElementById("topVwapDrag").textContent = formatBps(r.vwapTotalDragBps);
+        document.getElementById("topRawSpread").textContent = `Raw: ${formatBps(r.rawSpreadBps)}`;
+        document.getElementById("topVolume").textContent = formatMoney(r.totalVolume24h);
+        document.getElementById("topLiquidity").textContent =
+          `Depth: ${formatMoney(r.minDepthUsd)} (${r.maxLevelsSwept} lvls)`;
+
+        const vBadge = document.getElementById("topVerdictBadge");
+        vBadge.textContent = `[${r.status}]`;
+        if (r.status === "READY") {
+          vBadge.className =
+            "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald";
+        } else if (r.status === "SLIPPAGE") {
+          vBadge.className =
+            "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-terminal-amberMuted text-terminal-amber";
+        } else {
+          vBadge.className =
+            "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-terminal-coralMuted text-terminal-coral";
+        }
+      }
+
+      // Full Re-ranking: computes order, builds DOM rows once or reorders them without flickering
+      function rerank() {
+        const targetUsd = state.targetSizeUsd;
+        const rows = [];
+
+        for (const m of state.markets.values()) {
+          if (state.filterEquities && NON_EQUITY_SYMBOLS.has(m.symbol)) continue;
+          if (
+            state.searchQuery &&
+            !m.symbol.toUpperCase().includes(state.searchQuery.toUpperCase())
+          )
+            continue;
+
+          const row = calculateMarketMetrics(m, targetUsd);
+          if (row) {
+            if (state.filterReadyOnly && row.status !== "READY") continue;
+            rows.push(row);
+          }
+        }
+
+        // Sort
+        const dir = state.sortDirection === "asc" ? 1 : -1;
+        rows.sort((a, b) => {
+          if (state.sortColumn === "symbol") return a.symbol.localeCompare(b.symbol) * dir;
+          if (state.sortColumn === "status") {
+            const rank = { READY: 1, SLIPPAGE: 2, "LOW LIQ": 3 };
+            return ((rank[a.status] || 9) - (rank[b.status] || 9)) * dir;
+          }
+          return ((a[state.sortColumn] || 0) - (b[state.sortColumn] || 0)) * dir;
+        });
+
+        state.displayedSymbolsOrder = rows.map((r) => r.symbol);
+
+        // Rebuild Table DOM using cached row nodes
+        const tableBody = document.getElementById("tableBody");
+        const emptyRow = document.getElementById("emptyRow");
+        if (emptyRow) emptyRow.remove();
+
+        if (rows.length === 0) {
+          const hasAnySnapshots =
+            Array.from(state.coreBooks.values()).some((b) => b.isSnapshotReceived) &&
+            Array.from(state.rhBooks.values()).some((b) => b.isSnapshotReceived);
+
+          if (!hasAnySnapshots) {
+            tableBody.innerHTML = `
+            <tr id="emptyRow">
+              <td colspan="11" class="py-12 text-center text-terminal-muted">
+                <div class="inline-flex items-center gap-2">
+                  <span class="w-2 h-2 rounded-full bg-terminal-accent animate-ping"></span>
+                  <span>Syncing order books from Lighter Core & Robinhood Chain...</span>
+                </div>
+              </td>
+            </tr>
+          `;
+          } else {
+            tableBody.innerHTML = `
+            <tr>
+              <td colspan="11" class="py-12 text-center text-terminal-muted">
+                No matching pairs for the active filters.
+              </td>
+            </tr>
+          `;
+          }
+          return;
+        }
+
+        // Move existing rows in order or create new if not present
+        const fragment = document.createDocumentFragment();
+
+        for (const r of rows) {
+          let cache = rowDomCache.get(r.symbol);
+          if (!cache) {
+            cache = createRowElement(r);
+            rowDomCache.set(r.symbol, cache);
+          }
+          fragment.appendChild(cache.tr);
+
+          // If this row is expanded, keep detail underneath
+          if (state.expandedSymbol === r.symbol && detailRowDom) {
+            fragment.appendChild(detailRowDom);
+          }
+        }
+
+        tableBody.innerHTML = "";
+        tableBody.appendChild(fragment);
+
+        // Immediate in-place text update
+        updateCellsInPlace();
+
+        // Update executive summary card with current leader immediately
+        const topLead = rows.find((r) => r.status === "READY") || rows[0];
+        if (topLead) {
+          updateExecutiveSummary(topLead);
+        }
+
+        // Reset timer
+        state.rerankTimerRemaining = CONFIG.RERANK_INTERVAL_SEC;
+      }
+
+      function createRowElement(r) {
+        const tr = document.createElement("tr");
+        tr.className =
+          "hover:bg-terminal-surfaceHover/80 cursor-pointer select-none transition-colors border-b border-terminal-borderSubtle";
+        tr.dataset.symbol = r.symbol;
+
+        tr.innerHTML = `
+        <td class="py-2 px-3 sticky-symbol font-semibold text-white">
+          <div class="flex items-center gap-2">
+            <span class="symbol-name font-bold tracking-tight">${r.symbol}</span>
+            <span class="text-[10px] font-mono px-1 py-0.2 rounded bg-terminal-border text-terminal-secondary">${r.leverage}</span>
+          </div>
+        </td>
+        <td class="py-2 px-2.5 text-center">
+          <span class="verdict-badge px-1.5 py-0.5 rounded text-[10px] font-bold">[READY]</span>
+        </td>
+        <td class="py-2 px-3 text-right loss-cell tabular-nums font-bold text-terminal-emerald">$0.00</td>
+        <td class="py-2 px-3 text-right ptcost-cell tabular-nums font-medium text-terminal-emerald">$0.00 / pt</td>
+        <td class="py-2 px-2.5 text-right vwap-cell tabular-nums text-terminal-primary">0.00 bps</td>
+        <td class="py-2 px-2.5 text-right slip-cell tabular-nums text-terminal-secondary">+0.00 bps</td>
+        <td class="py-2 px-2.5 text-right price-cell tabular-nums text-terminal-secondary">$0.00</td>
+        <td class="py-2 px-2.5 text-center levels-cell tabular-nums text-terminal-muted">0 lvls</td>
+        <td class="py-2 px-3 text-right depth-cell tabular-nums text-terminal-muted">$0.00</td>
+        <td class="py-2 px-3 text-right vol-cell tabular-nums text-terminal-secondary">
+          <span class="font-medium text-white">${formatMoney(r.totalVolume24h)}</span>
+          <span class="text-[10px] text-terminal-muted block">RH: ${formatMoney(r.rhVolume24h)}</span>
+        </td>
+        <td class="py-2 px-2 text-center text-terminal-muted chevron-cell">
+          <svg class="w-3.5 h-3.5 inline-block transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+        </td>
+      `;
+
+        tr.addEventListener("click", () => toggleExpand(r.symbol));
+
+        return {
+          tr,
+          verdictEl: tr.querySelector(".verdict-badge"),
+          lossEl: tr.querySelector(".loss-cell"),
+          ptCostEl: tr.querySelector(".ptcost-cell"),
+          vwapEl: tr.querySelector(".vwap-cell"),
+          slipEl: tr.querySelector(".slip-cell"),
+          priceEl: tr.querySelector(".price-cell"),
+          levelsEl: tr.querySelector(".levels-cell"),
+          depthEl: tr.querySelector(".depth-cell"),
+          volEl: tr.querySelector(".vol-cell"),
+          chevronEl: tr.querySelector(".chevron-cell svg"),
+          verdictText: "",
+        };
+      }
+
+      function toggleExpand(symbol) {
+        if (state.expandedSymbol === symbol) {
+          state.expandedSymbol = null;
+          if (detailRowDom) detailRowDom.remove();
+          detailRowDom = null;
+        } else {
+          state.expandedSymbol = symbol;
+          const m = state.markets.get(symbol);
+          if (!m) return;
+          const row = calculateMarketMetrics(m, state.targetSizeUsd);
+          if (!row) return;
+
+          if (!detailRowDom) {
+            detailRowDom = document.createElement("tr");
+            detailRowDom.className = "bg-terminal-bg border-b border-terminal-border";
+            detailRowDom.id = "detailRowContainer";
+          }
+
+          const cache = rowDomCache.get(symbol);
+          if (cache && cache.tr.parentNode) {
+            cache.tr.after(detailRowDom);
+            updateDetailRow(row);
+          }
+        }
+
+        // Update chevron rotations
+        for (const [sym, cache] of rowDomCache.entries()) {
+          if (sym === state.expandedSymbol) {
+            cache.chevronEl.classList.add("rotate-180", "text-terminal-accent");
+            cache.tr.classList.add("bg-terminal-surfaceHover");
+          } else {
+            cache.chevronEl.classList.remove("rotate-180", "text-terminal-accent");
+            cache.tr.classList.remove("bg-terminal-surfaceHover");
+          }
+        }
+      }
+
+      function updateDetailRow(r) {
+        const l = r.legs;
+        detailRowDom.innerHTML = `
+        <td colspan="11" class="p-3 sm:p-4">
+          <div class="max-w-5xl mx-auto space-y-3 font-mono text-xs">
+            <div class="flex items-center justify-between border-b border-terminal-border pb-2 text-[11px]">
+              <div>
+                <span class="text-white font-bold">Execution Breakdown (4 Legs):</span>
+                <span class="text-terminal-secondary ml-2">${r.symbol} (${r.leverage})</span>
+                <span class="text-terminal-muted ml-1">Size: ${formatMoney(state.targetSizeUsd)}</span>
+              </div>
+              <div class="text-terminal-muted">
+                Basis Spread: Entry <span class="text-white font-bold">${formatBps(r.entryDragBps, true)}</span> • Exit <span class="text-white font-bold">${formatBps(r.exitDragBps, true)}</span>
+              </div>
+            </div>
+
+            <!-- 4 Leg Cards -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <!-- Leg 1 -->
+              <div class="bg-terminal-surface border border-terminal-emerald/30 p-2.5 rounded space-y-1.5">
+                <div class="flex items-center justify-between text-[11px] font-bold text-terminal-emerald">
+                  <span>LEG 1: RH LONG</span>
+                  <span class="text-[9px] px-1 rounded bg-terminal-emeraldMuted border border-terminal-emerald/30">Buy Ask</span>
+                </div>
+                <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+                  <div class="flex justify-between"><span class="text-terminal-muted">Top Ask:</span> <span>${formatPrice(l.rhBestAsk)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">VWAP Fill:</span> <span class="text-white font-bold">${formatPrice(l.entryRh.avgPrice)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Slippage:</span> <span class="text-terminal-emerald">${formatBps(l.entryRh.slippageBps, true)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Levels Swept:</span> <span>${l.entryRh.levelsSwept}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Asks Liquidity:</span> <span>${formatMoney(l.entryRh.totalAvailableUsd)}</span></div>
+                </div>
+              </div>
+
+              <!-- Leg 2 -->
+              <div class="bg-terminal-surface border border-terminal-coral/30 p-2.5 rounded space-y-1.5">
+                <div class="flex items-center justify-between text-[11px] font-bold text-terminal-coral">
+                  <span>LEG 2: CORE SHORT</span>
+                  <span class="text-[9px] px-1 rounded bg-terminal-coralMuted border border-terminal-coral/30">Sell Bid</span>
+                </div>
+                <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+                  <div class="flex justify-between"><span class="text-terminal-muted">Top Bid:</span> <span>${formatPrice(l.coreBestBid)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">VWAP Fill:</span> <span class="text-white font-bold">${formatPrice(l.entryCore.avgPrice)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Slippage:</span> <span class="text-terminal-coral">${formatBps(l.entryCore.slippageBps, true)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Levels Swept:</span> <span>${l.entryCore.levelsSwept}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Bids Liquidity:</span> <span>${formatMoney(l.entryCore.totalAvailableUsd)}</span></div>
+                </div>
+              </div>
+
+              <!-- Leg 3 -->
+              <div class="bg-terminal-surface border border-terminal-border p-2.5 rounded space-y-1.5">
+                <div class="flex items-center justify-between text-[11px] font-bold text-terminal-secondary">
+                  <span>LEG 3: CLOSE RH</span>
+                  <span class="text-[9px] px-1 rounded bg-terminal-bg border border-terminal-border">Sell Bid</span>
+                </div>
+                <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+                  <div class="flex justify-between"><span class="text-terminal-muted">Top Bid:</span> <span>${formatPrice(l.rhBestBid)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">VWAP Fill:</span> <span class="text-white font-bold">${formatPrice(l.exitRh.avgPrice)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Slippage:</span> <span>${formatBps(l.exitRh.slippageBps, true)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Levels Swept:</span> <span>${l.exitRh.levelsSwept}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Bids Liquidity:</span> <span>${formatMoney(l.exitRh.totalAvailableUsd)}</span></div>
+                </div>
+              </div>
+
+              <!-- Leg 4 -->
+              <div class="bg-terminal-surface border border-terminal-border p-2.5 rounded space-y-1.5">
+                <div class="flex items-center justify-between text-[11px] font-bold text-terminal-secondary">
+                  <span>LEG 4: CLOSE CORE</span>
+                  <span class="text-[9px] px-1 rounded bg-terminal-bg border border-terminal-border">Buy Ask</span>
+                </div>
+                <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+                  <div class="flex justify-between"><span class="text-terminal-muted">Top Ask:</span> <span>${formatPrice(l.coreBestAsk)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">VWAP Fill:</span> <span class="text-white font-bold">${formatPrice(l.exitCore.avgPrice)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Slippage:</span> <span>${formatBps(l.exitCore.slippageBps, true)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Levels Swept:</span> <span>${l.exitCore.levelsSwept}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Asks Liquidity:</span> <span>${formatMoney(l.exitCore.totalAvailableUsd)}</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Summary Footnote -->
+            <div class="p-2 bg-terminal-surface rounded border border-terminal-borderSubtle text-[10px] text-terminal-muted flex flex-wrap justify-between gap-2">
+              <span>Points Earned per Round: <strong class="text-terminal-accent">${r.pointsEarned.toFixed(2)} pts</strong> (5.0x rate)</span>
+              <span>Net Loss: <strong class="text-white">${formatMoney(r.costUsd)}</strong></span>
+              <span>Point Unit Cost: <strong class="${r.pointCostUsd < 1.5 ? "text-terminal-emerald" : "text-terminal-amber"}">$${r.pointCostUsd.toFixed(2)} / pt</strong></span>
+            </div>
+          </div>
+        </td>
+      `;
+      }
+
+      // ------------------------------------------------------------------------
+      // 8. HYSTERESIS TIMER & CONTROLS BINDING
+      // ------------------------------------------------------------------------
+      function setupHysteresisTimer() {
+        const progressBar = document.getElementById("rerankProgress");
+        const timerText = document.getElementById("rerankTimerText");
+
+        setInterval(() => {
+          if (!state.isAutoSortEnabled) return;
+
+          state.rerankTimerRemaining -= 0.2;
+          if (state.rerankTimerRemaining <= 0) {
+            state.rerankTimerRemaining = CONFIG.RERANK_INTERVAL_SEC;
+            rerank();
+          }
+
+          const pct = Math.max(0, (state.rerankTimerRemaining / CONFIG.RERANK_INTERVAL_SEC) * 100);
+          progressBar.style.width = pct + "%";
+          timerText.textContent = Math.ceil(state.rerankTimerRemaining) + "s";
+        }, 200);
+      }
+
+      function setupEventListeners() {
+        // 1. Manual Re-rank Button
+        document.getElementById("manualRerankBtn").addEventListener("click", () => {
+          rerank();
+        });
+
+        // 2. Toggle Auto Freeze
+        const freezeBtn = document.getElementById("toggleFreezeBtn");
+        freezeBtn.addEventListener("click", () => {
+          state.isAutoSortEnabled = !state.isAutoSortEnabled;
+          if (state.isAutoSortEnabled) {
+            freezeBtn.textContent = "Auto: ON";
+            freezeBtn.className =
+              "text-[11px] px-1.5 py-0.5 rounded bg-terminal-surface text-terminal-muted hover:text-white border border-terminal-border";
+          } else {
+            freezeBtn.textContent = "Auto: FROZEN";
+            freezeBtn.className =
+              "text-[11px] px-1.5 py-0.5 rounded bg-terminal-amberMuted text-terminal-amber border border-terminal-amber/40 font-bold";
+          }
+        });
+
+        // 3. Position Size Input
+        const sizeInput = document.getElementById("sizeInput");
+        sizeInput.addEventListener("input", (e) => {
+          const val = parseFloat(e.target.value);
+          if (!isNaN(val) && val > 0) {
+            state.targetSizeUsd = val;
+            document.querySelectorAll(".size-btn").forEach((btn) => {
+              btn.classList.remove(
+                "size-btn-active",
+                "border-terminal-accent/50",
+                "bg-terminal-accent/10",
+                "text-terminal-accent",
+                "font-bold",
+              );
+              btn.classList.add(
+                "border-terminal-border",
+                "bg-terminal-bg",
+                "text-terminal-secondary",
+              );
+            });
+            rerank();
+          }
+        });
+
+        // Quick Size Chips
+        document.querySelectorAll(".size-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const sz = parseFloat(btn.dataset.size);
+            state.targetSizeUsd = sz;
+            sizeInput.value = sz;
+
+            document.querySelectorAll(".size-btn").forEach((b) => {
+              b.classList.remove(
+                "size-btn-active",
+                "border-terminal-accent/50",
+                "bg-terminal-accent/10",
+                "text-terminal-accent",
+                "font-bold",
+              );
+              b.classList.add(
+                "border-terminal-border",
+                "bg-terminal-bg",
+                "text-terminal-secondary",
+              );
+            });
+            btn.classList.add(
+              "size-btn-active",
+              "border-terminal-accent/50",
+              "bg-terminal-accent/10",
+              "text-terminal-accent",
+              "font-bold",
+            );
+            btn.classList.remove(
+              "border-terminal-border",
+              "bg-terminal-bg",
+              "text-terminal-secondary",
+            );
+
+            rerank();
+          });
+        });
+
+        // 4. Search Filter
+        document.getElementById("searchBox").addEventListener("input", (e) => {
+          state.searchQuery = e.target.value.trim();
+          rerank();
+        });
+
+        // 5. Equities Toggle
+        const eqBtn = document.getElementById("equitiesToggle");
+        eqBtn.addEventListener("click", () => {
+          state.filterEquities = !state.filterEquities;
+          if (state.filterEquities) {
+            eqBtn.className =
+              "px-2.5 py-1 rounded border border-terminal-accent/30 bg-terminal-accent/10 text-terminal-accent text-xs font-mono font-medium flex items-center gap-1.5 transition";
+            eqBtn.innerHTML =
+              '<span>Equities Only</span><span class="w-1.5 h-1.5 rounded-full bg-terminal-accent"></span>';
+          } else {
+            eqBtn.className =
+              "px-2.5 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-xs font-mono font-medium flex items-center gap-1.5 transition";
+            eqBtn.innerHTML =
+              '<span>All Markets</span><span class="w-1.5 h-1.5 rounded-full bg-terminal-border"></span>';
+          }
+          rerank();
+        });
+
+        // 6. Ready Only Toggle
+        const readyBtn = document.getElementById("readyToggle");
+        const readyDot = document.getElementById("readyDot");
+        readyBtn.addEventListener("click", () => {
+          state.filterReadyOnly = !state.filterReadyOnly;
+          if (state.filterReadyOnly) {
+            readyBtn.className =
+              "px-2.5 py-1 rounded border border-terminal-emerald/40 bg-terminal-emeraldMuted text-terminal-emerald text-xs font-mono font-medium flex items-center gap-1.5 transition";
+            readyDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-emerald";
+          } else {
+            readyBtn.className =
+              "px-2.5 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-xs font-mono font-medium flex items-center gap-1.5 transition";
+            readyDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-border";
+          }
+          rerank();
+        });
+
+        // 7. Column Header Sorting
+        document.querySelectorAll("#terminalTable th[data-sort]").forEach((th) => {
+          th.addEventListener("click", () => {
+            const col = th.dataset.sort;
+            if (state.sortColumn === col) {
+              state.sortDirection = state.sortDirection === "asc" ? "desc" : "asc";
+            } else {
+              state.sortColumn = col;
+              state.sortDirection =
+                col === "totalVolume24h" || col === "minDepthUsd" ? "desc" : "asc";
+            }
+
+            document
+              .querySelectorAll("#terminalTable th .sort-indicator")
+              .forEach((s) => (s.textContent = ""));
+            const ind = th.querySelector(".sort-indicator");
+            if (ind) {
+              ind.textContent = state.sortDirection === "asc" ? "▲" : "▼";
+              ind.className = "sort-indicator text-terminal-accent";
+            }
+
+            rerank();
+          });
+        });
+      }
+
+      // ------------------------------------------------------------------------
+      // 9. STARTUP SEQUENCE
+      // ------------------------------------------------------------------------
+      setupEventListeners();
+      setupHysteresisTimer();
+      fetchMarkets();
+
+      // Background refresh of 24h volumes & OI every 60s
+      setInterval(fetchMarkets, 60000);
+    </script>
+  </body>
+</html>

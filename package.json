@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "web": "bun -e 'Bun.serve({ port: 3000, fetch: () => new Response(Bun.file(\"./src/spread.html\")) }); console.log(\"\\n⚡ Web Scanner live at http://localhost:3000\\n\");'",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "d1:init": "wrangler d1 execute lighter-db --local --file=./schema.sql",
