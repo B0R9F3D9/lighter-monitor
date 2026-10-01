@@ -330,6 +330,17 @@
 
         <!-- Filters & Search -->
         <div class="flex flex-wrap items-center gap-2">
+          <!-- Leverage Filter (Compact) -->
+          <div class="flex items-center gap-1.5 font-mono text-xs">
+            <span class="text-xs font-mono font-medium text-terminal-muted uppercase tracking-wider">Lev:</span>
+            <div class="flex items-center gap-1">
+              <button class="lev-btn lev-btn-active px-2 py-1 rounded border border-terminal-accent/50 bg-terminal-accent/10 text-terminal-accent font-bold" data-lev="0">All</button>
+              <button class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white" data-lev="5">≥5x</button>
+              <button class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white" data-lev="10">≥10x</button>
+              <button class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white" data-lev="20">20x</button>
+            </div>
+          </div>
+
           <!-- Search -->
           <div class="relative">
             <input
@@ -540,6 +551,7 @@
         targetSizeUsd: 10000,
         filterEquities: true,
         filterReadyOnly: false,
+        minLeverageFilter: 0,
         searchQuery: "",
 
         // Sorting Lock & Hysteresis State
@@ -766,6 +778,9 @@
         return {
           symbol: m.symbol,
           leverage: m.leverage,
+          leverageNum: m.leverageNum,
+          rhLeverage: m.rhLeverage,
+          coreLeverage: m.coreLeverage,
           midPrice,
           totalVolume24h: m.totalVolume24h,
           rhVolume24h: m.rhVolume24h,
@@ -821,9 +836,12 @@
             const cm = coreMap.get(rm.symbol);
             if (!cm) continue;
 
-            // Leverage calculation from min_initial_margin_fraction (bps)
-            const levMargin = cm.min_initial_margin_fraction || 500;
-            const leverage = Math.round(10000 / levMargin);
+            // Calculate minimum leverage across both Core and Robinhood
+            const rhMargin = rm.min_initial_margin_fraction || 500;
+            const coreMargin = cm.min_initial_margin_fraction || 500;
+            const rhLev = Math.round(10000 / rhMargin);
+            const coreLev = Math.round(10000 / coreMargin);
+            const minLeverageNum = Math.min(rhLev, coreLev);
 
             const rhVol =
               (parseFloat(rm.daily_quote_token_volume) || 0) +
@@ -840,7 +858,10 @@
 
             map.set(rm.symbol, {
               symbol: rm.symbol,
-              leverage: `${leverage}x`,
+              leverage: `${minLeverageNum}x`,
+              leverageNum: minLeverageNum,
+              rhLeverage: `${rhLev}x`,
+              coreLeverage: `${coreLev}x`,
               rhMarketId: rm.market_id,
               coreMarketId: cm.market_id,
               rhVolume24h: rhVol,
@@ -1126,6 +1147,7 @@
 
         for (const m of state.markets.values()) {
           if (state.filterEquities && NON_EQUITY_SYMBOLS.has(m.symbol)) continue;
+          if (state.minLeverageFilter > 0 && m.leverageNum < state.minLeverageFilter) continue;
           if (
             state.searchQuery &&
             !m.symbol.toUpperCase().includes(state.searchQuery.toUpperCase())
@@ -1143,6 +1165,7 @@
         const dir = state.sortDirection === "asc" ? 1 : -1;
         rows.sort((a, b) => {
           if (state.sortColumn === "symbol") return a.symbol.localeCompare(b.symbol) * dir;
+          if (state.sortColumn === "leverage") return (a.leverageNum - b.leverageNum) * dir;
           if (state.sortColumn === "status") {
             const rank = { READY: 1, SLIPPAGE: 2, "LOW LIQ": 3 };
             return ((rank[a.status] || 9) - (rank[b.status] || 9)) * dir;
@@ -1313,7 +1336,9 @@
             <div class="flex items-center justify-between border-b border-terminal-border pb-2 text-[11px]">
               <div>
                 <span class="text-white font-bold">Execution Breakdown (4 Legs):</span>
-                <span class="text-terminal-secondary ml-2">${r.symbol} (${r.leverage})</span>
+                <span class="text-terminal-secondary ml-2">${r.symbol}</span>
+                <span class="text-terminal-accent font-semibold ml-1">[Min Lev: ${r.leverage}]</span>
+                <span class="text-terminal-muted ml-1">(RH: ${r.rhLeverage} • Core: ${r.coreLeverage})</span>
                 <span class="text-terminal-muted ml-1">Size: ${formatMoney(state.targetSizeUsd)}</span>
               </div>
               <div class="text-terminal-muted">
@@ -1485,6 +1510,43 @@
             });
             btn.classList.add(
               "size-btn-active",
+              "border-terminal-accent/50",
+              "bg-terminal-accent/10",
+              "text-terminal-accent",
+              "font-bold",
+            );
+            btn.classList.remove(
+              "border-terminal-border",
+              "bg-terminal-bg",
+              "text-terminal-secondary",
+            );
+
+            rerank();
+          });
+        });
+
+        // Leverage Filter Chips
+        document.querySelectorAll(".lev-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const lev = parseInt(btn.dataset.lev, 10);
+            state.minLeverageFilter = lev;
+
+            document.querySelectorAll(".lev-btn").forEach((b) => {
+              b.classList.remove(
+                "lev-btn-active",
+                "border-terminal-accent/50",
+                "bg-terminal-accent/10",
+                "text-terminal-accent",
+                "font-bold",
+              );
+              b.classList.add(
+                "border-terminal-border",
+                "bg-terminal-bg",
+                "text-terminal-secondary",
+              );
+            });
+            btn.classList.add(
+              "lev-btn-active",
               "border-terminal-accent/50",
               "bg-terminal-accent/10",
               "text-terminal-accent",
