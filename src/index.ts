@@ -3,7 +3,7 @@ import { Env } from "./types";
 import { getBot } from "./bot/bot";
 import { runCronMonitor } from "./cron/monitor";
 import { executionContextStorage } from "./utils/background";
-import SPREAD_HTML from "./spread.html";
+import { SPREAD_HTML, SPREAD_HTML_HASH, SPREAD_ASSETS } from "./spread_assets";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -16,22 +16,41 @@ export default {
       });
     }
 
-    // Spread & Arbitrage Terminal
-    if (url.pathname === "/spread" || url.pathname === "/spread/") {
-      let html: string = typeof SPREAD_HTML === "string" ? SPREAD_HTML : "";
-      if (!html) {
-        const fileIndex = (SPREAD_HTML as unknown as { index?: string })?.index;
-        if (fileIndex && typeof Bun !== "undefined") {
-          html = await (Bun as any).file(fileIndex).text();
-        } else {
-          html = String(SPREAD_HTML);
+    // Static assets for Spread Terminal (CSS & JS) with immutable 1-year cache
+    if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/spread/assets/")) {
+      const filename = url.pathname.split("/").pop() || "";
+      const asset = SPREAD_ASSETS[filename];
+
+      if (asset) {
+        const clientEtag = request.headers.get("if-none-match");
+        if (clientEtag && (clientEtag === asset.hash || clientEtag === `"${asset.hash}"`)) {
+          return new Response(null, { status: 304 });
         }
+
+        return new Response(asset.content, {
+          headers: {
+            "Content-Type": asset.contentType,
+            "ETag": `"${asset.hash}"`,
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+        });
       }
 
-      return new Response(html, {
+      return new Response("Asset Not Found", { status: 404 });
+    }
+
+    // Spread & Arbitrage Terminal
+    if (url.pathname === "/spread" || url.pathname === "/spread/" || url.pathname === "/") {
+      const clientEtag = request.headers.get("if-none-match");
+      if (clientEtag && (clientEtag === SPREAD_HTML_HASH || clientEtag === `"${SPREAD_HTML_HASH}"`)) {
+        return new Response(null, { status: 304 });
+      }
+
+      return new Response(SPREAD_HTML, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "public, max-age=300",
+          "ETag": `"${SPREAD_HTML_HASH}"`,
+          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
         },
       });
     }
