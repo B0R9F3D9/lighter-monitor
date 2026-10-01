@@ -102,7 +102,7 @@ export interface LiveSpreadTick {
   coreMid: number;
   basisMidUsd: number;
   entryDragUsd: number; // rhAsk - coreBid
-  exitDragUsd: number;  // coreAsk - rhBid
+  exitDragUsd: number; // coreAsk - rhBid
   entryDragBps: number;
   exitDragBps: number;
 }

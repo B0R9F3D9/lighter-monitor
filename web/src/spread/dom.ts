@@ -20,6 +20,9 @@ export function createRowElement(
     <td class="py-2 px-2 text-center">
       <span class="verdict-badge text-[11px] font-semibold text-terminal-muted">○ NO DATA</span>
     </td>
+    <td class="py-2 px-3 text-right size-cell col-opt-size tabular-nums font-semibold text-terminal-accent text-xs">
+      <span>—</span>
+    </td>
     <td class="py-2 px-3 text-right tabular-nums">
       <div class="rt-loss-val font-medium text-terminal-muted text-xs">—</div>
     </td>
@@ -52,6 +55,7 @@ export function createRowElement(
   return {
     tr,
     verdictEl: tr.querySelector(".verdict-badge") as HTMLElement,
+    sizeEl: tr.querySelector(".size-cell span") as HTMLElement,
     rtLossEl: tr.querySelector(".rt-loss-val") as HTMLElement,
     ptCostEl: tr.querySelector(".ptcost-cell") as HTMLElement,
     turnoverDragEl: tr.querySelector(".turnover-drag-val") as HTMLElement,
@@ -83,6 +87,19 @@ export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): vo
     }
   }
 
+  // 1.5. Target / Optimal Size ($)
+  if (cache.sizeEl) {
+    cache.sizeEl.textContent =
+      row.effectiveTargetUsd > 0 ? formatMoney(row.effectiveTargetUsd) : "—";
+    if (row.isDynamic) {
+      cache.sizeEl.className = "tabular-nums font-bold text-terminal-accent text-xs";
+      cache.sizeEl.title = "Dynamically optimized size from live order book";
+    } else {
+      cache.sizeEl.className = "tabular-nums font-medium text-white text-xs";
+      cache.sizeEl.title = `Fixed target size: ${formatMoney(row.effectiveTargetUsd)}`;
+    }
+  }
+
   // 2. Round-Trip Loss ($)
   if (row.isStale) {
     cache.rtLossEl.textContent = "—";
@@ -95,27 +112,34 @@ export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): vo
     if (row.costUsd <= 3.0) {
       cache.rtLossEl.className = "rt-loss-val font-bold text-terminal-emerald tabular-nums text-xs";
     } else if (row.costUsd <= 7.0) {
-      cache.rtLossEl.className = "rt-loss-val font-semibold text-terminal-primary tabular-nums text-xs";
+      cache.rtLossEl.className =
+        "rt-loss-val font-semibold text-terminal-primary tabular-nums text-xs";
     } else {
-      cache.rtLossEl.className = "rt-loss-val font-medium text-terminal-secondary tabular-nums text-xs";
+      cache.rtLossEl.className =
+        "rt-loss-val font-medium text-terminal-secondary tabular-nums text-xs";
     }
   }
 
   // 3. Point Cost ($/pt)
   if (row.isStale) {
     cache.ptCostEl.textContent = "—";
-    cache.ptCostEl.className = "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
+    cache.ptCostEl.className =
+      "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
   } else if (!row.allFilled) {
     cache.ptCostEl.textContent = "N/A";
-    cache.ptCostEl.className = "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
+    cache.ptCostEl.className =
+      "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
   } else {
     cache.ptCostEl.textContent = `$${row.pointCostUsd.toFixed(2)} / pt`;
     if (row.pointCostUsd < 1.5) {
-      cache.ptCostEl.className = "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums text-xs";
+      cache.ptCostEl.className =
+        "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums text-xs";
     } else if (row.pointCostUsd <= 3.0) {
-      cache.ptCostEl.className = "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums text-xs";
+      cache.ptCostEl.className =
+        "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums text-xs";
     } else {
-      cache.ptCostEl.className = "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums text-xs";
+      cache.ptCostEl.className =
+        "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums text-xs";
     }
   }
 
@@ -134,7 +158,8 @@ export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): vo
     cache.deltaMidEl.textContent =
       row.midPrice > 0 ? `Δ ${formatPrice(Math.abs(row.deltaMidUsd))}` : "—";
     if (Math.abs(row.deltaMidBps) > 6.0) {
-      cache.deltaMidEl.className = "delta-mid-val text-[10px] text-terminal-amber font-semibold tabular-nums";
+      cache.deltaMidEl.className =
+        "delta-mid-val text-[10px] text-terminal-amber font-semibold tabular-nums";
     } else {
       cache.deltaMidEl.className = "delta-mid-val text-[10px] text-terminal-muted tabular-nums";
     }
@@ -155,10 +180,15 @@ export function applyNullMetricsToDom(cache: RowDomCache, m: MarketInfo): void {
     cache.verdictEl.textContent = "○ NO DATA";
     cache.verdictEl.className = "verdict-badge text-[11px] font-semibold text-terminal-muted";
   }
+  if (cache.sizeEl) {
+    cache.sizeEl.textContent = "—";
+    cache.sizeEl.className = "tabular-nums font-medium text-terminal-muted text-xs";
+  }
   cache.rtLossEl.textContent = "—";
   cache.rtLossEl.className = "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs";
   cache.ptCostEl.textContent = "—";
-  cache.ptCostEl.className = "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
+  cache.ptCostEl.className =
+    "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums text-xs";
   cache.turnoverDragEl.textContent = "—";
   cache.midPriceEl.textContent = "—";
   if (cache.deltaMidEl) {
@@ -173,13 +203,16 @@ export function applyNullMetricsToDom(cache: RowDomCache, m: MarketInfo): void {
   }
 }
 
-export function createDetailRowElement(r: MarketMetrics, targetSizeUsd: number): HTMLTableRowElement {
+export function createDetailRowElement(
+  r: MarketMetrics,
+  targetSizeUsd: number,
+): HTMLTableRowElement {
   const detailTr = document.createElement("tr");
   detailTr.id = "expandedDetailRow";
   detailTr.className = "bg-terminal-surface/70 border-b border-terminal-border";
 
   detailTr.innerHTML = `
-    <td colspan="9" class="py-2 sm:py-3 px-1 sm:px-2">
+    <td colspan="${r.isDynamic ? 10 : 9}" class="detail-row-cell py-2 sm:py-3 px-1 sm:px-2">
       <div class="detail-expanded-container mx-auto space-y-2 font-mono text-xs">
         <!-- Top Info Bar -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-terminal-border pb-1.5 text-[11px] gap-1">
@@ -292,7 +325,12 @@ export function updateDetailRow(r: MarketMetrics, targetSizeUsd: number): void {
   setElementText("dtlSymbol", r.symbol);
   setElementText("dtlLev", `[Min Lev: ${r.leverage}]`);
   setElementText("dtlLevVenues", `(RH: ${r.rhLeverage} • Core: ${r.coreLeverage})`);
-  setElementText("dtlSize", `Size: ${formatMoney(targetSizeUsd)}`);
+  setElementText(
+    "dtlSize",
+    `Size: ${formatMoney(r.effectiveTargetUsd || targetSizeUsd)}${
+      r.isDynamic ? (r.dynamicMode === "min_burn" ? " (Min Burn Opt)" : " (Max Vol Opt)") : ""
+    }`,
+  );
 
   const basisEl = document.getElementById("dtlBasis");
   if (basisEl) {
@@ -356,12 +394,18 @@ export function updateDetailRow(r: MarketMetrics, targetSizeUsd: number): void {
   }
 }
 
-export function updateExecutiveSummary(r: MarketMetrics | null): void {
+export function updateExecutiveSummary(
+  r: MarketMetrics | null,
+  dynamicMode: "none" | "min_burn" | "max_vol" | boolean = "none",
+): void {
   const vBadge = document.getElementById("topVerdictBadge");
+  const isDynamic = typeof dynamicMode === "boolean" ? dynamicMode : dynamicMode !== "none";
 
   if (!r) {
     setElementText("topSymbol", "--");
     setElementText("topLeverage", "--");
+    setElementText("topSizeLabel", isDynamic ? "OPT SIZE:" : "SIZE:");
+    setElementText("topOptSize", "$--");
     setElementText("topLossUsd", "$--");
     setElementText("topEntryLossUsd", "");
     setElementText("topPointCost", "$--/pt");
@@ -376,6 +420,8 @@ export function updateExecutiveSummary(r: MarketMetrics | null): void {
 
   setElementText("topSymbol", r.symbol);
   setElementText("topLeverage", r.leverage);
+  setElementText("topSizeLabel", isDynamic ? "OPT SIZE:" : "SIZE:");
+  setElementText("topOptSize", formatMoney(r.effectiveTargetUsd));
   setElementText("topLossUsd", formatMoney(r.costUsd));
   const sign = r.entryLossUsd > 0 ? "+" : "";
   setElementText("topEntryLossUsd", `(${sign}${formatMoney(r.entryLossUsd)} entry)`);
@@ -384,7 +430,18 @@ export function updateExecutiveSummary(r: MarketMetrics | null): void {
   setElementText("topLiquidity", formatMoney(r.minDepthUsd));
 
   if (vBadge) {
-    vBadge.textContent = "● READY";
-    vBadge.className = "text-[11px] font-semibold text-terminal-emerald";
+    if (r.costUsd <= 0) {
+      vBadge.textContent = "● ARB EDGE";
+      vBadge.className = "text-[11px] font-semibold text-terminal-accent animate-pulse";
+    } else if (dynamicMode === "min_burn" || (isDynamic && dynamicMode !== "max_vol")) {
+      vBadge.textContent = "● MIN BURN";
+      vBadge.className = "text-[11px] font-semibold text-terminal-accent";
+    } else if (dynamicMode === "max_vol") {
+      vBadge.textContent = "● MAX VOL";
+      vBadge.className = "text-[11px] font-semibold text-terminal-accent";
+    } else {
+      vBadge.textContent = "● READY";
+      vBadge.className = "text-[11px] font-semibold text-terminal-emerald";
+    }
   }
 }

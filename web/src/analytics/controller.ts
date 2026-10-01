@@ -490,7 +490,8 @@ export class AnalyticsController {
     }
 
     if (verdictEl) {
-      const zStr = stats.zScore <= 0 ? `${stats.zScore.toFixed(2)}σ` : `+${stats.zScore.toFixed(2)}σ`;
+      const zStr =
+        stats.zScore <= 0 ? `${stats.zScore.toFixed(2)}σ` : `+${stats.zScore.toFixed(2)}σ`;
       if (stats.signal === "EXCELLENT ENTRY") {
         verdictEl.textContent = `● EXCELLENT (${zStr})`;
         verdictEl.className = "text-[11px] font-semibold text-terminal-emerald select-text";
@@ -802,8 +803,7 @@ export class AnalyticsController {
       const imgUrl = getTokenImageUrl(p.symbol);
 
       const changeSign = p.dailyPriceChange >= 0 ? "+" : "";
-      const changeColor =
-        p.dailyPriceChange >= 0 ? "text-terminal-emerald" : "text-terminal-coral";
+      const changeColor = p.dailyPriceChange >= 0 ? "text-terminal-emerald" : "text-terminal-coral";
 
       const row = document.createElement("div");
       row.className = `ticker-modal-row grid grid-cols-12 items-center px-3 py-2 text-xs font-mono transition cursor-pointer ${
@@ -818,7 +818,7 @@ export class AnalyticsController {
 
       row.innerHTML = `
         <div class="col-span-5 sm:col-span-4 flex items-center gap-2 overflow-hidden">
-          <span class="text-xs cursor-pointer select-none fav-star-btn ${isFav ? "text-terminal-amber" : "text-terminal-muted hover:text-terminal-amber"}" title="${isFav ? 'Remove Favorite' : 'Add to Favorites'}">★</span>
+          <span class="text-xs cursor-pointer select-none fav-star-btn ${isFav ? "text-terminal-amber" : "text-terminal-muted hover:text-terminal-amber"}" title="${isFav ? "Remove Favorite" : "Add to Favorites"}">★</span>
           <div class="w-5 h-5 rounded-full bg-terminal-surface border border-terminal-border flex items-center justify-center text-[9px] font-bold text-white shrink-0 overflow-hidden relative">
             <img src="${imgUrl}" alt="${p.symbol}" class="w-full h-full object-contain rounded-full" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='flex';" />
             <span class="hidden absolute inset-0 items-center justify-center text-[9px] font-bold text-white bg-terminal-surface">${icon}</span>
@@ -942,11 +942,7 @@ export class AnalyticsController {
     // Modal category tabs
     document.querySelectorAll(".cat-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
-        const cat = (tab as HTMLElement).dataset.cat as
-          | "all"
-          | "equities"
-          | "crypto"
-          | "favorites";
+        const cat = (tab as HTMLElement).dataset.cat as "all" | "equities" | "crypto" | "favorites";
         if (cat) {
           this.activeCategory = cat;
           document.querySelectorAll(".cat-tab").forEach((t) => {
@@ -1073,8 +1069,8 @@ export class AnalyticsController {
         const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
         if (!pair || marketId !== pair.coreMarketId) return;
 
-        if (data.bids?.length) this.liveCoreBook.bestBid = parseFloat(data.bids[0].price);
-        if (data.asks?.length) this.liveCoreBook.bestAsk = parseFloat(data.asks[0].price);
+        if (data.bids?.length) this.liveCoreBook.bestBid = parseFloat(String(data.bids[0].price));
+        if (data.asks?.length) this.liveCoreBook.bestAsk = parseFloat(String(data.asks[0].price));
         if (this.liveCoreBook.bestBid > 0 && this.liveCoreBook.bestAsk > 0) {
           this.liveCoreBook.mid = (this.liveCoreBook.bestBid + this.liveCoreBook.bestAsk) / 2;
         }
@@ -1084,8 +1080,8 @@ export class AnalyticsController {
         const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
         if (!pair || marketId !== pair.rhMarketId) return;
 
-        if (data.bids?.length) this.liveRhBook.bestBid = parseFloat(data.bids[0].price);
-        if (data.asks?.length) this.liveRhBook.bestAsk = parseFloat(data.asks[0].price);
+        if (data.bids?.length) this.liveRhBook.bestBid = parseFloat(String(data.bids[0].price));
+        if (data.asks?.length) this.liveRhBook.bestAsk = parseFloat(String(data.asks[0].price));
         if (this.liveRhBook.bestBid > 0 && this.liveRhBook.bestAsk > 0) {
           this.liveRhBook.mid = (this.liveRhBook.bestBid + this.liveRhBook.bestAsk) / 2;
         }

@@ -51,15 +51,25 @@
               <div
                 class="w-7 h-7 rounded border border-terminal-border bg-terminal-bg flex items-center justify-center p-1.5 shrink-0 group-hover:border-terminal-accent transition"
               >
-                <svg class="h-3.5 w-auto text-white group-hover:text-terminal-accent transition" viewBox="0 0 14 26" fill="currentColor">
-                  <path d="M5.989 20.388 0 25.498V5.888L5.989.502zm7.811.012-5.989 5.098V17.85l5.989-5.37z" />
+                <svg
+                  class="h-3.5 w-auto text-white group-hover:text-terminal-accent transition"
+                  viewBox="0 0 14 26"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M5.989 20.388 0 25.498V5.888L5.989.502zm7.811.012-5.989 5.098V17.85l5.989-5.37z"
+                  />
                 </svg>
               </div>
-              <span class="text-sm font-bold tracking-tight text-white uppercase group-hover:text-terminal-accent transition"
+              <span
+                class="text-sm font-bold tracking-tight text-white uppercase group-hover:text-terminal-accent transition"
                 >Lighter × Robinhood</span
               >
             </a>
-            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Spread</span>
+            <span
+              class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-muted"
+              >Spread</span
+            >
           </div>
 
           <!-- Connection Diagnostics & Auto Re-rank Progress -->
@@ -104,12 +114,13 @@
               </span>
             </div>
 
-
             <!-- Font Selector -->
             <div
               class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
             >
-              <label for="fontSelector" class="text-terminal-muted cursor-pointer select-none">Font:</label>
+              <label for="fontSelector" class="text-terminal-muted cursor-pointer select-none"
+                >Font:</label
+              >
               <select
                 id="fontSelector"
                 class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
@@ -117,10 +128,14 @@
               >
                 <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
                 <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
-                <option value="Montserrat" class="bg-terminal-surface text-white">Montserrat</option>
+                <option value="Montserrat" class="bg-terminal-surface text-white">
+                  Montserrat
+                </option>
                 <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
                 <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
-                <option value="JetBrains Mono" class="bg-terminal-surface text-white">JetBrains Mono</option>
+                <option value="JetBrains Mono" class="bg-terminal-surface text-white">
+                  JetBrains Mono
+                </option>
               </select>
             </div>
           </div>
@@ -136,9 +151,7 @@
         class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono"
       >
         <div class="flex items-center gap-2 shrink-0">
-          <span class="text-terminal-muted text-[11px] uppercase tracking-wider"
-            >Best Spread:</span
-          >
+          <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Best Spread:</span>
           <span id="topSymbol" class="text-white font-bold text-sm tracking-tight">--</span>
           <span id="topLeverage" class="text-terminal-muted text-[11px]">--</span>
           <span id="topVerdictBadge" class="text-[11px] font-semibold text-terminal-emerald"
@@ -148,6 +161,10 @@
 
         <!-- Inline metrics without sub-boxes -->
         <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px]">
+          <div>
+            <span class="text-terminal-muted mr-1.5" id="topSizeLabel">SIZE:</span>
+            <span id="topOptSize" class="font-bold text-terminal-accent tabular-nums">$--</span>
+          </div>
           <div>
             <span class="text-terminal-muted mr-1.5">RT LOSS:</span>
             <span id="topLossUsd" class="font-bold text-terminal-emerald tabular-nums">$--</span>
@@ -181,7 +198,7 @@
         <!-- Size Config Row -->
         <div class="flex items-center justify-between sm:justify-start gap-2 overflow-x-auto">
           <div class="flex items-center gap-1.5 shrink-0">
-            <span class="text-terminal-muted text-[11px] uppercase">Size:</span>
+            <span id="sizeInputLabel" class="text-terminal-muted text-[11px] uppercase">Cap:</span>
             <div class="relative">
               <span class="absolute left-2 top-1/2 -translate-y-1/2 text-terminal-muted text-xs"
                 >$</span
@@ -189,19 +206,34 @@
               <input
                 type="number"
                 id="sizeInput"
-                value="10000"
+                value="20000"
                 min="500"
                 max="1000000"
                 step="1000"
                 class="w-20 sm:w-24 pl-5 pr-1.5 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-xs focus:outline-none focus:border-terminal-accent tabular-nums"
+                title="Max Position Cap for Auto modes, or fixed size in manual mode"
               />
             </div>
           </div>
 
-          <!-- Segmented Control for Sizes -->
+          <!-- Segmented Control for Sizes & Dynamic Modes -->
           <div
             class="inline-flex rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px] shrink-0"
           >
+            <button
+              class="size-btn size-btn-active px-2 py-0.5 rounded text-terminal-accent bg-terminal-accent/10 border border-terminal-accent/40 font-semibold transition cursor-pointer whitespace-nowrap"
+              data-size="auto-min-burn"
+              title="Minimum Burn Rate: Auto-optimizes size for lowest Point Cost ($/pt) and minimum spread"
+            >
+              Min Burn
+            </button>
+            <button
+              class="size-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
+              data-size="auto-max-vol"
+              title="Maximum Volume: Finds largest position size with acceptable slippage (<= 3.5 bps)"
+            >
+              Max Vol
+            </button>
             <button
               class="size-btn px-1.5 sm:px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
               data-size="5000"
@@ -215,7 +247,7 @@
               8K
             </button>
             <button
-              class="size-btn size-btn-active px-1.5 sm:px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap"
+              class="size-btn px-1.5 sm:px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
               data-size="10000"
             >
               10K
@@ -334,7 +366,10 @@
       <!-- MAIN TERMINAL TABLE -->
       <div class="border border-terminal-border rounded bg-terminal-surface overflow-hidden">
         <div class="overflow-x-auto table-scroll-container">
-          <table class="w-full text-left font-mono text-xs border-collapse" id="terminalTable">
+          <table
+            class="w-full text-left font-mono text-xs border-collapse hide-opt-size"
+            id="terminalTable"
+          >
             <thead>
               <tr
                 class="bg-terminal-bg border-b border-terminal-border text-terminal-muted uppercase text-[10px] tracking-wider select-none"
@@ -352,6 +387,14 @@
                   style="min-width: 90px"
                 >
                   Verdict <span class="sort-indicator"></span>
+                </th>
+                <th
+                  class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white col-opt-size"
+                  data-sort="effectiveTargetUsd"
+                  style="min-width: 95px"
+                  title="Dynamic optimal position size"
+                >
+                  Opt Size <span class="sort-indicator"></span>
                 </th>
                 <th
                   class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
@@ -403,7 +446,7 @@
             <tbody id="tableBody" class="divide-y divide-terminal-borderSubtle">
               <!-- Initialized with loading skeleton -->
               <tr id="emptyRow">
-                <td colspan="9" class="py-12 text-center text-terminal-muted">
+                <td colspan="9" class="py-12 text-center text-terminal-muted empty-table-cell">
                   <div class="inline-flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-terminal-accent animate-ping"></span>
                     <span>Connecting to Lighter Core & Robinhood WebSocket Streams...</span>

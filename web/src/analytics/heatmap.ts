@@ -53,8 +53,7 @@ export function renderHourlyHeatmap(
     cell.className += ` ${bgClass} ${borderClass}`;
 
     const sign = b.avgBasisUsd > 0 ? "+" : "";
-    const basisLabel =
-      b.sampleCount > 0 ? `${sign}$${b.avgBasisUsd.toFixed(2)}` : "—";
+    const basisLabel = b.sampleCount > 0 ? `${sign}$${b.avgBasisUsd.toFixed(2)}` : "—";
 
     cell.innerHTML = `
       <div class="text-[10px] font-bold ${textClass} tabular-nums">${b.label}</div>

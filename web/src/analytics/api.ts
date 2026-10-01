@@ -59,12 +59,7 @@ export async function fetchMarketPairs(): Promise<AnalyticsMarketPair[]> {
   const pairs: AnalyticsMarketPair[] = [];
 
   for (const rm of rhJson.order_book_details || []) {
-    if (
-      rm.status !== "active" ||
-      rm.is_frozen ||
-      rm.market_id === undefined ||
-      rm.market_id < 0
-    ) {
+    if (rm.status !== "active" || rm.is_frozen || rm.market_id === undefined || rm.market_id < 0) {
       continue;
     }
     const cm = coreMap.get(rm.symbol);

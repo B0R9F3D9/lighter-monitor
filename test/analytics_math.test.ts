@@ -44,7 +44,7 @@ describe("Analytics Math Engine", () => {
     for (let i = 0; i < 100; i++) {
       const t = 1700000000000 + i * 60000;
       const corePrice = 100;
-      const basis = 0.10 + i * 0.01;
+      const basis = 0.1 + i * 0.01;
       rhCandles.push({ t, o: 100, h: 102, l: 98, c: corePrice + basis, v: 1, V: 100 });
       coreCandles.push({ t, o: 100, h: 102, l: 98, c: corePrice, v: 1, V: 100 });
     }
@@ -55,7 +55,7 @@ describe("Analytics Math Engine", () => {
     if (!stats) return;
 
     expect(stats.count).toBe(100);
-    expect(stats.minBasisUsd).toBeCloseTo(0.10, 2);
+    expect(stats.minBasisUsd).toBeCloseTo(0.1, 2);
     expect(stats.maxBasisUsd).toBeCloseTo(1.09, 2);
     // Mean of 0.10, 0.11, ..., 1.09 is ~0.595
     expect(stats.meanBasisUsd).toBeCloseTo(0.595, 2);
@@ -106,10 +106,10 @@ describe("Analytics Math Engine", () => {
     const tHour14 = Date.UTC(2026, 9, 1, 14, 0, 0);
 
     rhCandles.push({ t: tHour10, o: 100, h: 100, l: 100, c: 100.05, v: 1, V: 100 });
-    coreCandles.push({ t: tHour10, o: 100, h: 100, l: 100, c: 100.00, v: 1, V: 100 });
+    coreCandles.push({ t: tHour10, o: 100, h: 100, l: 100, c: 100.0, v: 1, V: 100 });
 
-    rhCandles.push({ t: tHour14, o: 100, h: 100, l: 100, c: 100.50, v: 1, V: 100 });
-    coreCandles.push({ t: tHour14, o: 100, h: 100, l: 100, c: 100.00, v: 1, V: 100 });
+    rhCandles.push({ t: tHour14, o: 100, h: 100, l: 100, c: 100.5, v: 1, V: 100 });
+    coreCandles.push({ t: tHour14, o: 100, h: 100, l: 100, c: 100.0, v: 1, V: 100 });
 
     const points = alignCandlesToBasisPoints(rhCandles, coreCandles);
     const buckets = calculateHourlyBuckets(points, 2);
@@ -122,7 +122,7 @@ describe("Analytics Math Engine", () => {
 
     // Hour 16 should have sampleCount = 1, avgBasisUsd = 0.50, scoreNormalized = 1 (most expensive)
     expect(buckets[16].sampleCount).toBe(1);
-    expect(buckets[16].avgBasisUsd).toBeCloseTo(0.50, 4);
+    expect(buckets[16].avgBasisUsd).toBeCloseTo(0.5, 4);
     expect(buckets[16].scoreNormalized).toBeCloseTo(1, 2);
   });
 
@@ -150,12 +150,7 @@ describe("Analytics Math Engine", () => {
   });
 
   it("extrapolates time range when zooming or panning beyond existent bars", () => {
-    const points = [
-      { timeSec: 1000 },
-      { timeSec: 1060 },
-      { timeSec: 1120 },
-      { timeSec: 1180 },
-    ];
+    const points = [{ timeSec: 1000 }, { timeSec: 1060 }, { timeSec: 1120 }, { timeSec: 1180 }];
     const nowSec = 5000;
 
     // Inside range: [0, 3]

@@ -28,12 +28,7 @@ export const CRYPTO_SYMBOLS: ReadonlySet<string> = new Set([
   "ANSEM",
 ]);
 
-export const COMMODITY_SYMBOLS: ReadonlySet<string> = new Set([
-  "XAU",
-  "XAG",
-  "USO",
-  "SLV",
-]);
+export const COMMODITY_SYMBOLS: ReadonlySet<string> = new Set(["XAU", "XAG", "USO", "SLV"]);
 
 export const INDEX_ETF_SYMBOLS: ReadonlySet<string> = new Set([
   "SPY",
@@ -52,8 +47,9 @@ export const NON_EQUITY_SYMBOLS: ReadonlySet<string> = new Set([
 export const STORAGE_KEYS = {
   FONT: "terminal_font",
   SIZE: "terminal_size",
+  SIZE_MODE: "terminal_size_mode",
+  MAX_CAP: "terminal_max_cap",
   LEVERAGE: "terminal_leverage",
   FILTER_EQUITIES: "terminal_filter_equities",
   FILTER_READY: "terminal_filter_ready",
 } as const;
-

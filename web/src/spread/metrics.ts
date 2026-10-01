@@ -1,7 +1,181 @@
-import type { MarketInfo, MarketMetrics, OrderBook, TerminalState } from "./types";
+import type {
+  DynamicSizeMode,
+  MarketInfo,
+  MarketMetrics,
+  OrderBook,
+  OrderBookLevel,
+  TerminalState,
+} from "./types";
 import { CONFIG } from "./config";
 import { getSortedLevels } from "./orderbook";
 import { simulateFillBase } from "./simulation";
+
+function formatOptSize(sz: number): number {
+  if (sz >= 10000) {
+    return Math.round(sz / 1000) * 1000;
+  } else if (sz >= 3000) {
+    return Math.round(sz / 500) * 500;
+  }
+  return Math.round(sz / 100) * 100;
+}
+
+export function findOptimalSize(
+  rhAsks: OrderBookLevel[],
+  coreBids: OrderBookLevel[],
+  rhBids: OrderBookLevel[],
+  coreAsks: OrderBookLevel[],
+  midPrice: number,
+  mode: DynamicSizeMode = "min_burn",
+  maxCapUsd: number = 50000,
+): number {
+  if (
+    midPrice <= 0 ||
+    !rhAsks?.length ||
+    !coreBids?.length ||
+    !rhBids?.length ||
+    !coreAsks?.length
+  ) {
+    return 10000;
+  }
+
+  const depths = [
+    rhAsks.reduce((s, l) => s + l.totalUsd, 0),
+    coreBids.reduce((s, l) => s + l.totalUsd, 0),
+    rhBids.reduce((s, l) => s + l.totalUsd, 0),
+    coreAsks.reduce((s, l) => s + l.totalUsd, 0),
+  ];
+  const maxAvail = Math.min(...depths);
+  const upperLimit = Math.min(maxAvail, maxCapUsd > 0 ? maxCapUsd : 50000);
+  if (upperLimit < 500) return Math.max(100, Math.floor(upperLimit));
+
+  const rhBestAsk = rhAsks[0]?.price || 0;
+  const coreBestBid = coreBids[0]?.price || 0;
+  const rhBestBid = rhBids[0]?.price || 0;
+  const coreBestAsk = coreAsks[0]?.price || 0;
+
+  const rawEntryDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
+  const rawExitDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
+  const rawSpreadBps = (rawEntryDragBps + rawExitDragBps) / 2;
+
+  const sizeGrid = [
+    1000, 2000, 3000, 4000, 5000, 6000, 7500, 10000, 12500, 15000, 20000, 25000, 35000, 50000,
+    75000, 100000,
+  ];
+
+  const l1Depth = Math.floor(
+    Math.min(
+      rhAsks[0]?.totalUsd || 0,
+      coreBids[0]?.totalUsd || 0,
+      rhBids[0]?.totalUsd || 0,
+      coreAsks[0]?.totalUsd || 0,
+    ),
+  );
+  if (l1Depth >= 500 && l1Depth <= upperLimit) sizeGrid.push(l1Depth);
+  if (maxCapUsd >= 500 && maxCapUsd <= upperLimit) sizeGrid.push(maxCapUsd);
+
+  const candidates = Array.from(
+    new Set(sizeGrid.filter((s) => s >= 500 && s <= upperLimit)),
+  ).toSorted((a, b) => a - b);
+
+  if (candidates.length === 0) return Math.min(10000, Math.floor(upperLimit));
+
+  interface SimStats {
+    size: number;
+    costUsd: number;
+    vwapDragBps: number;
+    slippageBps: number;
+    pointCostUsd: number;
+    levelsSwept: number;
+  }
+
+  const sims: SimStats[] = [];
+
+  for (const s of candidates) {
+    const q = s / midPrice;
+    const simEntryRh = simulateFillBase(rhAsks, q, true);
+    const simEntryCore = simulateFillBase(coreBids, q, false);
+    const simExitRh = simulateFillBase(rhBids, q, false);
+    const simExitCore = simulateFillBase(coreAsks, q, true);
+
+    if (
+      !simEntryRh.isComplete ||
+      !simEntryCore.isComplete ||
+      !simExitRh.isComplete ||
+      !simExitCore.isComplete
+    ) {
+      continue;
+    }
+
+    const entryLossUsd = simEntryRh.totalCostUsd - simEntryCore.totalCostUsd;
+    const exitLossUsd = simExitCore.totalCostUsd - simExitRh.totalCostUsd;
+    const costUsd = entryLossUsd + exitLossUsd;
+    const vwapDragBps = (costUsd / s) * 10000;
+    const slippageBps = Math.max(0, vwapDragBps - rawSpreadBps);
+    const pointsEarned = ((s * 2) / 1000000) * 52 * 5.0;
+    const pointCostUsd = pointsEarned > 0 ? costUsd / pointsEarned : 0;
+    const maxSwept = Math.max(
+      simEntryRh.levelsSwept,
+      simEntryCore.levelsSwept,
+      simExitRh.levelsSwept,
+      simExitCore.levelsSwept,
+    );
+
+    sims.push({
+      size: s,
+      costUsd,
+      vwapDragBps,
+      slippageBps,
+      pointCostUsd,
+      levelsSwept: maxSwept,
+    });
+  }
+
+  if (sims.length === 0) return Math.min(10000, Math.floor(upperLimit));
+
+  // Pure Arbitrage / Zero-cost check (applies to both modes)
+  // If there's an arb or zero cost, take the largest size where cost remains <= 0
+  const arbSims = sims.filter((sim) => sim.costUsd <= 0);
+  if (arbSims.length > 0) {
+    const bestArb = arbSims[arbSims.length - 1]!;
+    return formatOptSize(bestArb.size);
+  }
+
+  let bestSize = sims[0]!.size;
+
+  if (mode === "max_vol") {
+    // ALGORITHM 2: Max Volume (Push maximum size while maintaining reasonable slippage <= 3.5 bps)
+    let bestScore = -Infinity;
+    for (const sim of sims) {
+      let score = 0;
+      if (sim.slippageBps <= 3.5 && sim.levelsSwept <= 4) {
+        score = sim.size / Math.max(0.3, sim.pointCostUsd);
+      } else if (sim.slippageBps <= 6.0 && sim.levelsSwept <= 6) {
+        score = (sim.size / Math.max(0.3, sim.pointCostUsd)) * 0.4;
+      } else {
+        score = (sim.size / Math.max(0.3, sim.pointCostUsd)) * 0.05;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestSize = sim.size;
+      }
+    }
+  } else {
+    // ALGORITHM 1: Min Burn (Strict minimum unit cost $/pt & bps, stops immediately on price degradation)
+    const baseSim = sims[0]!;
+    const basePtCost = baseSim.pointCostUsd;
+
+    for (const sim of sims) {
+      const costInflation = basePtCost > 0 ? (sim.pointCostUsd - basePtCost) / basePtCost : 0;
+      // Stop increasing size if slippage exceeds 0.8 bps or point cost inflates by > 5% or > 3 levels swept
+      if (sim.slippageBps > 0.8 || costInflation > 0.05 || sim.levelsSwept > 3) {
+        break;
+      }
+      bestSize = sim.size;
+    }
+  }
+
+  return formatOptSize(bestSize);
+}
 
 export function calculateMarketMetrics(
   m: MarketInfo,
@@ -10,6 +184,8 @@ export function calculateMarketMetrics(
   rhBook: OrderBook | undefined,
   lastCoreMsgAt: number,
   lastRhMsgAt: number,
+  dynamicMode: DynamicSizeMode = "none",
+  maxCapUsd: number = 50000,
 ): MarketMetrics | null {
   if (!rhBook?.isSnapshotReceived || !coreBook?.isSnapshotReceived) return null;
   if (
@@ -55,12 +231,24 @@ export function calculateMarketMetrics(
   const midPrice = (rhMid + coreMid) / 2;
   if (midPrice <= 0) return null;
 
+  const isDynamic = dynamicMode !== "none";
+  const optimalSizeUsd = findOptimalSize(
+    rhAsks,
+    coreBids,
+    rhBids,
+    coreAsks,
+    midPrice,
+    isDynamic ? dynamicMode : "min_burn",
+    isDynamic ? maxCapUsd : targetUsd,
+  );
+  const effectiveTargetUsd = isDynamic ? optimalSizeUsd : targetUsd;
+
   // Inter-exchange basis (RH vs Core)
   const deltaMidUsd = rhMid - coreMid;
   const deltaMidBps = (deltaMidUsd / midPrice) * 10000;
 
   // Base Asset Quantity for target size (Strict Delta-Neutral)
-  const baseQty = targetUsd / midPrice;
+  const baseQty = effectiveTargetUsd / midPrice;
 
   // 4-Leg VWAP fills by EXACT baseQty
   const simEntryRh = simulateFillBase(rhAsks, baseQty, true);
@@ -90,7 +278,7 @@ export function calculateMarketMetrics(
   const vwapTotalDragBps = rawVwapDragBps;
 
   // Point cost calculation:
-  const rhRoundTripVol = targetUsd * 2;
+  const rhRoundTripVol = effectiveTargetUsd * 2;
   const pointsEarned = (rhRoundTripVol / 1000000) * 52 * 5.0;
   const pointCostUsd = pointsEarned > 0 ? costUsd / pointsEarned : 0;
 
@@ -156,6 +344,10 @@ export function calculateMarketMetrics(
     pointsEarned,
     maxLevelsSwept,
     minDepthUsd,
+    optimalSizeUsd,
+    effectiveTargetUsd,
+    isDynamic,
+    dynamicMode,
     status,
     legs: {
       entryRh: simEntryRh,
@@ -179,6 +371,7 @@ export function getMetrics(
   lastRhMsgAt: number,
   nowTime: number = performance.now(),
 ): MarketMetrics | null {
+  const mode = state.dynamicMode || (state.isDynamicSize ? "min_burn" : "none");
   const r = calculateMarketMetrics(
     m,
     state.targetSizeUsd,
@@ -186,6 +379,8 @@ export function getMetrics(
     state.rhBooks.get(m.rhMarketId),
     lastCoreMsgAt,
     lastRhMsgAt,
+    mode,
+    state.maxCapUsd || state.targetSizeUsd || 50000,
   );
 
   if (!r) {
@@ -207,11 +402,12 @@ export function getMetrics(
     }
     r.costUsd = e.cost;
     r.pointCostUsd = r.pointsEarned > 0 ? e.cost / r.pointsEarned : 0;
-    r.vwapTotalDragBps = state.targetSizeUsd > 0 ? (e.cost / state.targetSizeUsd) * 10000 : 0;
+    r.vwapTotalDragBps = r.effectiveTargetUsd > 0 ? (e.cost / r.effectiveTargetUsd) * 10000 : 0;
   } else {
     r.costUsd = 999999;
     r.pointCostUsd = 999999;
-    r.vwapTotalDragBps = state.targetSizeUsd > 0 ? (r.rawCostUsd / state.targetSizeUsd) * 10000 : 0;
+    r.vwapTotalDragBps =
+      r.effectiveTargetUsd > 0 ? (r.rawCostUsd / r.effectiveTargetUsd) * 10000 : 0;
   }
 
   r.computedAt = nowTime;

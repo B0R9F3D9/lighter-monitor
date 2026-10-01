@@ -53,8 +53,10 @@ export default {
       return new Response(body, {
         headers: {
           "Content-Type": asset.contentType,
-          "ETag": `"${asset.hash}"`,
-          "Cache-Control": isImmutable ? "public, max-age=31536000, immutable" : "public, max-age=86400",
+          ETag: `"${asset.hash}"`,
+          "Cache-Control": isImmutable
+            ? "public, max-age=31536000, immutable"
+            : "public, max-age=86400",
         },
       });
     }
@@ -78,7 +80,7 @@ export default {
       return new Response(HUB_HTML, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "ETag": `"${HUB_HTML_HASH}"`,
+          ETag: `"${HUB_HTML_HASH}"`,
           "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
         },
       });
@@ -87,14 +89,17 @@ export default {
     // Spread & Arbitrage Terminal (только GET/HEAD)
     if (isGetOrHead && (url.pathname === "/spread" || url.pathname === "/spread/")) {
       const clientEtag = request.headers.get("if-none-match");
-      if (clientEtag && (clientEtag === SPREAD_HTML_HASH || clientEtag === `"${SPREAD_HTML_HASH}"`)) {
+      if (
+        clientEtag &&
+        (clientEtag === SPREAD_HTML_HASH || clientEtag === `"${SPREAD_HTML_HASH}"`)
+      ) {
         return new Response(null, { status: 304 });
       }
 
       return new Response(SPREAD_HTML, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "ETag": `"${SPREAD_HTML_HASH}"`,
+          ETag: `"${SPREAD_HTML_HASH}"`,
           "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
         },
       });
@@ -103,14 +108,17 @@ export default {
     // Spread & Basis Analytics Terminal (только GET/HEAD)
     if (isGetOrHead && (url.pathname === "/analytics" || url.pathname === "/analytics/")) {
       const clientEtag = request.headers.get("if-none-match");
-      if (clientEtag && (clientEtag === ANALYTICS_HTML_HASH || clientEtag === `"${ANALYTICS_HTML_HASH}"`)) {
+      if (
+        clientEtag &&
+        (clientEtag === ANALYTICS_HTML_HASH || clientEtag === `"${ANALYTICS_HTML_HASH}"`)
+      ) {
         return new Response(null, { status: 304 });
       }
 
       return new Response(ANALYTICS_HTML, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "ETag": `"${ANALYTICS_HTML_HASH}"`,
+          ETag: `"${ANALYTICS_HTML_HASH}"`,
           "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
         },
       });

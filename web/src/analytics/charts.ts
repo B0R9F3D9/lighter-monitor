@@ -197,8 +197,7 @@ export function initAnalyticsCharts(
   let currentPointsList: BasisPoint[] = [];
   const currentPointsMap = new Map<number, BasisPoint>();
 
-  const onCrosshairMove =
-    typeof callbacks === "function" ? callbacks : callbacks?.onCrosshairMove;
+  const onCrosshairMove = typeof callbacks === "function" ? callbacks : callbacks?.onCrosshairMove;
   const onVisibleRangeChange =
     typeof callbacks === "object" ? callbacks?.onVisibleRangeChange : undefined;
 
@@ -213,7 +212,11 @@ export function initAnalyticsCharts(
       if (logicalRange && logicalRange.from >= 0 && (vis.from as number) > 0) {
         fromSec = Math.min(fromSec, vis.from as number);
       }
-      if (logicalRange && logicalRange.to <= currentPointsList.length - 1 && (vis.to as number) > 0) {
+      if (
+        logicalRange &&
+        logicalRange.to <= currentPointsList.length - 1 &&
+        (vis.to as number) > 0
+      ) {
         toSec = Math.max(toSec, vis.to as number);
       }
     }

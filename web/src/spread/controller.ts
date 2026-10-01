@@ -1,4 +1,4 @@
-import type { MarketInfo, MarketMetrics, RowDomCache, TerminalState } from "./types";
+import type { MarketInfo, MarketMetrics, RowDomCache, SimFillResult, TerminalState } from "./types";
 import { CONFIG, NON_EQUITY_SYMBOLS, STORAGE_KEYS } from "./config";
 import { getMetrics } from "./metrics";
 import { getOrCreateBook, updateBookFromWs, type WsOrderBookData } from "./orderbook";
@@ -18,6 +18,9 @@ export class TerminalController {
     coreBooks: new Map(),
     rhBooks: new Map(),
     targetSizeUsd: 10000,
+    isDynamicSize: false,
+    dynamicMode: "none",
+    maxCapUsd: 20000,
     filterEquities: true,
     filterReadyOnly: false,
     minLeverageFilter: 0,
@@ -214,17 +217,33 @@ export class TerminalController {
         !r.isStale &&
         r.costUsd > -50 &&
         r.costUsd < 1000 &&
-        nowTime - (r.computedAt || 0) < CONFIG.LEADER_FRESHNESS_WINDOW_MS &&
-        r.costUsd < bestCost
+        nowTime - (r.computedAt || 0) < CONFIG.LEADER_FRESHNESS_WINDOW_MS
       ) {
-        bestCost = r.costUsd;
-        topRow = r;
+        const rankMetric = this.state.isDynamicSize ? r.pointCostUsd : r.costUsd;
+        if (rankMetric < bestCost) {
+          bestCost = rankMetric;
+          topRow = r;
+        }
       }
     }
-    updateExecutiveSummary(topRow);
+    updateExecutiveSummary(topRow, this.state.dynamicMode);
   }
 
   private createFallbackMetrics(m: MarketInfo): MarketMetrics {
+    const isDynamic = this.state.dynamicMode !== "none";
+    const fallbackSize = isDynamic ? 10000 : this.state.targetSizeUsd;
+    const emptyLeg: SimFillResult = {
+      isComplete: false,
+      avgPrice: 0,
+      bestPrice: 0,
+      slippageBps: 0,
+      levelsSwept: 0,
+      totalCostUsd: 0,
+      filledBase: 0,
+      totalAvailableUsd: 0,
+      totalAvailableBase: 0,
+    };
+
     return {
       symbol: m.symbol,
       leverage: m.leverage,
@@ -255,12 +274,16 @@ export class TerminalController {
       pointsEarned: 0,
       maxLevelsSwept: 0,
       minDepthUsd: 0,
+      optimalSizeUsd: 10000,
+      effectiveTargetUsd: fallbackSize,
+      isDynamic,
+      dynamicMode: this.state.dynamicMode,
       status: "LOW LIQ",
       legs: {
-        entryRh: { avgPrice: 0, totalCostUsd: 0, isComplete: false, levelsSwept: 0, totalAvailableUsd: 0, slippageBps: 0 },
-        entryCore: { avgPrice: 0, totalCostUsd: 0, isComplete: false, levelsSwept: 0, totalAvailableUsd: 0, slippageBps: 0 },
-        exitRh: { avgPrice: 0, totalCostUsd: 0, isComplete: false, levelsSwept: 0, totalAvailableUsd: 0, slippageBps: 0 },
-        exitCore: { avgPrice: 0, totalCostUsd: 0, isComplete: false, levelsSwept: 0, totalAvailableUsd: 0, slippageBps: 0 },
+        entryRh: emptyLeg,
+        entryCore: emptyLeg,
+        exitRh: emptyLeg,
+        exitCore: emptyLeg,
         rhBestAsk: 0,
         coreBestBid: 0,
         rhBestBid: 0,
@@ -277,7 +300,8 @@ export class TerminalController {
 
     for (const m of this.state.markets.values()) {
       if (this.state.filterEquities && NON_EQUITY_SYMBOLS.has(m.symbol)) continue;
-      if (this.state.minLeverageFilter > 0 && m.leverageNum < this.state.minLeverageFilter) continue;
+      if (this.state.minLeverageFilter > 0 && m.leverageNum < this.state.minLeverageFilter)
+        continue;
       if (
         this.state.searchQuery &&
         !m.symbol.toUpperCase().includes(this.state.searchQuery.toUpperCase())
@@ -305,7 +329,10 @@ export class TerminalController {
     rows.sort((a, b) => {
       if (this.state.sortColumn === "symbol") return a.symbol.localeCompare(b.symbol) * dir;
       if (this.state.sortColumn === "leverageNum") return (a.leverageNum - b.leverageNum) * dir;
-      if (this.state.sortColumn === "totalVolume24h") return (a.totalVolume24h - b.totalVolume24h) * dir;
+      if (this.state.sortColumn === "effectiveTargetUsd")
+        return (a.effectiveTargetUsd - b.effectiveTargetUsd) * dir;
+      if (this.state.sortColumn === "totalVolume24h")
+        return (a.totalVolume24h - b.totalVolume24h) * dir;
       if (this.state.sortColumn === "totalOiUsd") return (a.totalOiUsd - b.totalOiUsd) * dir;
       if (this.state.sortColumn === "status") {
         const rank = { READY: 1, SLIPPAGE: 2, "LOW LIQ": 3, STALE: 4 };
@@ -314,6 +341,10 @@ export class TerminalController {
       const rankA = a.status === "READY" ? 0 : a.status === "SLIPPAGE" ? 1 : 2;
       const rankB = b.status === "READY" ? 0 : b.status === "SLIPPAGE" ? 1 : 2;
       if (rankA !== rankB) return rankA - rankB;
+
+      if (this.state.isDynamicSize && this.state.sortColumn === "costUsd") {
+        return (a.pointCostUsd - b.pointCostUsd) * dir;
+      }
 
       const col = this.state.sortColumn as keyof MarketMetrics;
       const valA = (a[col] as unknown as number) || 0;
@@ -334,10 +365,11 @@ export class TerminalController {
         Array.from(this.state.coreBooks.values()).some((b) => b.isSnapshotReceived) &&
         Array.from(this.state.rhBooks.values()).some((b) => b.isSnapshotReceived);
 
+      const colSpan = this.state.dynamicMode !== "none" ? 10 : 9;
       if (!hasAnySnapshots) {
         tableBody.innerHTML = `
           <tr id="emptyRow">
-            <td colspan="9" class="py-12 text-center text-terminal-muted">
+            <td colspan="${colSpan}" class="empty-table-cell py-12 text-center text-terminal-muted">
               <div class="inline-flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-terminal-accent animate-ping"></span>
                 <span>Syncing order books from Lighter Core & Robinhood Chain...</span>
@@ -348,14 +380,14 @@ export class TerminalController {
       } else {
         tableBody.innerHTML = `
           <tr>
-            <td colspan="9" class="py-12 text-center text-terminal-muted">
+            <td colspan="${colSpan}" class="empty-table-cell py-12 text-center text-terminal-muted">
               No matching pairs for the active filters.
             </td>
           </tr>
         `;
       }
       this.hasInitialRenderHappened = true;
-      updateExecutiveSummary(null);
+      updateExecutiveSummary(null, this.state.dynamicMode);
       return;
     }
 
@@ -456,13 +488,15 @@ export class TerminalController {
         const rhVol =
           !isNaN(rhQuoteVol) && rhQuoteVol > 0
             ? rhQuoteVol
-            : (parseFloat(rm.daily_base_token_volume) || 0) * (parseFloat(rm.last_trade_price) || 0);
+            : (parseFloat(rm.daily_base_token_volume) || 0) *
+              (parseFloat(rm.last_trade_price) || 0);
 
         const coreQuoteVol = parseFloat(cm.daily_quote_token_volume);
         const coreVol =
           !isNaN(coreQuoteVol) && coreQuoteVol > 0
             ? coreQuoteVol
-            : (parseFloat(cm.daily_base_token_volume) || 0) * (parseFloat(cm.last_trade_price) || 0);
+            : (parseFloat(cm.daily_base_token_volume) || 0) *
+              (parseFloat(cm.last_trade_price) || 0);
 
         const rhOi = (parseFloat(rm.open_interest) || 0) * (parseFloat(rm.last_trade_price) || 0);
         const coreOi = (parseFloat(cm.open_interest) || 0) * (parseFloat(cm.last_trade_price) || 0);
@@ -552,14 +586,7 @@ export class TerminalController {
   }
 
   private applyFont(fontName: string): void {
-    const validFonts = [
-      "Inter",
-      "Roboto",
-      "Montserrat",
-      "Poppins",
-      "Open Sans",
-      "JetBrains Mono",
-    ];
+    const validFonts = ["Inter", "Roboto", "Montserrat", "Poppins", "Open Sans", "JetBrains Mono"];
     const font = validFonts.includes(fontName) ? fontName : "Inter";
     const fontStack =
       font === "JetBrains Mono"
@@ -571,19 +598,92 @@ export class TerminalController {
     document.body.style.fontFamily = fontStack;
   }
 
-  private updateSizeControls(val: number): void {
+  private updateSizeControls(
+    val: number | "auto" | "auto-min-burn" | "auto-max-vol",
+    cap?: number,
+  ): void {
     const sizeInput = document.getElementById("sizeInput") as HTMLInputElement | null;
-    if (sizeInput) {
-      sizeInput.value = String(val);
+    const sizeInputLabel = document.getElementById("sizeInputLabel");
+
+    if (val === "auto-min-burn" || val === "auto") {
+      this.state.isDynamicSize = true;
+      this.state.dynamicMode = "min_burn";
+      if (cap && cap > 0) this.state.maxCapUsd = cap;
+      if (sizeInputLabel) sizeInputLabel.textContent = "Cap:";
+      if (sizeInput) {
+        sizeInput.value = String(this.state.maxCapUsd || 20000);
+        sizeInput.title = "Max position size cap to optimize up to (Min Burn mode)";
+      }
+    } else if (val === "auto-max-vol") {
+      this.state.isDynamicSize = true;
+      this.state.dynamicMode = "max_vol";
+      if (cap && cap > 0) this.state.maxCapUsd = cap;
+      if (sizeInputLabel) sizeInputLabel.textContent = "Cap:";
+      if (sizeInput) {
+        sizeInput.value = String(this.state.maxCapUsd || 20000);
+        sizeInput.title = "Max position size cap to optimize up to (Max Vol mode)";
+      }
+    } else {
+      this.state.isDynamicSize = false;
+      this.state.dynamicMode = "none";
+      this.state.targetSizeUsd = val;
+      if (sizeInputLabel) sizeInputLabel.textContent = "Size:";
+      if (sizeInput) {
+        sizeInput.value = String(val);
+        sizeInput.title = "Fixed target size in USD";
+      }
     }
+
     document.querySelectorAll(".size-btn").forEach((btn) => {
-      const sz = parseFloat((btn as HTMLElement).dataset.size || "0");
-      if (sz === val) {
-        btn.className =
-          "size-btn size-btn-active px-1.5 sm:px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap";
+      const sz = (btn as HTMLElement).dataset.size;
+      const isActive =
+        (this.state.dynamicMode === "min_burn" && (sz === "auto-min-burn" || sz === "auto")) ||
+        (this.state.dynamicMode === "max_vol" && sz === "auto-max-vol") ||
+        (this.state.dynamicMode === "none" &&
+          typeof val === "number" &&
+          parseFloat(sz || "0") === val);
+
+      if (isActive) {
+        if (sz?.startsWith("auto")) {
+          btn.className =
+            "size-btn size-btn-active px-2 py-0.5 rounded text-terminal-accent bg-terminal-accent/15 border border-terminal-accent/40 font-bold transition cursor-pointer whitespace-nowrap";
+        } else {
+          btn.className =
+            "size-btn size-btn-active px-1.5 sm:px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap";
+        }
       } else {
         btn.className =
           "size-btn px-1.5 sm:px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap";
+      }
+    });
+
+    const isDynamic = this.state.dynamicMode !== "none";
+    const terminalTable = document.getElementById("terminalTable");
+    if (terminalTable) {
+      terminalTable.classList.toggle("hide-opt-size", !isDynamic);
+    }
+    document.querySelectorAll(".detail-row-cell, .empty-table-cell").forEach((el) => {
+      el.setAttribute("colspan", isDynamic ? "10" : "9");
+    });
+
+    if (!isDynamic && this.state.sortColumn === "effectiveTargetUsd") {
+      this.state.sortColumn = "costUsd";
+      this.state.sortDirection = "asc";
+      this.updateSortHeaderUi();
+    }
+  }
+
+  private updateSortHeaderUi(): void {
+    document.querySelectorAll("#terminalTable th").forEach((th) => {
+      const col = (th as HTMLElement).dataset.sort;
+      const ind = th.querySelector(".sort-indicator");
+      if (ind) {
+        if (col === this.state.sortColumn) {
+          ind.textContent = this.state.sortDirection === "asc" ? "▲" : "▼";
+          ind.className = "sort-indicator text-terminal-accent";
+        } else {
+          ind.textContent = "";
+        }
       }
     });
   }
@@ -632,6 +732,8 @@ export class TerminalController {
   private saveFilterSettings(): void {
     try {
       localStorage.setItem(STORAGE_KEYS.SIZE, String(this.state.targetSizeUsd));
+      localStorage.setItem(STORAGE_KEYS.SIZE_MODE, this.state.dynamicMode);
+      localStorage.setItem(STORAGE_KEYS.MAX_CAP, String(this.state.maxCapUsd));
       localStorage.setItem(STORAGE_KEYS.LEVERAGE, String(this.state.minLeverageFilter));
       localStorage.setItem(STORAGE_KEYS.FILTER_EQUITIES, String(this.state.filterEquities));
       localStorage.setItem(STORAGE_KEYS.FILTER_READY, String(this.state.filterReadyOnly));
@@ -640,12 +742,28 @@ export class TerminalController {
 
   private restoreFilterSettings(): void {
     try {
-      const savedSize = localStorage.getItem(STORAGE_KEYS.SIZE);
-      if (savedSize !== null) {
-        const val = parseFloat(savedSize);
-        if (!isNaN(val) && val > 0) {
-          this.state.targetSizeUsd = val;
-          this.updateSizeControls(val);
+      const savedCap = localStorage.getItem(STORAGE_KEYS.MAX_CAP);
+      if (savedCap !== null) {
+        const cap = parseFloat(savedCap);
+        if (!isNaN(cap) && cap > 0) this.state.maxCapUsd = cap;
+      }
+
+      const savedMode = localStorage.getItem(STORAGE_KEYS.SIZE_MODE);
+      if (savedMode === "auto-max-vol" || savedMode === "max_vol") {
+        this.updateSizeControls("auto-max-vol");
+      } else if (
+        savedMode === "auto-min-burn" ||
+        savedMode === "min_burn" ||
+        savedMode === "auto"
+      ) {
+        this.updateSizeControls("auto-min-burn");
+      } else {
+        const savedSize = localStorage.getItem(STORAGE_KEYS.SIZE);
+        if (savedSize !== null) {
+          const val = parseFloat(savedSize);
+          if (!isNaN(val) && val > 0) {
+            this.updateSizeControls(val);
+          }
         }
       }
 
@@ -674,6 +792,9 @@ export class TerminalController {
 
   private resetFiltersToDefault(): void {
     this.state.targetSizeUsd = 10000;
+    this.state.isDynamicSize = false;
+    this.state.dynamicMode = "none";
+    this.state.maxCapUsd = 20000;
     this.state.minLeverageFilter = 0;
     this.state.filterEquities = true;
     this.state.filterReadyOnly = false;
@@ -692,6 +813,7 @@ export class TerminalController {
 
     try {
       localStorage.removeItem(STORAGE_KEYS.SIZE);
+      localStorage.removeItem(STORAGE_KEYS.SIZE_MODE);
       localStorage.removeItem(STORAGE_KEYS.LEVERAGE);
       localStorage.removeItem(STORAGE_KEYS.FILTER_EQUITIES);
       localStorage.removeItem(STORAGE_KEYS.FILTER_READY);
@@ -750,9 +872,16 @@ export class TerminalController {
     sizeInput?.addEventListener("change", (e) => {
       const val = parseFloat((e.target as HTMLInputElement).value);
       if (!isNaN(val) && val > 0) {
-        this.state.targetSizeUsd = val;
         this.state.emaMap.clear();
-        this.updateSizeControls(val);
+        if (this.state.dynamicMode !== "none") {
+          this.state.maxCapUsd = val;
+          this.updateSizeControls(
+            this.state.dynamicMode === "max_vol" ? "auto-max-vol" : "auto-min-burn",
+            val,
+          );
+        } else {
+          this.updateSizeControls(val);
+        }
         this.saveFilterSettings();
         this.rerank();
       }
@@ -760,10 +889,16 @@ export class TerminalController {
 
     document.querySelectorAll(".size-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const sz = parseFloat((btn as HTMLElement).dataset.size || "0");
-        this.state.targetSizeUsd = sz;
+        const sz = (btn as HTMLElement).dataset.size;
         this.state.emaMap.clear();
-        this.updateSizeControls(sz);
+        if (sz === "auto-min-burn" || sz === "auto") {
+          this.updateSizeControls("auto-min-burn");
+        } else if (sz === "auto-max-vol") {
+          this.updateSizeControls("auto-max-vol");
+        } else {
+          const val = parseFloat(sz || "10000");
+          this.updateSizeControls(val);
+        }
         this.saveFilterSettings();
         this.rerank();
       });
@@ -856,15 +991,7 @@ export class TerminalController {
             col === "totalVolume24h" || col === "totalOiUsd" ? "desc" : "asc";
         }
 
-        document
-          .querySelectorAll("#terminalTable th .sort-indicator")
-          .forEach((s) => (s.textContent = ""));
-        const ind = th.querySelector(".sort-indicator");
-        if (ind) {
-          ind.textContent = this.state.sortDirection === "asc" ? "▲" : "▼";
-          ind.className = "sort-indicator text-terminal-accent";
-        }
-
+        this.updateSortHeaderUi();
         this.rerank();
       });
     });

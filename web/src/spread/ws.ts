@@ -6,8 +6,18 @@ export interface WsCallbacks {
   onCoreClose?: () => void;
   onRhOpen?: () => void;
   onRhClose?: () => void;
-  onCoreBookUpdate?: (marketId: number, data: WsOrderBookData, isSnapshot: boolean, offset: number) => void;
-  onRhBookUpdate?: (marketId: number, data: WsOrderBookData, isSnapshot: boolean, offset: number) => void;
+  onCoreBookUpdate?: (
+    marketId: number,
+    data: WsOrderBookData,
+    isSnapshot: boolean,
+    offset: number,
+  ) => void;
+  onRhBookUpdate?: (
+    marketId: number,
+    data: WsOrderBookData,
+    isSnapshot: boolean,
+    offset: number,
+  ) => void;
 }
 
 export class WebSocketManager {

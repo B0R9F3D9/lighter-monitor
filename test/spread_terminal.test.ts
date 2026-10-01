@@ -1,8 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import { formatMoney, formatPrice, formatBps, formatBaseQty, formatDeltaMid } from "../web/src/formatters";
+import {
+  formatMoney,
+  formatPrice,
+  formatBps,
+  formatBaseQty,
+  formatDeltaMid,
+} from "../web/src/formatters";
 import { getOrCreateBook, updateBookFromWs, getSortedLevels } from "../web/src/orderbook";
 import { simulateFillBase } from "../web/src/simulation";
-import { calculateMarketMetrics, getMetrics } from "../web/src/metrics";
+import { calculateMarketMetrics, findOptimalSize, getMetrics } from "../web/src/metrics";
 import type { MarketInfo, OrderBook, TerminalState } from "../web/src/types";
 
 describe("Spread Terminal: Formatters", () => {
@@ -60,7 +66,10 @@ describe("Spread Terminal: Order Book Management", () => {
   it("applies snapshots and updates correctly, clearing deleted levels", () => {
     const book: OrderBook = {
       marketId: 1,
-      asks: new Map([[100, 1.0], [101, 2.0]]),
+      asks: new Map([
+        [100, 1.0],
+        [101, 2.0],
+      ]),
       bids: new Map([[99, 1.0]]),
       isSnapshotReceived: true,
       lastUpdatedTs: 0,
@@ -87,7 +96,10 @@ describe("Spread Terminal: Order Book Management", () => {
     updateBookFromWs(
       book,
       {
-        asks: [{ price: "105", size: "0" }, { price: "106", size: "2.0" }],
+        asks: [
+          { price: "105", size: "0" },
+          { price: "106", size: "2.0" },
+        ],
       },
       false,
     );
@@ -184,7 +196,14 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
       offset: 1,
     };
 
-    const metrics = calculateMarketMetrics(dummyMarket, 1000, coreBook, rhBook, Date.now(), Date.now());
+    const metrics = calculateMarketMetrics(
+      dummyMarket,
+      1000,
+      coreBook,
+      rhBook,
+      Date.now(),
+      Date.now(),
+    );
     expect(metrics).toBeNull();
   });
 
@@ -193,8 +212,8 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     // Core: Ask 100.05, Bid 99.95 (Mid 100.0)
     const rhBook: OrderBook = {
       marketId: 1,
-      asks: new Map([[100.10, 100]]),
-      bids: new Map([[99.90, 100]]),
+      asks: new Map([[100.1, 100]]),
+      bids: new Map([[99.9, 100]]),
       isSnapshotReceived: true,
       lastUpdatedTs: Date.now(),
       offset: 1,
@@ -232,8 +251,8 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
   it("smooths rawCostUsd through getMetrics and derives consistent bps and point cost", () => {
     const rhBook: OrderBook = {
       marketId: 1,
-      asks: new Map([[100.10, 100]]),
-      bids: new Map([[99.90, 100]]),
+      asks: new Map([[100.1, 100]]),
+      bids: new Map([[99.9, 100]]),
       isSnapshotReceived: true,
       lastUpdatedTs: Date.now(),
       offset: 1,
@@ -252,6 +271,9 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
       coreBooks: new Map([[coreBook.marketId, coreBook]]),
       rhBooks: new Map([[rhBook.marketId, rhBook]]),
       targetSizeUsd: 10000,
+      isDynamicSize: false,
+      dynamicMode: "none",
+      maxCapUsd: 20000,
       filterEquities: false,
       filterReadyOnly: false,
       minLeverageFilter: 0,
@@ -281,8 +303,8 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     // After 1 second with a spike in price, EMA dampens the move
     const dtNow = now + 1000;
     // Simulate spike: raw cost increases
-    rhBook.asks.delete(100.10);
-    rhBook.asks.set(100.30, 100);
+    rhBook.asks.delete(100.1);
+    rhBook.asks.set(100.3, 100);
     const m2 = getMetrics(dummyMarket, state, Date.now(), Date.now(), dtNow);
     expect(m2).not.toBeNull();
     if (!m2) return;
@@ -293,5 +315,147 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     expect(m2.costUsd).toBeLessThan(m2.rawCostUsd); // Dampened!
     // vwapTotalDragBps stays strictly aligned with smoothed costUsd
     expect(m2.vwapTotalDragBps).toBeCloseTo((m2.costUsd / 10000) * 10000, 4);
+  });
+});
+
+describe("Spread Terminal: Dynamic Position Sizing (Min Burn vs Max Vol)", () => {
+  it("min_burn mode stops increasing size when price/point cost deteriorates", () => {
+    // Level 1: $10,000 depth at 100.05 / 99.95 (tight 10 bps spread)
+    // Level 2: $20,000 depth at 100.25 / 99.75 (wide 50 bps spread - deteriorates unit cost!)
+    const rhAsks = [
+      { price: 100.05, totalBase: 100, totalUsd: 10005 },
+      { price: 100.25, totalBase: 200, totalUsd: 20050 },
+    ];
+    const coreBids = [
+      { price: 99.95, totalBase: 100, totalUsd: 9995 },
+      { price: 99.75, totalBase: 200, totalUsd: 19950 },
+    ];
+    const rhBids = [
+      { price: 99.95, totalBase: 100, totalUsd: 9995 },
+      { price: 99.75, totalBase: 200, totalUsd: 19950 },
+    ];
+    const coreAsks = [
+      { price: 100.05, totalBase: 100, totalUsd: 10005 },
+      { price: 100.25, totalBase: 200, totalUsd: 20050 },
+    ];
+
+    // min_burn should NOT sweep into Level 2 because unit cost worsens!
+    const minBurnSize = findOptimalSize(
+      rhAsks,
+      coreBids,
+      rhBids,
+      coreAsks,
+      100.0,
+      "min_burn",
+      30000,
+    );
+    expect(minBurnSize).toBeLessThanOrEqual(10000);
+
+    // max_vol will accept higher slippage to maximize position volume
+    const maxVolSize = findOptimalSize(rhAsks, coreBids, rhBids, coreAsks, 100.0, "max_vol", 30000);
+    expect(maxVolSize).toBeGreaterThan(minBurnSize);
+  });
+
+  it("respects maxCapUsd budget cap", () => {
+    const rhAsks = [{ price: 100.05, totalBase: 1000, totalUsd: 100050 }];
+    const coreBids = [{ price: 99.95, totalBase: 1000, totalUsd: 99950 }];
+    const rhBids = [{ price: 99.95, totalBase: 1000, totalUsd: 99950 }];
+    const coreAsks = [{ price: 100.05, totalBase: 1000, totalUsd: 100050 }];
+
+    // Cap at $15,000 even though book has $100K depth
+    const optSize = findOptimalSize(rhAsks, coreBids, rhBids, coreAsks, 100.0, "min_burn", 15000);
+    expect(optSize).toBeLessThanOrEqual(15000);
+  });
+
+  it("handles thin liquidity without crashing and bounds size by available depth", () => {
+    const rhAsks = [{ price: 100.1, totalBase: 2, totalUsd: 200.2 }];
+    const coreBids = [{ price: 99.9, totalBase: 2, totalUsd: 199.8 }];
+    const rhBids = [{ price: 99.9, totalBase: 2, totalUsd: 199.8 }];
+    const coreAsks = [{ price: 100.1, totalBase: 2, totalUsd: 200.2 }];
+
+    const optSize = findOptimalSize(rhAsks, coreBids, rhBids, coreAsks, 100.0, "min_burn", 20000);
+    expect(optSize).toBeLessThanOrEqual(500);
+    expect(optSize).toBeGreaterThanOrEqual(100);
+  });
+
+  it("calculates market metrics with dynamic size enabled", () => {
+    const dummyMarket: MarketInfo = {
+      symbol: "NVDA",
+      leverage: "50x",
+      leverageNum: 50,
+      rhLeverage: "50x",
+      coreLeverage: "50x",
+      rhMarketId: 10,
+      coreMarketId: 20,
+      rhVolume24h: 500000,
+      coreVolume24h: 300000,
+      totalVolume24h: 800000,
+      rhOiUsd: 1000000,
+      coreOiUsd: 500000,
+      totalOiUsd: 1500000,
+      latestMetrics: null,
+    };
+    const rhBook: OrderBook = {
+      marketId: 10,
+      asks: new Map([
+        [100.05, 50],
+        [100.1, 100],
+      ]),
+      bids: new Map([
+        [99.95, 50],
+        [99.9, 100],
+      ]),
+      isSnapshotReceived: true,
+      lastUpdatedTs: Date.now(),
+      offset: 1,
+    };
+    const coreBook: OrderBook = {
+      marketId: 20,
+      asks: new Map([
+        [100.04, 50],
+        [100.08, 100],
+      ]),
+      bids: new Map([
+        [99.96, 50],
+        [99.92, 100],
+      ]),
+      isSnapshotReceived: true,
+      lastUpdatedTs: Date.now(),
+      offset: 1,
+    };
+
+    const now = Date.now();
+    // Fixed mode: targetSize = $10,000
+    const fixedMetrics = calculateMarketMetrics(
+      dummyMarket,
+      10000,
+      coreBook,
+      rhBook,
+      now,
+      now,
+      "none",
+    );
+    expect(fixedMetrics).not.toBeNull();
+    expect(fixedMetrics?.isDynamic).toBe(false);
+    expect(fixedMetrics?.effectiveTargetUsd).toBe(10000);
+    expect(fixedMetrics?.optimalSizeUsd).toBeGreaterThan(0);
+
+    // Dynamic mode: min_burn
+    const dynamicMetrics = calculateMarketMetrics(
+      dummyMarket,
+      10000,
+      coreBook,
+      rhBook,
+      now,
+      now,
+      "min_burn",
+      20000,
+    );
+    expect(dynamicMetrics).not.toBeNull();
+    expect(dynamicMetrics?.isDynamic).toBe(true);
+    expect(dynamicMetrics?.dynamicMode).toBe("min_burn");
+    expect(dynamicMetrics?.effectiveTargetUsd).toBe(dynamicMetrics?.optimalSizeUsd);
+    expect(dynamicMetrics?.optimalSizeUsd).toBeGreaterThan(0);
+    expect(dynamicMetrics?.optimalSizeUsd).toBeLessThanOrEqual(20000);
   });
 });

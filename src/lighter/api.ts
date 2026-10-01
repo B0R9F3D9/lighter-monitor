@@ -50,13 +50,10 @@ export async function fetchLighterAccountWithStatus(
           `[${network}] #${accountIndex} got 401 with Authorization token. Retrying without auth token...`,
         );
         delete headers["Authorization"];
-        res = await fetch(
-          `${baseUrl}/account?by=index&value=${accountIndex}&_t=${Date.now()}`,
-          {
-            ...fetchOptions,
-            headers,
-          },
-        );
+        res = await fetch(`${baseUrl}/account?by=index&value=${accountIndex}&_t=${Date.now()}`, {
+          ...fetchOptions,
+          headers,
+        });
       }
 
       if (res.status === 429) {

@@ -1,10 +1,4 @@
-import type {
-  BasisPoint,
-  HourlyBucketStats,
-  QuantStats,
-  RawCandle,
-  SignalVerdict,
-} from "./types";
+import type { BasisPoint, HourlyBucketStats, QuantStats, RawCandle, SignalVerdict } from "./types";
 
 /**
  * Aligns candlestick arrays from Robinhood and Core by timestamp

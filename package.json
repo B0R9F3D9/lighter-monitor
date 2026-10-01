@@ -13,7 +13,7 @@
     "profile": "bun load-tests/profile_engine.ts",
     "simulate": "bun load-tests/simulate_cron_tick.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "format": "oxfmt --write",

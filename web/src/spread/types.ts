@@ -55,6 +55,8 @@ export interface ExecutionLegs {
   coreMid: number;
 }
 
+export type DynamicSizeMode = "none" | "min_burn" | "max_vol";
+
 export interface MarketMetrics {
   symbol: string;
   leverage: string;
@@ -85,6 +87,10 @@ export interface MarketMetrics {
   pointsEarned: number;
   maxLevelsSwept: number;
   minDepthUsd: number;
+  optimalSizeUsd: number;
+  effectiveTargetUsd: number;
+  isDynamic: boolean;
+  dynamicMode: DynamicSizeMode;
   status: "READY" | "SLIPPAGE" | "LOW LIQ" | "STALE";
   legs: ExecutionLegs;
   computedAt?: number;
@@ -100,6 +106,9 @@ export interface TerminalState {
   coreBooks: Map<number, OrderBook>;
   rhBooks: Map<number, OrderBook>;
   targetSizeUsd: number;
+  isDynamicSize: boolean;
+  dynamicMode: DynamicSizeMode;
+  maxCapUsd: number;
   filterEquities: boolean;
   filterReadyOnly: boolean;
   minLeverageFilter: number;
@@ -118,6 +127,7 @@ export interface TerminalState {
 export interface RowDomCache {
   tr: HTMLTableRowElement;
   verdictEl: HTMLElement;
+  sizeEl: HTMLElement;
   rtLossEl: HTMLElement;
   ptCostEl: HTMLElement;
   turnoverDragEl: HTMLElement;
