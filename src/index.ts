@@ -16,11 +16,14 @@ export default {
       });
     }
 
+    const isGetOrHead = request.method === "GET" || request.method === "HEAD";
+
     // Static assets for Spread Terminal (CSS, JS, Favicons, Logos)
     const filename = url.pathname.split("/").pop() || "";
     const asset = SPREAD_ASSETS[filename];
 
     if (
+      isGetOrHead &&
       asset &&
       (url.pathname.startsWith("/assets/") ||
         url.pathname.startsWith("/spread/assets/") ||
@@ -47,12 +50,12 @@ export default {
       });
     }
 
-    if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/spread/assets/")) {
+    if (isGetOrHead && (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/spread/assets/"))) {
       return new Response("Asset Not Found", { status: 404 });
     }
 
-    // Spread & Arbitrage Terminal
-    if (url.pathname === "/spread" || url.pathname === "/spread/" || url.pathname === "/") {
+    // Spread & Arbitrage Terminal (только GET/HEAD; POST на "/" передается в Telegram webhook)
+    if (isGetOrHead && (url.pathname === "/spread" || url.pathname === "/spread/" || url.pathname === "/")) {
       const clientEtag = request.headers.get("if-none-match");
       if (clientEtag && (clientEtag === SPREAD_HTML_HASH || clientEtag === `"${SPREAD_HTML_HASH}"`)) {
         return new Response(null, { status: 304 });
