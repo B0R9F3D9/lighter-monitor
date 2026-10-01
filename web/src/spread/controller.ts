@@ -617,6 +617,7 @@ export class TerminalController {
   ): void {
     const sizeInput = document.getElementById("sizeInput") as HTMLInputElement | null;
     const sizeInputLabel = document.getElementById("sizeInputLabel");
+    const sizeModeHint = document.getElementById("sizeModeHint");
 
     if (val === "auto-min-burn" || val === "auto") {
       this.state.isDynamicSize = true;
@@ -627,6 +628,9 @@ export class TerminalController {
         sizeInput.value = String(this.state.maxCapUsd || 20000);
         sizeInput.title = "Max position size cap to optimize up to (Min Burn mode)";
       }
+      if (sizeModeHint) {
+        sizeModeHint.textContent = "Auto Min Burn: Lowest Point Cost ($/pt)";
+      }
     } else if (val === "auto-max-vol") {
       this.state.isDynamicSize = true;
       this.state.dynamicMode = "max_vol";
@@ -636,6 +640,9 @@ export class TerminalController {
         sizeInput.value = String(this.state.maxCapUsd || 20000);
         sizeInput.title = "Max position size cap to optimize up to (Max Vol mode)";
       }
+      if (sizeModeHint) {
+        sizeModeHint.textContent = "Auto Max Vol: Max size (slippage ≤ 3.5 bps)";
+      }
     } else {
       this.state.isDynamicSize = false;
       this.state.dynamicMode = "none";
@@ -644,6 +651,9 @@ export class TerminalController {
       if (sizeInput) {
         sizeInput.value = String(val);
         sizeInput.title = "Fixed target size in USD";
+      }
+      if (sizeModeHint) {
+        sizeModeHint.textContent = `Manual Fixed Size: $${Number(val).toLocaleString()}`;
       }
     }
 
@@ -822,6 +832,7 @@ export class TerminalController {
     try {
       localStorage.removeItem(STORAGE_KEYS.SIZE);
       localStorage.removeItem(STORAGE_KEYS.SIZE_MODE);
+      localStorage.removeItem(STORAGE_KEYS.MAX_CAP);
       localStorage.removeItem(STORAGE_KEYS.LEVERAGE);
       localStorage.removeItem(STORAGE_KEYS.FILTER_EQUITIES);
       localStorage.removeItem(STORAGE_KEYS.FILTER_READY);

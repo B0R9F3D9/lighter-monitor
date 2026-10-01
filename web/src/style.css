@@ -42,6 +42,14 @@
   background: #6e7681;
 }
 
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 .sticky-symbol {
   position: sticky;
   left: 0;
