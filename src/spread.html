@@ -224,9 +224,16 @@
                 class="text-xs font-mono font-semibold px-1 py-0.2 rounded bg-terminal-border text-terminal-secondary"
                 >20x</span
               >
+              <button
+                id="topCopyQtyBtn"
+                class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-accent hover:border-terminal-accent/50 hover:bg-terminal-surface transition flex items-center gap-1 cursor-pointer select-none"
+                title="Click to copy base asset size"
+              >
+                <span id="topQtyText">-- sh</span>
+              </button>
               <span
                 id="topMidPrice"
-                class="text-sm font-mono text-terminal-secondary tabular-nums ml-2"
+                class="text-sm font-mono text-terminal-secondary tabular-nums ml-1"
                 >$0.00</span
               >
             </div>
@@ -236,11 +243,16 @@
         <!-- Financial Metrics Grid -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs">
           <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
-            <div class="text-[10px] text-terminal-muted uppercase">Round-Trip Loss</div>
-            <div id="topLossUsd" class="text-base font-bold text-terminal-emerald tabular-nums">
+            <div class="text-[10px] text-terminal-muted uppercase">Instant Entry Loss</div>
+            <div
+              id="topEntryLossUsd"
+              class="text-base font-bold text-terminal-emerald tabular-nums"
+            >
               $--
             </div>
-            <div class="text-[10px] text-terminal-muted">entry + exit fill</div>
+            <div id="topLossUsd" class="text-[10px] text-terminal-muted tabular-nums">
+              RT Loss: $--
+            </div>
           </div>
 
           <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
@@ -252,11 +264,13 @@
           </div>
 
           <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
-            <div class="text-[10px] text-terminal-muted uppercase">VWAP Total Drag</div>
+            <div class="text-[10px] text-terminal-muted uppercase">Turnover Drag</div>
             <div id="topVwapDrag" class="text-base font-bold text-terminal-primary tabular-nums">
               -- bps
             </div>
-            <div id="topRawSpread" class="text-[10px] text-terminal-muted">Raw: -- bps</div>
+            <div id="topDeltaMid" class="text-[10px] text-terminal-muted tabular-nums">
+              Δ Mid: --
+            </div>
           </div>
 
           <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
@@ -332,22 +346,44 @@
         <div class="flex flex-wrap items-center gap-2">
           <!-- Leverage Filter (Compact) -->
           <div class="flex items-center gap-1.5 font-mono text-xs">
-            <span class="text-xs font-mono font-medium text-terminal-muted uppercase tracking-wider">Lev:</span>
+            <span class="text-xs font-mono font-medium text-terminal-muted uppercase tracking-wider"
+              >Lev:</span
+            >
             <div class="flex items-center gap-1">
-              <button class="lev-btn lev-btn-active px-2 py-1 rounded border border-terminal-accent/50 bg-terminal-accent/10 text-terminal-accent font-bold" data-lev="0">All</button>
-              <button class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white" data-lev="5">≥5x</button>
-              <button class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white" data-lev="10">≥10x</button>
-              <button class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white" data-lev="20">20x</button>
+              <button
+                class="lev-btn lev-btn-active px-2 py-1 rounded border border-terminal-accent/50 bg-terminal-accent/10 text-terminal-accent font-bold"
+                data-lev="0"
+              >
+                All
+              </button>
+              <button
+                class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+                data-lev="5"
+              >
+                ≥5x
+              </button>
+              <button
+                class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+                data-lev="10"
+              >
+                ≥10x
+              </button>
+              <button
+                class="lev-btn px-2 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-secondary hover:text-white"
+                data-lev="20"
+              >
+                20x
+              </button>
             </div>
           </div>
 
-          <!-- Search -->
+          <!-- Search with Hotkey & Clear Button -->
           <div class="relative">
             <input
               type="text"
               id="searchBox"
-              placeholder="Filter ticker (e.g. AAPL)..."
-              class="w-44 sm:w-52 pl-7 pr-2 py-1 bg-terminal-bg border border-terminal-border rounded font-mono text-xs text-white placeholder-terminal-muted focus:outline-none focus:border-terminal-accent"
+              placeholder='Filter ticker ("/" to focus)...'
+              class="w-48 sm:w-56 pl-7 pr-7 py-1 bg-terminal-bg border border-terminal-border rounded font-mono text-xs text-white placeholder-terminal-muted focus:outline-none focus:border-terminal-accent focus:ring-1 focus:ring-terminal-accent/30 transition"
             />
             <svg
               class="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-terminal-muted pointer-events-none"
@@ -362,6 +398,13 @@
                 d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
               ></path>
             </svg>
+            <button
+              id="clearSearchBtn"
+              class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-terminal-muted hover:text-white text-xs px-1 select-none"
+              title="Clear search (Esc)"
+            >
+              ✕
+            </button>
           </div>
 
           <!-- Equities Only Toggle -->
@@ -397,23 +440,23 @@
                 <th
                   class="py-2.5 px-3 font-semibold sticky-symbol cursor-pointer hover:text-white"
                   data-sort="symbol"
-                  style="min-width: 140px"
+                  style="min-width: 155px"
                 >
-                  Ticker & Lev <span class="sort-indicator text-terminal-accent"></span>
+                  Ticker & Size <span class="sort-indicator text-terminal-accent"></span>
                 </th>
                 <th
                   class="py-2.5 px-2.5 font-semibold text-center cursor-pointer hover:text-white"
                   data-sort="status"
-                  style="min-width: 95px"
+                  style="min-width: 90px"
                 >
                   Verdict <span class="sort-indicator"></span>
                 </th>
                 <th
                   class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
-                  data-sort="costUsd"
-                  style="min-width: 110px"
+                  data-sort="entryLossUsd"
+                  style="min-width: 120px"
                 >
-                  Loss USD ($) <span class="sort-indicator text-terminal-accent">▲</span>
+                  Entry Loss ($) <span class="sort-indicator text-terminal-accent">▲</span>
                 </th>
                 <th
                   class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
@@ -425,9 +468,9 @@
                 <th
                   class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
                   data-sort="vwapTotalDragBps"
-                  style="min-width: 95px"
+                  style="min-width: 110px"
                 >
-                  VWAP Drag <span class="sort-indicator"></span>
+                  Turnover Drag <span class="sort-indicator"></span>
                 </th>
                 <th
                   class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
@@ -439,14 +482,14 @@
                 <th
                   class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
                   data-sort="midPrice"
-                  style="min-width: 90px"
+                  style="min-width: 95px"
                 >
                   Mid Price <span class="sort-indicator"></span>
                 </th>
                 <th
                   class="py-2.5 px-2.5 font-semibold text-center cursor-pointer hover:text-white"
                   data-sort="maxLevelsSwept"
-                  style="min-width: 80px"
+                  style="min-width: 75px"
                 >
                   Swept Lvl <span class="sort-indicator"></span>
                 </th>
@@ -513,6 +556,7 @@
         RH_WS_URL: "wss://api.rh.lighter.xyz/stream?readonly=true",
         RERANK_INTERVAL_SEC: 15,
         EMA_ALPHA: 0.25, // 0.25 New + 0.75 Prev
+        THROTTLE_MS: 100, // Max 10 updates per second for render loop
       };
 
       const NON_EQUITY_SYMBOLS = new Set([
@@ -555,7 +599,7 @@
         searchQuery: "",
 
         // Sorting Lock & Hysteresis State
-        sortColumn: "costUsd",
+        sortColumn: "entryLossUsd",
         sortDirection: "asc",
         isAutoSortEnabled: true,
         displayedSymbolsOrder: [], // FIXED row order, does not shift on ticks!
@@ -569,6 +613,13 @@
         isCoreConnected: false,
         isRhConnected: false,
       };
+
+      // Market ID to symbol reverse index for O(1) dirty symbol lookup
+      const marketIdToSymbol = {
+        core: new Map(),
+        rh: new Map(),
+      };
+      const dirtySymbols = new Set();
 
       // DOM references cache to avoid querying DOM
       const rowDomCache = new Map(); // symbol -> { tr, symbolEl, verdictEl, ... }
@@ -598,6 +649,61 @@
         if (b === undefined || b === null || isNaN(b)) return "0.00 bps";
         const sign = b > 0 && withSign ? "+" : "";
         return sign + b.toFixed(2) + " bps";
+      }
+
+      function formatBaseQty(qty) {
+        if (qty === undefined || qty === null || isNaN(qty) || qty <= 0) return "0.0";
+        if (qty >= 50) return qty.toFixed(1);
+        if (qty >= 1) return qty.toFixed(2);
+        return qty.toFixed(4);
+      }
+
+      function formatDeltaMid(deltaUsd, deltaBps) {
+        if (deltaUsd === undefined || isNaN(deltaUsd)) return "Δ: $0.00";
+        const sign = deltaUsd >= 0 ? "+" : "";
+        const formattedUsd = Math.abs(deltaUsd) < 1 ? deltaUsd.toFixed(3) : deltaUsd.toFixed(2);
+        return `Δ: ${sign}$${formattedUsd}`;
+      }
+
+      function copyToClipboard(text, btnEl, originalLabel) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+        } else {
+          fallbackCopy(text);
+        }
+
+        btnEl.dataset.isCopied = "true";
+        btnEl.textContent = "COPIED";
+        btnEl.classList.remove("text-terminal-accent", "border-terminal-border", "bg-terminal-bg");
+        btnEl.classList.add(
+          "text-terminal-emerald",
+          "border-terminal-emerald/40",
+          "bg-terminal-emeraldMuted",
+        );
+
+        setTimeout(() => {
+          delete btnEl.dataset.isCopied;
+          btnEl.textContent = btnEl.dataset.label || originalLabel;
+          btnEl.classList.remove(
+            "text-terminal-emerald",
+            "border-terminal-emerald/40",
+            "bg-terminal-emeraldMuted",
+          );
+          btnEl.classList.add("text-terminal-accent", "border-terminal-border", "bg-terminal-bg");
+        }, 1000);
+      }
+
+      function fallbackCopy(text) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand("copy");
+        } catch {}
+        document.body.removeChild(ta);
       }
 
       // ------------------------------------------------------------------------
@@ -634,13 +740,22 @@
         book.isSnapshotReceived = true;
       }
 
-      function getSortedLevels(map, isAsk) {
+      // Optimized sorted levels: takes top levels necessary for size simulation
+      function getSortedLevels(map, isAsk, minNeededUsd = 0) {
         const arr = [];
         for (const [price, totalBase] of map.entries()) {
           arr.push({ price, totalBase, totalUsd: price * totalBase });
         }
         arr.sort((a, b) => (isAsk ? a.price - b.price : b.price - a.price));
-        return arr;
+        if (arr.length <= 20) return arr;
+        let sum = 0;
+        for (let i = 0; i < arr.length; i++) {
+          sum += arr[i].totalUsd;
+          if (sum >= minNeededUsd && i >= 12) {
+            return arr.slice(0, i + 1);
+          }
+        }
+        return arr.slice(0, 25);
       }
 
       function simulateFill(levels, targetUsd, isAsk) {
@@ -694,18 +809,30 @@
         )
           return null;
 
-        const rhAsks = getSortedLevels(rhBook.asks, true);
-        const rhBids = getSortedLevels(rhBook.bids, false);
-        const coreAsks = getSortedLevels(coreBook.asks, true);
-        const coreBids = getSortedLevels(coreBook.bids, false);
+        const rhAsks = getSortedLevels(rhBook.asks, true, targetUsd);
+        const rhBids = getSortedLevels(rhBook.bids, false, targetUsd);
+        const coreAsks = getSortedLevels(coreBook.asks, true, targetUsd);
+        const coreBids = getSortedLevels(coreBook.bids, false, targetUsd);
 
         const rhBestAsk = rhAsks[0].price;
         const rhBestBid = rhBids[0].price;
         const coreBestAsk = coreAsks[0].price;
         const coreBestBid = coreBids[0].price;
 
-        const midPrice = ((rhBestAsk + rhBestBid) / 2 + (coreBestAsk + coreBestBid) / 2) / 2;
+        const rhMid = (rhBestAsk + rhBestBid) / 2;
+        const coreMid = (coreBestAsk + coreBestBid) / 2;
+        const midPrice = (rhMid + coreMid) / 2;
         if (midPrice <= 0) return null;
+
+        // Inter-exchange basis (RH vs Core)
+        const deltaMidUsd = rhMid - coreMid;
+        const deltaMidBps = (deltaMidUsd / midPrice) * 10000;
+
+        // Base Asset Quantity for target size
+        const baseQty = targetUsd / midPrice;
+        const copyQty = formatBaseQty(baseQty);
+        const isEquity = !NON_EQUITY_SYMBOLS.has(m.symbol);
+        const qtyLabel = isEquity ? `${copyQty} sh` : `${copyQty}`;
 
         // 4-Leg VWAP fills
         const simEntryRh = simulateFill(rhAsks, targetUsd, true);
@@ -726,7 +853,11 @@
 
         if (isNaN(rawVwapDragBps) || !isFinite(rawVwapDragBps)) return null;
 
-        // EMA Noise Filtering
+        // Instant Entry Drag ($) vs Round-Trip Turnover Cost ($)
+        const entryLossUsd = (vwapEntryDragBps / 10000) * targetUsd;
+        const exitLossUsd = (vwapExitDragBps / 10000) * targetUsd;
+
+        // EMA Noise Filtering on Turnover Drag
         let ema = state.emaMap.get(m.symbol);
         if (!ema || isNaN(ema.smoothedDrag) || !isFinite(ema.smoothedDrag)) {
           ema = { smoothedDrag: rawVwapDragBps };
@@ -737,7 +868,7 @@
         }
         const vwapTotalDragBps = ema.smoothedDrag;
 
-        // Financials
+        // Round-trip estimated loss
         const costUsd = (vwapTotalDragBps / 10000) * targetUsd;
 
         // Point cost calculation:
@@ -782,6 +913,13 @@
           rhLeverage: m.rhLeverage,
           coreLeverage: m.coreLeverage,
           midPrice,
+          rhMid,
+          coreMid,
+          deltaMidUsd,
+          deltaMidBps,
+          baseQty,
+          copyQty,
+          qtyLabel,
           totalVolume24h: m.totalVolume24h,
           rhVolume24h: m.rhVolume24h,
           totalOiUsd: m.totalOiUsd,
@@ -789,6 +927,8 @@
           slippageBps,
           entryDragBps: vwapEntryDragBps,
           exitDragBps: vwapExitDragBps,
+          entryLossUsd,
+          exitLossUsd,
           vwapTotalDragBps,
           costUsd,
           pointCostUsd,
@@ -805,6 +945,8 @@
             coreBestBid,
             rhBestBid,
             coreBestAsk,
+            rhMid,
+            coreMid,
           },
         };
       }
@@ -835,6 +977,10 @@
             if (rm.status !== "active" || rm.is_frozen) continue;
             const cm = coreMap.get(rm.symbol);
             if (!cm) continue;
+
+            // Reverse map market IDs for O(1) ticker lookups on WS ticks
+            marketIdToSymbol.core.set(cm.market_id, rm.symbol);
+            marketIdToSymbol.rh.set(rm.market_id, rm.symbol);
 
             // Calculate minimum leverage across both Core and Robinhood
             const rhMargin = rm.min_initial_margin_fraction || 500;
@@ -890,24 +1036,58 @@
       }
 
       // ------------------------------------------------------------------------
-      // 6. WEBSOCKET REAL-TIME STREAM CONNECTIONS
+      // 6. WEBSOCKET REAL-TIME STREAM CONNECTIONS (Leak-Free + Backoff)
       // ------------------------------------------------------------------------
+      let corePingTimer = null;
+      let rhPingTimer = null;
+      let coreReconnectTimer = null;
+      let rhReconnectTimer = null;
+      let coreReconnectDelay = 2000;
+      let rhReconnectDelay = 2000;
+      let coreWs = null;
+      let rhWs = null;
+
       function initWebSockets() {
         const coreDot = document.getElementById("coreWsDot");
         const rhDot = document.getElementById("rhWsDot");
 
         function connectCore() {
+          if (corePingTimer) {
+            clearInterval(corePingTimer);
+            corePingTimer = null;
+          }
+          if (coreReconnectTimer) {
+            clearTimeout(coreReconnectTimer);
+            coreReconnectTimer = null;
+          }
+          if (coreWs) {
+            try {
+              coreWs.onopen = coreWs.onclose = coreWs.onerror = coreWs.onmessage = null;
+              coreWs.close();
+            } catch {}
+            coreWs = null;
+          }
+
           coreDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-amber animate-pulse";
           const ws = new WebSocket(CONFIG.CORE_WS_URL);
+          coreWs = ws;
 
           ws.addEventListener("open", () => {
             state.isCoreConnected = true;
+            coreReconnectDelay = 2000; // Reset backoff on success
             coreDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-emerald";
             for (const m of state.markets.values()) {
               ws.send(
                 JSON.stringify({ type: "subscribe", channel: `order_book/${m.coreMarketId}` }),
               );
             }
+            corePingTimer = setInterval(() => {
+              if (ws.readyState === WebSocket.OPEN) {
+                try {
+                  ws.send(JSON.stringify({ type: "ping" }));
+                } catch {}
+              }
+            }, 25000);
           });
 
           ws.addEventListener("message", (e) => {
@@ -915,8 +1095,10 @@
               const d = JSON.parse(e.data);
               if (d.channel?.startsWith("order_book:") && d.order_book) {
                 const mid = parseInt(d.channel.split(":")[1], 10);
+                const symbol = marketIdToSymbol.core.get(mid);
                 const book = getOrCreateBook(state.coreBooks, mid);
                 updateBookFromWs(book, d.order_book);
+                if (symbol) dirtySymbols.add(symbol);
                 scheduleInPlaceUpdate();
               }
             } catch {}
@@ -924,8 +1106,14 @@
 
           ws.addEventListener("close", () => {
             state.isCoreConnected = false;
+            if (corePingTimer) {
+              clearInterval(corePingTimer);
+              corePingTimer = null;
+            }
             coreDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-coral animate-pulse";
-            setTimeout(connectCore, 2000);
+            const delay = coreReconnectDelay;
+            coreReconnectDelay = Math.min(coreReconnectDelay * 2, 30000); // 2s -> 4s -> 8s -> ... max 30s
+            coreReconnectTimer = setTimeout(connectCore, delay);
           });
 
           ws.addEventListener("error", () => {
@@ -933,26 +1121,43 @@
               ws.close();
             } catch {}
           });
-
-          setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              try {
-                ws.send(JSON.stringify({ type: "ping" }));
-              } catch {}
-            }
-          }, 25000);
         }
 
         function connectRh() {
+          if (rhPingTimer) {
+            clearInterval(rhPingTimer);
+            rhPingTimer = null;
+          }
+          if (rhReconnectTimer) {
+            clearTimeout(rhReconnectTimer);
+            rhReconnectTimer = null;
+          }
+          if (rhWs) {
+            try {
+              rhWs.onopen = rhWs.onclose = rhWs.onerror = rhWs.onmessage = null;
+              rhWs.close();
+            } catch {}
+            rhWs = null;
+          }
+
           rhDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-amber animate-pulse";
           const ws = new WebSocket(CONFIG.RH_WS_URL);
+          rhWs = ws;
 
           ws.addEventListener("open", () => {
             state.isRhConnected = true;
+            rhReconnectDelay = 2000; // Reset backoff on success
             rhDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-emerald";
             for (const m of state.markets.values()) {
               ws.send(JSON.stringify({ type: "subscribe", channel: `order_book/${m.rhMarketId}` }));
             }
+            rhPingTimer = setInterval(() => {
+              if (ws.readyState === WebSocket.OPEN) {
+                try {
+                  ws.send(JSON.stringify({ type: "ping" }));
+                } catch {}
+              }
+            }, 25000);
           });
 
           ws.addEventListener("message", (e) => {
@@ -960,8 +1165,10 @@
               const d = JSON.parse(e.data);
               if (d.channel?.startsWith("order_book:") && d.order_book) {
                 const mid = parseInt(d.channel.split(":")[1], 10);
+                const symbol = marketIdToSymbol.rh.get(mid);
                 const book = getOrCreateBook(state.rhBooks, mid);
                 updateBookFromWs(book, d.order_book);
+                if (symbol) dirtySymbols.add(symbol);
                 scheduleInPlaceUpdate();
               }
             } catch {}
@@ -969,8 +1176,14 @@
 
           ws.addEventListener("close", () => {
             state.isRhConnected = false;
+            if (rhPingTimer) {
+              clearInterval(rhPingTimer);
+              rhPingTimer = null;
+            }
             rhDot.className = "w-1.5 h-1.5 rounded-full bg-terminal-coral animate-pulse";
-            setTimeout(connectRh, 2000);
+            const delay = rhReconnectDelay;
+            rhReconnectDelay = Math.min(rhReconnectDelay * 2, 30000); // 2s -> 4s -> 8s -> ... max 30s
+            rhReconnectTimer = setTimeout(connectRh, delay);
           });
 
           ws.addEventListener("error", () => {
@@ -978,14 +1191,6 @@
               ws.close();
             } catch {}
           });
-
-          setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              try {
-                ws.send(JSON.stringify({ type: "ping" }));
-              } catch {}
-            }
-          }, 25000);
         }
 
         connectCore();
@@ -993,9 +1198,10 @@
       }
 
       // ------------------------------------------------------------------------
-      // 7. IN-PLACE DOM RENDERING & SORT FREEZE ENGINE
+      // 7. IN-PLACE DOM RENDERING & SORT FREEZE ENGINE (Throttled & Dirty-Only)
       // ------------------------------------------------------------------------
       let updateScheduled = false;
+      let lastRenderTime = 0;
       let isWarmupActive = true;
       setTimeout(() => {
         isWarmupActive = false;
@@ -1011,104 +1217,154 @@
       }
 
       function scheduleInPlaceUpdate() {
-        // If table has not populated yet, or we are in the initial warmup window
         if (state.displayedSymbolsOrder.length === 0 || isWarmupActive) {
           triggerWarmupSync();
         }
 
         if (updateScheduled) return;
         updateScheduled = true;
-        requestAnimationFrame(() => {
-          updateCellsInPlace();
-          updateScheduled = false;
-        });
+
+        const now = performance.now();
+        const elapsed = now - lastRenderTime;
+        const wait = Math.max(0, CONFIG.THROTTLE_MS - elapsed);
+
+        setTimeout(() => {
+          requestAnimationFrame(() => {
+            lastRenderTime = performance.now();
+            updateScheduled = false;
+            updateCellsInPlace(false);
+          });
+        }, wait);
       }
 
-      // Re-calculate all rows and update text nodes without touching row order
-      function updateCellsInPlace() {
-        const targetUsd = state.targetSizeUsd;
-        let topRow = null;
+      // Applies metrics to DOM without touching row order
+      function applyRowMetricsToDom(cache, row) {
+        // 1. Verdict badge
+        if (cache.verdictText !== row.status) {
+          cache.verdictText = row.status;
+          cache.verdictEl.textContent = `[${row.status}]`;
+          if (row.status === "READY") {
+            cache.verdictEl.className =
+              "verdict-badge px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald border border-terminal-emerald/30 text-[10px] font-bold";
+          } else if (row.status === "SLIPPAGE") {
+            cache.verdictEl.className =
+              "verdict-badge px-1.5 py-0.5 rounded bg-terminal-amberMuted text-terminal-amber border border-terminal-amber/30 text-[10px] font-bold";
+          } else {
+            cache.verdictEl.className =
+              "verdict-badge px-1.5 py-0.5 rounded bg-terminal-coralMuted text-terminal-coral border border-terminal-coral/30 text-[10px] font-bold";
+          }
+        }
 
-        for (const symbol of state.displayedSymbolsOrder) {
+        // 2. Base Asset Size Button
+        if (cache.copyBtn) {
+          cache.copyBtn.dataset.rawQty = row.copyQty;
+          cache.copyBtn.dataset.label = row.qtyLabel;
+          if (!cache.copyBtn.dataset.isCopied) {
+            cache.copyBtn.textContent = row.qtyLabel;
+          }
+        }
+
+        // 3. Entry Loss ($) & Round-Trip Loss
+        const sign = row.entryLossUsd > 0 ? "+" : "";
+        cache.entryLossEl.textContent = sign + formatMoney(row.entryLossUsd);
+        cache.rtLossEl.textContent = `RT: ${formatMoney(row.costUsd)}`;
+        if (row.entryLossUsd <= 0) {
+          cache.entryLossEl.className =
+            "entry-loss-val font-bold text-terminal-emerald tabular-nums text-sm";
+        } else if (row.entryLossUsd <= 3.0) {
+          cache.entryLossEl.className =
+            "entry-loss-val font-bold text-terminal-emerald tabular-nums text-sm";
+        } else if (row.entryLossUsd <= 7.0) {
+          cache.entryLossEl.className =
+            "entry-loss-val font-medium text-terminal-primary tabular-nums text-sm";
+        } else {
+          cache.entryLossEl.className =
+            "entry-loss-val font-medium text-terminal-secondary tabular-nums text-sm";
+        }
+
+        // 4. Point Cost ($/pt)
+        cache.ptCostEl.textContent = `$${row.pointCostUsd.toFixed(2)} / pt`;
+        if (row.pointCostUsd < 1.5) {
+          cache.ptCostEl.className =
+            "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums";
+        } else if (row.pointCostUsd <= 3.0) {
+          cache.ptCostEl.className =
+            "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums";
+        } else {
+          cache.ptCostEl.className =
+            "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums";
+        }
+
+        // 5. Turnover Drag & Entry Drag in bps
+        cache.turnoverDragEl.textContent = formatBps(row.vwapTotalDragBps);
+        cache.entryDragEl.textContent = `Entry: ${formatBps(row.entryDragBps, true)}`;
+
+        // 6. Slippage
+        cache.slipEl.textContent = formatBps(row.slippageBps, true);
+        cache.slipEl.className =
+          row.slippageBps > 8
+            ? "py-2 px-2.5 text-right text-terminal-amber tabular-nums font-semibold"
+            : "py-2 px-2.5 text-right text-terminal-secondary tabular-nums";
+
+        // 7. Mid Price & Inter-Exchange Basis (Delta Mid)
+        cache.midPriceEl.textContent = formatPrice(row.midPrice);
+        cache.deltaMidEl.textContent = formatDeltaMid(row.deltaMidUsd, row.deltaMidBps);
+        if (Math.abs(row.deltaMidBps) > 6.0) {
+          cache.deltaMidEl.className =
+            "delta-mid-val text-[10px] font-mono tabular-nums text-terminal-amber font-semibold";
+        } else if (Math.abs(row.deltaMidBps) > 3.0) {
+          cache.deltaMidEl.className =
+            "delta-mid-val text-[10px] font-mono tabular-nums text-terminal-secondary";
+        } else {
+          cache.deltaMidEl.className =
+            "delta-mid-val text-[10px] font-mono tabular-nums text-terminal-muted";
+        }
+
+        // 8. Swept Levels & Depth
+        cache.levelsEl.textContent = `${row.maxLevelsSwept} lvls`;
+        cache.depthEl.textContent = formatMoney(row.minDepthUsd);
+      }
+
+      function updateCellsInPlace(forceAll = false) {
+        const targetUsd = state.targetSizeUsd;
+        const symbols = forceAll
+          ? state.displayedSymbolsOrder
+          : state.displayedSymbolsOrder.filter((sym) => dirtySymbols.has(sym));
+
+        if (symbols.length === 0 && !forceAll) return;
+
+        for (const symbol of symbols) {
+          dirtySymbols.delete(symbol);
           const m = state.markets.get(symbol);
           if (!m) continue;
 
           const row = calculateMarketMetrics(m, targetUsd);
           if (!row) continue;
-
-          if (!topRow && row.status === "READY") {
-            topRow = row;
-          }
+          m.latestMetrics = row;
 
           const cache = rowDomCache.get(symbol);
           if (!cache) continue;
 
-          // 1. Verdict badge
-          if (cache.verdictText !== row.status) {
-            cache.verdictText = row.status;
-            cache.verdictEl.textContent = `[${row.status}]`;
-            if (row.status === "READY") {
-              cache.verdictEl.className =
-                "px-1.5 py-0.5 rounded bg-terminal-emeraldMuted text-terminal-emerald border border-terminal-emerald/30 text-[10px] font-bold";
-            } else if (row.status === "SLIPPAGE") {
-              cache.verdictEl.className =
-                "px-1.5 py-0.5 rounded bg-terminal-amberMuted text-terminal-amber border border-terminal-amber/30 text-[10px] font-bold";
-            } else {
-              cache.verdictEl.className =
-                "px-1.5 py-0.5 rounded bg-terminal-coralMuted text-terminal-coral border border-terminal-coral/30 text-[10px] font-bold";
-            }
-          }
+          applyRowMetricsToDom(cache, row);
 
-          // 2. Loss USD ($)
-          cache.lossEl.textContent = formatMoney(row.costUsd);
-          if (row.status === "READY" && row.vwapTotalDragBps < 4.0) {
-            cache.lossEl.className =
-              "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums";
-          } else if (row.status === "READY" && row.vwapTotalDragBps <= 8.0) {
-            cache.lossEl.className =
-              "py-2 px-3 text-right font-medium text-terminal-primary tabular-nums";
-          } else {
-            cache.lossEl.className =
-              "py-2 px-3 text-right font-medium text-terminal-secondary tabular-nums";
-          }
-
-          // 3. Point Cost ($/pt)
-          cache.ptCostEl.textContent = `$${row.pointCostUsd.toFixed(2)} / pt`;
-          if (row.pointCostUsd < 1.5) {
-            cache.ptCostEl.className =
-              "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums";
-          } else if (row.pointCostUsd <= 3.0) {
-            cache.ptCostEl.className =
-              "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums";
-          } else {
-            cache.ptCostEl.className =
-              "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums";
-          }
-
-          // 4. VWAP Drag
-          cache.vwapEl.textContent = formatBps(row.vwapTotalDragBps);
-
-          // 5. Slippage
-          cache.slipEl.textContent = formatBps(row.slippageBps, true);
-          cache.slipEl.className =
-            row.slippageBps > 8
-              ? "py-2 px-2.5 text-right text-terminal-amber tabular-nums font-semibold"
-              : "py-2 px-2.5 text-right text-terminal-secondary tabular-nums";
-
-          // 6. Mid Price
-          cache.priceEl.textContent = formatPrice(row.midPrice);
-
-          // 7. Swept Levels & Depth
-          cache.levelsEl.textContent = `${row.maxLevelsSwept} lvls`;
-          cache.depthEl.textContent = formatMoney(row.minDepthUsd);
-
-          // If this row is expanded, update accordion values
           if (state.expandedSymbol === symbol && detailRowDom) {
             updateDetailRow(row);
           }
         }
 
         // Update executive summary card with current leader
+        let topRow = null;
+        for (const symbol of state.displayedSymbolsOrder) {
+          const m = state.markets.get(symbol);
+          if (m?.latestMetrics && m.latestMetrics.status === "READY") {
+            topRow = m.latestMetrics;
+            break;
+          }
+        }
+        if (!topRow && state.displayedSymbolsOrder.length > 0) {
+          const m0 = state.markets.get(state.displayedSymbolsOrder[0]);
+          if (m0?.latestMetrics) topRow = m0.latestMetrics;
+        }
         if (topRow) {
           updateExecutiveSummary(topRow);
         }
@@ -1118,10 +1374,25 @@
         document.getElementById("topSymbol").textContent = r.symbol;
         document.getElementById("topLeverage").textContent = r.leverage;
         document.getElementById("topMidPrice").textContent = formatPrice(r.midPrice);
-        document.getElementById("topLossUsd").textContent = formatMoney(r.costUsd);
+
+        const topQtyBtn = document.getElementById("topCopyQtyBtn");
+        if (topQtyBtn) {
+          topQtyBtn.dataset.rawQty = r.copyQty;
+          topQtyBtn.dataset.label = r.qtyLabel;
+          if (!topQtyBtn.dataset.isCopied) {
+            document.getElementById("topQtyText").textContent = r.qtyLabel;
+          }
+        }
+
+        const sign = r.entryLossUsd > 0 ? "+" : "";
+        document.getElementById("topEntryLossUsd").textContent = sign + formatMoney(r.entryLossUsd);
+        document.getElementById("topLossUsd").textContent = `RT Loss: ${formatMoney(r.costUsd)}`;
         document.getElementById("topPointCost").textContent = `$${r.pointCostUsd.toFixed(2)} / pt`;
         document.getElementById("topVwapDrag").textContent = formatBps(r.vwapTotalDragBps);
-        document.getElementById("topRawSpread").textContent = `Raw: ${formatBps(r.rawSpreadBps)}`;
+        document.getElementById("topDeltaMid").textContent = formatDeltaMid(
+          r.deltaMidUsd,
+          r.deltaMidBps,
+        );
         document.getElementById("topVolume").textContent = formatMoney(r.totalVolume24h);
         document.getElementById("topLiquidity").textContent =
           `Depth: ${formatMoney(r.minDepthUsd)} (${r.maxLevelsSwept} lvls)`;
@@ -1156,6 +1427,7 @@
 
           const row = calculateMarketMetrics(m, targetUsd);
           if (row) {
+            m.latestMetrics = row;
             if (state.filterReadyOnly && row.status !== "READY") continue;
             rows.push(row);
           }
@@ -1228,8 +1500,8 @@
         tableBody.innerHTML = "";
         tableBody.appendChild(fragment);
 
-        // Immediate in-place text update
-        updateCellsInPlace();
+        // Immediate full update of rendered cells
+        updateCellsInPlace(true);
 
         // Update executive summary card with current leader immediately
         const topLead = rows.find((r) => r.status === "READY") || rows[0];
@@ -1249,19 +1521,35 @@
 
         tr.innerHTML = `
         <td class="py-2 px-3 sticky-symbol font-semibold text-white">
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1.5">
             <span class="symbol-name font-bold tracking-tight">${r.symbol}</span>
             <span class="text-[10px] font-mono px-1 py-0.2 rounded bg-terminal-border text-terminal-secondary">${r.leverage}</span>
+            <button
+              type="button"
+              class="copy-qty-btn text-[10px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-accent hover:border-terminal-accent/50 hover:bg-terminal-surface transition tabular-nums cursor-pointer"
+              title="Click to copy base asset size"
+            >
+              ${r.qtyLabel}
+            </button>
           </div>
         </td>
         <td class="py-2 px-2.5 text-center">
           <span class="verdict-badge px-1.5 py-0.5 rounded text-[10px] font-bold">[READY]</span>
         </td>
-        <td class="py-2 px-3 text-right loss-cell tabular-nums font-bold text-terminal-emerald">$0.00</td>
+        <td class="py-2 px-3 text-right loss-cell tabular-nums">
+          <div class="entry-loss-val font-bold text-terminal-emerald tabular-nums text-sm">$0.00</div>
+          <div class="rt-loss-val text-[10px] text-terminal-muted tabular-nums">RT: $0.00</div>
+        </td>
         <td class="py-2 px-3 text-right ptcost-cell tabular-nums font-medium text-terminal-emerald">$0.00 / pt</td>
-        <td class="py-2 px-2.5 text-right vwap-cell tabular-nums text-terminal-primary">0.00 bps</td>
+        <td class="py-2 px-2.5 text-right vwap-cell tabular-nums">
+          <div class="turnover-drag-val font-semibold text-terminal-primary tabular-nums">0.00 bps</div>
+          <div class="entry-drag-val text-[10px] text-terminal-muted tabular-nums">Entry: +0.00 bps</div>
+        </td>
         <td class="py-2 px-2.5 text-right slip-cell tabular-nums text-terminal-secondary">+0.00 bps</td>
-        <td class="py-2 px-2.5 text-right price-cell tabular-nums text-terminal-secondary">$0.00</td>
+        <td class="py-2 px-2.5 text-right price-cell tabular-nums">
+          <div class="mid-price-val font-medium text-white tabular-nums">$0.00</div>
+          <div class="delta-mid-val text-[10px] font-mono tabular-nums text-terminal-muted">Δ: +$0.00</div>
+        </td>
         <td class="py-2 px-2.5 text-center levels-cell tabular-nums text-terminal-muted">0 lvls</td>
         <td class="py-2 px-3 text-right depth-cell tabular-nums text-terminal-muted">$0.00</td>
         <td class="py-2 px-3 text-right vol-cell tabular-nums text-terminal-secondary">
@@ -1275,14 +1563,28 @@
 
         tr.addEventListener("click", () => toggleExpand(r.symbol));
 
+        const copyBtn = tr.querySelector(".copy-qty-btn");
+        copyBtn.dataset.rawQty = r.copyQty;
+        copyBtn.dataset.label = r.qtyLabel;
+        copyBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const raw = copyBtn.dataset.rawQty;
+          if (!raw) return;
+          copyToClipboard(raw, copyBtn, copyBtn.dataset.label || raw);
+        });
+
         return {
           tr,
           verdictEl: tr.querySelector(".verdict-badge"),
-          lossEl: tr.querySelector(".loss-cell"),
+          copyBtn,
+          entryLossEl: tr.querySelector(".entry-loss-val"),
+          rtLossEl: tr.querySelector(".rt-loss-val"),
           ptCostEl: tr.querySelector(".ptcost-cell"),
-          vwapEl: tr.querySelector(".vwap-cell"),
+          turnoverDragEl: tr.querySelector(".turnover-drag-val"),
+          entryDragEl: tr.querySelector(".entry-drag-val"),
           slipEl: tr.querySelector(".slip-cell"),
-          priceEl: tr.querySelector(".price-cell"),
+          midPriceEl: tr.querySelector(".mid-price-val"),
+          deltaMidEl: tr.querySelector(".delta-mid-val"),
           levelsEl: tr.querySelector(".levels-cell"),
           depthEl: tr.querySelector(".depth-cell"),
           volEl: tr.querySelector(".vol-cell"),
@@ -1333,7 +1635,7 @@
         detailRowDom.innerHTML = `
         <td colspan="11" class="p-3 sm:p-4">
           <div class="max-w-5xl mx-auto space-y-3 font-mono text-xs">
-            <div class="flex items-center justify-between border-b border-terminal-border pb-2 text-[11px]">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-terminal-border pb-2 text-[11px] gap-2">
               <div>
                 <span class="text-white font-bold">Execution Breakdown (4 Legs):</span>
                 <span class="text-terminal-secondary ml-2">${r.symbol}</span>
@@ -1341,8 +1643,12 @@
                 <span class="text-terminal-muted ml-1">(RH: ${r.rhLeverage} • Core: ${r.coreLeverage})</span>
                 <span class="text-terminal-muted ml-1">Size: ${formatMoney(state.targetSizeUsd)}</span>
               </div>
-              <div class="text-terminal-muted">
-                Basis Spread: Entry <span class="text-white font-bold">${formatBps(r.entryDragBps, true)}</span> • Exit <span class="text-white font-bold">${formatBps(r.exitDragBps, true)}</span>
+              <div class="text-terminal-muted flex flex-wrap items-center gap-2">
+                <span>Basis: <span class="${Math.abs(r.deltaMidBps) > 6 ? "text-terminal-amber font-bold" : "text-white"}">${formatDeltaMid(r.deltaMidUsd, r.deltaMidBps)}</span></span>
+                <span>•</span>
+                <span>Entry: <span class="text-terminal-emerald font-bold">${formatMoney(r.entryLossUsd)}</span> (${formatBps(r.entryDragBps, true)})</span>
+                <span>•</span>
+                <span>Exit: <span class="text-terminal-secondary font-bold">${formatMoney(r.exitLossUsd)}</span> (${formatBps(r.exitDragBps, true)})</span>
               </div>
             </div>
 
@@ -1359,7 +1665,7 @@
                   <div class="flex justify-between"><span class="text-terminal-muted">VWAP Fill:</span> <span class="text-white font-bold">${formatPrice(l.entryRh.avgPrice)}</span></div>
                   <div class="flex justify-between"><span class="text-terminal-muted">Slippage:</span> <span class="text-terminal-emerald">${formatBps(l.entryRh.slippageBps, true)}</span></div>
                   <div class="flex justify-between"><span class="text-terminal-muted">Levels Swept:</span> <span>${l.entryRh.levelsSwept}</span></div>
-                  <div class="flex justify-between"><span class="text-terminal-muted">Asks Liquidity:</span> <span>${formatMoney(l.entryRh.totalAvailableUsd)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Asks Depth:</span> <span>${formatMoney(l.entryRh.totalAvailableUsd)}</span></div>
                 </div>
               </div>
 
@@ -1374,7 +1680,7 @@
                   <div class="flex justify-between"><span class="text-terminal-muted">VWAP Fill:</span> <span class="text-white font-bold">${formatPrice(l.entryCore.avgPrice)}</span></div>
                   <div class="flex justify-between"><span class="text-terminal-muted">Slippage:</span> <span class="text-terminal-coral">${formatBps(l.entryCore.slippageBps, true)}</span></div>
                   <div class="flex justify-between"><span class="text-terminal-muted">Levels Swept:</span> <span>${l.entryCore.levelsSwept}</span></div>
-                  <div class="flex justify-between"><span class="text-terminal-muted">Bids Liquidity:</span> <span>${formatMoney(l.entryCore.totalAvailableUsd)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Bids Depth:</span> <span>${formatMoney(l.entryCore.totalAvailableUsd)}</span></div>
                 </div>
               </div>
 
@@ -1389,7 +1695,7 @@
                   <div class="flex justify-between"><span class="text-terminal-muted">VWAP Fill:</span> <span class="text-white font-bold">${formatPrice(l.exitRh.avgPrice)}</span></div>
                   <div class="flex justify-between"><span class="text-terminal-muted">Slippage:</span> <span>${formatBps(l.exitRh.slippageBps, true)}</span></div>
                   <div class="flex justify-between"><span class="text-terminal-muted">Levels Swept:</span> <span>${l.exitRh.levelsSwept}</span></div>
-                  <div class="flex justify-between"><span class="text-terminal-muted">Bids Liquidity:</span> <span>${formatMoney(l.exitRh.totalAvailableUsd)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Bids Depth:</span> <span>${formatMoney(l.exitRh.totalAvailableUsd)}</span></div>
                 </div>
               </div>
 
@@ -1404,15 +1710,16 @@
                   <div class="flex justify-between"><span class="text-terminal-muted">VWAP Fill:</span> <span class="text-white font-bold">${formatPrice(l.exitCore.avgPrice)}</span></div>
                   <div class="flex justify-between"><span class="text-terminal-muted">Slippage:</span> <span>${formatBps(l.exitCore.slippageBps, true)}</span></div>
                   <div class="flex justify-between"><span class="text-terminal-muted">Levels Swept:</span> <span>${l.exitCore.levelsSwept}</span></div>
-                  <div class="flex justify-between"><span class="text-terminal-muted">Asks Liquidity:</span> <span>${formatMoney(l.exitCore.totalAvailableUsd)}</span></div>
+                  <div class="flex justify-between"><span class="text-terminal-muted">Asks Depth:</span> <span>${formatMoney(l.exitCore.totalAvailableUsd)}</span></div>
                 </div>
               </div>
             </div>
 
             <!-- Summary Footnote -->
             <div class="p-2 bg-terminal-surface rounded border border-terminal-borderSubtle text-[10px] text-terminal-muted flex flex-wrap justify-between gap-2">
-              <span>Points Earned per Round: <strong class="text-terminal-accent">${r.pointsEarned.toFixed(2)} pts</strong> (5.0x rate)</span>
-              <span>Net Loss: <strong class="text-white">${formatMoney(r.costUsd)}</strong></span>
+              <span>Size: <strong class="text-white">${r.copyQty} (${r.qtyLabel})</strong> @ Mid ${formatPrice(r.midPrice)}</span>
+              <span>Instant Entry Cost: <strong class="${r.entryLossUsd <= 0 ? "text-terminal-emerald" : "text-white"}">${formatMoney(r.entryLossUsd)}</strong></span>
+              <span>Turnover Drag: <strong class="text-terminal-primary">${formatBps(r.vwapTotalDragBps)}</strong> (RT Loss: ${formatMoney(r.costUsd)})</span>
               <span>Point Unit Cost: <strong class="${r.pointCostUsd < 1.5 ? "text-terminal-emerald" : "text-terminal-amber"}">$${r.pointCostUsd.toFixed(2)} / pt</strong></span>
             </div>
           </div>
@@ -1562,11 +1869,61 @@
           });
         });
 
-        // 4. Search Filter
-        document.getElementById("searchBox").addEventListener("input", (e) => {
-          state.searchQuery = e.target.value.trim();
+        // 4. Search Filter with 150ms Debounce and Clear Button
+        const searchBox = document.getElementById("searchBox");
+        const clearSearchBtn = document.getElementById("clearSearchBtn");
+        let searchDebounceTimer = null;
+
+        searchBox.addEventListener("input", (e) => {
+          const val = e.target.value;
+          if (val.length > 0) {
+            clearSearchBtn.classList.remove("hidden");
+          } else {
+            clearSearchBtn.classList.add("hidden");
+          }
+          clearTimeout(searchDebounceTimer);
+          searchDebounceTimer = setTimeout(() => {
+            state.searchQuery = val.trim();
+            rerank();
+          }, 150);
+        });
+
+        clearSearchBtn.addEventListener("click", () => {
+          searchBox.value = "";
+          state.searchQuery = "";
+          clearSearchBtn.classList.add("hidden");
+          searchBox.focus();
           rerank();
         });
+
+        // Global hotkey: '/' to search, 'Escape' to clear and blur
+        document.addEventListener("keydown", (e) => {
+          if (
+            e.key === "/" &&
+            document.activeElement !== searchBox &&
+            !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)
+          ) {
+            e.preventDefault();
+            searchBox.focus();
+            searchBox.select();
+          } else if (e.key === "Escape" && document.activeElement === searchBox) {
+            searchBox.value = "";
+            state.searchQuery = "";
+            clearSearchBtn.classList.add("hidden");
+            searchBox.blur();
+            rerank();
+          }
+        });
+
+        // Top Card Copy Button
+        const topQtyBtn = document.getElementById("topCopyQtyBtn");
+        if (topQtyBtn) {
+          topQtyBtn.addEventListener("click", () => {
+            const raw = topQtyBtn.dataset.rawQty;
+            if (!raw) return;
+            copyToClipboard(raw, topQtyBtn, topQtyBtn.dataset.label || raw);
+          });
+        }
 
         // 5. Equities Toggle
         const eqBtn = document.getElementById("equitiesToggle");
