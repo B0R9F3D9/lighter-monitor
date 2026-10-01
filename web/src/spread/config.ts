@@ -1,3 +1,5 @@
+import { FONT_STORAGE_KEY } from "../shared";
+
 export const CONFIG = {
   CORE_API_URL: "https://mainnet.zklighter.elliot.ai/api/v1",
   RH_API_URL: "https://api.rh.lighter.xyz/api/v1",
@@ -46,7 +48,7 @@ export const NON_EQUITY_SYMBOLS: ReadonlySet<string> = new Set([
 ]);
 
 export const STORAGE_KEYS = {
-  FONT: "terminal_font",
+  FONT: FONT_STORAGE_KEY,
   SIZE: "terminal_size",
   SIZE_MODE: "terminal_size_mode",
   MAX_CAP: "terminal_max_cap",

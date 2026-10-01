@@ -1,9 +1,11 @@
 // eslint-disable-next-line import/no-unassigned-import
 import "../style.css";
-import { initVersionChecker } from "../shared/version_checker";
+import { initVersionChecker, initFontSelector } from "../shared";
 
 function initHub(): void {
   initVersionChecker();
+  initFontSelector();
+
   // Listen for keyboard navigation hotkeys [1] -> /spread, [2] -> /analytics
   window.addEventListener("keydown", (e: KeyboardEvent) => {
     // If typing in an input, don't hijack
@@ -23,19 +25,6 @@ function initHub(): void {
       window.location.href = "/analytics";
     }
   });
-
-  // Apply saved font preference if set
-  try {
-    const f = localStorage.getItem("terminal_font");
-    if (f) {
-      const stack =
-        f === "JetBrains Mono"
-          ? '"JetBrains Mono", monospace'
-          : `"${f}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      document.documentElement.style.setProperty("--font-selected", stack);
-      document.documentElement.style.setProperty("--font-sans", stack);
-    }
-  } catch {}
 }
 
 if (document.readyState === "loading") {

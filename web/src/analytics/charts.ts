@@ -12,6 +12,7 @@ import {
 } from "lightweight-charts";
 import type { BasisPoint } from "./types";
 import { extrapolateTimeRange } from "./math";
+import { getSavedFont, getFontStack } from "../shared";
 
 export interface AnalyticsChartCallbacks {
   onCrosshairMove?: (point: BasisPoint | null) => void;
@@ -47,7 +48,7 @@ export function initAnalyticsCharts(
     layout: {
       background: { type: ColorType.Solid, color: "#0B0C0E" },
       textColor: "#8B949E",
-      fontFamily: "'JetBrains Mono', monospace",
+      fontFamily: getFontStack(getSavedFont()),
       fontSize: 11,
     },
     grid: {

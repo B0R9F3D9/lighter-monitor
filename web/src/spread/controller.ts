@@ -3,6 +3,7 @@ import { CONFIG, NON_EQUITY_SYMBOLS, STORAGE_KEYS } from "./config";
 import { getMetrics } from "./metrics";
 import { getOrCreateBook, updateBookFromWs, type WsOrderBookData } from "./orderbook";
 import { WebSocketManager } from "./ws";
+import { initFontSelector } from "../shared";
 import {
   createRowElement,
   applyRowMetricsToDom,
@@ -610,19 +611,6 @@ export class TerminalController {
     }, 200);
   }
 
-  private applyFont(fontName: string): void {
-    const validFonts = ["Inter", "Roboto", "Montserrat", "Poppins", "Open Sans", "JetBrains Mono"];
-    const font = validFonts.includes(fontName) ? fontName : "Inter";
-    const fontStack =
-      font === "JetBrains Mono"
-        ? `"JetBrains Mono", monospace`
-        : `"${font}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-
-    document.documentElement.style.setProperty("--font-selected", fontStack);
-    document.documentElement.style.setProperty("--font-sans", fontStack);
-    document.body.style.fontFamily = fontStack;
-  }
-
   private updateSizeControls(
     val: number | "auto" | "auto-min-burn" | "auto-max-vol",
     cap?: number,
@@ -844,23 +832,7 @@ export class TerminalController {
 
   private setupEventListeners(): void {
     // 0. Font selector
-    const fontSelector = document.getElementById("fontSelector") as HTMLSelectElement | null;
-    let savedFont = "Inter";
-    try {
-      savedFont = localStorage.getItem(STORAGE_KEYS.FONT) || "Inter";
-    } catch {}
-
-    if (fontSelector) {
-      fontSelector.value = savedFont;
-      this.applyFont(savedFont);
-      fontSelector.addEventListener("change", (e) => {
-        const selected = (e.target as HTMLSelectElement).value;
-        this.applyFont(selected);
-        try {
-          localStorage.setItem(STORAGE_KEYS.FONT, selected);
-        } catch {}
-      });
-    }
+    initFontSelector();
 
     // 1. Auto-sort toggle button & manual rerank button
     const autoSortBtn = document.getElementById("autoSortToggle");

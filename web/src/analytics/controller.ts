@@ -23,6 +23,7 @@ import type {
 } from "./types";
 import { WebSocketManager } from "../ws";
 import { CONFIG, CRYPTO_SYMBOLS } from "../config";
+import { initFontSelector } from "../shared";
 
 export type SortField = "volume" | "oi" | "change" | "price" | "symbol";
 export type SortDirection = "asc" | "desc";
@@ -899,6 +900,16 @@ export class AnalyticsController {
   }
 
   private setupEventListeners(): void {
+    // Font selector
+    initFontSelector({
+      onFontChange: (_font, stack) => {
+        if (this.chartContext) {
+          this.chartContext.priceChart.applyOptions({ layout: { fontFamily: stack } });
+          this.chartContext.basisChart.applyOptions({ layout: { fontFamily: stack } });
+        }
+      },
+    });
+
     // Ticker select button
     document.getElementById("tickerSelectBtn")?.addEventListener("click", () => {
       this.openTickerModal();

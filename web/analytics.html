@@ -73,6 +73,33 @@
               >Analytics</span
             >
           </div>
+
+          <!-- Font Selector -->
+          <div class="flex items-center gap-2.5 text-xs font-mono">
+            <div
+              class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
+            >
+              <label for="fontSelector" class="text-terminal-muted cursor-pointer select-none"
+                >Font:</label
+              >
+              <select
+                id="fontSelector"
+                class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
+                title="Select Interface Font"
+              >
+                <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
+                <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
+                <option value="Montserrat" class="bg-terminal-surface text-white">
+                  Montserrat
+                </option>
+                <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
+                <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
+                <option value="JetBrains Mono" class="bg-terminal-surface text-white">
+                  JetBrains Mono
+                </option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
     </header>
