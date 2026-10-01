@@ -90,6 +90,47 @@ describe("Worker HTTP Routing", () => {
     expect(body).toBe("Not Found");
   });
 
+  it("serves app version on GET /api/version", async () => {
+    const req = new Request("https://worker.dev/api/version", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("application/json");
+    expect(res.headers.get("Cache-Control")).toContain("no-cache");
+    expect(res.headers.get("ETag")).toBeDefined();
+
+    const data = (await res.json()) as {
+      version: string;
+      spreadHash: string;
+      analyticsHash: string;
+    };
+    expect(typeof data.version).toBe("string");
+    expect(data.version.length).toBeGreaterThan(0);
+    expect(typeof data.spreadHash).toBe("string");
+  });
+
+  it("handles 304 Not Modified on /api/version when ETag matches", async () => {
+    const req1 = new Request("https://worker.dev/api/version", { method: "GET" });
+    const res1 = await worker.fetch(req1, mockEnv, mockCtx);
+    const etag = res1.headers.get("ETag");
+    expect(etag).not.toBeNull();
+
+    const req2 = new Request("https://worker.dev/api/version", {
+      method: "GET",
+      headers: { "If-None-Match": etag! },
+    });
+    const res2 = await worker.fetch(req2, mockEnv, mockCtx);
+    expect(res2.status).toBe(304);
+  });
+
+  it("serves app version on HEAD /api/version without body", async () => {
+    const req = new Request("https://worker.dev/api/version", { method: "HEAD" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("ETag")).toBeDefined();
+    const text = await res.text();
+    expect(text).toBe("");
+  });
+
   it("returns 404 on POST to non-root paths", async () => {
     const req = new Request("https://worker.dev/spread", {
       method: "POST",

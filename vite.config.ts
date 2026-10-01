@@ -6,6 +6,9 @@ export default defineConfig({
   root: "web",
   base: "/",
   plugins: [tailwindcss()],
+  define: {
+    APP_VERSION: JSON.stringify("dev"),
+  },
   build: {
     outDir: path.resolve(import.meta.dirname, "dist"),
     emptyOutDir: true,

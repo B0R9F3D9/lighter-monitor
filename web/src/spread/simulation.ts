@@ -68,9 +68,9 @@ export interface FastSimResult {
 }
 
 /**
- * Ультра-быстрая симуляция для оптимизатора:
- * прерывает обход стакана мгновенно, как только набран объем,
- * не аллоцирует объекты и не обходит лишние 35+ уровней.
+ * Ultra-fast simulation for optimizer:
+ * terminates book iteration immediately once target volume is accumulated,
+ * avoids object allocations and skips unnecessary 35+ depth levels.
  */
 export function fastSimFill(levels: OrderBookLevel[], targetBaseQty: number): FastSimResult {
   if (!levels || levels.length === 0 || targetBaseQty <= 0) {
@@ -88,7 +88,7 @@ export function fastSimFill(levels: OrderBookLevel[], targetBaseQty: number): Fa
     if (lvl.totalBase >= remaining) {
       totalCost += remaining * lvl.price;
       remaining = 0;
-      break; // Мгновенный выход, не идем по остальным уровням!
+      break; // Early exit, skip remaining levels!
     } else {
       totalCost += lvl.totalUsd;
       remaining -= lvl.totalBase;

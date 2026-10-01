@@ -302,7 +302,7 @@ export function createDetailRowElement(
           </div>
         </div>
 
-        <!-- 4 Leg Cards (4 вертикальные блока) -->
+        <!-- 4 Leg Cards (4 vertical blocks) -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 min-w-0">
           <!-- Leg 1: RH LONG -->
           <div class="bg-terminal-surface border border-terminal-emerald/30 p-2 sm:p-2.5 rounded space-y-1 min-w-0">

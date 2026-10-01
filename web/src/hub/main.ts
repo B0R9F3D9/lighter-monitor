@@ -1,7 +1,9 @@
 // eslint-disable-next-line import/no-unassigned-import
 import "../style.css";
+import { initVersionChecker } from "../shared/version_checker";
 
 function initHub(): void {
+  initVersionChecker();
   // Listen for keyboard navigation hotkeys [1] -> /spread, [2] -> /analytics
   window.addEventListener("keydown", (e: KeyboardEvent) => {
     // If typing in an input, don't hijack

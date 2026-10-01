@@ -4,6 +4,7 @@ import { getBot } from "./bot/bot";
 import { runCronMonitor } from "./cron/monitor";
 import { executionContextStorage } from "./utils/background";
 import {
+  APP_VERSION,
   HUB_HTML,
   HUB_HTML_HASH,
   SPREAD_HTML,
@@ -17,7 +18,7 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // Health check эндпоинт
+    // Health check endpoint
     if (url.pathname === "/health") {
       return new Response(JSON.stringify({ status: "ok", timestamp: Date.now() }), {
         headers: { "Content-Type": "application/json" },
@@ -25,6 +26,34 @@ export default {
     }
 
     const isGetOrHead = request.method === "GET" || request.method === "HEAD";
+
+    // Version check endpoint for automatic client updates
+    if (isGetOrHead && (url.pathname === "/api/version" || url.pathname === "/api/version/")) {
+      const clientEtag = request.headers.get("if-none-match");
+      if (clientEtag && (clientEtag === APP_VERSION || clientEtag === `"${APP_VERSION}"`)) {
+        return new Response(null, { status: 304 });
+      }
+
+      const body =
+        request.method === "HEAD"
+          ? null
+          : JSON.stringify({
+              version: APP_VERSION,
+              spreadHash: SPREAD_HTML_HASH,
+              analyticsHash: ANALYTICS_HTML_HASH,
+              hubHash: HUB_HTML_HASH,
+              timestamp: Date.now(),
+            });
+
+      return new Response(body, {
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+          ETag: `"${APP_VERSION}"`,
+        },
+      });
+    }
 
     // Static assets for Spread & Analytics Terminals (CSS, JS, Favicons, Logos)
     const filename = url.pathname.split("/").pop() || "";
@@ -70,7 +99,7 @@ export default {
       return new Response("Asset Not Found", { status: 404 });
     }
 
-    // Terminal Workspace Hub Router (только GET/HEAD; POST на "/" передается в Telegram webhook)
+    // Terminal Workspace Hub Router (GET/HEAD only; POST to "/" routes to Telegram webhook)
     if (isGetOrHead && (url.pathname === "/" || url.pathname === "")) {
       const clientEtag = request.headers.get("if-none-match");
       if (clientEtag && (clientEtag === HUB_HTML_HASH || clientEtag === `"${HUB_HTML_HASH}"`)) {
@@ -86,7 +115,7 @@ export default {
       });
     }
 
-    // Spread & Arbitrage Terminal (только GET/HEAD)
+    // Spread & Arbitrage Terminal (GET/HEAD only)
     if (isGetOrHead && (url.pathname === "/spread" || url.pathname === "/spread/")) {
       const clientEtag = request.headers.get("if-none-match");
       if (
@@ -105,7 +134,7 @@ export default {
       });
     }
 
-    // Spread & Basis Analytics Terminal (только GET/HEAD)
+    // Spread & Basis Analytics Terminal (GET/HEAD only)
     if (isGetOrHead && (url.pathname === "/analytics" || url.pathname === "/analytics/")) {
       const clientEtag = request.headers.get("if-none-match");
       if (
@@ -124,7 +153,7 @@ export default {
       });
     }
 
-    // Регистрация команд в Telegram Bot API (setMyCommands)
+    // Telegram Bot API command registration (setMyCommands)
     if (url.pathname === "/setup-commands") {
       if (!env.TELEGRAM_BOT_TOKEN) {
         return new Response(

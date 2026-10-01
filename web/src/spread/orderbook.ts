@@ -64,7 +64,7 @@ export function updateBookFromWs(
     }
   }
 
-  // Сбрасываем кэш ТОЛЬКО если были изменения!
+  // Invalidate cache ONLY when changes occurred!
   if (asksChanged) book.cachedAsks = null;
   if (bidsChanged) book.cachedBids = null;
 
@@ -99,8 +99,8 @@ export function getSortedLevels(
   const keys = Array.from(map.keys());
   keys.sort(isAsk ? ASC_COMP : DESC_COMP);
 
-  // 1. Прунинг мертвых/устаревших уровней: защищаем Map от бесконечного разрастания
-  // Сохраняем безопасную глубину (80 уровней = 2x от 40), чтобы гарантированно не отбросить нужные уровни
+  // 1. Prune dead/stale levels: prevent Map from unbounded memory growth
+  // Keep safe depth (80 levels = 2x of 40) to guarantee required levels are retained
   const maxRetain = Math.max(limit * 2, CONFIG.ORDERBOOK_PRUNE_LIMIT ?? 80);
   if (keys.length > maxRetain) {
     for (let i = maxRetain; i < keys.length; i++) {
@@ -108,7 +108,7 @@ export function getSortedLevels(
     }
   }
 
-  // 2. Отбираем топ-уровни для симуляции и расчета
+  // 2. Extract top levels for simulation and calculation
   const take = Math.min(keys.length, limit);
   const arr: OrderBookLevel[] = [];
   for (let i = 0; i < take; i++) {

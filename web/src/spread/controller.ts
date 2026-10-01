@@ -307,7 +307,7 @@ export class TerminalController {
         continue;
       }
 
-      // ЕСЛИ У НАС ЕСТЬ СВЕЖИЕ МЕТРИКИ И РЫНОК НЕ БЫЛ ПОМЕЧЕН КАК DIRTY — БЕРЕМ ГОТОВЫЕ!
+      // If we have fresh metrics and market was not marked dirty — use cached!
       let row = m.latestMetrics;
       if (!row || this.dirtySymbols.has(m.symbol)) {
         row = getMetrics(
@@ -357,7 +357,7 @@ export class TerminalController {
 
     const newOrder = rows.map((r) => r.symbol);
 
-    // Проверяем: изменился ли порядок относительно прошлого реранка?
+    // Check: did the order change relative to previous rerank?
     let isOrderUnchanged = this.state.displayedSymbolsOrder.length === newOrder.length;
 
     if (isOrderUnchanged) {
@@ -410,7 +410,7 @@ export class TerminalController {
       return;
     }
 
-    // ЕСЛИ ПОРЯДОК НЕ ИЗМЕНИЛСЯ — ПРОПУСКАЕМ ДОМ-МУТАЦИИ ПОЛНОСТЬЮ!
+    // If order has not changed — skip DOM mutations entirely!
     if (isOrderUnchanged && this.hasInitialRenderHappened) {
       this.updateCellsInPlace(true);
       this.state.rerankTimerRemaining = CONFIG.RERANK_INTERVAL_SEC;
@@ -418,7 +418,7 @@ export class TerminalController {
       return;
     }
 
-    // 3. Если порядок изменился — обновляем через DocumentFragment в 1 операцию:
+    // 3. If order changed — update via DocumentFragment in a single batch operation:
     const fragment = document.createDocumentFragment();
     for (const r of rows) {
       let cache = this.rowDomCache.get(r.symbol);
