@@ -243,15 +243,15 @@
         <!-- Financial Metrics Grid -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs">
           <div class="bg-terminal-bg border border-terminal-borderSubtle px-3 py-2 rounded">
-            <div class="text-[10px] text-terminal-muted uppercase">Instant Entry Loss</div>
+            <div class="text-[10px] text-terminal-muted uppercase">Round-Trip Loss</div>
             <div
-              id="topEntryLossUsd"
+              id="topLossUsd"
               class="text-base font-bold text-terminal-emerald tabular-nums"
             >
               $--
             </div>
-            <div id="topLossUsd" class="text-[10px] text-terminal-muted tabular-nums">
-              RT Loss: $--
+            <div id="topEntryLossUsd" class="text-[10px] text-terminal-muted tabular-nums">
+              Entry: $--
             </div>
           </div>
 
@@ -416,13 +416,13 @@
             <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent"></span>
           </button>
 
-          <!-- Ready Only Toggle -->
+          <!-- Ready Only Toggle (Active by default) -->
           <button
             id="readyToggle"
-            class="px-2.5 py-1 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-xs font-mono font-medium flex items-center gap-1.5 transition"
+            class="px-2.5 py-1 rounded border border-terminal-emerald/40 bg-terminal-emeraldMuted text-terminal-emerald text-xs font-mono font-medium flex items-center gap-1.5 transition"
           >
             <span>[READY] Only</span>
-            <span class="w-1.5 h-1.5 rounded-full bg-terminal-border" id="readyDot"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-terminal-emerald" id="readyDot"></span>
           </button>
         </div>
       </div>
@@ -453,10 +453,10 @@
                 </th>
                 <th
                   class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
-                  data-sort="entryLossUsd"
+                  data-sort="costUsd"
                   style="min-width: 120px"
                 >
-                  Entry Loss ($) <span class="sort-indicator text-terminal-accent">▲</span>
+                  RT Loss ($) <span class="sort-indicator text-terminal-accent">▲</span>
                 </th>
                 <th
                   class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
@@ -474,24 +474,10 @@
                 </th>
                 <th
                   class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
-                  data-sort="slippageBps"
-                  style="min-width: 90px"
-                >
-                  Slippage <span class="sort-indicator"></span>
-                </th>
-                <th
-                  class="py-2.5 px-2.5 font-semibold text-right cursor-pointer hover:text-white"
                   data-sort="midPrice"
                   style="min-width: 95px"
                 >
                   Mid Price <span class="sort-indicator"></span>
-                </th>
-                <th
-                  class="py-2.5 px-2.5 font-semibold text-center cursor-pointer hover:text-white"
-                  data-sort="maxLevelsSwept"
-                  style="min-width: 75px"
-                >
-                  Swept Lvl <span class="sort-indicator"></span>
                 </th>
                 <th
                   class="py-2.5 px-3 font-semibold text-right cursor-pointer hover:text-white"
@@ -515,7 +501,7 @@
             <tbody id="tableBody" class="divide-y divide-terminal-borderSubtle">
               <!-- Initialized with loading skeleton -->
               <tr id="emptyRow">
-                <td colspan="11" class="py-12 text-center text-terminal-muted">
+                <td colspan="9" class="py-12 text-center text-terminal-muted">
                   <div class="inline-flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-terminal-accent animate-ping"></span>
                     <span>Connecting to Lighter Core & Robinhood WebSocket Streams...</span>
@@ -594,12 +580,12 @@
         // Filter & Trading Config
         targetSizeUsd: 10000,
         filterEquities: true,
-        filterReadyOnly: false,
+        filterReadyOnly: true,
         minLeverageFilter: 0,
         searchQuery: "",
 
         // Sorting Lock & Hysteresis State
-        sortColumn: "entryLossUsd",
+        sortColumn: "costUsd",
         sortDirection: "asc",
         isAutoSortEnabled: true,
         displayedSymbolsOrder: [], // FIXED row order, does not shift on ticks!
@@ -906,6 +892,10 @@
           status = "SLIPPAGE";
         }
 
+        // If order books cannot fill the target size, do not extrapolate fake metrics
+        const effectiveCostUsd = allFilled ? costUsd : 999999;
+        const effectivePointCostUsd = allFilled ? pointCostUsd : 999999;
+
         return {
           symbol: m.symbol,
           leverage: m.leverage,
@@ -920,6 +910,7 @@
           baseQty,
           copyQty,
           qtyLabel,
+          allFilled,
           totalVolume24h: m.totalVolume24h,
           rhVolume24h: m.rhVolume24h,
           totalOiUsd: m.totalOiUsd,
@@ -930,8 +921,9 @@
           entryLossUsd,
           exitLossUsd,
           vwapTotalDragBps,
-          costUsd,
-          pointCostUsd,
+          costUsd: effectiveCostUsd,
+          rawCostUsd: costUsd,
+          pointCostUsd: effectivePointCostUsd,
           pointsEarned,
           maxLevelsSwept,
           minDepthUsd,
@@ -1264,49 +1256,58 @@
           }
         }
 
-        // 3. Entry Loss ($) & Round-Trip Loss
-        const sign = row.entryLossUsd > 0 ? "+" : "";
-        cache.entryLossEl.textContent = sign + formatMoney(row.entryLossUsd);
-        cache.rtLossEl.textContent = `RT: ${formatMoney(row.costUsd)}`;
-        if (row.entryLossUsd <= 0) {
-          cache.entryLossEl.className =
-            "entry-loss-val font-bold text-terminal-emerald tabular-nums text-sm";
-        } else if (row.entryLossUsd <= 3.0) {
-          cache.entryLossEl.className =
-            "entry-loss-val font-bold text-terminal-emerald tabular-nums text-sm";
-        } else if (row.entryLossUsd <= 7.0) {
-          cache.entryLossEl.className =
-            "entry-loss-val font-medium text-terminal-primary tabular-nums text-sm";
+        // 3. Round-Trip Loss ($) [Primary] & Entry Loss ($) [Subtext]
+        if (!row.allFilled) {
+          cache.rtLossEl.textContent = "N/A";
+          cache.rtLossEl.className = "rt-loss-val font-bold text-terminal-muted tabular-nums text-sm";
+          cache.entryLossEl.textContent = `< ${formatMoney(state.targetSizeUsd)} depth`;
+          cache.entryLossEl.className = "entry-loss-val text-[10px] text-terminal-coral tabular-nums";
         } else {
-          cache.entryLossEl.className =
-            "entry-loss-val font-medium text-terminal-secondary tabular-nums text-sm";
+          cache.rtLossEl.textContent = formatMoney(row.costUsd);
+          if (row.costUsd <= 3.0) {
+            cache.rtLossEl.className =
+              "rt-loss-val font-bold text-terminal-emerald tabular-nums text-sm";
+          } else if (row.costUsd <= 7.0) {
+            cache.rtLossEl.className =
+              "rt-loss-val font-bold text-terminal-primary tabular-nums text-sm";
+          } else {
+            cache.rtLossEl.className =
+              "rt-loss-val font-bold text-terminal-secondary tabular-nums text-sm";
+          }
+          const sign = row.entryLossUsd > 0 ? "+" : "";
+          cache.entryLossEl.textContent = `Entry: ${sign}${formatMoney(row.entryLossUsd)}`;
+          cache.entryLossEl.className = "entry-loss-val text-[10px] text-terminal-muted tabular-nums";
         }
 
         // 4. Point Cost ($/pt)
-        cache.ptCostEl.textContent = `$${row.pointCostUsd.toFixed(2)} / pt`;
-        if (row.pointCostUsd < 1.5) {
+        if (!row.allFilled) {
+          cache.ptCostEl.textContent = "N/A";
           cache.ptCostEl.className =
-            "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums";
-        } else if (row.pointCostUsd <= 3.0) {
-          cache.ptCostEl.className =
-            "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums";
+            "py-2 px-3 text-right font-medium text-terminal-muted tabular-nums";
         } else {
-          cache.ptCostEl.className =
-            "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums";
+          cache.ptCostEl.textContent = `$${row.pointCostUsd.toFixed(2)} / pt`;
+          if (row.pointCostUsd < 1.5) {
+            cache.ptCostEl.className =
+              "py-2 px-3 text-right font-bold text-terminal-emerald tabular-nums";
+          } else if (row.pointCostUsd <= 3.0) {
+            cache.ptCostEl.className =
+              "py-2 px-3 text-right font-medium text-terminal-amber tabular-nums";
+          } else {
+            cache.ptCostEl.className =
+              "py-2 px-3 text-right font-medium text-terminal-coral tabular-nums";
+          }
         }
 
         // 5. Turnover Drag & Entry Drag in bps
-        cache.turnoverDragEl.textContent = formatBps(row.vwapTotalDragBps);
-        cache.entryDragEl.textContent = `Entry: ${formatBps(row.entryDragBps, true)}`;
+        if (!row.allFilled) {
+          cache.turnoverDragEl.textContent = "N/A";
+          cache.entryDragEl.textContent = "Thin Book";
+        } else {
+          cache.turnoverDragEl.textContent = formatBps(row.vwapTotalDragBps);
+          cache.entryDragEl.textContent = `Entry: ${formatBps(row.entryDragBps, true)}`;
+        }
 
-        // 6. Slippage
-        cache.slipEl.textContent = formatBps(row.slippageBps, true);
-        cache.slipEl.className =
-          row.slippageBps > 8
-            ? "py-2 px-2.5 text-right text-terminal-amber tabular-nums font-semibold"
-            : "py-2 px-2.5 text-right text-terminal-secondary tabular-nums";
-
-        // 7. Mid Price & Inter-Exchange Basis (Delta Mid)
+        // 6. Mid Price & Inter-Exchange Basis (Delta Mid)
         cache.midPriceEl.textContent = formatPrice(row.midPrice);
         cache.deltaMidEl.textContent = formatDeltaMid(row.deltaMidUsd, row.deltaMidBps);
         if (Math.abs(row.deltaMidBps) > 6.0) {
@@ -1320,8 +1321,7 @@
             "delta-mid-val text-[10px] font-mono tabular-nums text-terminal-muted";
         }
 
-        // 8. Swept Levels & Depth
-        cache.levelsEl.textContent = `${row.maxLevelsSwept} lvls`;
+        // 7. Depth
         cache.depthEl.textContent = formatMoney(row.minDepthUsd);
       }
 
@@ -1353,17 +1353,22 @@
         }
 
         // Update executive summary card with current leader
+        // Must be a legitimate [READY] market with all legs filled, positive roundtrip cost, and normal spread
         let topRow = null;
         for (const symbol of state.displayedSymbolsOrder) {
           const m = state.markets.get(symbol);
-          if (m?.latestMetrics && m.latestMetrics.status === "READY") {
-            topRow = m.latestMetrics;
+          const r = m?.latestMetrics;
+          if (
+            r &&
+            r.status === "READY" &&
+            r.allFilled &&
+            r.costUsd > 0 &&
+            r.costUsd < 1000 &&
+            r.entryDragBps > -20.0
+          ) {
+            topRow = r;
             break;
           }
-        }
-        if (!topRow && state.displayedSymbolsOrder.length > 0) {
-          const m0 = state.markets.get(state.displayedSymbolsOrder[0]);
-          if (m0?.latestMetrics) topRow = m0.latestMetrics;
         }
         if (topRow) {
           updateExecutiveSummary(topRow);
@@ -1384,9 +1389,9 @@
           }
         }
 
+        document.getElementById("topLossUsd").textContent = formatMoney(r.costUsd);
         const sign = r.entryLossUsd > 0 ? "+" : "";
-        document.getElementById("topEntryLossUsd").textContent = sign + formatMoney(r.entryLossUsd);
-        document.getElementById("topLossUsd").textContent = `RT Loss: ${formatMoney(r.costUsd)}`;
+        document.getElementById("topEntryLossUsd").textContent = `Entry: ${sign}${formatMoney(r.entryLossUsd)}`;
         document.getElementById("topPointCost").textContent = `$${r.pointCostUsd.toFixed(2)} / pt`;
         document.getElementById("topVwapDrag").textContent = formatBps(r.vwapTotalDragBps);
         document.getElementById("topDeltaMid").textContent = formatDeltaMid(
@@ -1442,6 +1447,10 @@
             const rank = { READY: 1, SLIPPAGE: 2, "LOW LIQ": 3 };
             return ((rank[a.status] || 9) - (rank[b.status] || 9)) * dir;
           }
+          // Push non-ready markets (SLIPPAGE, LOW LIQ) to the bottom below READY markets
+          const rankA = a.status === "READY" ? 0 : (a.status === "SLIPPAGE" ? 1 : 2);
+          const rankB = b.status === "READY" ? 0 : (b.status === "SLIPPAGE" ? 1 : 2);
+          if (rankA !== rankB) return rankA - rankB;
           return ((a[state.sortColumn] || 0) - (b[state.sortColumn] || 0)) * dir;
         });
 
@@ -1460,7 +1469,7 @@
           if (!hasAnySnapshots) {
             tableBody.innerHTML = `
             <tr id="emptyRow">
-              <td colspan="11" class="py-12 text-center text-terminal-muted">
+              <td colspan="9" class="py-12 text-center text-terminal-muted">
                 <div class="inline-flex items-center gap-2">
                   <span class="w-2 h-2 rounded-full bg-terminal-accent animate-ping"></span>
                   <span>Syncing order books from Lighter Core & Robinhood Chain...</span>
@@ -1471,7 +1480,7 @@
           } else {
             tableBody.innerHTML = `
             <tr>
-              <td colspan="11" class="py-12 text-center text-terminal-muted">
+              <td colspan="9" class="py-12 text-center text-terminal-muted">
                 No matching pairs for the active filters.
               </td>
             </tr>
@@ -1504,7 +1513,14 @@
         updateCellsInPlace(true);
 
         // Update executive summary card with current leader immediately
-        const topLead = rows.find((r) => r.status === "READY") || rows[0];
+        const topLead = rows.find(
+          (r) =>
+            r.status === "READY" &&
+            r.allFilled &&
+            r.costUsd > 0 &&
+            r.costUsd < 1000 &&
+            r.entryDragBps > -20.0,
+        );
         if (topLead) {
           updateExecutiveSummary(topLead);
         }
@@ -1537,20 +1553,18 @@
           <span class="verdict-badge px-1.5 py-0.5 rounded text-[10px] font-bold">[READY]</span>
         </td>
         <td class="py-2 px-3 text-right loss-cell tabular-nums">
-          <div class="entry-loss-val font-bold text-terminal-emerald tabular-nums text-sm">$0.00</div>
-          <div class="rt-loss-val text-[10px] text-terminal-muted tabular-nums">RT: $0.00</div>
+          <div class="rt-loss-val font-bold text-terminal-emerald tabular-nums text-sm">$0.00</div>
+          <div class="entry-loss-val text-[10px] text-terminal-muted tabular-nums">Entry: +$0.00</div>
         </td>
         <td class="py-2 px-3 text-right ptcost-cell tabular-nums font-medium text-terminal-emerald">$0.00 / pt</td>
         <td class="py-2 px-2.5 text-right vwap-cell tabular-nums">
           <div class="turnover-drag-val font-semibold text-terminal-primary tabular-nums">0.00 bps</div>
           <div class="entry-drag-val text-[10px] text-terminal-muted tabular-nums">Entry: +0.00 bps</div>
         </td>
-        <td class="py-2 px-2.5 text-right slip-cell tabular-nums text-terminal-secondary">+0.00 bps</td>
         <td class="py-2 px-2.5 text-right price-cell tabular-nums">
           <div class="mid-price-val font-medium text-white tabular-nums">$0.00</div>
           <div class="delta-mid-val text-[10px] font-mono tabular-nums text-terminal-muted">Δ: +$0.00</div>
         </td>
-        <td class="py-2 px-2.5 text-center levels-cell tabular-nums text-terminal-muted">0 lvls</td>
         <td class="py-2 px-3 text-right depth-cell tabular-nums text-terminal-muted">$0.00</td>
         <td class="py-2 px-3 text-right vol-cell tabular-nums text-terminal-secondary">
           <span class="font-medium text-white">${formatMoney(r.totalVolume24h)}</span>
@@ -1577,15 +1591,13 @@
           tr,
           verdictEl: tr.querySelector(".verdict-badge"),
           copyBtn,
-          entryLossEl: tr.querySelector(".entry-loss-val"),
           rtLossEl: tr.querySelector(".rt-loss-val"),
+          entryLossEl: tr.querySelector(".entry-loss-val"),
           ptCostEl: tr.querySelector(".ptcost-cell"),
           turnoverDragEl: tr.querySelector(".turnover-drag-val"),
           entryDragEl: tr.querySelector(".entry-drag-val"),
-          slipEl: tr.querySelector(".slip-cell"),
           midPriceEl: tr.querySelector(".mid-price-val"),
           deltaMidEl: tr.querySelector(".delta-mid-val"),
-          levelsEl: tr.querySelector(".levels-cell"),
           depthEl: tr.querySelector(".depth-cell"),
           volEl: tr.querySelector(".vol-cell"),
           chevronEl: tr.querySelector(".chevron-cell svg"),
@@ -1633,7 +1645,7 @@
       function updateDetailRow(r) {
         const l = r.legs;
         detailRowDom.innerHTML = `
-        <td colspan="11" class="p-3 sm:p-4">
+        <td colspan="9" class="p-3 sm:p-4">
           <div class="max-w-5xl mx-auto space-y-3 font-mono text-xs">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-terminal-border pb-2 text-[11px] gap-2">
               <div>
