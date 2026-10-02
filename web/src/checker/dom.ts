@@ -35,10 +35,15 @@ export function updateExecutiveMetrics(
   },
   accountIndex?: number | null,
   network?: string | null,
+  accountIndices?: number[] | null,
 ): void {
   if (elements.accountBadge) {
-    elements.accountBadge.textContent =
-      accountIndex !== null && accountIndex !== undefined ? `#${accountIndex}` : "--";
+    if (accountIndices && accountIndices.length > 1) {
+      elements.accountBadge.textContent = accountIndices.map((a) => `#${a}`).join(", ");
+    } else {
+      elements.accountBadge.textContent =
+        accountIndex !== null && accountIndex !== undefined ? `#${accountIndex}` : "--";
+    }
   }
   if (elements.networkBadge) {
     elements.networkBadge.textContent = network ? network.toUpperCase() : "--";
@@ -139,11 +144,15 @@ export function createTradeRow(item: ParsedTradeView, index: number): HTMLTableR
       ? `<span class="text-terminal-muted hover:text-white transition cursor-pointer select-all" title="${item.txHash}">${item.txHashShort}</span>`
       : `<span class="text-terminal-muted">--</span>`;
 
+  const accTag = item.userAccountId
+    ? `<span class="text-terminal-muted/80 text-[10px] ml-1">#${item.userAccountId}</span>`
+    : "";
+
   tr.innerHTML = `
     <td class="py-1.5 px-2 text-terminal-muted tabular-nums text-[11px]">${index}</td>
     <td class="py-1.5 px-2 text-white whitespace-nowrap text-[11px]">${item.timeFormatted}</td>
     <td class="py-1.5 px-2 whitespace-nowrap">
-      <span class="font-bold text-white">${item.marketSymbol}</span>
+      <span class="font-bold text-white">${item.marketSymbol}</span>${accTag}
     </td>
     <td class="py-1.5 px-2 text-center whitespace-nowrap font-bold text-[11px] ${sideColorClass}">${item.side}</td>
     <td class="py-1.5 px-2 text-center whitespace-nowrap text-[11px]">${roleHtml}</td>
@@ -436,8 +445,18 @@ export function updateHedgeExecutiveMetrics(
     return;
   }
 
-  const rhAcc = metrics.rhAccountIndex ? `#${metrics.rhAccountIndex}` : "RH";
-  const coreAcc = metrics.coreAccountIndex ? `#${metrics.coreAccountIndex}` : "CORE";
+  const rhAcc =
+    metrics.rhAccountIndices && metrics.rhAccountIndices.length > 1
+      ? metrics.rhAccountIndices.map((a) => `#${a}`).join(", ")
+      : metrics.rhAccountIndex
+        ? `#${metrics.rhAccountIndex}`
+        : "RH";
+  const coreAcc =
+    metrics.coreAccountIndices && metrics.coreAccountIndices.length > 1
+      ? metrics.coreAccountIndices.map((a) => `#${a}`).join(", ")
+      : metrics.coreAccountIndex
+        ? `#${metrics.coreAccountIndex}`
+        : "CORE";
   if (elements.accountsBadge) {
     elements.accountsBadge.textContent = `${rhAcc} vs ${coreAcc}`;
   }
@@ -587,3 +606,21 @@ export function updateHedgeSelectionMetrics(
         : "font-bold text-terminal-secondary tabular-nums";
   }
 }
+
+/**
+ * Truncates long file names with an ellipsis in the middle, preserving the file extension.
+ * E.g. "rh-trades-history-account-31704-2026-10-02T18-29-31.json" -> "rh-trades...9-31.json"
+ */
+export function formatDisplayFileName(fileName: string, maxLen = 22): string {
+  if (!fileName) return "";
+  if (fileName.length <= maxLen) return fileName;
+  const dotIdx = fileName.lastIndexOf(".");
+  const ext = dotIdx > 0 ? fileName.slice(dotIdx) : "";
+  const name = dotIdx > 0 ? fileName.slice(0, dotIdx) : fileName;
+  const avail = maxLen - ext.length - 3;
+  if (avail <= 4) return fileName.slice(0, maxLen - 3) + "...";
+  const head = Math.ceil(avail * 0.55);
+  const tail = Math.floor(avail * 0.45);
+  return `${name.slice(0, head)}...${name.slice(-tail)}${ext}`;
+}
+

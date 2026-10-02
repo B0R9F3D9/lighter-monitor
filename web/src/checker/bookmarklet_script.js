@@ -372,7 +372,7 @@
 
   // 5. Slimming / Payload Trimming: keep only fields required by checker
   function slimTrade(t) {
-    return {
+    const res = {
       trade_id: t.trade_id,
       trade_id_str: t.trade_id_str || String(t.trade_id),
       tx_hash: t.tx_hash || "",
@@ -389,9 +389,21 @@
       timestamp: t.timestamp,
       taker_fee: t.taker_fee ?? 0,
       maker_fee: t.maker_fee ?? 0,
-      ask_account_pnl: t.ask_account_pnl || "0",
-      bid_account_pnl: t.bid_account_pnl || "0",
     };
+    if (t.ask_id !== undefined) res.ask_id = t.ask_id;
+    if (t.ask_id_str !== undefined) res.ask_id_str = t.ask_id_str;
+    if (t.bid_id !== undefined) res.bid_id = t.bid_id;
+    if (t.bid_id_str !== undefined) res.bid_id_str = t.bid_id_str;
+    if (t.ask_client_id !== undefined) res.ask_client_id = t.ask_client_id;
+    if (t.bid_client_id !== undefined) res.bid_client_id = t.bid_client_id;
+    if (t.transaction_time !== undefined) res.transaction_time = t.transaction_time;
+    if (t.ask_account_pnl !== undefined && t.ask_account_pnl !== null) {
+      res.ask_account_pnl = t.ask_account_pnl;
+    }
+    if (t.bid_account_pnl !== undefined && t.bid_account_pnl !== null) {
+      res.bid_account_pnl = t.bid_account_pnl;
+    }
+    return res;
   }
 
   startBtn.addEventListener("click", async function () {

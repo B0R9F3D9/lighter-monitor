@@ -11,7 +11,13 @@ export interface LighterTrade {
   price: string;
   usd_amount: string;
   ask_id: number | string;
+  ask_id_str?: string;
   bid_id: number | string;
+  bid_id_str?: string;
+  ask_client_id?: number | string;
+  ask_client_id_str?: string;
+  bid_client_id?: number | string;
+  bid_client_id_str?: string;
   ask_account_id: number;
   bid_account_id: number;
   is_maker_ask: boolean;
@@ -22,10 +28,43 @@ export interface LighterTrade {
   transaction_time?: number; // Microseconds
   ask_account_pnl?: string;
   bid_account_pnl?: string;
-  ask_client_id_str?: string;
-  bid_client_id_str?: string;
   taker_position_size_before?: string;
+  taker_entry_quote_before?: string;
+  taker_initial_margin_fraction_before?: number;
+  taker_position_sign_changed?: boolean;
   maker_position_size_before?: string;
+  maker_entry_quote_before?: string;
+  maker_position_sign_changed?: boolean;
+  taker_allocated_margin_usdc_before?: number;
+  ask_order_version?: number;
+  bid_order_version?: number;
+}
+
+export type AccountQuery = number | number[] | Set<number>;
+
+export interface ImportedTradesResult {
+  trades: LighterTrade[];
+  accountIndex: number | null;
+  accountIndices: number[];
+  network: CheckerNetwork | null;
+  l1Address?: string;
+  exportedAt?: string;
+  isTruncated?: boolean;
+  rowCap?: number;
+  fileName?: string;
+  nextCursor?: string;
+}
+
+export interface StitchedTradesResult {
+  trades: LighterTrade[];
+  accountIndices: number[];
+  primaryAccountIndex: number | null;
+  network: CheckerNetwork | null;
+  l1Address?: string;
+  totalRawTradesCount: number;
+  duplicateTradesCount: number;
+  fileCount: number;
+  fileNames: string[];
 }
 
 export interface TradesApiResponse {
@@ -68,11 +107,13 @@ export interface CheckerSummaryMetrics {
   firstTradeTime: number | null;
   lastTradeTime: number | null;
   uniqueMarketsCount: number;
+  accountIndices?: number[];
 }
 
 export interface ParsedTradeView {
   raw: LighterTrade;
   tradeId: string;
+  userAccountId?: number;
   timeFormatted: string;
   timestampMs: number;
   marketSymbol: string;
@@ -98,6 +139,7 @@ export interface ExportPayload {
   network: CheckerNetwork;
   network_name: string;
   account_index: number;
+  account_indices?: number[];
   l1_address?: string;
   total_trades: number;
   truncated?: boolean;
@@ -125,6 +167,7 @@ export interface HedgePair {
 
   // RH Leg
   rhTradeId: string;
+  rhUserAccountId?: number;
   rhSide: "BUY" | "SELL";
   rhPrice: number;
   rhSize: number;
@@ -137,6 +180,7 @@ export interface HedgePair {
 
   // Core Leg
   coreTradeId: string;
+  coreUserAccountId?: number;
   coreSide: "BUY" | "SELL";
   corePrice: number;
   coreSize: number;
@@ -163,6 +207,7 @@ export interface HedgePair {
 export interface UnhedgedTrade {
   id?: string;
   tradeId: string;
+  userAccountId?: number;
   network: "RH" | "CORE";
   marketSymbol: string;
   side: "BUY" | "SELL";
@@ -204,6 +249,8 @@ export interface HedgeSummaryMetrics {
   unhedgedCoreCount: number;
   rhAccountIndex: number | null;
   coreAccountIndex: number | null;
+  rhAccountIndices?: number[];
+  coreAccountIndices?: number[];
   rhTotalTrades: number;
   coreTotalTrades: number;
   firstTradeTime: number | null;

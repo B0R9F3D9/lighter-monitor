@@ -8,9 +8,13 @@ import {
   parseImportedTradesJson,
   parseTradeForView,
   prepareExportPayload,
+  sortParsedTradesChronologicalDesc,
+  sortTradesChronologicalDesc,
+  stitchTradeBatches,
 } from "./api";
 import { getBookmarkletHref } from "./bookmarklet";
 import {
+  formatDisplayFileName,
   HedgeSelectionMetricElements,
   renderHedgeTable,
   renderTradesTable,
@@ -24,8 +28,10 @@ import type {
   CheckerSummaryMetrics,
   HedgePair,
   HedgeSummaryMetrics,
+  ImportedTradesResult,
   LighterTrade,
   ParsedTradeView,
+  StitchedTradesResult,
   UnhedgedTrade,
 } from "./types";
 
@@ -36,6 +42,9 @@ export class CheckerController {
   // Solo mode state
   private network: CheckerNetwork = "rh";
   private resolvedAccountIndex: number | null = null;
+  private soloAccountIndices: number[] = [];
+  private soloBatches: ImportedTradesResult[] = [];
+  private soloStitched: StitchedTradesResult | null = null;
   private resolvedL1Address: string | null = null;
   private rawTrades: LighterTrade[] = [];
   private parsedTrades: ParsedTradeView[] = [];
@@ -46,12 +55,16 @@ export class CheckerController {
   private searchQuery = "";
 
   // Hedge mode state
+  private rhBatches: ImportedTradesResult[] = [];
+  private coreBatches: ImportedTradesResult[] = [];
   private rhRawTrades: LighterTrade[] = [];
   private coreRawTrades: LighterTrade[] = [];
   private rhParsedTrades: ParsedTradeView[] = [];
   private coreParsedTrades: ParsedTradeView[] = [];
   private rhAccountIndex: number | null = null;
   private coreAccountIndex: number | null = null;
+  private rhAccountIndices: number[] = [];
+  private coreAccountIndices: number[] = [];
   private rhFileName = "";
   private coreFileName = "";
   private hedgePairs: HedgePair[] = [];
@@ -89,14 +102,29 @@ export class CheckerController {
   private emptyStatePanel: HTMLElement | null = null;
   private loadedToolbar: HTMLElement | null = null;
   private loadedFileName: HTMLElement | null = null;
+  private loadedFileDetails: HTMLElement | null = null;
   private loadedFileNetwork: HTMLElement | null = null;
   private reuploadBtn: HTMLButtonElement | null = null;
+  private btnAddFilesSolo: HTMLButtonElement | null = null;
+  private btnPasteJsonSolo: HTMLButtonElement | null = null;
+  private btnPasteJsonLoadedSolo: HTMLButtonElement | null = null;
+  private btnPasteClipboardSoloBox: HTMLButtonElement | null = null;
+  private btnBrowseFileEmptyBox: HTMLButtonElement | null = null;
   private browseFileEmptyBtn: HTMLElement | null = null;
   private dropzone: HTMLElement | null = null;
   private fileInput: HTMLInputElement | null = null;
   private downloadBtn: HTMLButtonElement | null = null;
   private copyBtn: HTMLButtonElement | null = null;
   private clearBtn: HTMLButtonElement | null = null;
+
+  // Paste Modal Elements
+  private pasteModal: HTMLElement | null = null;
+  private btnClosePasteModal: HTMLButtonElement | null = null;
+  private btnDismissPasteModal: HTMLButtonElement | null = null;
+  private btnSubmitPasteJson: HTMLButtonElement | null = null;
+  private textareaPasteJson: HTMLTextAreaElement | null = null;
+  private selectPasteTarget: HTMLSelectElement | null = null;
+  private pasteTargetWrapper: HTMLElement | null = null;
 
   // Solo Table & Results
   private tabTableBtn: HTMLButtonElement | null = null;
@@ -149,6 +177,14 @@ export class CheckerController {
   private fileInputCore: HTMLInputElement | null = null;
   private btnBrowseRhFile: HTMLButtonElement | null = null;
   private btnBrowseCoreFile: HTMLButtonElement | null = null;
+  private btnAddRhFile: HTMLButtonElement | null = null;
+  private btnAddCoreFile: HTMLButtonElement | null = null;
+  private btnPasteRhBox: HTMLButtonElement | null = null;
+  private btnPasteCoreBox: HTMLButtonElement | null = null;
+  private btnAddRhFileLoaded: HTMLButtonElement | null = null;
+  private btnAddCoreFileLoaded: HTMLButtonElement | null = null;
+  private btnPasteJsonHedge: HTMLButtonElement | null = null;
+  private btnPasteJsonHedgeLoaded: HTMLButtonElement | null = null;
   private statusRhFile: HTMLElement | null = null;
   private statusCoreFile: HTMLElement | null = null;
   private labelRhAccount: HTMLElement | null = null;
@@ -225,14 +261,29 @@ export class CheckerController {
     this.emptyStatePanel = document.querySelector("#emptyStatePanel");
     this.loadedToolbar = document.querySelector("#loadedToolbar");
     this.loadedFileName = document.querySelector("#loadedFileName");
+    this.loadedFileDetails = document.querySelector("#loadedFileDetails");
     this.loadedFileNetwork = document.querySelector("#loadedFileNetwork");
     this.reuploadBtn = document.querySelector("#btnReupload");
+    this.btnAddFilesSolo = document.querySelector("#btnAddFilesSolo");
+    this.btnPasteJsonSolo = document.querySelector("#btnPasteJsonSolo");
+    this.btnPasteJsonLoadedSolo = document.querySelector("#btnPasteJsonLoadedSolo");
+    this.btnPasteClipboardSoloBox = document.querySelector("#btnPasteClipboardSoloBox");
+    this.btnBrowseFileEmptyBox = document.querySelector("#btnBrowseFileEmptyBox");
     this.browseFileEmptyBtn = document.querySelector("#btnBrowseFileEmpty");
     this.dropzone = document.querySelector("#jsonDropzone");
     this.fileInput = document.querySelector("#jsonFileInput");
     this.downloadBtn = document.querySelector("#btnDownloadJson");
     this.copyBtn = document.querySelector("#btnCopyJson");
     this.clearBtn = document.querySelector("#btnClearTrades");
+
+    // Paste Modal Elements
+    this.pasteModal = document.querySelector("#pasteModal");
+    this.btnClosePasteModal = document.querySelector("#btnClosePasteModal");
+    this.btnDismissPasteModal = document.querySelector("#btnDismissPasteModal");
+    this.btnSubmitPasteJson = document.querySelector("#btnSubmitPasteJson");
+    this.textareaPasteJson = document.querySelector("#textareaPasteJson");
+    this.selectPasteTarget = document.querySelector("#selectPasteTarget");
+    this.pasteTargetWrapper = document.querySelector("#pasteTargetWrapper");
 
     // Solo Table & Results
     this.tabTableBtn = document.querySelector("#tabBtnTable");
@@ -283,6 +334,14 @@ export class CheckerController {
     this.fileInputCore = document.querySelector("#fileInputCore");
     this.btnBrowseRhFile = document.querySelector("#btnBrowseRhFile");
     this.btnBrowseCoreFile = document.querySelector("#btnBrowseCoreFile");
+    this.btnAddRhFile = document.querySelector("#btnAddRhFile");
+    this.btnAddCoreFile = document.querySelector("#btnAddCoreFile");
+    this.btnPasteRhBox = document.querySelector("#btnPasteRhBox");
+    this.btnPasteCoreBox = document.querySelector("#btnPasteCoreBox");
+    this.btnAddRhFileLoaded = document.querySelector("#btnAddRhFileLoaded");
+    this.btnAddCoreFileLoaded = document.querySelector("#btnAddCoreFileLoaded");
+    this.btnPasteJsonHedge = document.querySelector("#btnPasteJsonHedge");
+    this.btnPasteJsonHedgeLoaded = document.querySelector("#btnPasteJsonHedgeLoaded");
     this.statusRhFile = document.querySelector("#statusRhFile");
     this.statusCoreFile = document.querySelector("#statusCoreFile");
     this.labelRhAccount = document.querySelector("#labelRhAccount");
@@ -403,6 +462,12 @@ export class CheckerController {
         !this.exportModal.classList.contains("hidden")
       ) {
         this.closeExportModal();
+      } else if (
+        e.key === "Escape" &&
+        this.pasteModal &&
+        !this.pasteModal.classList.contains("hidden")
+      ) {
+        this.closePasteModal();
       } else if (e.key === "Escape" && this.selectedHedgeRowIds.size > 0) {
         this.selectedHedgeRowIds.clear();
         this.lastClickedHedgeRowId = null;
@@ -412,17 +477,41 @@ export class CheckerController {
 
     // 3. Solo file upload / browse events
     this.browseFileEmptyBtn?.addEventListener("click", () => {
+      if (this.fileInput) this.fileInput.value = "";
       this.fileInput?.click();
     });
 
     this.reuploadBtn?.addEventListener("click", () => {
+      this.soloBatches = [];
+      if (this.fileInput) this.fileInput.value = "";
+      this.fileInput?.click();
+    });
+
+    this.btnAddFilesSolo?.addEventListener("click", () => {
+      if (this.fileInput) this.fileInput.value = "";
+      this.fileInput?.click();
+    });
+
+    this.btnPasteJsonSolo?.addEventListener("click", () =>
+      this.pasteFromClipboardOrOpenModal("rh"),
+    );
+    this.btnPasteJsonLoadedSolo?.addEventListener("click", () =>
+      this.pasteFromClipboardOrOpenModal("rh"),
+    );
+    this.btnPasteClipboardSoloBox?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.pasteFromClipboardOrOpenModal("rh");
+    });
+    this.btnBrowseFileEmptyBox?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.fileInput) this.fileInput.value = "";
       this.fileInput?.click();
     });
 
     this.fileInput?.addEventListener("change", (e) => {
       const files = (e.target as HTMLInputElement).files;
       if (files && files.length > 0) {
-        this.handleFileUpload(files[0]);
+        this.handleFileUploads(Array.from(files), true);
       }
     });
 
@@ -449,10 +538,20 @@ export class CheckerController {
         this.dropzone?.classList.remove("border-terminal-emerald", "bg-terminal-emerald/5");
         const files = e.dataTransfer?.files;
         if (files && files.length > 0) {
-          this.handleFileUpload(files[0]);
+          this.handleFileUploads(Array.from(files), true);
         }
       });
     }
+
+    // Paste Modal Controls
+    this.btnClosePasteModal?.addEventListener("click", () => this.closePasteModal());
+    this.btnDismissPasteModal?.addEventListener("click", () => this.closePasteModal());
+    this.btnSubmitPasteJson?.addEventListener("click", () => this.handlePasteSubmit());
+    this.pasteModal?.addEventListener("click", (e) => {
+      if (e.target === this.pasteModal) {
+        this.closePasteModal();
+      }
+    });
 
     // 4. Status card close button
     this.closeStatusBtn?.addEventListener("click", () => {
@@ -489,12 +588,47 @@ export class CheckerController {
     // Browse buttons
     this.btnBrowseRhFile?.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (this.fileInputRh) this.fileInputRh.value = "";
       this.fileInputRh?.click();
     });
     this.btnBrowseCoreFile?.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (this.fileInputCore) this.fileInputCore.value = "";
       this.fileInputCore?.click();
     });
+
+    this.btnAddRhFile?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.fileInputRh) this.fileInputRh.value = "";
+      this.fileInputRh?.click();
+    });
+    this.btnAddCoreFile?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (this.fileInputCore) this.fileInputCore.value = "";
+      this.fileInputCore?.click();
+    });
+    this.btnAddRhFileLoaded?.addEventListener("click", () => {
+      if (this.fileInputRh) this.fileInputRh.value = "";
+      this.fileInputRh?.click();
+    });
+    this.btnAddCoreFileLoaded?.addEventListener("click", () => {
+      if (this.fileInputCore) this.fileInputCore.value = "";
+      this.fileInputCore?.click();
+    });
+    this.btnPasteRhBox?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.pasteFromClipboardOrOpenModal("rh");
+    });
+    this.btnPasteCoreBox?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.pasteFromClipboardOrOpenModal("core");
+    });
+    this.btnPasteJsonHedge?.addEventListener("click", () =>
+      this.pasteFromClipboardOrOpenModal("auto"),
+    );
+    this.btnPasteJsonHedgeLoaded?.addEventListener("click", () =>
+      this.pasteFromClipboardOrOpenModal("auto"),
+    );
 
     // Clear individual slots
     this.btnClearRh?.addEventListener("click", (e) => {
@@ -654,78 +788,121 @@ export class CheckerController {
   // SOLO MODE IMPLEMENTATION
   // ==========================================
 
-  public handleFileUpload(file: File): void {
-    const fileNameLower = file.name.toLowerCase();
-    const isJson =
-      fileNameLower.endsWith(".json") ||
-      fileNameLower.includes(".json") ||
-      file.type === "application/json" ||
-      file.type === "text/plain" ||
-      file.type.includes("json") ||
-      file.type === "";
+  public async handleFileUpload(file: File): Promise<void> {
+    await this.handleFileUploads([file], false);
+  }
 
-    if (!isJson) {
-      this.showStatusError("Please upload a valid .json file.");
+  public async handleFileUploads(files: File[], append = false): Promise<void> {
+    if (!append) {
+      this.soloBatches = [];
+    }
+
+    const newBatches: ImportedTradesResult[] = [];
+    for (const file of files) {
+      const fileNameLower = file.name.toLowerCase();
+      const isJson =
+        fileNameLower.endsWith(".json") ||
+        fileNameLower.includes(".json") ||
+        file.type === "application/json" ||
+        file.type === "text/plain" ||
+        file.type.includes("json") ||
+        file.type === "";
+
+      if (!isJson) {
+        this.showStatusError(`Skipped "${file.name}": not a valid .json file.`);
+        continue;
+      }
+
+      try {
+        const text = await file.text();
+        if (!text.trim()) {
+          this.showStatusError(`Skipped "${file.name}": file is empty.`);
+          continue;
+        }
+
+        const result = parseImportedTradesJson(text, file.name);
+        newBatches.push(result);
+      } catch (err: any) {
+        console.error("JSON Import Error:", err);
+        this.showStatusError(`Error reading "${file.name}": ${err.message || String(err)}`);
+      }
+    }
+
+    if (newBatches.length === 0) return;
+
+    this.soloBatches = [...this.soloBatches, ...newBatches];
+    this.applySoloBatches();
+  }
+
+  private applySoloBatches(): void {
+    if (this.soloBatches.length === 0) {
+      this.clearAll();
       return;
     }
 
-    const reader = new FileReader();
-    reader.addEventListener("load", (e) => {
-      try {
-        const text = (e.target as FileReader)?.result as string;
-        if (!text) throw new Error("File is empty.");
+    const stitched = stitchTradeBatches(this.soloBatches);
+    this.soloStitched = stitched;
+    this.rawTrades = sortTradesChronologicalDesc(stitched.trades);
+    this.soloAccountIndices = stitched.accountIndices;
+    this.resolvedAccountIndex =
+      stitched.accountIndices.length > 0 ? stitched.accountIndices[0] : null;
 
-        const result = parseImportedTradesJson(text);
+    if (stitched.network) {
+      this.network = stitched.network;
+      this.marketMap = this.network === "rh" ? this.rhMarketMap : this.coreMarketMap;
+    }
+    if (stitched.l1Address) {
+      this.resolvedL1Address = stitched.l1Address;
+    }
 
-        this.rawTrades = result.trades;
-        if (result.accountIndex !== null) {
-          this.resolvedAccountIndex = result.accountIndex;
-        }
-        if (result.network) {
-          this.network = result.network;
-        }
-        if (result.l1Address) {
-          this.resolvedL1Address = result.l1Address;
-        }
-
-        if (this.loadedFileName) {
-          this.loadedFileName.textContent = file.name;
-        }
-        if (this.loadedFileNetwork) {
-          this.loadedFileNetwork.textContent = this.network.toUpperCase();
-        }
-
-        this.emptyStatePanel?.classList.add("hidden");
-        this.loadedToolbar?.classList.remove("hidden");
-
-        this.recalculateAndRender();
-        if (result.isTruncated) {
-          const capText = result.rowCap ? result.rowCap.toLocaleString() : "150,000";
-          this.showStatusSuccess(
-            `Imported ${result.trades.length.toLocaleString()} trades from "${file.name}" (Account #${this.resolvedAccountIndex ?? "--"}). Notice: Dataset hit the ${capText} trade ceiling; earliest history was truncated.`,
-          );
-        } else {
-          this.showStatusSuccess(
-            `Imported ${result.trades.length.toLocaleString()} trades from "${file.name}" (Account #${this.resolvedAccountIndex ?? "--"}).`,
-          );
-        }
-      } catch (err: any) {
-        console.error("JSON Import Error:", err);
-        this.showStatusError(`Failed to import JSON: ${err.message || String(err)}`);
+    if (this.loadedFileName) {
+      if (this.soloBatches.length === 1) {
+        const rawName = this.soloBatches[0].fileName || "imported.json";
+        this.loadedFileName.textContent = formatDisplayFileName(rawName, 32);
+        this.loadedFileName.title = rawName;
+      } else {
+        this.loadedFileName.textContent = `${this.soloBatches.length} files stitched (${this.rawTrades.length.toLocaleString()} trades)`;
+        this.loadedFileName.title = this.soloBatches.map((b) => b.fileName || "file").join(", ");
       }
-    });
+    }
 
-    reader.addEventListener("error", () => {
-      this.showStatusError("Failed to read the selected file.");
-    });
+    if (this.loadedFileDetails) {
+      const accStr =
+        this.soloAccountIndices.length > 0
+          ? `Accounts: ${this.soloAccountIndices.map((a) => `#${a}`).join(", ")}`
+          : "Single Account";
+      const filesStr = `${this.soloBatches.length} file${this.soloBatches.length > 1 ? "s" : ""}`;
+      this.loadedFileDetails.textContent = `${filesStr} · ${accStr}`;
+    }
 
-    reader.readAsText(file);
+    if (this.loadedFileNetwork) {
+      this.loadedFileNetwork.textContent = this.network.toUpperCase();
+    }
+
+    this.emptyStatePanel?.classList.add("hidden");
+    this.loadedToolbar?.classList.remove("hidden");
+
+    this.recalculateAndRender();
+
+    const accBadge =
+      this.soloAccountIndices.length > 0
+        ? `Account(s) ${this.soloAccountIndices.map((a) => `#${a}`).join(", ")}`
+        : "Trades";
+    this.showStatusSuccess(
+      `Stitched ${this.rawTrades.length.toLocaleString()} deduplicated trades across ${this.soloBatches.length} file(s) (${accBadge}).`,
+    );
   }
 
   private recalculateAndRender(): void {
-    const acc = this.resolvedAccountIndex ?? 0;
-    this.parsedTrades = this.rawTrades.map((t) => parseTradeForView(t, acc, this.marketMap));
-    this.summaryMetrics = calculateTradeMetrics(this.rawTrades, acc);
+    sortTradesChronologicalDesc(this.rawTrades);
+    const accQuery =
+      this.soloAccountIndices.length > 0
+        ? this.soloAccountIndices
+        : (this.resolvedAccountIndex ?? 0);
+
+    this.parsedTrades = this.rawTrades.map((t) => parseTradeForView(t, accQuery, this.marketMap));
+    sortParsedTradesChronologicalDesc(this.parsedTrades);
+    this.summaryMetrics = calculateTradeMetrics(this.rawTrades, accQuery);
 
     this.updateExecutiveSummary();
     this.applyFilter();
@@ -743,6 +920,7 @@ export class CheckerController {
       this.metricElements,
       this.resolvedAccountIndex,
       this.network,
+      this.soloAccountIndices,
     );
   }
 
@@ -818,15 +996,20 @@ export class CheckerController {
     if (this.rawTrades.length === 0) return;
 
     const acc = this.resolvedAccountIndex ?? 0;
+    const accQuery = this.soloAccountIndices.length > 0 ? this.soloAccountIndices : acc;
     const payload = prepareExportPayload(
       this.rawTrades,
       this.network,
-      acc,
+      accQuery,
       this.resolvedL1Address || undefined,
     );
 
     const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = `lighter-trades-${this.network}-acc${acc}-${dateStr}.json`;
+    const accLabel =
+      this.soloAccountIndices.length > 1
+        ? `accs-${this.soloAccountIndices.join("-")}`
+        : `acc${acc}`;
+    const filename = `lighter-trades-${this.network}-${accLabel}-${dateStr}.json`;
     downloadJsonFile(payload, filename);
   }
 
@@ -834,10 +1017,11 @@ export class CheckerController {
     if (this.rawTrades.length === 0 || !this.copyBtn) return;
 
     const acc = this.resolvedAccountIndex ?? 0;
+    const accQuery = this.soloAccountIndices.length > 0 ? this.soloAccountIndices : acc;
     const payload = prepareExportPayload(
       this.rawTrades,
       this.network,
-      acc,
+      accQuery,
       this.resolvedL1Address || undefined,
     );
 
@@ -846,6 +1030,9 @@ export class CheckerController {
   }
 
   public clearAll(): void {
+    this.soloBatches = [];
+    this.soloStitched = null;
+    this.soloAccountIndices = [];
     this.rawTrades = [];
     this.parsedTrades = [];
     this.filteredTrades = [];
@@ -858,6 +1045,9 @@ export class CheckerController {
     }
     if (this.loadedFileName) {
       this.loadedFileName.textContent = "--";
+    }
+    if (this.loadedFileDetails) {
+      this.loadedFileDetails.textContent = "";
     }
     if (this.loadedFileNetwork) {
       this.loadedFileNetwork.textContent = "--";
@@ -876,6 +1066,133 @@ export class CheckerController {
 
     this.clearStatusTimers();
     if (this.statusCard) this.statusCard.classList.add("hidden");
+  }
+
+  // ==========================================
+  // PASTE JSON MODAL IMPLEMENTATION
+  // ==========================================
+
+  public async pasteFromClipboardOrOpenModal(
+    target: "auto" | "rh" | "core" = "auto",
+  ): Promise<void> {
+    try {
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.readText === "function"
+      ) {
+        const text = await navigator.clipboard.readText();
+        const trimmed = text?.trim();
+        if (trimmed && (trimmed.startsWith("{") || trimmed.startsWith("["))) {
+          try {
+            const parsed = parseImportedTradesJson(trimmed, "clipboard.json");
+            if (this.mode === "solo") {
+              this.soloBatches = [...this.soloBatches, parsed];
+              this.applySoloBatches();
+            } else {
+              let slot: "rh" | "core" = "rh";
+              if (target === "rh") {
+                slot = "rh";
+              } else if (target === "core") {
+                slot = "core";
+              } else {
+                if (parsed.network === "mainnet") {
+                  slot = "core";
+                } else if (parsed.network === "rh") {
+                  slot = "rh";
+                } else {
+                  slot = this.rhRawTrades.length > 0 ? "core" : "rh";
+                }
+              }
+
+              if (slot === "rh") {
+                this.rhBatches = [...this.rhBatches, parsed];
+              } else {
+                this.coreBatches = [...this.coreBatches, parsed];
+              }
+              this.applyHedgeBatches();
+            }
+            this.showStatusSuccess("Pasted and loaded JSON directly from clipboard!");
+            return;
+          } catch {
+            this.openPasteModal(target);
+            if (this.textareaPasteJson) {
+              this.textareaPasteJson.value = trimmed;
+            }
+            return;
+          }
+        }
+      }
+    } catch {
+      // Permission denied or reading clipboard blocked
+    }
+
+    this.openPasteModal(target);
+  }
+
+  public openPasteModal(target: "auto" | "rh" | "core" = "auto"): void {
+    if (this.selectPasteTarget) {
+      this.selectPasteTarget.value = target;
+    }
+    if (this.textareaPasteJson) {
+      this.textareaPasteJson.value = "";
+    }
+    this.pasteModal?.classList.remove("hidden");
+    setTimeout(() => {
+      this.textareaPasteJson?.focus();
+    }, 50);
+  }
+
+  public closePasteModal(): void {
+    this.pasteModal?.classList.add("hidden");
+    if (this.textareaPasteJson) {
+      this.textareaPasteJson.value = "";
+    }
+  }
+
+  public handlePasteSubmit(): void {
+    const rawText = this.textareaPasteJson?.value?.trim();
+    if (!rawText) {
+      this.showStatusError("Please paste valid JSON before submitting.");
+      return;
+    }
+
+    const target = (this.selectPasteTarget?.value as "auto" | "rh" | "core") || "auto";
+
+    try {
+      const parsed = parseImportedTradesJson(rawText, "pasted-response.json");
+      this.closePasteModal();
+
+      if (this.mode === "solo") {
+        this.soloBatches = [...this.soloBatches, parsed];
+        this.applySoloBatches();
+      } else {
+        let slot: "rh" | "core" = "rh";
+        if (target === "rh") {
+          slot = "rh";
+        } else if (target === "core") {
+          slot = "core";
+        } else {
+          if (parsed.network === "mainnet") {
+            slot = "core";
+          } else if (parsed.network === "rh") {
+            slot = "rh";
+          } else {
+            slot = this.rhRawTrades.length > 0 ? "core" : "rh";
+          }
+        }
+
+        if (slot === "rh") {
+          this.rhBatches = [...this.rhBatches, parsed];
+        } else {
+          this.coreBatches = [...this.coreBatches, parsed];
+        }
+        this.applyHedgeBatches();
+      }
+    } catch (err: any) {
+      console.error("Paste JSON parsing error:", err);
+      this.showStatusError(`Failed to parse pasted JSON: ${err.message || String(err)}`);
+    }
   }
 
   // ==========================================
@@ -903,7 +1220,12 @@ export class CheckerController {
 
       try {
         const text = await file.text();
-        const parsed = parseImportedTradesJson(text);
+        if (!text.trim()) {
+          this.showStatusError(`Skipped "${file.name}": file is empty.`);
+          continue;
+        }
+
+        const parsed = parseImportedTradesJson(text, file.name);
 
         // Smart network routing
         let targetSlot = defaultSlot;
@@ -918,77 +1240,146 @@ export class CheckerController {
         }
 
         if (targetSlot === "rh") {
-          this.rhRawTrades = parsed.trades;
-          this.rhAccountIndex = parsed.accountIndex;
-          this.rhFileName = file.name;
-          if (this.statusRhFile) {
-            this.statusRhFile.textContent = `✓ ${file.name} (${parsed.trades.length} trades)`;
-            this.statusRhFile.className =
-              "text-[11px] text-terminal-emerald font-semibold my-1.5 truncate";
-          }
-          if (this.labelRhAccount) {
-            this.labelRhAccount.textContent = `Account #${parsed.accountIndex ?? "--"}`;
-          }
-          if (this.btnClearRh) this.btnClearRh.classList.remove("hidden");
+          this.rhBatches = [...this.rhBatches, parsed];
         } else {
-          this.coreRawTrades = parsed.trades;
-          this.coreAccountIndex = parsed.accountIndex;
-          this.coreFileName = file.name;
-          if (this.statusCoreFile) {
-            this.statusCoreFile.textContent = `✓ ${file.name} (${parsed.trades.length} trades)`;
-            this.statusCoreFile.className =
-              "text-[11px] text-terminal-emerald font-semibold my-1.5 truncate";
-          }
-          if (this.labelCoreAccount) {
-            this.labelCoreAccount.textContent = `Account #${parsed.accountIndex ?? "--"}`;
-          }
-          if (this.btnClearCore) this.btnClearCore.classList.remove("hidden");
+          this.coreBatches = [...this.coreBatches, parsed];
         }
       } catch (err: any) {
         this.showStatusError(`Error reading "${file.name}": ${err.message || String(err)}`);
       }
     }
 
-    // If both files are now loaded, compute hedge matches
+    this.applyHedgeBatches();
+  }
+
+  private applyHedgeBatches(): void {
+    if (this.rhBatches.length > 0) {
+      const rhStitched = stitchTradeBatches(this.rhBatches);
+      this.rhRawTrades = sortTradesChronologicalDesc(rhStitched.trades);
+      this.rhAccountIndices = rhStitched.accountIndices;
+      this.rhAccountIndex =
+        rhStitched.accountIndices.length > 0 ? rhStitched.accountIndices[0] : null;
+
+      if (this.statusRhFile) {
+        const rawFileName = this.rhBatches[0].fileName || "RH JSON";
+        const fileCountText =
+          this.rhBatches.length === 1
+            ? formatDisplayFileName(rawFileName, 22)
+            : `${this.rhBatches.length} files`;
+        this.statusRhFile.textContent = `✓ ${fileCountText} (${this.rhRawTrades.length} trades)`;
+        this.statusRhFile.title = `${this.rhBatches.length === 1 ? rawFileName : `${this.rhBatches.length} files`} (${this.rhRawTrades.length} trades)`;
+        this.statusRhFile.className =
+          "text-[11px] text-terminal-emerald font-semibold my-1.5 truncate w-full max-w-full px-1 text-center";
+      }
+      if (this.labelRhAccount) {
+        this.labelRhAccount.textContent =
+          this.rhAccountIndices.length > 0
+            ? `Account(s) ${this.rhAccountIndices.map((a) => `#${a}`).join(", ")}`
+            : `Account #${this.rhAccountIndex ?? "--"}`;
+      }
+      if (this.btnClearRh) this.btnClearRh.classList.remove("hidden");
+      if (this.loadedRhFileName) {
+        const rawFileName = this.rhBatches[0].fileName || "RH file";
+        this.loadedRhFileName.textContent =
+          this.rhBatches.length === 1
+            ? formatDisplayFileName(rawFileName, 24)
+            : `${this.rhBatches.length} RH files (${this.rhRawTrades.length} trades)`;
+        this.loadedRhFileName.title =
+          this.rhBatches.length === 1 ? rawFileName : `${this.rhBatches.length} RH files`;
+      }
+    }
+
+    if (this.coreBatches.length > 0) {
+      const coreStitched = stitchTradeBatches(this.coreBatches);
+      this.coreRawTrades = sortTradesChronologicalDesc(coreStitched.trades);
+      this.coreAccountIndices = coreStitched.accountIndices;
+      this.coreAccountIndex =
+        coreStitched.accountIndices.length > 0 ? coreStitched.accountIndices[0] : null;
+
+      if (this.statusCoreFile) {
+        const rawFileName = this.coreBatches[0].fileName || "Core JSON";
+        const fileCountText =
+          this.coreBatches.length === 1
+            ? formatDisplayFileName(rawFileName, 22)
+            : `${this.coreBatches.length} files`;
+        this.statusCoreFile.textContent = `✓ ${fileCountText} (${this.coreRawTrades.length} trades)`;
+        this.statusCoreFile.title = `${this.coreBatches.length === 1 ? rawFileName : `${this.coreBatches.length} files`} (${this.coreRawTrades.length} trades)`;
+        this.statusCoreFile.className =
+          "text-[11px] text-terminal-emerald font-semibold my-1.5 truncate w-full max-w-full px-1 text-center";
+      }
+      if (this.labelCoreAccount) {
+        this.labelCoreAccount.textContent =
+          this.coreAccountIndices.length > 0
+            ? `Account(s) ${this.coreAccountIndices.map((a) => `#${a}`).join(", ")}`
+            : `Account #${this.coreAccountIndex ?? "--"}`;
+      }
+      if (this.btnClearCore) this.btnClearCore.classList.remove("hidden");
+      if (this.loadedCoreFileName) {
+        const rawFileName = this.coreBatches[0].fileName || "Core file";
+        this.loadedCoreFileName.textContent =
+          this.coreBatches.length === 1
+            ? formatDisplayFileName(rawFileName, 24)
+            : `${this.coreBatches.length} Core files (${this.coreRawTrades.length} trades)`;
+        this.loadedCoreFileName.title =
+          this.coreBatches.length === 1 ? rawFileName : `${this.coreBatches.length} Core files`;
+      }
+    }
+
     if (this.rhRawTrades.length > 0 && this.coreRawTrades.length > 0) {
       this.recalculateAndRenderHedge();
       this.hedgeEmptyStatePanel?.classList.add("hidden");
       this.hedgeLoadedToolbar?.classList.remove("hidden");
-      if (this.loadedRhFileName) this.loadedRhFileName.textContent = this.rhFileName;
-      if (this.loadedCoreFileName) this.loadedCoreFileName.textContent = this.coreFileName;
 
+      const rhAccStr =
+        this.rhAccountIndices.length > 0
+          ? this.rhAccountIndices.map((a) => `#${a}`).join(", ")
+          : `${this.rhAccountIndex ?? "--"}`;
+      const coreAccStr =
+        this.coreAccountIndices.length > 0
+          ? this.coreAccountIndices.map((a) => `#${a}`).join(", ")
+          : `${this.coreAccountIndex ?? "--"}`;
       this.showStatusSuccess(
-        `Hedge audit ready: matched ${this.hedgePairs.length} pairs between RH (#${this.rhAccountIndex ?? "--"}) and Core (#${this.coreAccountIndex ?? "--"}).`,
+        `Hedge audit ready: matched ${this.hedgePairs.length} pairs between RH (${rhAccStr}) and Core (${coreAccStr}).`,
       );
     } else if (this.rhRawTrades.length > 0) {
       this.showStatusSuccess(
-        `Loaded RH file: ${this.rhRawTrades.length} trades. Now upload your Core file.`,
+        `Loaded RH: ${this.rhRawTrades.length} trades across ${this.rhBatches.length} file(s). Now add your Core file(s).`,
       );
     } else if (this.coreRawTrades.length > 0) {
       this.showStatusSuccess(
-        `Loaded Core file: ${this.coreRawTrades.length} trades. Now upload your RH file.`,
+        `Loaded Core: ${this.coreRawTrades.length} trades across ${this.coreBatches.length} file(s). Now add your RH file(s).`,
       );
     }
   }
 
   private recalculateAndRenderHedge(): void {
-    const rhAcc = this.rhAccountIndex ?? 0;
-    const coreAcc = this.coreAccountIndex ?? 0;
+    sortTradesChronologicalDesc(this.rhRawTrades);
+    sortTradesChronologicalDesc(this.coreRawTrades);
+
+    const rhAccQuery =
+      this.rhAccountIndices.length > 0 ? this.rhAccountIndices : (this.rhAccountIndex ?? 0);
+    const coreAccQuery =
+      this.coreAccountIndices.length > 0 ? this.coreAccountIndices : (this.coreAccountIndex ?? 0);
 
     this.rhParsedTrades = this.rhRawTrades.map((t) =>
-      parseTradeForView(t, rhAcc, this.rhMarketMap),
+      parseTradeForView(t, rhAccQuery, this.rhMarketMap),
     );
     this.coreParsedTrades = this.coreRawTrades.map((t) =>
-      parseTradeForView(t, coreAcc, this.coreMarketMap),
+      parseTradeForView(t, coreAccQuery, this.coreMarketMap),
     );
+
+    sortParsedTradesChronologicalDesc(this.rhParsedTrades);
+    sortParsedTradesChronologicalDesc(this.coreParsedTrades);
 
     const result = matchHedgeTrades(
       this.rhParsedTrades,
       this.coreParsedTrades,
-      this.rhAccountIndex,
-      this.coreAccountIndex,
+      rhAccQuery,
+      coreAccQuery,
       600,
       this.hedgeAggregateMode === "aggregated",
+      this.rhAccountIndices,
+      this.coreAccountIndices,
     );
 
     this.hedgePairs = result.pairs;
@@ -1127,36 +1518,55 @@ export class CheckerController {
     const csvContent = exportHedgeReportToCsv(pairsToExport, unhedgedToExport);
     const dateStr = new Date().toISOString().slice(0, 10);
     const selSuffix = this.selectedHedgeRowIds.size > 0 ? "-selected" : "";
-    const filename = `lighter-hedge-audit-rh${this.rhAccountIndex ?? "0"}-core${this.coreAccountIndex ?? "0"}${selSuffix}-${dateStr}.csv`;
+    const rhAccStr =
+      this.rhAccountIndices.length > 0
+        ? this.rhAccountIndices.join("-")
+        : (this.rhAccountIndex ?? "0");
+    const coreAccStr =
+      this.coreAccountIndices.length > 0
+        ? this.coreAccountIndices.join("-")
+        : (this.coreAccountIndex ?? "0");
+    const filename = `lighter-hedge-audit-rh${rhAccStr}-core${coreAccStr}${selSuffix}-${dateStr}.csv`;
     downloadTextFile(csvContent, filename, "text/csv;charset=utf-8");
   }
 
   public clearHedgeSlot(slot: "rh" | "core"): void {
     if (slot === "rh") {
+      this.rhBatches = [];
       this.rhRawTrades = [];
       this.rhParsedTrades = [];
       this.rhAccountIndex = null;
+      this.rhAccountIndices = [];
       this.rhFileName = "";
       if (this.statusRhFile) {
-        this.statusRhFile.innerHTML = 'Drop <code class="text-terminal-accent">rh-*.json</code>';
-        this.statusRhFile.className = "text-[11px] text-terminal-secondary my-1.5 truncate";
+        this.statusRhFile.innerHTML =
+          'Drop <code class="text-terminal-accent">rh-*.json</code> or raw API';
+        this.statusRhFile.title = "";
+        this.statusRhFile.className =
+          "text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center";
       }
-      if (this.labelRhAccount) this.labelRhAccount.textContent = "No file loaded";
+      if (this.labelRhAccount) this.labelRhAccount.textContent = "No files loaded";
       if (this.btnClearRh) this.btnClearRh.classList.add("hidden");
       if (this.fileInputRh) this.fileInputRh.value = "";
+      if (this.loadedRhFileName) this.loadedRhFileName.textContent = "--";
     } else {
+      this.coreBatches = [];
       this.coreRawTrades = [];
       this.coreParsedTrades = [];
       this.coreAccountIndex = null;
+      this.coreAccountIndices = [];
       this.coreFileName = "";
       if (this.statusCoreFile) {
         this.statusCoreFile.innerHTML =
-          'Drop <code class="text-terminal-emerald">mainnet-*.json</code>';
-        this.statusCoreFile.className = "text-[11px] text-terminal-secondary my-1.5 truncate";
+          'Drop <code class="text-terminal-emerald">mainnet-*.json</code> or raw API';
+        this.statusCoreFile.title = "";
+        this.statusCoreFile.className =
+          "text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center";
       }
-      if (this.labelCoreAccount) this.labelCoreAccount.textContent = "No file loaded";
+      if (this.labelCoreAccount) this.labelCoreAccount.textContent = "No files loaded";
       if (this.btnClearCore) this.btnClearCore.classList.add("hidden");
       if (this.fileInputCore) this.fileInputCore.value = "";
+      if (this.loadedCoreFileName) this.loadedCoreFileName.textContent = "--";
     }
 
     this.hedgePairs = [];
@@ -1168,8 +1578,10 @@ export class CheckerController {
     this.lastClickedHedgeRowId = null;
     updateHedgeSelectionMetrics(null, this.hedgeSelectionMetricElements);
 
-    this.hedgeLoadedToolbar?.classList.add("hidden");
-    this.hedgeEmptyStatePanel?.classList.remove("hidden");
+    if (this.rhRawTrades.length === 0 || this.coreRawTrades.length === 0) {
+      this.hedgeLoadedToolbar?.classList.add("hidden");
+      this.hedgeEmptyStatePanel?.classList.remove("hidden");
+    }
 
     this.updateHedgeExecutiveSummary();
     this.applyHedgeFilter();

@@ -231,7 +231,7 @@
         <div id="emptyStatePanel" class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
           <!-- 1. Export Bookmarklet -->
           <div
-            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5 h-full"
           >
             <div
               class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2"
@@ -262,7 +262,7 @@
                 class="px-3 py-1.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white font-bold text-xs transition cursor-grab active:cursor-grabbing flex items-center gap-1.5 select-none no-underline"
                 title="Drag this button to your browser Bookmarks Toolbar"
               >
-                <span>⚡ Lighter Trade Exporter</span>
+                <span>Lighter Trade Exporter</span>
               </a>
               <button
                 id="btnCopyBookmarklet"
@@ -274,67 +274,105 @@
               </button>
             </div>
 
-            <div class="text-[11px] text-terminal-muted">
-              Drag to bookmarks bar, click it on
-              <a
-                href="https://robinhoodchain.lighter.xyz"
-                target="_blank"
-                rel="noreferrer"
-                class="text-terminal-secondary hover:underline"
-                >robinhoodchain.lighter.xyz</a
-              >
-              or
-              <a
-                href="https://app.lighter.xyz"
-                target="_blank"
-                rel="noreferrer"
-                class="text-terminal-secondary hover:underline"
-                >app.lighter.xyz</a
-              >, and save your JSON.
+            <div class="bg-terminal-bg/40 border border-terminal-borderSubtle rounded p-2.5 space-y-1.5 text-[11px]">
+              <div class="text-[10px] text-terminal-accent font-semibold uppercase tracking-wider">
+                Quick Export Steps
+              </div>
+              <div class="space-y-1 text-terminal-muted">
+                <div>
+                  1. Open
+                  <a
+                    href="https://robinhoodchain.lighter.xyz"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="text-terminal-secondary hover:underline"
+                    >robinhoodchain.lighter.xyz</a
+                  >
+                  &rarr; click exporter &rarr; save RH JSON
+                </div>
+                <div>
+                  2. Open
+                  <a
+                    href="https://app.lighter.xyz"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="text-terminal-secondary hover:underline"
+                    >app.lighter.xyz</a
+                  >
+                  &rarr; click exporter &rarr; save Core JSON
+                </div>
+              </div>
             </div>
           </div>
 
           <!-- 2. Import Dropzone -->
           <div
-            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5 h-full min-w-0 overflow-hidden"
           >
             <div
-              class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2"
+              class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2 min-w-0 gap-2"
             >
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 shrink-0">
                 <span
                   class="w-5 h-5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 text-terminal-emerald flex items-center justify-center text-[11px] font-bold"
                   >2</span
                 >
-                <h2 class="text-xs font-bold text-white uppercase tracking-wider">Import Trades</h2>
+                <h2 class="text-xs font-bold text-white uppercase tracking-wider truncate">Import Trades</h2>
               </div>
-              <button
-                id="btnBrowseFileEmpty"
-                type="button"
-                class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
-              >
-                Browse file
-              </button>
+              <div class="flex items-center gap-2 shrink-0">
+                <button
+                  id="btnPasteJsonSolo"
+                  type="button"
+                  class="text-[11px] text-terminal-muted hover:text-white hover:underline cursor-pointer"
+                  title="Paste raw JSON response directly"
+                >
+                  Paste JSON
+                </button>
+                <button
+                  id="btnBrowseFileEmpty"
+                  type="button"
+                  class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
+                >
+                  Browse files
+                </button>
+              </div>
             </div>
 
             <div
               id="jsonDropzone"
-              class="border border-dashed border-terminal-border hover:border-terminal-emerald/50 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-3 flex items-center justify-center text-center cursor-pointer transition-colors"
+              class="border border-dashed border-terminal-border hover:border-terminal-emerald/50 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-3 flex-1 flex flex-col items-center justify-center text-center cursor-pointer transition-colors gap-2 min-w-0 w-full overflow-hidden"
             >
               <input
                 type="file"
                 id="jsonFileInput"
+                multiple
                 accept=".json,text/plain,application/json,text/json"
                 class="hidden"
               />
-              <div class="text-[11px] text-terminal-secondary">
-                Drop <code class="text-terminal-accent">lighter-trades-*.json</code> here or
-                <span class="text-white underline">click to select</span>
+              <div class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center">
+                Drop <code class="text-terminal-accent">.json</code> files (supports multiple accounts & F12 pagination)
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  id="btnBrowseFileEmptyBox"
+                  type="button"
+                  class="px-2.5 py-1 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-emerald text-terminal-primary hover:text-white transition cursor-pointer text-xs font-semibold flex items-center gap-1.5"
+                >
+                  Select Files
+                </button>
+                <button
+                  id="btnPasteClipboardSoloBox"
+                  type="button"
+                  class="px-2.5 py-1 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white transition cursor-pointer text-xs font-semibold flex items-center gap-1.5"
+                  title="Paste raw JSON directly from clipboard"
+                >
+                  Paste JSON
+                </button>
               </div>
             </div>
 
             <div class="text-[10px] text-terminal-muted">
-              100% local in-browser parsing. Zero data sent to any server.
+              100% local in-browser parsing. Zero data sent to any server. Supports raw Lighter API responses.
             </div>
           </div>
         </div>
@@ -342,23 +380,40 @@
         <!-- 2B. LOADED STATE TOOLBAR (Visible when trades are loaded) -->
         <div
           id="loadedToolbar"
-          class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono"
+          class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono min-w-0"
         >
-          <div class="flex items-center gap-2">
-            <span class="text-terminal-muted">File:</span>
-            <span id="loadedFileName" class="text-white font-semibold">--</span>
-            <span class="text-terminal-border">|</span>
-            <span id="loadedFileNetwork" class="text-terminal-accent text-[11px] uppercase"
+          <div class="flex items-center gap-2 flex-wrap min-w-0">
+            <span class="text-terminal-muted shrink-0">Files:</span>
+            <span id="loadedFileName" class="text-white font-semibold truncate max-w-44 sm:max-w-xs md:max-w-md">--</span>
+            <span id="loadedFileDetails" class="text-[11px] text-terminal-muted truncate"></span>
+            <span class="text-terminal-border shrink-0">|</span>
+            <span id="loadedFileNetwork" class="text-terminal-accent text-[11px] uppercase shrink-0"
               >--</span
             >
           </div>
 
           <div class="flex items-center gap-2">
             <button
+              id="btnAddFilesSolo"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Add more JSON files or pagination pages to this dataset"
+            >
+              + Add Files
+            </button>
+            <button
+              id="btnPasteJsonLoadedSolo"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Paste another raw JSON response"
+            >
+              + Paste
+            </button>
+            <button
               id="btnReupload"
               type="button"
               class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
-              title="Upload a different JSON file"
+              title="Replace dataset with new files"
             >
               Re-upload
             </button>
@@ -610,10 +665,10 @@
         </div>
 
         <!-- 2A. HEDGE EMPTY STATE PANEL (Step 1: Exporter, Step 2: Import RH & Core files) -->
-        <div id="hedgeEmptyStatePanel" class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+        <div id="hedgeEmptyStatePanel" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 min-w-0">
           <!-- Step 1: Export Bookmarklet -->
           <div
-            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5 h-full min-w-0"
           >
             <div
               class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2"
@@ -644,7 +699,7 @@
                 class="px-3 py-1.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white font-bold text-xs transition cursor-grab active:cursor-grabbing flex items-center gap-1.5 select-none no-underline"
                 title="Drag this button to your browser Bookmarks Toolbar"
               >
-                <span>⚡ Lighter Trade Exporter</span>
+                <span>Lighter Trade Exporter</span>
               </a>
               <button
                 id="btnCopyBookmarkletHedge"
@@ -656,131 +711,179 @@
               </button>
             </div>
 
-            <div class="text-[11px] text-terminal-muted space-y-0.5">
-              <div>
-                1. Open
-                <a
-                  href="https://robinhoodchain.lighter.xyz"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="text-terminal-secondary hover:underline"
-                  >robinhoodchain.lighter.xyz</a
-                >
-                &rarr; click exporter &rarr; save RH JSON
+            <div class="bg-terminal-bg/40 border border-terminal-borderSubtle rounded p-2.5 space-y-1.5 text-[11px]">
+              <div class="text-[10px] text-terminal-accent font-semibold uppercase tracking-wider">
+                Quick Export Steps
               </div>
-              <div>
-                2. Open
-                <a
-                  href="https://app.lighter.xyz"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="text-terminal-secondary hover:underline"
-                  >app.lighter.xyz</a
-                >
-                &rarr; click exporter &rarr; save Core JSON
+              <div class="space-y-1 text-terminal-muted">
+                <div>
+                  1. Open
+                  <a
+                    href="https://robinhoodchain.lighter.xyz"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="text-terminal-secondary hover:underline"
+                    >robinhoodchain.lighter.xyz</a
+                  >
+                  &rarr; click exporter &rarr; save RH JSON
+                </div>
+                <div>
+                  2. Open
+                  <a
+                    href="https://app.lighter.xyz"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="text-terminal-secondary hover:underline"
+                    >app.lighter.xyz</a
+                  >
+                  &rarr; click exporter &rarr; save Core JSON
+                </div>
               </div>
             </div>
           </div>
 
           <!-- Step 2: Import Both Histories -->
           <div
-            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5 h-full min-w-0 overflow-hidden"
           >
             <div
-              class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2"
+              class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2 min-w-0 gap-2"
             >
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 shrink-0">
                 <span
                   class="w-5 h-5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 text-terminal-emerald flex items-center justify-center text-[11px] font-bold"
                   >2</span
                 >
-                <h2 class="text-xs font-bold text-white uppercase tracking-wider">
+                <h2 class="text-xs font-bold text-white uppercase tracking-wider truncate">
                   Import Trade Histories
                 </h2>
               </div>
-              <span class="text-[10px] text-terminal-muted">Auto-routes files</span>
+              <div class="flex items-center gap-2 shrink-0">
+                <button
+                  id="btnPasteJsonHedge"
+                  type="button"
+                  class="text-[11px] text-terminal-muted hover:text-white hover:underline cursor-pointer"
+                  title="Paste raw JSON directly into RH or Core slot"
+                >
+                  Paste JSON
+                </button>
+                <span class="text-[10px] text-terminal-muted">Auto-routes files</span>
+              </div>
             </div>
 
             <!-- Two dropzone windows for import -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1 min-w-0">
               <!-- Window 1: RH -->
               <div
-                id="dropzoneRh"
-                class="border border-dashed border-terminal-border hover:border-terminal-accent/50 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-2.5 flex flex-col justify-between cursor-pointer transition-colors"
+                class="bg-terminal-bg/25 border border-terminal-border rounded p-2 text-xs font-mono flex flex-col justify-between space-y-1.5 h-full min-w-0 overflow-hidden"
               >
-                <input
-                  type="file"
-                  id="fileInputRh"
-                  accept=".json,text/plain,application/json,text/json"
-                  class="hidden"
-                />
-                <div class="flex items-center justify-between">
-                  <span class="text-[11px] font-semibold text-white">Robinhood (RH)</span>
-                  <button
-                    id="btnBrowseRhFile"
-                    type="button"
-                    class="text-[10px] text-terminal-accent hover:underline cursor-pointer"
-                  >
-                    Browse
-                  </button>
+                <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1 min-w-0 gap-1.5">
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <span class="w-4 h-4 rounded bg-terminal-accent/15 border border-terminal-accent/40 text-terminal-accent flex items-center justify-center text-[10px] font-bold">1</span>
+                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">Robinhood (RH)</h3>
+                  </div>
+                  <div class="flex items-center gap-1.5 min-w-0 shrink">
+                    <span id="labelRhAccount" class="text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36">No files loaded</span>
+                    <button
+                      id="btnClearRh"
+                      type="button"
+                      class="hidden text-terminal-coral hover:underline text-[11px] cursor-pointer shrink-0"
+                      title="Clear RH files"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
-                <div id="statusRhFile" class="text-[11px] text-terminal-secondary my-1.5 truncate">
-                  Drop <code class="text-terminal-accent">rh-*.json</code>
-                </div>
-                <div class="text-[10px] text-terminal-muted flex items-center justify-between">
-                  <span id="labelRhAccount" class="truncate">No file loaded</span>
-                  <button
-                    id="btnClearRh"
-                    type="button"
-                    class="hidden text-terminal-coral hover:underline text-[10px] cursor-pointer ml-1"
-                  >
-                    ✕
-                  </button>
+
+                <div
+                  id="dropzoneRh"
+                  class="border border-dashed border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-2.5 flex-1 flex flex-col items-center justify-center text-center cursor-pointer transition-colors gap-1.5 min-w-0 w-full overflow-hidden"
+                >
+                  <input
+                    type="file"
+                    id="fileInputRh"
+                    multiple
+                    accept=".json,text/plain,application/json,text/json"
+                    class="hidden"
+                  />
+                  <div id="statusRhFile" class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center">
+                    Drop <code class="text-terminal-accent">rh-*.json</code> or raw API
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <button
+                      id="btnBrowseRhFile"
+                      type="button"
+                      class="px-2.5 py-1 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-accent text-terminal-primary hover:text-white transition cursor-pointer text-xs font-semibold"
+                    >
+                      Select Files
+                    </button>
+                    <button
+                      id="btnPasteRhBox"
+                      type="button"
+                      class="px-2.5 py-1 rounded bg-terminal-accent/15 border border-terminal-accent/40 hover:bg-terminal-accent/25 hover:border-terminal-accent text-terminal-accent hover:text-white transition cursor-pointer text-xs font-semibold"
+                      title="Paste JSON from clipboard into Robinhood slot"
+                    >
+                      Paste JSON
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <!-- Window 2: Core -->
               <div
-                id="dropzoneCore"
-                class="border border-dashed border-terminal-border hover:border-terminal-emerald/50 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-2.5 flex flex-col justify-between cursor-pointer transition-colors"
+                class="bg-terminal-bg/25 border border-terminal-border rounded p-2 text-xs font-mono flex flex-col justify-between space-y-1.5 h-full min-w-0 overflow-hidden"
               >
-                <input
-                  type="file"
-                  id="fileInputCore"
-                  accept=".json,text/plain,application/json,text/json"
-                  class="hidden"
-                />
-                <div class="flex items-center justify-between">
-                  <span class="text-[11px] font-semibold text-white">Lighter Core</span>
-                  <button
-                    id="btnBrowseCoreFile"
-                    type="button"
-                    class="text-[10px] text-terminal-accent hover:underline cursor-pointer"
-                  >
-                    Browse
-                  </button>
+                <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1 min-w-0 gap-1.5">
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <span class="w-4 h-4 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 text-terminal-emerald flex items-center justify-center text-[10px] font-bold">2</span>
+                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">Lighter Core</h3>
+                  </div>
+                  <div class="flex items-center gap-1.5 min-w-0 shrink">
+                    <span id="labelCoreAccount" class="text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36">No files loaded</span>
+                    <button
+                      id="btnClearCore"
+                      type="button"
+                      class="hidden text-terminal-coral hover:underline text-[11px] cursor-pointer shrink-0"
+                      title="Clear Core files"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
+
                 <div
-                  id="statusCoreFile"
-                  class="text-[11px] text-terminal-secondary my-1.5 truncate"
+                  id="dropzoneCore"
+                  class="border border-dashed border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-2.5 flex-1 flex flex-col items-center justify-center text-center cursor-pointer transition-colors gap-1.5 min-w-0 w-full overflow-hidden"
                 >
-                  Drop <code class="text-terminal-emerald">mainnet-*.json</code>
-                </div>
-                <div class="text-[10px] text-terminal-muted flex items-center justify-between">
-                  <span id="labelCoreAccount" class="truncate">No file loaded</span>
-                  <button
-                    id="btnClearCore"
-                    type="button"
-                    class="hidden text-terminal-coral hover:underline text-[10px] cursor-pointer ml-1"
-                  >
-                    ✕
-                  </button>
+                  <input
+                    type="file"
+                    id="fileInputCore"
+                    multiple
+                    accept=".json,text/plain,application/json,text/json"
+                    class="hidden"
+                  />
+                  <div id="statusCoreFile" class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center">
+                    Drop <code class="text-terminal-emerald">mainnet-*.json</code> or raw API
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <button
+                      id="btnBrowseCoreFile"
+                      type="button"
+                      class="px-2.5 py-1 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-emerald text-terminal-primary hover:text-white transition cursor-pointer text-xs font-semibold"
+                    >
+                      Select Files
+                    </button>
+                    <button
+                      id="btnPasteCoreBox"
+                      type="button"
+                      class="px-2.5 py-1 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white transition cursor-pointer text-xs font-semibold"
+                      title="Paste JSON from clipboard into Core slot"
+                    >
+                      Paste JSON
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-
-            <div class="text-[10px] text-terminal-muted">
-              100% local in-browser comparison. Zero data sent to any server.
             </div>
           </div>
         </div>
@@ -788,17 +891,41 @@
         <!-- 2B. HEDGE LOADED TOOLBAR -->
         <div
           id="hedgeLoadedToolbar"
-          class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono"
+          class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono min-w-0"
         >
-          <div class="flex items-center gap-2">
-            <span class="text-terminal-muted">RH:</span>
-            <span id="loadedRhFileName" class="text-white font-semibold">--</span>
-            <span class="text-terminal-border">|</span>
-            <span class="text-terminal-muted">Core:</span>
-            <span id="loadedCoreFileName" class="text-white font-semibold">--</span>
+          <div class="flex items-center gap-2 flex-wrap min-w-0">
+            <span class="text-terminal-muted shrink-0">RH:</span>
+            <span id="loadedRhFileName" class="text-white font-semibold truncate max-w-36 sm:max-w-56">--</span>
+            <span class="text-terminal-border shrink-0">|</span>
+            <span class="text-terminal-muted shrink-0">Core:</span>
+            <span id="loadedCoreFileName" class="text-white font-semibold truncate max-w-36 sm:max-w-56">--</span>
           </div>
 
           <div class="flex items-center gap-2">
+            <button
+              id="btnAddRhFileLoaded"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Add more files to Robinhood window"
+            >
+              + Add RH
+            </button>
+            <button
+              id="btnAddCoreFileLoaded"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-emerald text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Add more files to Core window"
+            >
+              + Add Core
+            </button>
+            <button
+              id="btnPasteJsonHedgeLoaded"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Paste another raw JSON response"
+            >
+              + Paste
+            </button>
             <button
               id="btnHedgeExportCsv"
               type="button"
@@ -987,7 +1114,7 @@
             class="px-3 py-1.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white font-bold text-xs transition cursor-grab active:cursor-grabbing flex items-center gap-1.5 select-none no-underline"
             title="Drag this button to your browser Bookmarks Toolbar"
           >
-            <span>⚡ Lighter Trade Exporter</span>
+            <span>Lighter Trade Exporter</span>
           </a>
           <button
             id="btnModalCopyBookmarklet"
@@ -998,58 +1125,52 @@
           </button>
         </div>
 
-        <div class="space-y-2 text-[11px] text-terminal-secondary pt-1">
-          <div class="flex items-start gap-2">
-            <span
-              class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4"
-              >1</span
-            >
-            <span
-              >Drag the button above to your browser's Bookmarks bar (or click "Copy Code" to add
-              manually).</span
-            >
+        <div class="space-y-3 text-[11px] text-terminal-secondary pt-1">
+          <!-- Method A: Bookmarklet -->
+          <div class="space-y-1.5 border-b border-terminal-borderSubtle pb-2.5">
+            <span class="text-[11px] font-bold text-terminal-accent uppercase tracking-wider">Method A: Exporter Bookmarklet (1-Click)</span>
+            <div class="space-y-1.5 text-terminal-secondary">
+              <div class="flex items-start gap-2">
+                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4">1</span>
+                <span>Drag the button above to your browser's Bookmarks bar (or click "Copy Code" to add manually).</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4">2</span>
+                <span>
+                  Open <a href="https://robinhoodchain.lighter.xyz" target="_blank" rel="noreferrer" class="text-terminal-accent hover:underline">robinhoodchain.lighter.xyz</a> or <a href="https://app.lighter.xyz" target="_blank" rel="noreferrer" class="text-terminal-accent hover:underline">app.lighter.xyz</a> where logged in.
+                </span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4">3</span>
+                <span>Click the bookmark to fetch and download your trade history JSON.</span>
+              </div>
+            </div>
           </div>
-          <div class="flex items-start gap-2">
-            <span
-              class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4"
-              >2</span
-            >
-            <span>
-              Open
-              <a
-                href="https://robinhoodchain.lighter.xyz"
-                target="_blank"
-                rel="noreferrer"
-                class="text-terminal-accent hover:underline"
-                >robinhoodchain.lighter.xyz</a
-              >
-              or
-              <a
-                href="https://app.lighter.xyz"
-                target="_blank"
-                rel="noreferrer"
-                class="text-terminal-accent hover:underline"
-                >app.lighter.xyz</a
-              >
-              where you are logged in.
-            </span>
-          </div>
-          <div class="flex items-start gap-2">
-            <span
-              class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4"
-              >3</span
-            >
-            <span
-              >Click the bookmark. The HUD will fetch your complete trade history and download a
-              JSON file.</span
-            >
+
+          <!-- Method B: Manual F12 DevTools (Zero-trust / No script) -->
+          <div class="space-y-1.5">
+            <span class="text-[11px] font-bold text-white uppercase tracking-wider">Method B: Zero-Trust Manual F12 Network Export</span>
+            <div class="space-y-1.5 text-terminal-muted">
+              <div class="flex items-start gap-2">
+                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-white font-bold shrink-0 leading-4">1</span>
+                <span>Open Lighter in your browser, press <kbd class="text-white bg-terminal-bg px-1 rounded border border-terminal-border">F12</kbd> (DevTools), and switch to the <strong class="text-white">Network</strong> tab.</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-white font-bold shrink-0 leading-4">2</span>
+                <span>Filter by <code class="text-terminal-accent">trades</code> and select the API response (<code class="text-terminal-secondary">/trades?account_index=...</code>).</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-white font-bold shrink-0 leading-4">3</span>
+                <span>Save response as JSON file(s) or copy response. You can drop multiple pagination files or multiple accounts — Checker will stitch them seamlessly.</span>
+              </div>
+            </div>
           </div>
         </div>
 
         <div
           class="border-t border-terminal-borderSubtle pt-2.5 flex items-center justify-between text-[11px] text-terminal-muted"
         >
-          <span>Runs locally inside your browser session.</span>
+          <span>100% local in-browser processing. Zero scripts run on your wallet.</span>
           <button
             id="btnDismissModal"
             type="button"
@@ -1057,6 +1178,80 @@
           >
             Close
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PASTE RAW JSON MODAL -->
+    <div
+      id="pasteModal"
+      class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="pasteModalTitle"
+    >
+      <div
+        class="bg-terminal-surface border border-terminal-border rounded-lg max-w-xl w-full p-4 space-y-3 font-mono text-xs shadow-2xl"
+      >
+        <div class="flex items-center justify-between border-b border-terminal-border pb-2.5">
+          <h3 id="pasteModalTitle" class="text-xs font-bold text-white uppercase tracking-wider">
+            Paste Raw Lighter JSON / API Response
+          </h3>
+          <button
+            id="btnClosePasteModal"
+            type="button"
+            class="text-terminal-muted hover:text-white cursor-pointer px-1 py-0.5 select-none"
+            title="Close modal (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="space-y-2 text-[11px] text-terminal-secondary">
+          <p class="text-terminal-muted">
+            Paste raw response from DevTools (F12) Network tab (<code class="text-terminal-accent">{"code": 200, "trades": [...]}</code>, pagination page, or trades array).
+          </p>
+          <div id="pasteTargetWrapper" class="flex items-center gap-2 pt-1">
+            <label for="selectPasteTarget" class="text-terminal-muted">Target slot:</label>
+            <select
+              id="selectPasteTarget"
+              class="bg-terminal-bg border border-terminal-border rounded px-2 py-1 text-white text-xs font-mono outline-none cursor-pointer"
+            >
+              <option value="auto">Auto-detect network</option>
+              <option value="rh">Robinhood Chain (RH)</option>
+              <option value="core">Lighter Core (Mainnet)</option>
+            </select>
+          </div>
+          <div>
+            <textarea
+              id="textareaPasteJson"
+              placeholder="Paste raw JSON here (e.g. { &quot;code&quot;: 200, &quot;trades&quot;: [...] })..."
+              rows="8"
+              class="w-full p-2.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-[11px] focus:outline-none focus:border-terminal-accent resize-y placeholder:text-terminal-muted/60"
+            ></textarea>
+          </div>
+        </div>
+
+        <div
+          class="border-t border-terminal-borderSubtle pt-2.5 flex items-center justify-between text-[11px]"
+        >
+          <span class="text-terminal-muted">Deduplicates trades & auto-detects user accounts.</span>
+          <div class="flex items-center gap-2">
+            <button
+              id="btnDismissPasteModal"
+              type="button"
+              class="px-3 py-1 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              id="btnSubmitPasteJson"
+              type="button"
+              class="px-3 py-1 rounded bg-terminal-emerald/20 border border-terminal-emerald/50 hover:bg-terminal-emerald/30 text-terminal-emerald hover:text-white font-bold cursor-pointer"
+            >
+              Import & Stitch
+            </button>
+          </div>
         </div>
       </div>
     </div>

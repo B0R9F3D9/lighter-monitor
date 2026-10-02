@@ -14,8 +14,54 @@ interface WorkingTrade {
 }
 
 /**
+ * Derives an aggregation key to group multi-slice fills belonging to the same order:
+ * 1. User Order ID (bid_id for BUY, ask_id for SELL) - most accurate for raw Lighter API
+ * 2. Non-zero transaction hash (all fills in a market sweep share the same L2 tx_hash)
+ * 3. Timestamp in ms (block time fallback for bookmarklet exports where order IDs are omitted)
+ *
+ * NOTE: Microsecond transaction_time is intentionally NOT used as a grouping key because
+ * Lighter increments transaction_time per execution match, which previously prevented raw API fills
+ * from collapsing together into (X fills).
+ */
+export function getTradeOrderAggregationKey(trade: ParsedTradeView): string {
+  const raw = trade.raw as any;
+
+  if (raw) {
+    if (trade.side === "BUY") {
+      const bidId = raw.bid_id_str || (raw.bid_id != null ? String(raw.bid_id) : "");
+      if (bidId && bidId !== "0") {
+        return `order_${bidId}_${trade.marketId}_${trade.side}`;
+      }
+      const bidClientId =
+        raw.bid_client_id_str || (raw.bid_client_id != null ? String(raw.bid_client_id) : "");
+      if (bidClientId && bidClientId !== "0") {
+        return `client_${bidClientId}_${trade.marketId}_${trade.side}`;
+      }
+    } else {
+      const askId = raw.ask_id_str || (raw.ask_id != null ? String(raw.ask_id) : "");
+      if (askId && askId !== "0") {
+        return `order_${askId}_${trade.marketId}_${trade.side}`;
+      }
+      const askClientId =
+        raw.ask_client_id_str || (raw.ask_client_id != null ? String(raw.ask_client_id) : "");
+      if (askClientId && askClientId !== "0") {
+        return `client_${askClientId}_${trade.marketId}_${trade.side}`;
+      }
+    }
+  }
+
+  // Fallback for bookmarklet exports (where order IDs are omitted) or mock objects:
+  const timeKey =
+    trade.raw?.transaction_time != null
+      ? `${trade.raw.transaction_time}`
+      : `${trade.timestampMs}`;
+
+  return `${timeKey}_${trade.marketId}_${trade.side}`;
+}
+
+/**
  * Aggregates multi-slice execution fills belonging to the same order.
- * Fills sharing the same timestamp, market, and side are combined into a single order with:
+ * Fills sharing the same order ID, transaction hash, or block timestamp are combined into a single order with:
  * - Total size = sum(fills.size)
  * - VWAP price = sum(fills.usdValue) / sum(fills.size)
  * - Total fees = sum(fills.feeUsd)
@@ -29,11 +75,7 @@ export function aggregateTradesByOrder(trades: ParsedTradeView[]): ParsedTradeVi
   const groupOrder: string[] = [];
 
   for (const trade of trades) {
-    const timeKey =
-      trade.raw?.transaction_time != null
-        ? `${trade.raw.transaction_time}`
-        : `${trade.timestampMs}`;
-    const key = `${timeKey}_${trade.marketId}_${trade.side}`;
+    const key = getTradeOrderAggregationKey(trade);
 
     let group = groupsMap.get(key);
     if (!group) {
@@ -125,12 +167,49 @@ export function aggregateTradesByOrder(trades: ParsedTradeView[]): ParsedTradeVi
 export function matchHedgeTrades(
   rhTrades: ParsedTradeView[],
   coreTrades: ParsedTradeView[],
-  rhAccountIndex: number | null,
-  coreAccountIndex: number | null,
+  rhAccountIndex?: number | number[] | null,
+  coreAccountIndex?: number | number[] | null,
   maxTimeDeltaSeconds = 600,
   aggregateFills = true,
+  rhAccountIndices?: number[],
+  coreAccountIndices?: number[],
 ): HedgeMatchingResult {
   const maxDeltaMs = maxTimeDeltaSeconds * 1000;
+
+  const resolvedRhIndices: number[] = rhAccountIndices
+    ? rhAccountIndices
+    : Array.isArray(rhAccountIndex)
+      ? rhAccountIndex
+      : rhAccountIndex !== null && rhAccountIndex !== undefined
+        ? [rhAccountIndex]
+        : Array.from(
+            new Set(
+              rhTrades
+                .map((t) => t.userAccountId)
+                .filter((id): id is number => id != null),
+            ),
+          );
+
+  const resolvedCoreIndices: number[] = coreAccountIndices
+    ? coreAccountIndices
+    : Array.isArray(coreAccountIndex)
+      ? coreAccountIndex
+      : coreAccountIndex !== null && coreAccountIndex !== undefined
+        ? [coreAccountIndex]
+        : Array.from(
+            new Set(
+              coreTrades
+                .map((t) => t.userAccountId)
+                .filter((id): id is number => id != null),
+            ),
+          );
+
+  const primaryRhAcc = Array.isArray(rhAccountIndex)
+    ? (rhAccountIndex[0] ?? null)
+    : (rhAccountIndex ?? (resolvedRhIndices[0] ?? null));
+  const primaryCoreAcc = Array.isArray(coreAccountIndex)
+    ? (coreAccountIndex[0] ?? null)
+    : (coreAccountIndex ?? (resolvedCoreIndices[0] ?? null));
 
   const actualRhTrades = aggregateFills ? aggregateTradesByOrder(rhTrades) : rhTrades;
   const actualCoreTrades = aggregateFills ? aggregateTradesByOrder(coreTrades) : coreTrades;
@@ -254,6 +333,7 @@ export function matchHedgeTrades(
           marketSymbol: market,
           matchedSize,
           rhTradeId: rhItem.trade.tradeId,
+          rhUserAccountId: rhItem.trade.userAccountId,
           rhSide: rhItem.trade.side,
           rhPrice: rhItem.trade.price,
           rhSize: rhItem.trade.size,
@@ -264,6 +344,7 @@ export function matchHedgeTrades(
           rhRole: rhItem.trade.role,
           rhFillsCount: rhItem.trade.fillsCount ?? 1,
           coreTradeId: bestCandidate.trade.tradeId,
+          coreUserAccountId: bestCandidate.trade.userAccountId,
           coreSide: bestCandidate.trade.side,
           corePrice: bestCandidate.trade.price,
           coreSize: bestCandidate.trade.size,
@@ -293,6 +374,7 @@ export function matchHedgeTrades(
         unhedged.push({
           id: `unhedged-RH-${rhItem.trade.tradeId}`,
           tradeId: rhItem.trade.tradeId,
+          userAccountId: rhItem.trade.userAccountId,
           network: "RH",
           marketSymbol: market,
           side: rhItem.trade.side,
@@ -318,6 +400,7 @@ export function matchHedgeTrades(
         unhedged.push({
           id: `unhedged-CORE-${coreItem.trade.tradeId}`,
           tradeId: coreItem.trade.tradeId,
+          userAccountId: coreItem.trade.userAccountId,
           network: "CORE",
           marketSymbol: market,
           side: coreItem.trade.side,
@@ -351,10 +434,12 @@ export function matchHedgeTrades(
   const metrics = calculateHedgeMetrics(
     pairs,
     unhedged,
-    rhAccountIndex,
-    coreAccountIndex,
+    primaryRhAcc,
+    primaryCoreAcc,
     rhTrades.length,
     coreTrades.length,
+    resolvedRhIndices,
+    resolvedCoreIndices,
   );
 
   return { pairs, unhedged, metrics };
@@ -367,6 +452,8 @@ export function calculateHedgeMetrics(
   coreAccountIndex: number | null,
   rhTotalTrades: number,
   coreTotalTrades: number,
+  rhAccountIndices?: number[],
+  coreAccountIndices?: number[],
 ): HedgeSummaryMetrics {
   let totalHedgedVolumeUsd = 0;
   let totalNetPnlUsd = 0;
@@ -434,6 +521,8 @@ export function calculateHedgeMetrics(
     unhedgedCoreCount,
     rhAccountIndex,
     coreAccountIndex,
+    rhAccountIndices,
+    coreAccountIndices,
     rhTotalTrades,
     coreTotalTrades,
     firstTradeTime,

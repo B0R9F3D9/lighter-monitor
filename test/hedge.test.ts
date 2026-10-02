@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { getStaticMarketMap, parseFeeUsd } from "../web/src/checker/api";
+import { formatDisplayFileName } from "../web/src/checker/dom";
 import {
   aggregateTradesByOrder,
   calculateSelectedHedgeMetrics,
@@ -562,4 +563,64 @@ describe("Hedge Matching Engine", () => {
     // netPnl = -6.0 (pair net) - 1.5 (unhedged fee) = -7.5
     expect(mixed.totalNetPnlUsd).toBeCloseTo(-7.5, 4);
   });
+
+  it("collapses raw API execution fills sharing the same order ID (ask_id / bid_id) even when transaction_time differs", () => {
+    // Two fills from raw API with identical ask_id (user SELL order) but different microsecond transaction_time
+    const fill1 = mockTrade({
+      tradeId: "1255011511",
+      side: "SELL",
+      price: 236.30,
+      size: 10.0,
+      usdValue: 2363.0,
+      feeUsd: 0.05,
+      realizedPnl: 10.0,
+      timestampMs: 1790958876823,
+      marketId: 15,
+      raw: {
+        trade_id: 1255011511,
+        ask_id: 4503599644828471,
+        bid_id: 4785074583384364,
+        ask_account_id: 31704,
+        bid_account_id: 281474976710551,
+        transaction_time: 1790958876888348, // microsecond seq 1
+      } as any,
+    });
+
+    const fill2 = mockTrade({
+      tradeId: "1255011512",
+      side: "SELL",
+      price: 236.30,
+      size: 11.1919,
+      usdValue: 2644.64597,
+      feeUsd: 0.06,
+      realizedPnl: 14.28286,
+      timestampMs: 1790958876823,
+      marketId: 15,
+      raw: {
+        trade_id: 1255011512,
+        ask_id: 4503599644828471, // identical ask_id!
+        bid_id: 4785074583384365,
+        ask_account_id: 31704,
+        bid_account_id: 281474976710552,
+        transaction_time: 1790958876888350, // microsecond seq 2
+      } as any,
+    });
+
+    const aggregated = aggregateTradesByOrder([fill1, fill2]);
+    expect(aggregated).toHaveLength(1);
+    expect(aggregated[0].fillsCount).toBe(2);
+    expect(aggregated[0].size).toBeCloseTo(21.1919, 4);
+    expect(aggregated[0].usdValue).toBeCloseTo(5007.64597, 4);
+    expect(aggregated[0].realizedPnl).toBeCloseTo(24.28286, 4);
+    expect(aggregated[0].tradeId).toBe("1255011511..1255011512");
+  });
+
+  it("truncates long filenames cleanly while preserving extension and leaving short names untouched", () => {
+    expect(formatDisplayFileName("short.json", 22)).toBe("short.json");
+    expect(formatDisplayFileName("rh-trades-history-account-31704-2026-10-02T18-29-31.json", 22)).toBe(
+      "rh-trade...-29-31.json",
+    );
+    expect(formatDisplayFileName("", 22)).toBe("");
+  });
 });
+
