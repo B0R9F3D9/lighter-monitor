@@ -758,28 +758,17 @@
                   Import Trade Histories
                 </h2>
               </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <button
-                  id="btnPasteJsonHedge"
-                  type="button"
-                  class="text-[11px] text-terminal-muted hover:text-white hover:underline cursor-pointer"
-                  title="Paste raw JSON directly into RH or Core slot"
-                >
-                  Paste JSON
-                </button>
-                <span class="text-[10px] text-terminal-muted">Auto-routes files</span>
-              </div>
             </div>
 
-            <!-- Two dropzone windows for import -->
+            <!-- Two dropzone areas for import -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1 min-w-0">
-              <!-- Window 1: RH -->
+              <!-- Dropzone 1: RH -->
               <div
-                class="bg-terminal-bg/25 border border-terminal-border rounded p-2 text-xs font-mono flex flex-col justify-between space-y-1.5 h-full min-w-0 overflow-hidden"
+                id="dropzoneRh"
+                class="border border-dashed border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg/30 hover:bg-terminal-bg/50 rounded p-2.5 flex-1 flex flex-col justify-between text-xs font-mono transition-colors cursor-pointer min-w-0 w-full overflow-hidden"
               >
-                <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1 min-w-0 gap-1.5">
+                <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full">
                   <div class="flex items-center gap-1.5 shrink-0">
-                    <span class="w-4 h-4 rounded bg-terminal-accent/15 border border-terminal-accent/40 text-terminal-accent flex items-center justify-center text-[10px] font-bold">1</span>
                     <h3 class="text-xs font-bold text-white uppercase tracking-wider">Robinhood (RH)</h3>
                   </div>
                   <div class="flex items-center gap-1.5 min-w-0 shrink">
@@ -795,10 +784,7 @@
                   </div>
                 </div>
 
-                <div
-                  id="dropzoneRh"
-                  class="border border-dashed border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-2.5 flex-1 flex flex-col items-center justify-center text-center cursor-pointer transition-colors gap-1.5 min-w-0 w-full overflow-hidden"
-                >
+                <div class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-2 min-w-0 w-full">
                   <input
                     type="file"
                     id="fileInputRh"
@@ -829,13 +815,13 @@
                 </div>
               </div>
 
-              <!-- Window 2: Core -->
+              <!-- Dropzone 2: Core -->
               <div
-                class="bg-terminal-bg/25 border border-terminal-border rounded p-2 text-xs font-mono flex flex-col justify-between space-y-1.5 h-full min-w-0 overflow-hidden"
+                id="dropzoneCore"
+                class="border border-dashed border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg/30 hover:bg-terminal-bg/50 rounded p-2.5 flex-1 flex flex-col justify-between text-xs font-mono transition-colors cursor-pointer min-w-0 w-full overflow-hidden"
               >
-                <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1 min-w-0 gap-1.5">
+                <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full">
                   <div class="flex items-center gap-1.5 shrink-0">
-                    <span class="w-4 h-4 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 text-terminal-emerald flex items-center justify-center text-[10px] font-bold">2</span>
                     <h3 class="text-xs font-bold text-white uppercase tracking-wider">Lighter Core</h3>
                   </div>
                   <div class="flex items-center gap-1.5 min-w-0 shrink">
@@ -851,10 +837,7 @@
                   </div>
                 </div>
 
-                <div
-                  id="dropzoneCore"
-                  class="border border-dashed border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-2.5 flex-1 flex flex-col items-center justify-center text-center cursor-pointer transition-colors gap-1.5 min-w-0 w-full overflow-hidden"
-                >
+                <div class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-2 min-w-0 w-full">
                   <input
                     type="file"
                     id="fileInputCore"
@@ -911,6 +894,14 @@
               + Add RH
             </button>
             <button
+              id="btnPasteRhLoaded"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-accent/15 border border-terminal-accent/40 hover:bg-terminal-accent/25 hover:border-terminal-accent text-terminal-accent hover:text-white transition cursor-pointer text-xs font-semibold"
+              title="Paste another JSON response directly into Robinhood (RH)"
+            >
+              + Paste RH
+            </button>
+            <button
               id="btnAddCoreFileLoaded"
               type="button"
               class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-emerald text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
@@ -919,12 +910,12 @@
               + Add Core
             </button>
             <button
-              id="btnPasteJsonHedgeLoaded"
+              id="btnPasteCoreLoaded"
               type="button"
-              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
-              title="Paste another raw JSON response"
+              class="px-2 py-0.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white transition cursor-pointer text-xs font-semibold"
+              title="Paste another JSON response directly into Lighter Core"
             >
-              + Paste
+              + Paste Core
             </button>
             <button
               id="btnHedgeExportCsv"

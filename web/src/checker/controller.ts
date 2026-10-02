@@ -183,8 +183,8 @@ export class CheckerController {
   private btnPasteCoreBox: HTMLButtonElement | null = null;
   private btnAddRhFileLoaded: HTMLButtonElement | null = null;
   private btnAddCoreFileLoaded: HTMLButtonElement | null = null;
-  private btnPasteJsonHedge: HTMLButtonElement | null = null;
-  private btnPasteJsonHedgeLoaded: HTMLButtonElement | null = null;
+  private btnPasteRhLoaded: HTMLButtonElement | null = null;
+  private btnPasteCoreLoaded: HTMLButtonElement | null = null;
   private statusRhFile: HTMLElement | null = null;
   private statusCoreFile: HTMLElement | null = null;
   private labelRhAccount: HTMLElement | null = null;
@@ -340,8 +340,8 @@ export class CheckerController {
     this.btnPasteCoreBox = document.querySelector("#btnPasteCoreBox");
     this.btnAddRhFileLoaded = document.querySelector("#btnAddRhFileLoaded");
     this.btnAddCoreFileLoaded = document.querySelector("#btnAddCoreFileLoaded");
-    this.btnPasteJsonHedge = document.querySelector("#btnPasteJsonHedge");
-    this.btnPasteJsonHedgeLoaded = document.querySelector("#btnPasteJsonHedgeLoaded");
+    this.btnPasteRhLoaded = document.querySelector("#btnPasteRhLoaded");
+    this.btnPasteCoreLoaded = document.querySelector("#btnPasteCoreLoaded");
     this.statusRhFile = document.querySelector("#statusRhFile");
     this.statusCoreFile = document.querySelector("#statusCoreFile");
     this.labelRhAccount = document.querySelector("#labelRhAccount");
@@ -623,11 +623,11 @@ export class CheckerController {
       e.stopPropagation();
       this.pasteFromClipboardOrOpenModal("core");
     });
-    this.btnPasteJsonHedge?.addEventListener("click", () =>
-      this.pasteFromClipboardOrOpenModal("auto"),
+    this.btnPasteRhLoaded?.addEventListener("click", () =>
+      this.pasteFromClipboardOrOpenModal("rh"),
     );
-    this.btnPasteJsonHedgeLoaded?.addEventListener("click", () =>
-      this.pasteFromClipboardOrOpenModal("auto"),
+    this.btnPasteCoreLoaded?.addEventListener("click", () =>
+      this.pasteFromClipboardOrOpenModal("core"),
     );
 
     // Clear individual slots
@@ -694,6 +694,11 @@ export class CheckerController {
   private setupHedgeDropzone(dropzone: HTMLElement | null, defaultSlot: "rh" | "core"): void {
     if (!dropzone) return;
 
+    const highlightBorder =
+      defaultSlot === "rh" ? "border-terminal-accent" : "border-terminal-emerald";
+    const highlightBg =
+      defaultSlot === "rh" ? "bg-terminal-accent/10" : "bg-terminal-emerald/10";
+
     dropzone.addEventListener("click", () => {
       if (defaultSlot === "rh") this.fileInputRh?.click();
       else this.fileInputCore?.click();
@@ -702,19 +707,22 @@ export class CheckerController {
     dropzone.addEventListener("dragover", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      dropzone.classList.add("border-terminal-emerald", "bg-terminal-emerald/5");
+      dropzone.classList.add(highlightBorder, highlightBg);
     });
 
     dropzone.addEventListener("dragleave", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      dropzone.classList.remove("border-terminal-emerald", "bg-terminal-emerald/5");
+      if (e.relatedTarget && dropzone.contains(e.relatedTarget as Node)) {
+        return;
+      }
+      dropzone.classList.remove(highlightBorder, highlightBg);
     });
 
     dropzone.addEventListener("drop", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      dropzone.classList.remove("border-terminal-emerald", "bg-terminal-emerald/5");
+      dropzone.classList.remove(highlightBorder, highlightBg);
       const files = e.dataTransfer?.files;
       if (files && files.length > 0) {
         this.processHedgeUploadedFiles(Array.from(files), defaultSlot);
@@ -1086,9 +1094,11 @@ export class CheckerController {
         if (trimmed && (trimmed.startsWith("{") || trimmed.startsWith("["))) {
           try {
             const parsed = parseImportedTradesJson(trimmed, "clipboard.json");
+            let slotName = "dataset";
             if (this.mode === "solo") {
               this.soloBatches = [...this.soloBatches, parsed];
               this.applySoloBatches();
+              slotName = "Solo dataset";
             } else {
               let slot: "rh" | "core" = "rh";
               if (target === "rh") {
@@ -1111,8 +1121,12 @@ export class CheckerController {
                 this.coreBatches = [...this.coreBatches, parsed];
               }
               this.applyHedgeBatches();
+              slotName = slot === "core" ? "Lighter Core" : "Robinhood (RH)";
             }
-            this.showStatusSuccess("Pasted and loaded JSON directly from clipboard!");
+
+            this.showStatusSuccess(
+              `Pasted and added ${parsed.trades.length} trades to ${slotName}!`,
+            );
             return;
           } catch {
             this.openPasteModal(target);
@@ -1188,6 +1202,11 @@ export class CheckerController {
           this.coreBatches = [...this.coreBatches, parsed];
         }
         this.applyHedgeBatches();
+
+        const slotName = slot === "rh" ? "Robinhood (RH)" : "Lighter Core";
+        this.showStatusSuccess(
+          `Imported and added ${parsed.trades.length} trades to ${slotName}!`,
+        );
       }
     } catch (err: any) {
       console.error("Paste JSON parsing error:", err);
