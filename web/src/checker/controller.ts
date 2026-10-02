@@ -594,7 +594,16 @@ export class CheckerController {
   // ==========================================
 
   public handleFileUpload(file: File): void {
-    if (!file.name.endsWith(".json") && file.type !== "application/json" && file.type !== "") {
+    const fileNameLower = file.name.toLowerCase();
+    const isJson =
+      fileNameLower.endsWith(".json") ||
+      fileNameLower.includes(".json") ||
+      file.type === "application/json" ||
+      file.type === "text/plain" ||
+      file.type.includes("json") ||
+      file.type === "";
+
+    if (!isJson) {
       this.showStatusError("Please upload a valid .json file.");
       return;
     }
@@ -817,7 +826,16 @@ export class CheckerController {
     defaultSlot: "rh" | "core",
   ): Promise<void> {
     for (const file of files) {
-      if (!file.name.endsWith(".json") && file.type !== "application/json" && file.type !== "") {
+      const fileNameLower = file.name.toLowerCase();
+      const isJson =
+        fileNameLower.endsWith(".json") ||
+        fileNameLower.includes(".json") ||
+        file.type === "application/json" ||
+        file.type === "text/plain" ||
+        file.type.includes("json") ||
+        file.type === "";
+
+      if (!isJson) {
         this.showStatusError(`Skipped "${file.name}": not a valid .json file.`);
         continue;
       }
