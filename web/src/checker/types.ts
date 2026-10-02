@@ -88,6 +88,7 @@ export interface ParsedTradeView {
   feeUsd: number;
   txHash: string;
   txHashShort: string;
+  fillsCount?: number;
 }
 
 export interface ExportPayload {
@@ -132,6 +133,7 @@ export interface HedgePair {
   rhTimeFormatted: string;
   rhTxHash: string;
   rhRole: "MAKER" | "TAKER";
+  rhFillsCount?: number;
 
   // Core Leg
   coreTradeId: string;
@@ -143,16 +145,17 @@ export interface HedgePair {
   coreTimeFormatted: string;
   coreTxHash: string;
   coreRole: "MAKER" | "TAKER";
+  coreFillsCount?: number;
 
-  // Comparison & Loss
+  // Comparison & PnL
   buyPrice: number;
   sellPrice: number;
   priceDelta: number; // sellPrice - buyPrice
-  priceLossUsd: number; // (sellPrice - buyPrice) * matchedSize
+  pricePnlUsd: number; // (sellPrice - buyPrice) * matchedSize
   totalFeesUsd: number; // rhFeeUsd + coreFeeUsd
-  netLossUsd: number; // priceLossUsd - totalFeesUsd
+  netPnlUsd: number; // pricePnlUsd - totalFeesUsd
   notionalUsd: number; // matchedSize * ((rhPrice + corePrice) / 2)
-  costBps: number; // (netLossUsd / notionalUsd) * 10000
+  pnlBps: number; // (netPnlUsd / notionalUsd) * 10000
   timeDeltaSec: number; // (coreTimestampMs - rhTimestampMs) / 1000
   status: "HEDGED" | "PARTIAL";
 }
@@ -171,17 +174,18 @@ export interface UnhedgedTrade {
   timestampMs: number;
   timeFormatted: string;
   txHash: string;
+  fillsCount?: number;
 }
 
 export interface HedgeSummaryMetrics {
   totalPairs: number;
   totalHedgedVolumeUsd: number;
-  totalNetLossUsd: number;
-  totalPriceLossUsd: number;
+  totalNetPnlUsd: number;
+  totalPricePnlUsd: number;
   totalFeesUsd: number;
-  avgCostBps: number;
-  bestPairLossUsd: number;
-  worstPairLossUsd: number;
+  avgPnlBps: number;
+  bestPairPnlUsd: number;
+  worstPairPnlUsd: number;
   totalUnhedgedTrades: number;
   unhedgedVolumeUsd: number;
   unhedgedRhCount: number;

@@ -13,14 +13,113 @@ interface WorkingTrade {
 }
 
 /**
+ * Aggregates multi-slice execution fills belonging to the same order.
+ * Fills sharing the same timestamp, market, and side are combined into a single order with:
+ * - Total size = sum(fills.size)
+ * - VWAP price = sum(fills.usdValue) / sum(fills.size)
+ * - Total fees = sum(fills.feeUsd)
+ * - Total realized PnL = sum(fills.realizedPnl)
+ * - fillsCount = number of aggregated execution slices
+ */
+export function aggregateTradesByOrder(trades: ParsedTradeView[]): ParsedTradeView[] {
+  if (trades.length === 0) return [];
+
+  const groupsMap = new Map<string, ParsedTradeView[]>();
+  const groupOrder: string[] = [];
+
+  for (const trade of trades) {
+    const timeKey =
+      trade.raw?.transaction_time != null
+        ? `${trade.raw.transaction_time}`
+        : `${trade.timestampMs}`;
+    const key = `${timeKey}_${trade.marketId}_${trade.side}`;
+
+    let group = groupsMap.get(key);
+    if (!group) {
+      group = [];
+      groupsMap.set(key, group);
+      groupOrder.push(key);
+    }
+    group.push(trade);
+  }
+
+  const aggregated: ParsedTradeView[] = [];
+
+  for (const key of groupOrder) {
+    const group = groupsMap.get(key)!;
+    if (group.length === 1) {
+      aggregated.push({
+        ...group[0],
+        fillsCount: 1,
+      });
+      continue;
+    }
+
+    // Sort group chronologically so lead trade is earliest
+    group.sort((a, b) => {
+      const aMicro = a.raw?.transaction_time ?? 0;
+      const bMicro = b.raw?.transaction_time ?? 0;
+      if (aMicro !== bMicro) return aMicro - bMicro;
+
+      const aId = Number(a.raw?.trade_id || a.tradeId) || 0;
+      const bId = Number(b.raw?.trade_id || b.tradeId) || 0;
+      return aId - bId;
+    });
+
+    const leadTrade = group[0];
+    let totalSize = 0;
+    let totalUsdValue = 0;
+    let totalRealizedPnl = 0;
+    let totalFeeUsd = 0;
+
+    for (const fill of group) {
+      totalSize += fill.size;
+      totalUsdValue += fill.usdValue;
+      totalRealizedPnl += fill.realizedPnl;
+      totalFeeUsd += fill.feeUsd;
+    }
+
+    const vwapPrice = totalSize > 0 ? totalUsdValue / totalSize : leadTrade.price;
+
+    const firstId = leadTrade.tradeId;
+    const lastId = group[group.length - 1].tradeId;
+    const combinedTradeId = firstId === lastId ? firstId : `${firstId}..${lastId}`;
+
+    aggregated.push({
+      raw: leadTrade.raw,
+      tradeId: combinedTradeId,
+      timeFormatted: leadTrade.timeFormatted,
+      timestampMs: leadTrade.timestampMs,
+      marketSymbol: leadTrade.marketSymbol,
+      marketId: leadTrade.marketId,
+      marketKind: leadTrade.marketKind,
+      type: leadTrade.type,
+      side: leadTrade.side,
+      role: leadTrade.role,
+      price: vwapPrice,
+      size: totalSize,
+      usdValue: totalUsdValue,
+      realizedPnl: totalRealizedPnl,
+      feeUsd: totalFeeUsd,
+      txHash: leadTrade.txHash,
+      txHashShort: leadTrade.txHashShort,
+      fillsCount: group.length,
+    });
+  }
+
+  return aggregated;
+}
+
+/**
  * Matches trades executed on Robinhood (RH) with hedging trades executed on Core (Mainnet).
  *
  * Matching logic:
- * 1. Groups trades by marketSymbol (e.g. AAPL, BTC, ETH).
- * 2. Matches opposite sides (RH BUY <-> Core SELL; RH SELL <-> Core BUY).
- * 3. Matches closest trades in time within maxTimeDeltaSeconds window.
- * 4. Supports partial fill consumption if size differs.
- * 5. Flags any leftover quantity as UNHEDGED.
+ * 1. Aggregates multi-slice fills from the same order into parent orders with VWAP (if aggregateFills=true).
+ * 2. Groups trades by marketSymbol (e.g. AAPL, BTC, ETH).
+ * 3. Matches opposite sides (RH BUY <-> Core SELL; RH SELL <-> Core BUY).
+ * 4. Matches closest trades in chronological order within maxTimeDeltaSeconds window.
+ * 5. Supports partial fill consumption if size differs.
+ * 6. Flags any leftover quantity as UNHEDGED.
  */
 export function matchHedgeTrades(
   rhTrades: ParsedTradeView[],
@@ -28,17 +127,21 @@ export function matchHedgeTrades(
   rhAccountIndex: number | null,
   coreAccountIndex: number | null,
   maxTimeDeltaSeconds = 600,
+  aggregateFills = true,
 ): HedgeMatchingResult {
   const maxDeltaMs = maxTimeDeltaSeconds * 1000;
 
+  const actualRhTrades = aggregateFills ? aggregateTradesByOrder(rhTrades) : rhTrades;
+  const actualCoreTrades = aggregateFills ? aggregateTradesByOrder(coreTrades) : coreTrades;
+
   // Clone with working mutable remaining sizes
-  const rhWorking: WorkingTrade[] = rhTrades.map((t) => ({
+  const rhWorking: WorkingTrade[] = actualRhTrades.map((t) => ({
     trade: t,
     network: "RH",
     remainingSize: t.size,
   }));
 
-  const coreWorking: WorkingTrade[] = coreTrades.map((t) => ({
+  const coreWorking: WorkingTrade[] = actualCoreTrades.map((t) => ({
     trade: t,
     network: "CORE",
     remainingSize: t.size,
@@ -65,31 +168,42 @@ export function matchHedgeTrades(
   const pairs: HedgePair[] = [];
   const unhedged: UnhedgedTrade[] = [];
   let pairCounter = 1;
+  const EPSILON = 1e-6;
+
+  const sortTradesChronological = (a: WorkingTrade, b: WorkingTrade): number => {
+    if (a.trade.timestampMs !== b.trade.timestampMs) {
+      return a.trade.timestampMs - b.trade.timestampMs;
+    }
+    // Secondary tie-breaker by transaction_time (microseconds)
+    const aMicro = a.trade.raw.transaction_time ?? 0;
+    const bMicro = b.trade.raw.transaction_time ?? 0;
+    if (aMicro !== bMicro) return aMicro - bMicro;
+
+    // Tertiary tie-breaker by trade_id
+    const aId = Number(a.trade.raw.trade_id || a.trade.tradeId) || 0;
+    const bId = Number(b.trade.raw.trade_id || b.trade.tradeId) || 0;
+    return aId - bId;
+  };
 
   for (const market of allMarkets) {
-    const marketRh = (rhByMarket.get(market) || []).toSorted(
-      (a, b) => a.trade.timestampMs - b.trade.timestampMs,
-    );
-    const marketCore = (coreByMarket.get(market) || []).toSorted(
-      (a, b) => a.trade.timestampMs - b.trade.timestampMs,
-    );
+    const marketRh = (rhByMarket.get(market) || []).toSorted(sortTradesChronological);
+    const marketCore = (coreByMarket.get(market) || []).toSorted(sortTradesChronological);
 
     for (const rhItem of marketRh) {
-      if (rhItem.remainingSize <= 0.0000001) continue;
+      if (rhItem.remainingSize <= EPSILON) continue;
 
-      // Find eligible Core candidates with opposite side and available size within maxDeltaMs
-      while (rhItem.remainingSize > 0.0000001) {
+      // Find eligible Core candidates with opposite side in sequential FIFO chronological order within maxDeltaMs
+      while (rhItem.remainingSize > EPSILON) {
         let bestCandidate: WorkingTrade | null = null;
-        let minTimeDiff = Infinity;
 
         for (const candidate of marketCore) {
-          if (candidate.remainingSize <= 0.0000001) continue;
+          if (candidate.remainingSize <= EPSILON) continue;
           if (candidate.trade.side === rhItem.trade.side) continue; // Must be opposite side
 
           const timeDiff = Math.abs(candidate.trade.timestampMs - rhItem.trade.timestampMs);
-          if (timeDiff <= maxDeltaMs && timeDiff < minTimeDiff) {
-            minTimeDiff = timeDiff;
+          if (timeDiff <= maxDeltaMs) {
             bestCandidate = candidate;
+            break; // FIFO: take the earliest chronological candidate
           }
         }
 
@@ -99,8 +213,11 @@ export function matchHedgeTrades(
         }
 
         const matchedSize = Math.min(rhItem.remainingSize, bestCandidate.remainingSize);
-        rhItem.remainingSize -= matchedSize;
-        bestCandidate.remainingSize -= matchedSize;
+        rhItem.remainingSize = Math.max(0, rhItem.remainingSize - matchedSize);
+        if (rhItem.remainingSize < EPSILON) rhItem.remainingSize = 0;
+
+        bestCandidate.remainingSize = Math.max(0, bestCandidate.remainingSize - matchedSize);
+        if (bestCandidate.remainingSize < EPSILON) bestCandidate.remainingSize = 0;
 
         // Pricing calculations:
         // Whichever leg was BUY paid buyPrice; whichever leg was SELL received sellPrice.
@@ -108,8 +225,8 @@ export function matchHedgeTrades(
         const buyPrice = rhIsBuy ? rhItem.trade.price : bestCandidate.trade.price;
         const sellPrice = rhIsBuy ? bestCandidate.trade.price : rhItem.trade.price;
 
-        const priceDelta = sellPrice - buyPrice; // Positive if sold higher than bought; negative if loss
-        const priceLossUsd = priceDelta * matchedSize;
+        const priceDelta = sellPrice - buyPrice; // Positive if sold higher than bought (profit); negative if loss
+        const pricePnlUsd = priceDelta * matchedSize;
 
         // Pro-rated fees based on matched size
         const rhFeePro =
@@ -120,16 +237,16 @@ export function matchHedgeTrades(
             : 0;
         const totalFeesUsd = rhFeePro + coreFeePro;
 
-        // Net loss / PnL in USD (negative = irreversible loss)
-        const netLossUsd = priceLossUsd - totalFeesUsd;
+        // Net PnL in USD (positive = profit, negative = loss)
+        const netPnlUsd = pricePnlUsd - totalFeesUsd;
 
         const notionalUsd = matchedSize * ((rhItem.trade.price + bestCandidate.trade.price) / 2);
-        const costBps = notionalUsd > 0 ? (netLossUsd / notionalUsd) * 10000 : 0;
+        const pnlBps = notionalUsd > 0 ? (netPnlUsd / notionalUsd) * 10000 : 0;
         const timeDeltaSec = (bestCandidate.trade.timestampMs - rhItem.trade.timestampMs) / 1000;
 
         const isPartial =
-          matchedSize < rhItem.trade.size - 0.000001 ||
-          matchedSize < bestCandidate.trade.size - 0.000001;
+          matchedSize < rhItem.trade.size - EPSILON ||
+          matchedSize < bestCandidate.trade.size - EPSILON;
 
         pairs.push({
           id: `pair-${rhItem.trade.tradeId}-${bestCandidate.trade.tradeId}-${pairCounter++}`,
@@ -144,6 +261,7 @@ export function matchHedgeTrades(
           rhTimeFormatted: rhItem.trade.timeFormatted,
           rhTxHash: rhItem.trade.txHash,
           rhRole: rhItem.trade.role,
+          rhFillsCount: rhItem.trade.fillsCount ?? 1,
           coreTradeId: bestCandidate.trade.tradeId,
           coreSide: bestCandidate.trade.side,
           corePrice: bestCandidate.trade.price,
@@ -153,14 +271,15 @@ export function matchHedgeTrades(
           coreTimeFormatted: bestCandidate.trade.timeFormatted,
           coreTxHash: bestCandidate.trade.txHash,
           coreRole: bestCandidate.trade.role,
+          coreFillsCount: bestCandidate.trade.fillsCount ?? 1,
           buyPrice,
           sellPrice,
           priceDelta,
-          priceLossUsd,
+          pricePnlUsd,
           totalFeesUsd,
-          netLossUsd,
+          netPnlUsd,
           notionalUsd,
-          costBps,
+          pnlBps,
           timeDeltaSec,
           status: isPartial ? "PARTIAL" : "HEDGED",
         });
@@ -169,7 +288,7 @@ export function matchHedgeTrades(
 
     // Leftover unhedged trades for this market
     for (const rhItem of marketRh) {
-      if (rhItem.remainingSize > 0.0000001) {
+      if (rhItem.remainingSize > EPSILON) {
         unhedged.push({
           tradeId: rhItem.trade.tradeId,
           network: "RH",
@@ -187,12 +306,13 @@ export function matchHedgeTrades(
           timestampMs: rhItem.trade.timestampMs,
           timeFormatted: rhItem.trade.timeFormatted,
           txHash: rhItem.trade.txHash,
+          fillsCount: rhItem.trade.fillsCount ?? 1,
         });
       }
     }
 
     for (const coreItem of marketCore) {
-      if (coreItem.remainingSize > 0.0000001) {
+      if (coreItem.remainingSize > EPSILON) {
         unhedged.push({
           tradeId: coreItem.trade.tradeId,
           network: "CORE",
@@ -210,6 +330,7 @@ export function matchHedgeTrades(
           timestampMs: coreItem.trade.timestampMs,
           timeFormatted: coreItem.trade.timeFormatted,
           txHash: coreItem.trade.txHash,
+          fillsCount: coreItem.trade.fillsCount ?? 1,
         });
       }
     }
@@ -245,22 +366,22 @@ export function calculateHedgeMetrics(
   coreTotalTrades: number,
 ): HedgeSummaryMetrics {
   let totalHedgedVolumeUsd = 0;
-  let totalNetLossUsd = 0;
-  let totalPriceLossUsd = 0;
+  let totalNetPnlUsd = 0;
+  let totalPricePnlUsd = 0;
   let totalFeesUsd = 0;
-  let bestPairLossUsd = pairs.length > 0 ? -Infinity : 0;
-  let worstPairLossUsd = pairs.length > 0 ? Infinity : 0;
+  let bestPairPnlUsd = pairs.length > 0 ? -Infinity : 0;
+  let worstPairPnlUsd = pairs.length > 0 ? Infinity : 0;
   let firstTradeTime: number | null = null;
   let lastTradeTime: number | null = null;
 
   for (const p of pairs) {
     totalHedgedVolumeUsd += p.notionalUsd;
-    totalNetLossUsd += p.netLossUsd;
-    totalPriceLossUsd += p.priceLossUsd;
+    totalNetPnlUsd += p.netPnlUsd;
+    totalPricePnlUsd += p.pricePnlUsd;
     totalFeesUsd += p.totalFeesUsd;
 
-    if (p.netLossUsd > bestPairLossUsd) bestPairLossUsd = p.netLossUsd;
-    if (p.netLossUsd < worstPairLossUsd) worstPairLossUsd = p.netLossUsd;
+    if (p.netPnlUsd > bestPairPnlUsd) bestPairPnlUsd = p.netPnlUsd;
+    if (p.netPnlUsd < worstPairPnlUsd) worstPairPnlUsd = p.netPnlUsd;
 
     if (firstTradeTime === null || p.rhTimestampMs < firstTradeTime) {
       firstTradeTime = p.rhTimestampMs;
@@ -271,12 +392,9 @@ export function calculateHedgeMetrics(
   }
 
   if (pairs.length === 0) {
-    bestPairLossUsd = 0;
-    worstPairLossUsd = 0;
+    bestPairPnlUsd = 0;
+    worstPairPnlUsd = 0;
   }
-
-  const avgCostBps =
-    totalHedgedVolumeUsd > 0 ? (totalNetLossUsd / totalHedgedVolumeUsd) * 10000 : 0;
 
   let unhedgedVolumeUsd = 0;
   let unhedgedRhCount = 0;
@@ -284,6 +402,7 @@ export function calculateHedgeMetrics(
 
   for (const u of unhedged) {
     unhedgedVolumeUsd += u.usdValue;
+    totalFeesUsd += u.feeUsd; // Include unhedged trades' fees in total fees
     if (u.network === "RH") unhedgedRhCount++;
     else unhedgedCoreCount++;
 
@@ -295,15 +414,17 @@ export function calculateHedgeMetrics(
     }
   }
 
+  const avgPnlBps = totalHedgedVolumeUsd > 0 ? (totalNetPnlUsd / totalHedgedVolumeUsd) * 10000 : 0;
+
   return {
     totalPairs: pairs.length,
     totalHedgedVolumeUsd,
-    totalNetLossUsd,
-    totalPriceLossUsd,
+    totalNetPnlUsd,
+    totalPricePnlUsd,
     totalFeesUsd,
-    avgCostBps,
-    bestPairLossUsd,
-    worstPairLossUsd,
+    avgPnlBps,
+    bestPairPnlUsd,
+    worstPairPnlUsd,
     totalUnhedgedTrades: unhedged.length,
     unhedgedVolumeUsd,
     unhedgedRhCount,
@@ -331,14 +452,16 @@ export function exportHedgeReportToCsv(pairs: HedgePair[], unhedged: UnhedgedTra
     "Matched Size",
     "RH Price",
     "Core Price",
+    "RH Fills",
+    "Core Fills",
     "Price Delta",
     "Notional USD",
-    "Slippage Loss USD",
+    "Slippage PnL USD",
     "RH Fee USD",
     "Core Fee USD",
     "Total Fees USD",
-    "Net Loss USD",
-    "Hedge Cost Bps",
+    "Net PnL USD",
+    "Hedge PnL (bps)",
     "Time Delta Sec",
     "Status",
     "RH Trade ID",
@@ -359,14 +482,16 @@ export function exportHedgeReportToCsv(pairs: HedgePair[], unhedged: UnhedgedTra
         p.matchedSize.toFixed(4),
         p.rhPrice.toFixed(4),
         p.corePrice.toFixed(4),
+        (p.rhFillsCount ?? 1).toString(),
+        (p.coreFillsCount ?? 1).toString(),
         p.priceDelta.toFixed(4),
         p.notionalUsd.toFixed(2),
-        p.priceLossUsd.toFixed(4),
+        p.pricePnlUsd.toFixed(4),
         p.rhFeeUsd.toFixed(4),
         p.coreFeeUsd.toFixed(4),
         p.totalFeesUsd.toFixed(4),
-        p.netLossUsd.toFixed(4),
-        p.costBps.toFixed(2),
+        p.netPnlUsd.toFixed(4),
+        p.pnlBps.toFixed(2),
         p.timeDeltaSec.toFixed(2),
         p.status,
         p.rhTradeId,
@@ -376,29 +501,32 @@ export function exportHedgeReportToCsv(pairs: HedgePair[], unhedged: UnhedgedTra
   }
 
   for (const u of unhedged) {
+    const isRh = u.network === "RH";
     rows.push(
       [
         `unhedged-${u.network}-${u.tradeId}`,
-        u.network === "RH" ? u.timeFormatted : "--",
-        u.network === "CORE" ? u.timeFormatted : "--",
+        isRh ? u.timeFormatted : "--",
+        !isRh ? u.timeFormatted : "--",
         u.marketSymbol,
-        u.network === "RH" ? u.side : "--",
-        u.network === "CORE" ? u.side : "--",
+        isRh ? u.side : "--",
+        !isRh ? u.side : "--",
         u.unhedgedSize.toFixed(4),
-        u.price.toFixed(4),
-        "--",
+        isRh ? u.price.toFixed(4) : "--",
+        !isRh ? u.price.toFixed(4) : "--",
+        isRh ? (u.fillsCount ?? 1).toString() : "--",
+        !isRh ? (u.fillsCount ?? 1).toString() : "--",
         "--",
         u.usdValue.toFixed(2),
         "--",
-        u.network === "RH" ? u.feeUsd.toFixed(4) : "0",
-        u.network === "CORE" ? u.feeUsd.toFixed(4) : "0",
+        isRh ? u.feeUsd.toFixed(4) : "0.0000",
+        !isRh ? u.feeUsd.toFixed(4) : "0.0000",
         u.feeUsd.toFixed(4),
         "--",
         "--",
         "--",
         `UNHEDGED (${u.network})`,
-        u.network === "RH" ? u.tradeId : "--",
-        u.network === "CORE" ? u.tradeId : "--",
+        isRh ? u.tradeId : "--",
+        !isRh ? u.tradeId : "--",
       ].join(","),
     );
   }

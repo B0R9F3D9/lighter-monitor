@@ -516,16 +516,16 @@
               >
             </div>
             <div>
-              <span class="text-terminal-muted mr-1.5">NET LOSS:</span>
-              <span id="leadHedgeNetLoss" class="font-bold text-terminal-muted tabular-nums"
+              <span class="text-terminal-muted mr-1.5">NET PNL:</span>
+              <span id="leadHedgeNetPnl" class="font-bold text-terminal-muted tabular-nums"
                 >$0.00</span
               >
-              <span id="leadHedgeCostBps" class="text-[10px] text-terminal-muted tabular-nums ml-1"
+              <span id="leadHedgePnlBps" class="text-[10px] text-terminal-muted tabular-nums ml-1"
                 >(0.0 bps)</span
               >
             </div>
             <div class="hidden sm:block">
-              <span class="text-terminal-muted mr-1.5">SLIPPAGE:</span>
+              <span class="text-terminal-muted mr-1.5">SLIPPAGE PNL:</span>
               <span id="leadHedgeSlippage" class="font-bold text-terminal-secondary tabular-nums"
                 >$0.00</span
               >
@@ -792,6 +792,27 @@
                 </button>
               </div>
 
+              <!-- Order Aggregation Mode: Orders (VWAP) vs Raw Fills -->
+              <div
+                class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px]"
+                title="Aggregate multi-slice fills from the same order into a single VWAP order, or view individual orderbook fills"
+              >
+                <button
+                  id="btnHedgeModeAggregated"
+                  type="button"
+                  class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-semibold transition cursor-pointer select-none"
+                >
+                  Orders (VWAP)
+                </button>
+                <button
+                  id="btnHedgeModeRaw"
+                  type="button"
+                  class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer select-none bg-transparent"
+                >
+                  Raw Fills
+                </button>
+              </div>
+
               <span id="hedgeCountNotice" class="text-[11px] text-terminal-muted ml-2"></span>
             </div>
 
@@ -821,10 +842,10 @@
                   <th class="py-2 px-2 font-semibold text-right">Size</th>
                   <th class="py-2 px-2 font-semibold text-right">Δ Price</th>
                   <th class="py-2 px-2 font-semibold text-right">Notional</th>
-                  <th class="py-2 px-2 font-semibold text-right">Slippage</th>
+                  <th class="py-2 px-2 font-semibold text-right">Slippage PnL</th>
                   <th class="py-2 px-2 font-semibold text-right">Fees</th>
-                  <th class="py-2 px-2 font-semibold text-right">Net Loss</th>
-                  <th class="py-2 px-2 font-semibold text-right">Hedge Cost</th>
+                  <th class="py-2 px-2 font-semibold text-right">Net PnL</th>
+                  <th class="py-2 px-2 font-semibold text-right">Hedge PnL</th>
                   <th class="py-2 px-2 font-semibold text-right">Time Δ</th>
                   <th class="py-2 px-2 font-semibold text-center">Status</th>
                 </tr>

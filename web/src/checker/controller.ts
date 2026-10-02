@@ -4,6 +4,7 @@ import {
   downloadJsonFile,
   downloadTextFile,
   fetchMarketMap,
+  getStaticMarketMap,
   parseImportedTradesJson,
   parseTradeForView,
   prepareExportPayload,
@@ -58,8 +59,8 @@ export class CheckerController {
   private hedgeMetrics: HedgeSummaryMetrics | null = null;
   private hedgeFilterTab: "all" | "unhedged" = "all";
   private hedgeSearchQuery = "";
-  private rhMarketMap: Map<number, string> = new Map();
-  private coreMarketMap: Map<number, string> = new Map();
+  private rhMarketMap: Map<number, string> = getStaticMarketMap("rh");
+  private coreMarketMap: Map<number, string> = getStaticMarketMap("mainnet");
 
   // Mode Switcher Elements
   private modeBtnSolo: HTMLButtonElement | null = null;
@@ -130,8 +131,8 @@ export class CheckerController {
     accountsBadge: null as HTMLElement | null,
     pairsCount: null as HTMLElement | null,
     hedgedVolume: null as HTMLElement | null,
-    netLoss: null as HTMLElement | null,
-    costBps: null as HTMLElement | null,
+    netPnl: null as HTMLElement | null,
+    pnlBps: null as HTMLElement | null,
     slippage: null as HTMLElement | null,
     fees: null as HTMLElement | null,
     unhedgedCount: null as HTMLElement | null,
@@ -163,6 +164,9 @@ export class CheckerController {
   // Hedge Table & Results Elements
   private tabBtnHedgeAll: HTMLButtonElement | null = null;
   private tabBtnHedgeUnhedged: HTMLButtonElement | null = null;
+  private hedgeAggregateMode: "aggregated" | "raw" = "aggregated";
+  private btnHedgeModeAggregated: HTMLButtonElement | null = null;
+  private btnHedgeModeRaw: HTMLButtonElement | null = null;
   private hedgeCountNotice: HTMLElement | null = null;
   private inputHedgeSearchFilter: HTMLInputElement | null = null;
   private hedgeTableBody: HTMLTableSectionElement | null = null;
@@ -243,8 +247,8 @@ export class CheckerController {
       accountsBadge: document.querySelector("#leadHedgeAccountsBadge"),
       pairsCount: document.querySelector("#leadHedgePairsCount"),
       hedgedVolume: document.querySelector("#leadHedgeVolume"),
-      netLoss: document.querySelector("#leadHedgeNetLoss"),
-      costBps: document.querySelector("#leadHedgeCostBps"),
+      netPnl: document.querySelector("#leadHedgeNetPnl"),
+      pnlBps: document.querySelector("#leadHedgePnlBps"),
       slippage: document.querySelector("#leadHedgeSlippage"),
       fees: document.querySelector("#leadHedgeFees"),
       unhedgedCount: document.querySelector("#leadHedgeUnhedgedCount"),
@@ -276,6 +280,8 @@ export class CheckerController {
     // Hedge Table & Results Elements
     this.tabBtnHedgeAll = document.querySelector("#tabBtnHedgeAll");
     this.tabBtnHedgeUnhedged = document.querySelector("#tabBtnHedgeUnhedged");
+    this.btnHedgeModeAggregated = document.querySelector("#btnHedgeModeAggregated");
+    this.btnHedgeModeRaw = document.querySelector("#btnHedgeModeRaw");
     this.hedgeCountNotice = document.querySelector("#hedgeCountNotice");
     this.inputHedgeSearchFilter = document.querySelector("#inputHedgeSearchFilter");
     this.hedgeTableBody = document.querySelector("#hedgeTableBody");
@@ -310,9 +316,9 @@ export class CheckerController {
   private async loadMarketDefinitions(): Promise<void> {
     try {
       const [rhMap, coreMap] = await Promise.all([fetchMarketMap("rh"), fetchMarketMap("mainnet")]);
-      this.rhMarketMap = rhMap;
-      this.coreMarketMap = coreMap;
-      this.marketMap = this.network === "rh" ? rhMap : coreMap;
+      this.rhMarketMap = rhMap.size > 0 ? rhMap : getStaticMarketMap("rh");
+      this.coreMarketMap = coreMap.size > 0 ? coreMap : getStaticMarketMap("mainnet");
+      this.marketMap = this.network === "rh" ? this.rhMarketMap : this.coreMarketMap;
 
       if (this.rawTrades.length > 0 && this.resolvedAccountIndex !== null) {
         this.recalculateAndRender();
@@ -488,6 +494,12 @@ export class CheckerController {
     this.tabBtnHedgeUnhedged?.addEventListener("click", () =>
       this.switchHedgeFilterTab("unhedged"),
     );
+
+    // Hedge aggregation mode (VWAP Orders vs Raw Fills)
+    this.btnHedgeModeAggregated?.addEventListener("click", () =>
+      this.switchHedgeAggregateMode("aggregated"),
+    );
+    this.btnHedgeModeRaw?.addEventListener("click", () => this.switchHedgeAggregateMode("raw"));
 
     // Hedge search filter
     this.inputHedgeSearchFilter?.addEventListener("input", (e) => {
@@ -926,6 +938,8 @@ export class CheckerController {
       this.coreParsedTrades,
       this.rhAccountIndex,
       this.coreAccountIndex,
+      600,
+      this.hedgeAggregateMode === "aggregated",
     );
 
     this.hedgePairs = result.pairs;
@@ -1010,6 +1024,35 @@ export class CheckerController {
       this.tabBtnHedgeAll?.classList.add("text-terminal-muted");
     }
     this.applyHedgeFilter();
+  }
+
+  private switchHedgeAggregateMode(mode: "aggregated" | "raw"): void {
+    if (this.hedgeAggregateMode === mode) return;
+    this.hedgeAggregateMode = mode;
+
+    if (mode === "aggregated") {
+      this.btnHedgeModeAggregated?.classList.add(
+        "bg-terminal-surface",
+        "text-white",
+        "font-semibold",
+      );
+      this.btnHedgeModeAggregated?.classList.remove("text-terminal-muted");
+      this.btnHedgeModeRaw?.classList.remove("bg-terminal-surface", "text-white", "font-semibold");
+      this.btnHedgeModeRaw?.classList.add("text-terminal-muted");
+    } else {
+      this.btnHedgeModeRaw?.classList.add("bg-terminal-surface", "text-white", "font-semibold");
+      this.btnHedgeModeRaw?.classList.remove("text-terminal-muted");
+      this.btnHedgeModeAggregated?.classList.remove(
+        "bg-terminal-surface",
+        "text-white",
+        "font-semibold",
+      );
+      this.btnHedgeModeAggregated?.classList.add("text-terminal-muted");
+    }
+
+    if (this.rhRawTrades.length > 0 && this.coreRawTrades.length > 0) {
+      this.recalculateAndRenderHedge();
+    }
   }
 
   public downloadHedgeCsv(): void {

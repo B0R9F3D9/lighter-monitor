@@ -216,24 +216,24 @@ export function createHedgeRow(pair: HedgePair, index: number): HTMLTableRowElem
   }
 
   let slippageHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
-  if (pair.priceLossUsd > 0.0001) {
-    slippageHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${formatMoney(pair.priceLossUsd)}</span>`;
-  } else if (pair.priceLossUsd < -0.0001) {
-    slippageHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${formatMoney(pair.priceLossUsd)}</span>`;
+  if (pair.pricePnlUsd > 0.0001) {
+    slippageHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${formatMoney(pair.pricePnlUsd)}</span>`;
+  } else if (pair.pricePnlUsd < -0.0001) {
+    slippageHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${formatMoney(pair.pricePnlUsd)}</span>`;
   }
 
-  let netLossHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
-  if (pair.netLossUsd > 0.0001) {
-    netLossHtml = `<span class="text-terminal-emerald font-bold tabular-nums">+${formatMoney(pair.netLossUsd)}</span>`;
-  } else if (pair.netLossUsd < -0.0001) {
-    netLossHtml = `<span class="text-terminal-coral font-bold tabular-nums">${formatMoney(pair.netLossUsd)}</span>`;
+  let netPnlHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
+  if (pair.netPnlUsd > 0.0001) {
+    netPnlHtml = `<span class="text-terminal-emerald font-bold tabular-nums">+${formatMoney(pair.netPnlUsd)}</span>`;
+  } else if (pair.netPnlUsd < -0.0001) {
+    netPnlHtml = `<span class="text-terminal-coral font-bold tabular-nums">${formatMoney(pair.netPnlUsd)}</span>`;
   }
 
   let bpsHtml = `<span class="text-terminal-muted tabular-nums">0.0 bps</span>`;
-  if (pair.costBps > 0.01) {
-    bpsHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${pair.costBps.toFixed(2)} bps</span>`;
-  } else if (pair.costBps < -0.01) {
-    bpsHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${pair.costBps.toFixed(2)} bps</span>`;
+  if (pair.pnlBps > 0.01) {
+    bpsHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${pair.pnlBps.toFixed(2)} bps</span>`;
+  } else if (pair.pnlBps < -0.01) {
+    bpsHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${pair.pnlBps.toFixed(2)} bps</span>`;
   }
 
   const statusBadge =
@@ -252,17 +252,19 @@ export function createHedgeRow(pair: HedgePair, index: number): HTMLTableRowElem
     <td class="py-1.5 px-2 whitespace-nowrap text-[11px]">
       <span class="font-bold ${rhSideColor}">${pair.rhSide}</span>
       <span class="text-white tabular-nums ml-1">@ ${formatPrice(pair.rhPrice)}</span>
+      ${pair.rhFillsCount && pair.rhFillsCount > 1 ? `<span class="text-terminal-muted text-[10px] ml-1">(${pair.rhFillsCount} fills)</span>` : ""}
     </td>
     <td class="py-1.5 px-2 whitespace-nowrap text-[11px]">
       <span class="font-bold ${coreSideColor}">${pair.coreSide}</span>
       <span class="text-white tabular-nums ml-1">@ ${formatPrice(pair.corePrice)}</span>
+      ${pair.coreFillsCount && pair.coreFillsCount > 1 ? `<span class="text-terminal-muted text-[10px] ml-1">(${pair.coreFillsCount} fills)</span>` : ""}
     </td>
     <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatSmartSize(pair.matchedSize)}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap">${priceDeltaHtml}</td>
     <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatMoney(pair.notionalUsd)}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap">${slippageHtml}</td>
     <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${pair.totalFeesUsd > 0 ? formatMoney(pair.totalFeesUsd) : "$0.00"}</td>
-    <td class="py-1.5 px-2 text-right whitespace-nowrap">${netLossHtml}</td>
+    <td class="py-1.5 px-2 text-right whitespace-nowrap">${netPnlHtml}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap text-[11px]">${bpsHtml}</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted text-[11px] tabular-nums">${timeDeltaStr}</td>
     <td class="py-1.5 px-2 text-center whitespace-nowrap">${statusBadge}</td>
@@ -281,12 +283,12 @@ export function createUnhedgedRow(trade: UnhedgedTrade, index: number): HTMLTabl
 
   const rhLegHtml =
     trade.network === "RH"
-      ? `<span class="font-bold ${sideColor}">${trade.side}</span> <span class="text-white tabular-nums">@ ${formatPrice(trade.price)}</span>`
+      ? `<span class="font-bold ${sideColor}">${trade.side}</span> <span class="text-white tabular-nums">@ ${formatPrice(trade.price)}</span>${trade.fillsCount && trade.fillsCount > 1 ? ` <span class="text-terminal-muted text-[10px]">(${trade.fillsCount} fills)</span>` : ""}`
       : `<span class="text-terminal-muted">--</span>`;
 
   const coreLegHtml =
     trade.network === "CORE"
-      ? `<span class="font-bold ${sideColor}">${trade.side}</span> <span class="text-white tabular-nums">@ ${formatPrice(trade.price)}</span>`
+      ? `<span class="font-bold ${sideColor}">${trade.side}</span> <span class="text-white tabular-nums">@ ${formatPrice(trade.price)}</span>${trade.fillsCount && trade.fillsCount > 1 ? ` <span class="text-terminal-muted text-[10px]">(${trade.fillsCount} fills)</span>` : ""}`
       : `<span class="text-terminal-muted">--</span>`;
 
   tr.innerHTML = `
@@ -371,8 +373,8 @@ export interface HedgeMetricElements {
   accountsBadge?: HTMLElement | null;
   pairsCount: HTMLElement | null;
   hedgedVolume: HTMLElement | null;
-  netLoss: HTMLElement | null;
-  costBps: HTMLElement | null;
+  netPnl: HTMLElement | null;
+  pnlBps: HTMLElement | null;
   slippage: HTMLElement | null;
   fees: HTMLElement | null;
   unhedgedCount: HTMLElement | null;
@@ -386,11 +388,11 @@ export function updateHedgeExecutiveMetrics(
     if (elements.accountsBadge) elements.accountsBadge.textContent = "RH vs CORE";
     if (elements.pairsCount) elements.pairsCount.textContent = "0";
     if (elements.hedgedVolume) elements.hedgedVolume.textContent = "$0.00";
-    if (elements.netLoss) {
-      elements.netLoss.textContent = "$0.00";
-      elements.netLoss.className = "font-bold text-terminal-muted tabular-nums";
+    if (elements.netPnl) {
+      elements.netPnl.textContent = "$0.00";
+      elements.netPnl.className = "font-bold text-terminal-muted tabular-nums";
     }
-    if (elements.costBps) elements.costBps.textContent = "(0.0 bps)";
+    if (elements.pnlBps) elements.pnlBps.textContent = "(0.0 bps)";
     if (elements.slippage) elements.slippage.textContent = "$0.00";
     if (elements.fees) elements.fees.textContent = "$0.00";
     if (elements.unhedgedCount) elements.unhedgedCount.textContent = "0";
@@ -411,37 +413,40 @@ export function updateHedgeExecutiveMetrics(
     elements.hedgedVolume.textContent = formatMoney(metrics.totalHedgedVolumeUsd);
   }
 
-  if (elements.netLoss) {
-    const sign = metrics.totalNetLossUsd > 0.0001 ? "+" : "";
-    elements.netLoss.textContent = `${sign}${formatMoney(metrics.totalNetLossUsd)}`;
-    if (metrics.totalNetLossUsd > 0.001) {
-      elements.netLoss.className = "font-bold text-terminal-emerald tabular-nums";
-    } else if (metrics.totalNetLossUsd < -0.001) {
-      elements.netLoss.className = "font-bold text-terminal-coral tabular-nums";
+  if (elements.netPnl) {
+    const sign = metrics.totalNetPnlUsd > 0.0001 ? "+" : "";
+    elements.netPnl.textContent = `${sign}${formatMoney(metrics.totalNetPnlUsd)}`;
+    if (metrics.totalNetPnlUsd > 0.001) {
+      elements.netPnl.className = "font-bold text-terminal-emerald tabular-nums";
+    } else if (metrics.totalNetPnlUsd < -0.001) {
+      elements.netPnl.className = "font-bold text-terminal-coral tabular-nums";
     } else {
-      elements.netLoss.className = "font-bold text-terminal-muted tabular-nums";
+      elements.netPnl.className = "font-bold text-terminal-muted tabular-nums";
     }
   }
 
-  if (elements.costBps) {
-    const sign = metrics.avgCostBps > 0.001 ? "+" : "";
-    elements.costBps.textContent = `(${sign}${metrics.avgCostBps.toFixed(2)} bps)`;
-    if (metrics.avgCostBps > 0.01) {
-      elements.costBps.className = "text-[10px] text-terminal-emerald tabular-nums ml-1";
-    } else if (metrics.avgCostBps < -0.01) {
-      elements.costBps.className = "text-[10px] text-terminal-coral tabular-nums ml-1";
+  if (elements.pnlBps) {
+    const sign = metrics.avgPnlBps > 0.001 ? "+" : "";
+    elements.pnlBps.textContent = `(${sign}${metrics.avgPnlBps.toFixed(2)} bps)`;
+    if (metrics.avgPnlBps > 0.01) {
+      elements.pnlBps.className = "text-[10px] text-terminal-emerald tabular-nums ml-1";
+    } else if (metrics.avgPnlBps < -0.01) {
+      elements.pnlBps.className = "text-[10px] text-terminal-coral tabular-nums ml-1";
     } else {
-      elements.costBps.className = "text-[10px] text-terminal-muted tabular-nums ml-1";
+      elements.pnlBps.className = "text-[10px] text-terminal-muted tabular-nums ml-1";
     }
   }
 
   if (elements.slippage) {
-    const sign = metrics.totalPriceLossUsd > 0.0001 ? "+" : "";
-    elements.slippage.textContent = `${sign}${formatMoney(metrics.totalPriceLossUsd)}`;
-    elements.slippage.className =
-      metrics.totalPriceLossUsd < -0.001
-        ? "font-bold text-terminal-coral tabular-nums"
-        : "font-bold text-terminal-secondary tabular-nums";
+    const sign = metrics.totalPricePnlUsd > 0.0001 ? "+" : "";
+    elements.slippage.textContent = `${sign}${formatMoney(metrics.totalPricePnlUsd)}`;
+    if (metrics.totalPricePnlUsd > 0.001) {
+      elements.slippage.className = "font-bold text-terminal-emerald tabular-nums";
+    } else if (metrics.totalPricePnlUsd < -0.001) {
+      elements.slippage.className = "font-bold text-terminal-coral tabular-nums";
+    } else {
+      elements.slippage.className = "font-bold text-terminal-secondary tabular-nums";
+    }
   }
 
   if (elements.fees) {

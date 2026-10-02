@@ -27,15 +27,117 @@ export function normalizeTimestampMs(ts: number): number {
   return ts < 1e11 ? ts * 1000 : ts;
 }
 
+export const STATIC_MARKET_MAP: Record<CheckerNetwork, Record<number, string>> = {
+  rh: {
+    0: "ETH",
+    1: "BTC",
+    2: "HYPE",
+    3: "SOL",
+    4: "ZEC",
+    5: "LIT",
+    6: "XRP",
+    7: "NEAR",
+    8: "VVV",
+    9: "SUI",
+    10: "AAPL",
+    11: "AMZN",
+    12: "GOOGL",
+    13: "META",
+    14: "MSFT",
+    15: "NVDA",
+    16: "TSLA",
+    17: "ORCL",
+    18: "SPCX",
+    19: "BABA",
+    20: "BE",
+    22: "USO",
+    23: "COIN",
+    24: "CRCL",
+    25: "QQQ",
+    26: "SPY",
+    27: "SGOV",
+    28: "SLV",
+    29: "AMD",
+    30: "INTC",
+    31: "MU",
+    33: "CRWV",
+    34: "PLTR",
+    35: "SOXL",
+    36: "CASHCAT",
+    37: "SKHY",
+    38: "ANTHROPIC",
+    39: "ANSEM",
+    40: "XAU",
+    41: "XAG",
+    42: "OPENAI",
+    43: "SHEIN",
+    44: "PONS",
+    45: "AI",
+    46: "TSM",
+    53: "SMCI",
+  },
+  mainnet: {
+    0: "ETH",
+    1: "BTC",
+    2: "SOL",
+    6: "WLD",
+    7: "XRP",
+    10: "NEAR",
+    16: "SUI",
+    24: "HYPE",
+    90: "ZEC",
+    92: "XAU",
+    93: "XAG",
+    108: "HOOD",
+    109: "COIN",
+    110: "NVDA",
+    111: "PLTR",
+    112: "TSLA",
+    113: "AAPL",
+    114: "AMZN",
+    115: "MSFT",
+    116: "GOOGL",
+    117: "META",
+    120: "LIT",
+    128: "SPY",
+    129: "QQQ",
+    137: "INTC",
+    138: "AMD",
+    164: "MU",
+    165: "ORCL",
+    168: "TSM",
+    177: "BABA",
+    193: "ANTHROPIC",
+    194: "SPCX",
+    196: "BE",
+    197: "SOXL",
+    216: "SKHY",
+    221: "CASHCAT",
+    230: "SHEIN",
+    231: "PONS",
+    232: "AI",
+  },
+};
+
+export function getStaticMarketMap(network: CheckerNetwork): Map<number, string> {
+  const map = new Map<number, string>();
+  const staticEntries = STATIC_MARKET_MAP[network] || {};
+  for (const [id, symbol] of Object.entries(staticEntries)) {
+    map.set(Number(id), symbol);
+  }
+  return map;
+}
+
 /**
  * Fetches market definitions from orderBookDetails to map market_id -> Symbol.
+ * Falls back to STATIC_MARKET_MAP if API is unreachable or offline.
  */
 export async function fetchMarketMap(
   network: CheckerNetwork,
   signal?: AbortSignal,
 ): Promise<Map<number, string>> {
   const baseUrl = getBaseApiUrl(network);
-  const map = new Map<number, string>();
+  const map = getStaticMarketMap(network);
 
   try {
     const res = await fetch(`${baseUrl}/orderBookDetails?_t=${Date.now()}`, {
@@ -53,7 +155,7 @@ export async function fetchMarketMap(
       }
     }
   } catch {
-    // Non-critical: table will fall back to #market_id
+    // Non-critical: falls back to static dictionary
   }
 
   return map;
@@ -248,6 +350,28 @@ export async function fetchAllTrades(
 }
 
 /**
+ * Safely parses exchange fees to USD amount.
+ * Handles quote base units (USDC 6 decimals: > 1000 => raw / 1e6),
+ * basis points (<= 1000 => (raw / 10000) * usdValue),
+ * and standard floating-point USD fees.
+ */
+export function parseFeeUsd(rawFee: number | undefined | null, usdValue = 0): number {
+  if (rawFee === undefined || rawFee === null || isNaN(rawFee) || rawFee <= 0) {
+    return 0;
+  }
+  // Floating point values are already denominated in USD
+  if (!Number.isInteger(rawFee)) {
+    return rawFee;
+  }
+  // In Lighter zk-rollup, atomic quote token units have 6 decimals (1 USDC = 1,000,000 units)
+  if (rawFee > 1000) {
+    return rawFee / 1_000_000;
+  }
+  // If integer <= 1000, it represents basis points (e.g. 5 bps = 0.05%)
+  return (rawFee / 10000) * usdValue;
+}
+
+/**
  * Parses a raw LighterTrade into a view representation.
  */
 export function parseTradeForView(
@@ -278,7 +402,8 @@ export function parseTradeForView(
   }
 
   const rawFee = role === "MAKER" ? trade.maker_fee : trade.taker_fee;
-  const feeUsd = typeof rawFee === "number" ? rawFee / 10000 : 0;
+  const usdValue = parseFloat(trade.usd_amount) || 0;
+  const feeUsd = parseFeeUsd(rawFee, usdValue);
 
   const symbol = marketMap.get(Number(trade.market_id)) || `#${trade.market_id}`;
   const timestampMs = normalizeTimestampMs(trade.timestamp);
@@ -305,7 +430,7 @@ export function parseTradeForView(
     role,
     price: parseFloat(trade.price) || 0,
     size: parseFloat(trade.size) || 0,
-    usdValue: parseFloat(trade.usd_amount) || 0,
+    usdValue,
     realizedPnl,
     feeUsd,
     txHash,
@@ -349,9 +474,7 @@ export function calculateTradeMetrics(
     totalVolumeUsd += usd;
 
     const rawFee = isMaker ? t.maker_fee : t.taker_fee;
-    if (typeof rawFee === "number") {
-      totalFeesUsd += rawFee / 10000;
-    }
+    totalFeesUsd += parseFeeUsd(rawFee, usd);
 
     marketSet.add(Number(t.market_id));
 
