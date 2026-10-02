@@ -4,6 +4,7 @@ import { formatDisplayFileName } from "../web/src/checker/dom";
 import {
   aggregateTradesByOrder,
   calculateSelectedHedgeMetrics,
+  computeRangeSelection,
   exportHedgeReportToCsv,
   matchHedgeTrades,
 } from "../web/src/checker/hedge";
@@ -621,5 +622,94 @@ describe("Hedge Matching Engine", () => {
       formatDisplayFileName("rh-trades-history-account-31704-2026-10-02T18-29-31.json", 22),
     ).toBe("rh-trade...-29-31.json");
     expect(formatDisplayFileName("", 22)).toBe("");
+  });
+
+  describe("Shift-Key Range Selection (computeRangeSelection)", () => {
+    const visibleIds = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10"];
+
+    it("selects a contiguous range forward when anchor and target are clicked with Shift", () => {
+      // User clicks p2 without shift (snapshot = {p2})
+      const snapshot = new Set(["p2"]);
+      const res = computeRangeSelection(visibleIds, "p2", "p6", snapshot, true);
+
+      expect(res.newAnchorId).toBe("p2");
+      expect([...res.newSelectedIds].toSorted()).toEqual(["p2", "p3", "p4", "p5", "p6"]);
+    });
+
+    it("selects a contiguous range backward when target is above anchor", () => {
+      // User clicks p7 without shift, then Shift-clicks p3
+      const snapshot = new Set(["p7"]);
+      const res = computeRangeSelection(visibleIds, "p7", "p3", snapshot, true);
+
+      expect(res.newAnchorId).toBe("p7");
+      expect([...res.newSelectedIds].toSorted()).toEqual(["p3", "p4", "p5", "p6", "p7"]);
+    });
+
+    it("smoothly expands and contracts range when user keeps Shift held down", () => {
+      // 1. Initial click on p3
+      const snapshot = new Set(["p3"]);
+
+      // 2. Shift-click p7 (range p3..p7)
+      const res1 = computeRangeSelection(visibleIds, "p3", "p7", snapshot, true);
+      expect([...res1.newSelectedIds].toSorted()).toEqual(["p3", "p4", "p5", "p6", "p7"]);
+
+      // 3. User contracts range to p5 while holding Shift (using same base snapshot)
+      const res2 = computeRangeSelection(visibleIds, "p3", "p5", snapshot, true);
+      expect([...res2.newSelectedIds].toSorted()).toEqual(["p3", "p4", "p5"]);
+
+      // 4. User expands range to p9 while holding Shift (using same base snapshot)
+      const res3 = computeRangeSelection(visibleIds, "p3", "p9", snapshot, true);
+      expect([...res3.newSelectedIds].toSorted()).toEqual([
+        "p3",
+        "p4",
+        "p5",
+        "p6",
+        "p7",
+        "p8",
+        "p9",
+      ]);
+    });
+
+    it("preserves non-contiguous selections outside the active Shift-range", () => {
+      // p1 and p10 were previously selected
+      const snapshot = new Set(["p1", "p10"]);
+
+      // User selects p4..p6 with Shift
+      const res = computeRangeSelection(visibleIds, "p4", "p6", snapshot, true);
+      expect([...res.newSelectedIds].toSorted()).toEqual(["p1", "p10", "p4", "p5", "p6"]);
+    });
+
+    it("unselects a range when anchor was an uncheck action", () => {
+      // All items p1..p10 are selected
+      const snapshot = new Set(visibleIds);
+
+      // User clicks p3 to uncheck (shouldSelect = false), then Shift-clicks p6
+      const res = computeRangeSelection(visibleIds, "p3", "p6", snapshot, false);
+      expect(res.newAnchorId).toBe("p3");
+      // p3, p4, p5, p6 are deleted
+      expect([...res.newSelectedIds].toSorted()).toEqual(["p1", "p10", "p2", "p7", "p8", "p9"]);
+    });
+
+    it("establishes target as new anchor when no prior anchor exists", () => {
+      const snapshot = new Set<string>();
+      const res = computeRangeSelection(visibleIds, null, "p4", snapshot, true);
+      expect(res.newAnchorId).toBe("p4");
+      expect(Array.from(res.newSelectedIds)).toEqual(["p4"]);
+    });
+
+    it("re-anchors to target if previous anchor is no longer visible (e.g. filtered out)", () => {
+      const snapshot = new Set(["p1"]);
+      // Anchor "hidden_row" is not in visibleIds
+      const res = computeRangeSelection(visibleIds, "hidden_row", "p5", snapshot, true);
+      expect(res.newAnchorId).toBe("p5");
+      expect(res.newSelectedIds.has("p5")).toBe(true);
+      expect(res.newSelectedIds.has("p1")).toBe(true);
+    });
+
+    it("returns unmodified snapshot if target is not in visibleIds", () => {
+      const snapshot = new Set(["p1", "p2"]);
+      const res = computeRangeSelection(visibleIds, "p1", "unknown_row", snapshot, true);
+      expect(Array.from(res.newSelectedIds)).toEqual(["p1", "p2"]);
+    });
   });
 });

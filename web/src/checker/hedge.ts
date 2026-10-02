@@ -564,6 +564,65 @@ export function calculateSelectedHedgeMetrics(
 }
 
 /**
+ * Computes the updated set of selected row IDs when performing a Shift-range selection in the hedge table.
+ *
+ * @param visibleIds - The ordered array of row IDs currently visible in the table.
+ * @param anchorId - The starting anchor row ID of the selection.
+ * @param targetId - The row ID where the user Shift-clicked.
+ * @param baseSnapshot - The snapshot of selected IDs before the range operation began.
+ * @param shouldSelect - True to select the range, false to deselect the range.
+ * @returns An object with newSelectedIds and newAnchorId.
+ */
+export function computeRangeSelection(
+  visibleIds: string[],
+  anchorId: string | null,
+  targetId: string,
+  baseSnapshot: Set<string>,
+  shouldSelect = true,
+): { newSelectedIds: Set<string>; newAnchorId: string } {
+  const targetIndex = visibleIds.indexOf(targetId);
+  if (targetIndex === -1) {
+    return { newSelectedIds: new Set(baseSnapshot), newAnchorId: anchorId ?? targetId };
+  }
+
+  if (!anchorId) {
+    const next = new Set(baseSnapshot);
+    if (shouldSelect) {
+      next.add(targetId);
+    } else {
+      next.delete(targetId);
+    }
+    return { newSelectedIds: next, newAnchorId: targetId };
+  }
+
+  const anchorIndex = visibleIds.indexOf(anchorId);
+  if (anchorIndex === -1) {
+    const next = new Set(baseSnapshot);
+    if (shouldSelect) {
+      next.add(targetId);
+    } else {
+      next.delete(targetId);
+    }
+    return { newSelectedIds: next, newAnchorId: targetId };
+  }
+
+  const start = Math.min(anchorIndex, targetIndex);
+  const end = Math.max(anchorIndex, targetIndex);
+  const next = new Set(baseSnapshot);
+
+  for (let i = start; i <= end; i++) {
+    const id = visibleIds[i];
+    if (shouldSelect) {
+      next.add(id);
+    } else {
+      next.delete(id);
+    }
+  }
+
+  return { newSelectedIds: next, newAnchorId: anchorId };
+}
+
+/**
  * Exports hedge analysis pairs to CSV string for download / spreadsheet audit.
  */
 export function exportHedgeReportToCsv(pairs: HedgePair[], unhedged: UnhedgedTrade[]): string {

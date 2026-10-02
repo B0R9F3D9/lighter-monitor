@@ -22,7 +22,12 @@ import {
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
 } from "./dom";
-import { calculateSelectedHedgeMetrics, exportHedgeReportToCsv, matchHedgeTrades } from "./hedge";
+import {
+  calculateSelectedHedgeMetrics,
+  computeRangeSelection,
+  exportHedgeReportToCsv,
+  matchHedgeTrades,
+} from "./hedge";
 import type {
   CheckerNetwork,
   CheckerSummaryMetrics,
@@ -212,6 +217,8 @@ export class CheckerController {
   // Hedge Row Selection State & Elements
   private selectedHedgeRowIds: Set<string> = new Set();
   private lastClickedHedgeRowId: string | null = null;
+  private lastClickedHedgeRowState = true;
+  private selectionSnapshot: Set<string> = new Set();
   private hedgeSelectionCard: HTMLElement | null = null;
   private btnDeselectAllHedge: HTMLButtonElement | null = null;
   private checkAllHedge: HTMLInputElement | null = null;
@@ -471,6 +478,8 @@ export class CheckerController {
       } else if (e.key === "Escape" && this.selectedHedgeRowIds.size > 0) {
         this.selectedHedgeRowIds.clear();
         this.lastClickedHedgeRowId = null;
+        this.lastClickedHedgeRowState = true;
+        this.selectionSnapshot.clear();
         this.onHedgeSelectionChanged();
       }
     });
@@ -686,7 +695,15 @@ export class CheckerController {
     this.btnDeselectAllHedge?.addEventListener("click", () => {
       this.selectedHedgeRowIds.clear();
       this.lastClickedHedgeRowId = null;
+      this.lastClickedHedgeRowState = true;
+      this.selectionSnapshot.clear();
       this.onHedgeSelectionChanged();
+    });
+    this.hedgeTableBody?.addEventListener("mousedown", (e) => {
+      if (e.shiftKey) {
+        // Prevent browser from initiating native text selection range across rows
+        e.preventDefault();
+      }
     });
     this.hedgeTableBody?.addEventListener("click", (e) => this.handleHedgeTableClick(e));
   }
@@ -1511,6 +1528,8 @@ export class CheckerController {
 
     this.selectedHedgeRowIds.clear();
     this.lastClickedHedgeRowId = null;
+    this.lastClickedHedgeRowState = true;
+    this.selectionSnapshot.clear();
     updateHedgeSelectionMetrics(null, this.hedgeSelectionMetricElements);
 
     if (this.rhRawTrades.length > 0 && this.coreRawTrades.length > 0) {
@@ -1592,6 +1611,8 @@ export class CheckerController {
     this.hedgeMetrics = null;
     this.selectedHedgeRowIds.clear();
     this.lastClickedHedgeRowId = null;
+    this.lastClickedHedgeRowState = true;
+    this.selectionSnapshot.clear();
     updateHedgeSelectionMetrics(null, this.hedgeSelectionMetricElements);
 
     if (this.rhRawTrades.length === 0 || this.coreRawTrades.length === 0) {
@@ -1618,22 +1639,25 @@ export class CheckerController {
     return ids;
   }
 
-  private handleHedgeRangeSelection(fromId: string, toId: string): void {
+  private handleHedgeRangeSelection(targetId: string): void {
     const visibleIds = this.getVisibleHedgeRowIds();
-    const fromIndex = visibleIds.indexOf(fromId);
-    const toIndex = visibleIds.indexOf(toId);
-    if (fromIndex === -1 || toIndex === -1) {
-      this.selectedHedgeRowIds.add(toId);
-      this.lastClickedHedgeRowId = toId;
-      return;
-    }
+    const result = computeRangeSelection(
+      visibleIds,
+      this.lastClickedHedgeRowId,
+      targetId,
+      this.selectionSnapshot,
+      this.lastClickedHedgeRowState,
+    );
 
-    const start = Math.min(fromIndex, toIndex);
-    const end = Math.max(fromIndex, toIndex);
-    for (let i = start; i <= end; i++) {
-      this.selectedHedgeRowIds.add(visibleIds[i]);
+    this.selectedHedgeRowIds = result.newSelectedIds;
+    this.lastClickedHedgeRowId = result.newAnchorId;
+    if (
+      result.newAnchorId === targetId &&
+      !this.selectionSnapshot.has(targetId) &&
+      this.lastClickedHedgeRowState
+    ) {
+      this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
     }
-    this.lastClickedHedgeRowId = toId;
   }
 
   private handleHedgeTableClick(e: MouseEvent): void {
@@ -1648,28 +1672,39 @@ export class CheckerController {
     // Ignore clicks on links or action buttons inside the row
     if (!isCheckbox && (target.closest("a") || target.closest("button"))) return;
 
-    // Ignore text selection
-    const sel = window.getSelection();
-    if (!isCheckbox && sel && sel.toString().trim().length > 0) return;
+    // Ignore text selection on normal drag-selection clicks (never block Shift-range selection)
+    if (!e.shiftKey && !isCheckbox) {
+      const sel = window.getSelection();
+      if (sel && sel.toString().trim().length > 0) return;
+    }
 
-    if (e.shiftKey && this.lastClickedHedgeRowId) {
-      this.handleHedgeRangeSelection(this.lastClickedHedgeRowId, id);
+    if (e.shiftKey) {
+      e.preventDefault();
+      window.getSelection()?.removeAllRanges();
+      this.handleHedgeRangeSelection(id);
     } else {
       if (isCheckbox) {
         const cb = target as HTMLInputElement;
-        if (cb.checked) {
+        const isChecked = cb.checked;
+        if (isChecked) {
           this.selectedHedgeRowIds.add(id);
         } else {
           this.selectedHedgeRowIds.delete(id);
         }
+        this.lastClickedHedgeRowId = id;
+        this.lastClickedHedgeRowState = isChecked;
+        this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
       } else {
-        if (this.selectedHedgeRowIds.has(id)) {
-          this.selectedHedgeRowIds.delete(id);
-        } else {
+        const isNowSelected = !this.selectedHedgeRowIds.has(id);
+        if (isNowSelected) {
           this.selectedHedgeRowIds.add(id);
+        } else {
+          this.selectedHedgeRowIds.delete(id);
         }
+        this.lastClickedHedgeRowId = id;
+        this.lastClickedHedgeRowState = isNowSelected;
+        this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
       }
-      this.lastClickedHedgeRowId = id;
     }
 
     this.onHedgeSelectionChanged();
@@ -1689,6 +1724,9 @@ export class CheckerController {
         this.selectedHedgeRowIds.add(id);
       }
     }
+    this.lastClickedHedgeRowId = null;
+    this.lastClickedHedgeRowState = true;
+    this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
     this.onHedgeSelectionChanged();
   }
 
