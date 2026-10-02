@@ -17,10 +17,13 @@
   --color-terminal-coral: #f85149;
   --color-terminal-coralMuted: rgba(248, 81, 73, 0.12);
   --color-terminal-coral-muted: rgba(248, 81, 73, 0.12);
-  --color-terminal-amber: #d29922;
-  --color-terminal-amberMuted: rgba(210, 153, 34, 0.12);
-  --color-terminal-amber-muted: rgba(210, 153, 34, 0.12);
+  --color-terminal-amber: #f59e0b;
+  --color-terminal-amberMuted: rgba(245, 158, 11, 0.12);
+  --color-terminal-amber-muted: rgba(245, 158, 11, 0.12);
   --color-terminal-accent: #58a6ff;
+  --color-terminal-purple: #a855f7;
+  --color-terminal-purpleMuted: rgba(168, 85, 247, 0.12);
+  --color-terminal-purple-muted: rgba(168, 85, 247, 0.12);
 
   --font-sans: "Inter", -apple-system, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", monospace;
