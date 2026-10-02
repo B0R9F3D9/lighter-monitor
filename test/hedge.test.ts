@@ -569,7 +569,7 @@ describe("Hedge Matching Engine", () => {
     const fill1 = mockTrade({
       tradeId: "1255011511",
       side: "SELL",
-      price: 236.30,
+      price: 236.3,
       size: 10.0,
       usdValue: 2363.0,
       feeUsd: 0.05,
@@ -589,7 +589,7 @@ describe("Hedge Matching Engine", () => {
     const fill2 = mockTrade({
       tradeId: "1255011512",
       side: "SELL",
-      price: 236.30,
+      price: 236.3,
       size: 11.1919,
       usdValue: 2644.64597,
       feeUsd: 0.06,
@@ -617,10 +617,9 @@ describe("Hedge Matching Engine", () => {
 
   it("truncates long filenames cleanly while preserving extension and leaving short names untouched", () => {
     expect(formatDisplayFileName("short.json", 22)).toBe("short.json");
-    expect(formatDisplayFileName("rh-trades-history-account-31704-2026-10-02T18-29-31.json", 22)).toBe(
-      "rh-trade...-29-31.json",
-    );
+    expect(
+      formatDisplayFileName("rh-trades-history-account-31704-2026-10-02T18-29-31.json", 22),
+    ).toBe("rh-trade...-29-31.json");
     expect(formatDisplayFileName("", 22)).toBe("");
   });
 });
-

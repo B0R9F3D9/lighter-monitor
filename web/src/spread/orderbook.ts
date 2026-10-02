@@ -18,11 +18,7 @@ export function getOrCreateBook(bookMap: Map<number, OrderBook>, marketId: numbe
   }
   return b;
 }
-
-export interface WsOrderBookData {
-  asks?: Array<{ price: string | number; size: string | number }>;
-  bids?: Array<{ price: string | number; size: string | number }>;
-}
+import type { WsOrderBookData } from "../shared/ws";
 
 export function updateBookFromWs(
   book: OrderBook,

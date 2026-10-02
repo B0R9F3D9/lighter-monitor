@@ -274,7 +274,9 @@
               </button>
             </div>
 
-            <div class="bg-terminal-bg/40 border border-terminal-borderSubtle rounded p-2.5 space-y-1.5 text-[11px]">
+            <div
+              class="bg-terminal-bg/40 border border-terminal-borderSubtle rounded p-2.5 space-y-1.5 text-[11px]"
+            >
               <div class="text-[10px] text-terminal-accent font-semibold uppercase tracking-wider">
                 Quick Export Steps
               </div>
@@ -317,7 +319,9 @@
                   class="w-5 h-5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 text-terminal-emerald flex items-center justify-center text-[11px] font-bold"
                   >2</span
                 >
-                <h2 class="text-xs font-bold text-white uppercase tracking-wider truncate">Import Trades</h2>
+                <h2 class="text-xs font-bold text-white uppercase tracking-wider truncate">
+                  Import Trades
+                </h2>
               </div>
               <div class="flex items-center gap-2 shrink-0">
                 <button
@@ -349,8 +353,11 @@
                 accept=".json,text/plain,application/json,text/json"
                 class="hidden"
               />
-              <div class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center">
-                Drop <code class="text-terminal-accent">.json</code> files (supports multiple accounts & F12 pagination)
+              <div
+                class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center"
+              >
+                Drop <code class="text-terminal-accent">.json</code> files (supports multiple
+                accounts & F12 pagination)
               </div>
               <div class="flex items-center gap-2">
                 <button
@@ -372,7 +379,8 @@
             </div>
 
             <div class="text-[10px] text-terminal-muted">
-              100% local in-browser parsing. Zero data sent to any server. Supports raw Lighter API responses.
+              100% local in-browser parsing. Zero data sent to any server. Supports raw Lighter API
+              responses.
             </div>
           </div>
         </div>
@@ -384,7 +392,11 @@
         >
           <div class="flex items-center gap-2 flex-wrap min-w-0">
             <span class="text-terminal-muted shrink-0">Files:</span>
-            <span id="loadedFileName" class="text-white font-semibold truncate max-w-44 sm:max-w-xs md:max-w-md">--</span>
+            <span
+              id="loadedFileName"
+              class="text-white font-semibold truncate max-w-44 sm:max-w-xs md:max-w-md"
+              >--</span
+            >
             <span id="loadedFileDetails" class="text-[11px] text-terminal-muted truncate"></span>
             <span class="text-terminal-border shrink-0">|</span>
             <span id="loadedFileNetwork" class="text-terminal-accent text-[11px] uppercase shrink-0"
@@ -711,7 +723,9 @@
               </button>
             </div>
 
-            <div class="bg-terminal-bg/40 border border-terminal-borderSubtle rounded p-2.5 space-y-1.5 text-[11px]">
+            <div
+              class="bg-terminal-bg/40 border border-terminal-borderSubtle rounded p-2.5 space-y-1.5 text-[11px]"
+            >
               <div class="text-[10px] text-terminal-accent font-semibold uppercase tracking-wider">
                 Quick Export Steps
               </div>
@@ -767,12 +781,20 @@
                 id="dropzoneRh"
                 class="border border-dashed border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg/30 hover:bg-terminal-bg/50 rounded p-2.5 flex-1 flex flex-col justify-between text-xs font-mono transition-colors cursor-pointer min-w-0 w-full overflow-hidden"
               >
-                <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full">
+                <div
+                  class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full"
+                >
                   <div class="flex items-center gap-1.5 shrink-0">
-                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">Robinhood (RH)</h3>
+                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">
+                      Robinhood (RH)
+                    </h3>
                   </div>
                   <div class="flex items-center gap-1.5 min-w-0 shrink">
-                    <span id="labelRhAccount" class="text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36">No files loaded</span>
+                    <span
+                      id="labelRhAccount"
+                      class="text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36"
+                      >No files loaded</span
+                    >
                     <button
                       id="btnClearRh"
                       type="button"
@@ -784,7 +806,9 @@
                   </div>
                 </div>
 
-                <div class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-2 min-w-0 w-full">
+                <div
+                  class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-2 min-w-0 w-full"
+                >
                   <input
                     type="file"
                     id="fileInputRh"
@@ -792,7 +816,10 @@
                     accept=".json,text/plain,application/json,text/json"
                     class="hidden"
                   />
-                  <div id="statusRhFile" class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center">
+                  <div
+                    id="statusRhFile"
+                    class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center"
+                  >
                     Drop <code class="text-terminal-accent">rh-*.json</code> or raw API
                   </div>
                   <div class="flex items-center gap-1.5">
@@ -820,12 +847,20 @@
                 id="dropzoneCore"
                 class="border border-dashed border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg/30 hover:bg-terminal-bg/50 rounded p-2.5 flex-1 flex flex-col justify-between text-xs font-mono transition-colors cursor-pointer min-w-0 w-full overflow-hidden"
               >
-                <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full">
+                <div
+                  class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full"
+                >
                   <div class="flex items-center gap-1.5 shrink-0">
-                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">Lighter Core</h3>
+                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">
+                      Lighter Core
+                    </h3>
                   </div>
                   <div class="flex items-center gap-1.5 min-w-0 shrink">
-                    <span id="labelCoreAccount" class="text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36">No files loaded</span>
+                    <span
+                      id="labelCoreAccount"
+                      class="text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36"
+                      >No files loaded</span
+                    >
                     <button
                       id="btnClearCore"
                       type="button"
@@ -837,7 +872,9 @@
                   </div>
                 </div>
 
-                <div class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-2 min-w-0 w-full">
+                <div
+                  class="flex-1 flex flex-col items-center justify-center text-center gap-2 py-2 min-w-0 w-full"
+                >
                   <input
                     type="file"
                     id="fileInputCore"
@@ -845,7 +882,10 @@
                     accept=".json,text/plain,application/json,text/json"
                     class="hidden"
                   />
-                  <div id="statusCoreFile" class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center">
+                  <div
+                    id="statusCoreFile"
+                    class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center"
+                  >
                     Drop <code class="text-terminal-emerald">mainnet-*.json</code> or raw API
                   </div>
                   <div class="flex items-center gap-1.5">
@@ -878,10 +918,18 @@
         >
           <div class="flex items-center gap-2 flex-wrap min-w-0">
             <span class="text-terminal-muted shrink-0">RH:</span>
-            <span id="loadedRhFileName" class="text-white font-semibold truncate max-w-36 sm:max-w-56">--</span>
+            <span
+              id="loadedRhFileName"
+              class="text-white font-semibold truncate max-w-36 sm:max-w-56"
+              >--</span
+            >
             <span class="text-terminal-border shrink-0">|</span>
             <span class="text-terminal-muted shrink-0">Core:</span>
-            <span id="loadedCoreFileName" class="text-white font-semibold truncate max-w-36 sm:max-w-56">--</span>
+            <span
+              id="loadedCoreFileName"
+              class="text-white font-semibold truncate max-w-36 sm:max-w-56"
+              >--</span
+            >
           </div>
 
           <div class="flex items-center gap-2">
@@ -1119,20 +1167,50 @@
         <div class="space-y-3 text-[11px] text-terminal-secondary pt-1">
           <!-- Method A: Bookmarklet -->
           <div class="space-y-1.5 border-b border-terminal-borderSubtle pb-2.5">
-            <span class="text-[11px] font-bold text-terminal-accent uppercase tracking-wider">Method A: Exporter Bookmarklet (1-Click)</span>
+            <span class="text-[11px] font-bold text-terminal-accent uppercase tracking-wider"
+              >Method A: Exporter Bookmarklet (1-Click)</span
+            >
             <div class="space-y-1.5 text-terminal-secondary">
               <div class="flex items-start gap-2">
-                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4">1</span>
-                <span>Drag the button above to your browser's Bookmarks bar (or click "Copy Code" to add manually).</span>
+                <span
+                  class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4"
+                  >1</span
+                >
+                <span
+                  >Drag the button above to your browser's Bookmarks bar (or click "Copy Code" to
+                  add manually).</span
+                >
               </div>
               <div class="flex items-start gap-2">
-                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4">2</span>
+                <span
+                  class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4"
+                  >2</span
+                >
                 <span>
-                  Open <a href="https://robinhoodchain.lighter.xyz" target="_blank" rel="noreferrer" class="text-terminal-accent hover:underline">robinhoodchain.lighter.xyz</a> or <a href="https://app.lighter.xyz" target="_blank" rel="noreferrer" class="text-terminal-accent hover:underline">app.lighter.xyz</a> where logged in.
+                  Open
+                  <a
+                    href="https://robinhoodchain.lighter.xyz"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="text-terminal-accent hover:underline"
+                    >robinhoodchain.lighter.xyz</a
+                  >
+                  or
+                  <a
+                    href="https://app.lighter.xyz"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="text-terminal-accent hover:underline"
+                    >app.lighter.xyz</a
+                  >
+                  where logged in.
                 </span>
               </div>
               <div class="flex items-start gap-2">
-                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4">3</span>
+                <span
+                  class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4"
+                  >3</span
+                >
                 <span>Click the bookmark to fetch and download your trade history JSON.</span>
               </div>
             </div>
@@ -1140,19 +1218,44 @@
 
           <!-- Method B: Manual F12 DevTools (Zero-trust / No script) -->
           <div class="space-y-1.5">
-            <span class="text-[11px] font-bold text-white uppercase tracking-wider">Method B: Zero-Trust Manual F12 Network Export</span>
+            <span class="text-[11px] font-bold text-white uppercase tracking-wider"
+              >Method B: Zero-Trust Manual F12 Network Export</span
+            >
             <div class="space-y-1.5 text-terminal-muted">
               <div class="flex items-start gap-2">
-                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-white font-bold shrink-0 leading-4">1</span>
-                <span>Open Lighter in your browser, press <kbd class="text-white bg-terminal-bg px-1 rounded border border-terminal-border">F12</kbd> (DevTools), and switch to the <strong class="text-white">Network</strong> tab.</span>
+                <span
+                  class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-white font-bold shrink-0 leading-4"
+                  >1</span
+                >
+                <span
+                  >Open Lighter in your browser, press
+                  <kbd class="text-white bg-terminal-bg px-1 rounded border border-terminal-border"
+                    >F12</kbd
+                  >
+                  (DevTools), and switch to the
+                  <strong class="text-white">Network</strong> tab.</span
+                >
               </div>
               <div class="flex items-start gap-2">
-                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-white font-bold shrink-0 leading-4">2</span>
-                <span>Filter by <code class="text-terminal-accent">trades</code> and select the API response (<code class="text-terminal-secondary">/trades?account_index=...</code>).</span>
+                <span
+                  class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-white font-bold shrink-0 leading-4"
+                  >2</span
+                >
+                <span
+                  >Filter by <code class="text-terminal-accent">trades</code> and select the API
+                  response (<code class="text-terminal-secondary">/trades?account_index=...</code
+                  >).</span
+                >
               </div>
               <div class="flex items-start gap-2">
-                <span class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-white font-bold shrink-0 leading-4">3</span>
-                <span>Save response as JSON file(s) or copy response. You can drop multiple pagination files or multiple accounts — Checker will stitch them seamlessly.</span>
+                <span
+                  class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-white font-bold shrink-0 leading-4"
+                  >3</span
+                >
+                <span
+                  >Save response as JSON file(s) or copy response. You can drop multiple pagination
+                  files or multiple accounts — Checker will stitch them seamlessly.</span
+                >
               </div>
             </div>
           </div>
@@ -1200,7 +1303,9 @@
 
         <div class="space-y-2 text-[11px] text-terminal-secondary">
           <p class="text-terminal-muted">
-            Paste raw response from DevTools (F12) Network tab (<code class="text-terminal-accent">{"code": 200, "trades": [...]}</code>, pagination page, or trades array).
+            Paste raw response from DevTools (F12) Network tab (<code class="text-terminal-accent"
+              >{"code": 200, "trades": [...]}</code
+            >, pagination page, or trades array).
           </p>
           <div id="pasteTargetWrapper" class="flex items-center gap-2 pt-1">
             <label for="selectPasteTarget" class="text-terminal-muted">Target slot:</label>
@@ -1216,7 +1321,7 @@
           <div>
             <textarea
               id="textareaPasteJson"
-              placeholder="Paste raw JSON here (e.g. { &quot;code&quot;: 200, &quot;trades&quot;: [...] })..."
+              placeholder='Paste raw JSON here (e.g. { "code": 200, "trades": [...] })...'
               rows="8"
               class="w-full p-2.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-[11px] focus:outline-none focus:border-terminal-accent resize-y placeholder:text-terminal-muted/60"
             ></textarea>

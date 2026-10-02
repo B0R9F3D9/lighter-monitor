@@ -10,7 +10,6 @@ import {
   getTokenIcon,
   getTokenImageUrl,
 } from "./math";
-import { formatMoney } from "../formatters";
 import { renderHourlyHeatmap } from "./heatmap";
 import { ticksStorage } from "./storage";
 import type {
@@ -21,9 +20,7 @@ import type {
   QuantStats,
   TimeframeId,
 } from "./types";
-import { WebSocketManager } from "../ws";
-import { CONFIG, CRYPTO_SYMBOLS } from "../config";
-import { initFontSelector } from "../shared";
+import { CONFIG, CRYPTO_SYMBOLS, formatMoney, initFontSelector, WebSocketManager } from "../shared";
 
 export type SortField = "volume" | "oi" | "change" | "price" | "symbol";
 export type SortDirection = "asc" | "desc";

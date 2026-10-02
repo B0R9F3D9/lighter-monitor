@@ -1,8 +1,8 @@
 import type { MarketInfo, MarketMetrics, RowDomCache, SimFillResult, TerminalState } from "./types";
 import { CONFIG, NON_EQUITY_SYMBOLS, STORAGE_KEYS } from "./config";
 import { getMetrics } from "./metrics";
-import { getOrCreateBook, updateBookFromWs, type WsOrderBookData } from "./orderbook";
-import { WebSocketManager } from "./ws";
+import { getOrCreateBook, updateBookFromWs } from "./orderbook";
+import { WebSocketManager, type WsOrderBookData } from "./ws";
 import { initFontSelector } from "../shared";
 import {
   createRowElement,

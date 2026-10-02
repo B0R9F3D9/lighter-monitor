@@ -696,8 +696,7 @@ export class CheckerController {
 
     const highlightBorder =
       defaultSlot === "rh" ? "border-terminal-accent" : "border-terminal-emerald";
-    const highlightBg =
-      defaultSlot === "rh" ? "bg-terminal-accent/10" : "bg-terminal-emerald/10";
+    const highlightBg = defaultSlot === "rh" ? "bg-terminal-accent/10" : "bg-terminal-emerald/10";
 
     dropzone.addEventListener("click", () => {
       if (defaultSlot === "rh") this.fileInputRh?.click();
@@ -1204,9 +1203,7 @@ export class CheckerController {
         this.applyHedgeBatches();
 
         const slotName = slot === "rh" ? "Robinhood (RH)" : "Lighter Core";
-        this.showStatusSuccess(
-          `Imported and added ${parsed.trades.length} trades to ${slotName}!`,
-        );
+        this.showStatusSuccess(`Imported and added ${parsed.trades.length} trades to ${slotName}!`);
       }
     } catch (err: any) {
       console.error("Paste JSON parsing error:", err);

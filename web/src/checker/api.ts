@@ -1,4 +1,4 @@
-import { CONFIG } from "../spread/config";
+import { CONFIG } from "../shared";
 import type {
   AccountQuery,
   CheckerNetwork,
@@ -654,12 +654,20 @@ export function parseTradeForView(
     realizedPnl = pnl1 + pnl2;
   } else {
     // Fallback: check PnL indicators
-    if (trade.bid_account_pnl !== undefined && trade.bid_account_pnl !== null && trade.bid_account_pnl !== "") {
+    if (
+      trade.bid_account_pnl !== undefined &&
+      trade.bid_account_pnl !== null &&
+      trade.bid_account_pnl !== ""
+    ) {
       side = "BUY";
       role = !trade.is_maker_ask ? "MAKER" : "TAKER";
       userAccountId = bidId;
       realizedPnl = parseFloat(trade.bid_account_pnl) || 0;
-    } else if (trade.ask_account_pnl !== undefined && trade.ask_account_pnl !== null && trade.ask_account_pnl !== "") {
+    } else if (
+      trade.ask_account_pnl !== undefined &&
+      trade.ask_account_pnl !== null &&
+      trade.ask_account_pnl !== ""
+    ) {
       side = "SELL";
       role = trade.is_maker_ask ? "MAKER" : "TAKER";
       userAccountId = askId;
@@ -756,11 +764,19 @@ export function calculateTradeMetrics(
       tradePnl = pnl1 + pnl2;
     } else {
       // Fallback by PnL indicators
-      if (t.bid_account_pnl !== undefined && t.bid_account_pnl !== null && t.bid_account_pnl !== "") {
+      if (
+        t.bid_account_pnl !== undefined &&
+        t.bid_account_pnl !== null &&
+        t.bid_account_pnl !== ""
+      ) {
         isBuy = true;
         isMaker = !t.is_maker_ask;
         tradePnl = parseFloat(t.bid_account_pnl) || 0;
-      } else if (t.ask_account_pnl !== undefined && t.ask_account_pnl !== null && t.ask_account_pnl !== "") {
+      } else if (
+        t.ask_account_pnl !== undefined &&
+        t.ask_account_pnl !== null &&
+        t.ask_account_pnl !== ""
+      ) {
         isBuy = false;
         isMaker = t.is_maker_ask;
         tradePnl = parseFloat(t.ask_account_pnl) || 0;

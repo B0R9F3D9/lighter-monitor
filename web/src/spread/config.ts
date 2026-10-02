@@ -1,10 +1,16 @@
-import { FONT_STORAGE_KEY } from "../shared";
+import {
+  FONT_STORAGE_KEY,
+  CONFIG as SHARED_CONFIG,
+  CRYPTO_SYMBOLS,
+  COMMODITY_SYMBOLS,
+  INDEX_ETF_SYMBOLS,
+  NON_EQUITY_SYMBOLS,
+} from "../shared";
+
+export { CRYPTO_SYMBOLS, COMMODITY_SYMBOLS, INDEX_ETF_SYMBOLS, NON_EQUITY_SYMBOLS };
 
 export const CONFIG = {
-  CORE_API_URL: "https://mainnet.zklighter.elliot.ai/api/v1",
-  RH_API_URL: "https://api.rh.lighter.xyz/api/v1",
-  CORE_WS_URL: "wss://mainnet.zklighter.elliot.ai/stream?readonly=true",
-  RH_WS_URL: "wss://api.rh.lighter.xyz/stream?readonly=true",
+  ...SHARED_CONFIG,
   RERANK_INTERVAL_SEC: 5,
   THROTTLE_MS: 100,
   SOCKET_SILENCE_TIMEOUT_MS: 20000,
@@ -13,39 +19,6 @@ export const CONFIG = {
   ORDERBOOK_LEVELS_LIMIT: 40,
   ORDERBOOK_PRUNE_LIMIT: 80,
 } as const;
-
-export const CRYPTO_SYMBOLS: ReadonlySet<string> = new Set([
-  "BTC",
-  "ETH",
-  "SOL",
-  "XRP",
-  "SUI",
-  "NEAR",
-  "HYPE",
-  "ZEC",
-  "CASHCAT",
-  "PONS",
-  "VVV",
-  "LIT",
-  "BE",
-  "ANSEM",
-]);
-
-export const COMMODITY_SYMBOLS: ReadonlySet<string> = new Set(["XAU", "XAG", "USO", "SLV"]);
-
-export const INDEX_ETF_SYMBOLS: ReadonlySet<string> = new Set([
-  "SPY",
-  "QQQ",
-  "SOXL",
-  "SPCX",
-  "SGOV",
-]);
-
-export const NON_EQUITY_SYMBOLS: ReadonlySet<string> = new Set([
-  ...CRYPTO_SYMBOLS,
-  ...COMMODITY_SYMBOLS,
-  ...INDEX_ETF_SYMBOLS,
-]);
 
 export const STORAGE_KEYS = {
   FONT: FONT_STORAGE_KEY,

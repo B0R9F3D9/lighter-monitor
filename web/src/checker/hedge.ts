@@ -52,9 +52,7 @@ export function getTradeOrderAggregationKey(trade: ParsedTradeView): string {
 
   // Fallback for bookmarklet exports (where order IDs are omitted) or mock objects:
   const timeKey =
-    trade.raw?.transaction_time != null
-      ? `${trade.raw.transaction_time}`
-      : `${trade.timestampMs}`;
+    trade.raw?.transaction_time != null ? `${trade.raw.transaction_time}` : `${trade.timestampMs}`;
 
   return `${timeKey}_${trade.marketId}_${trade.side}`;
 }
@@ -183,11 +181,7 @@ export function matchHedgeTrades(
       : rhAccountIndex !== null && rhAccountIndex !== undefined
         ? [rhAccountIndex]
         : Array.from(
-            new Set(
-              rhTrades
-                .map((t) => t.userAccountId)
-                .filter((id): id is number => id != null),
-            ),
+            new Set(rhTrades.map((t) => t.userAccountId).filter((id): id is number => id != null)),
           );
 
   const resolvedCoreIndices: number[] = coreAccountIndices
@@ -198,18 +192,16 @@ export function matchHedgeTrades(
         ? [coreAccountIndex]
         : Array.from(
             new Set(
-              coreTrades
-                .map((t) => t.userAccountId)
-                .filter((id): id is number => id != null),
+              coreTrades.map((t) => t.userAccountId).filter((id): id is number => id != null),
             ),
           );
 
   const primaryRhAcc = Array.isArray(rhAccountIndex)
     ? (rhAccountIndex[0] ?? null)
-    : (rhAccountIndex ?? (resolvedRhIndices[0] ?? null));
+    : (rhAccountIndex ?? resolvedRhIndices[0] ?? null);
   const primaryCoreAcc = Array.isArray(coreAccountIndex)
     ? (coreAccountIndex[0] ?? null)
-    : (coreAccountIndex ?? (resolvedCoreIndices[0] ?? null));
+    : (coreAccountIndex ?? resolvedCoreIndices[0] ?? null);
 
   const actualRhTrades = aggregateFills ? aggregateTradesByOrder(rhTrades) : rhTrades;
   const actualCoreTrades = aggregateFills ? aggregateTradesByOrder(coreTrades) : coreTrades;

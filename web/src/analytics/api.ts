@@ -1,4 +1,4 @@
-import { CONFIG, NON_EQUITY_SYMBOLS } from "../config";
+import { CONFIG, NON_EQUITY_SYMBOLS } from "../shared";
 import {
   alignCandlesToBasisPoints,
   calculateQuantStats,

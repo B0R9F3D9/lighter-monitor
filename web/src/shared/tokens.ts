@@ -2,6 +2,39 @@
  * Shared token logos and symbol helpers for Lighter markets.
  */
 
+export const CRYPTO_SYMBOLS: ReadonlySet<string> = new Set([
+  "BTC",
+  "ETH",
+  "SOL",
+  "XRP",
+  "SUI",
+  "NEAR",
+  "HYPE",
+  "ZEC",
+  "CASHCAT",
+  "PONS",
+  "VVV",
+  "LIT",
+  "BE",
+  "ANSEM",
+]);
+
+export const COMMODITY_SYMBOLS: ReadonlySet<string> = new Set(["XAU", "XAG", "USO", "SLV"]);
+
+export const INDEX_ETF_SYMBOLS: ReadonlySet<string> = new Set([
+  "SPY",
+  "QQQ",
+  "SOXL",
+  "SPCX",
+  "SGOV",
+]);
+
+export const NON_EQUITY_SYMBOLS: ReadonlySet<string> = new Set([
+  ...CRYPTO_SYMBOLS,
+  ...COMMODITY_SYMBOLS,
+  ...INDEX_ETF_SYMBOLS,
+]);
+
 export function getTokenIcon(symbol: string): string {
   const sym = symbol.toUpperCase();
   if (sym === "AAPL") return "";

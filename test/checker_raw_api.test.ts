@@ -17,8 +17,7 @@ describe("Raw Lighter API Ingestion & Multi-Account Stitching", () => {
       {
         trade_id: 1255011511,
         trade_id_str: "1255011511",
-        tx_hash:
-          "0000000132d3ac69000001a0fd77b897000000000000000000000000000000000000000000000000",
+        tx_hash: "0000000132d3ac69000001a0fd77b897000000000000000000000000000000000000000000000000",
         type: "trade",
         market_id: 15,
         size: "21.1919",
@@ -521,4 +520,3 @@ describe("Raw Lighter API Ingestion & Multi-Account Stitching", () => {
     expect(matchResult.pairs[0].status).toBe("HEDGED");
   });
 });
-

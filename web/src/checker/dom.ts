@@ -623,4 +623,3 @@ export function formatDisplayFileName(fileName: string, maxLen = 22): string {
   const tail = Math.floor(avail * 0.45);
   return `${name.slice(0, head)}...${name.slice(-tail)}${ext}`;
 }
-

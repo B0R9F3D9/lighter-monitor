@@ -5,11 +5,11 @@ import {
   formatBps,
   formatBaseQty,
   formatDeltaMid,
-} from "../web/src/formatters";
-import { getOrCreateBook, updateBookFromWs, getSortedLevels } from "../web/src/orderbook";
-import { simulateFillBase } from "../web/src/simulation";
-import { calculateMarketMetrics, findOptimalSize, getMetrics } from "../web/src/metrics";
-import type { MarketInfo, OrderBook, TerminalState } from "../web/src/types";
+} from "../web/src/shared/formatters";
+import { getOrCreateBook, updateBookFromWs, getSortedLevels } from "../web/src/spread/orderbook";
+import { simulateFillBase } from "../web/src/spread/simulation";
+import { calculateMarketMetrics, findOptimalSize, getMetrics } from "../web/src/spread/metrics";
+import type { MarketInfo, OrderBook, TerminalState } from "../web/src/spread/types";
 
 describe("Spread Terminal: Formatters", () => {
   it("formats positive, zero, and negative money correctly", () => {
