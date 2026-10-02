@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Checker | Lighter × Robinhood</title>
+
+    <!-- Favicon & Touch Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- Fonts: Inter, Roboto, Montserrat, Poppins, Open Sans + JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      try {
+        const f = localStorage.getItem("terminal_font");
+        if (f) {
+          const stack =
+            f === "JetBrains Mono"
+              ? '"JetBrains Mono", monospace'
+              : `"${f}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+          document.documentElement.style.setProperty("--font-selected", stack);
+          document.documentElement.style.setProperty("--font-sans", stack);
+        }
+      } catch {}
+    </script>
+  </head>
+  <body
+    class="bg-terminal-bg text-terminal-primary font-sans antialiased min-h-screen selection:bg-terminal-accent/30 selection:text-white"
+  >
+    <!-- TOP HEADER / APP BAR -->
+    <header
+      class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md"
+    >
+      <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <!-- Brand & Navigation Tabs -->
+          <div class="flex items-center gap-3">
+            <a
+              href="/"
+              class="group flex items-center gap-2.5 no-underline transition"
+              title="Return to Hub (/)"
+            >
+              <div
+                class="w-7 h-7 rounded border border-terminal-border bg-terminal-bg flex items-center justify-center p-1.5 shrink-0 group-hover:border-terminal-accent transition"
+              >
+                <svg
+                  class="h-3.5 w-auto text-white group-hover:text-terminal-accent transition"
+                  viewBox="0 0 14 26"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M5.989 20.388 0 25.498V5.888L5.989.502zm7.811.012-5.989 5.098V17.85l5.989-5.37z"
+                  />
+                </svg>
+              </div>
+              <span
+                class="text-sm font-bold tracking-tight text-white uppercase group-hover:text-terminal-accent transition"
+                >Lighter × Robinhood</span
+              >
+            </a>
+
+            <!-- Navigation Tabs Bar -->
+            <nav
+              class="flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-xs font-mono"
+            >
+              <a
+                href="/spread"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
+                >Spread</a
+              >
+              <a
+                href="/analytics"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
+                >Analytics</a
+              >
+              <a
+                href="/checker"
+                class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-bold transition no-underline shadow-xs border border-terminal-border"
+                >Checker</a
+              >
+            </nav>
+          </div>
+
+          <!-- Font Selector -->
+          <div class="flex items-center gap-2.5 text-xs font-mono">
+            <div
+              class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
+            >
+              <label for="fontSelector" class="text-terminal-muted cursor-pointer select-none"
+                >Font:</label
+              >
+              <select
+                id="fontSelector"
+                class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
+                title="Select Interface Font"
+              >
+                <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
+                <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
+                <option value="Montserrat" class="bg-terminal-surface text-white">
+                  Montserrat
+                </option>
+                <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
+                <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
+                <option value="JetBrains Mono" class="bg-terminal-surface text-white">
+                  JetBrains Mono
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- MAIN VIEWPORT -->
+    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 space-y-2.5">
+      <!-- 1. EXECUTIVE SUMMARY LEAD STRIP (Matches /spread topRankCard 1:1) -->
+      <div
+        id="topRankCard"
+        class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono"
+      >
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Account:</span>
+          <span id="leadAccountBadge" class="text-white font-bold text-sm tracking-tight">--</span>
+          <span id="leadNetworkBadge" class="text-terminal-muted text-[11px]">--</span>
+        </div>
+
+        <!-- Inline metrics -->
+        <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px] no-scrollbar">
+          <div>
+            <span class="text-terminal-muted mr-1.5">TRADES:</span>
+            <span id="leadTradesCount" class="font-bold text-white tabular-nums">0</span>
+          </div>
+          <div>
+            <span class="text-terminal-muted mr-1.5">TOTAL VOL:</span>
+            <span id="leadTotalVolume" class="font-bold text-terminal-accent tabular-nums"
+              >$0.00</span
+            >
+          </div>
+          <div>
+            <span class="text-terminal-muted mr-1.5">REALIZED PNL:</span>
+            <span id="leadRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
+              >$0.00</span
+            >
+          </div>
+          <div class="hidden sm:block">
+            <span class="text-terminal-muted mr-1.5">TOTAL FEES:</span>
+            <span id="leadTotalFees" class="font-bold text-terminal-secondary tabular-nums"
+              >$0.00</span
+            >
+          </div>
+          <div class="hidden md:block">
+            <span class="text-terminal-muted mr-1.5">DATE RANGE:</span>
+            <span id="leadDateRange" class="font-bold text-terminal-primary tabular-nums">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2A. EMPTY STATE ONBOARDING (Visible when no trades loaded) -->
+      <div id="emptyStatePanel" class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+        <!-- 1. Export Bookmarklet -->
+        <div
+          class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+        >
+          <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2">
+            <div class="flex items-center gap-2">
+              <span
+                class="w-5 h-5 rounded bg-terminal-accent/15 border border-terminal-accent/40 text-terminal-accent flex items-center justify-center text-[11px] font-bold"
+                >1</span
+              >
+              <h2 class="text-xs font-bold text-white uppercase tracking-wider">
+                Export from Lighter
+              </h2>
+            </div>
+            <button
+              id="btnOpenExportHelpEmpty"
+              type="button"
+              class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
+            >
+              ? Instructions
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <a
+              id="bookmarkletLink"
+              href="#"
+              draggable="true"
+              class="px-3 py-1.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white font-bold text-xs transition cursor-grab active:cursor-grabbing flex items-center gap-1.5 select-none no-underline"
+              title="Drag this button to your browser Bookmarks Toolbar"
+            >
+              <span>⚡ Lighter Trade Exporter</span>
+            </a>
+            <button
+              id="btnCopyBookmarklet"
+              type="button"
+              class="px-2.5 py-1.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Copy bookmarklet code"
+            >
+              Copy Code
+            </button>
+          </div>
+
+          <div class="text-[11px] text-terminal-muted">
+            Drag to bookmarks bar, click it on
+            <a
+              href="https://robinhoodchain.lighter.xyz"
+              target="_blank"
+              rel="noreferrer"
+              class="text-terminal-secondary hover:underline"
+              >robinhoodchain.lighter.xyz</a
+            >, and save your JSON.
+          </div>
+        </div>
+
+        <!-- 2. Import Dropzone -->
+        <div
+          class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+        >
+          <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2">
+            <div class="flex items-center gap-2">
+              <span
+                class="w-5 h-5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 text-terminal-emerald flex items-center justify-center text-[11px] font-bold"
+                >2</span
+              >
+              <h2 class="text-xs font-bold text-white uppercase tracking-wider">Import Trades</h2>
+            </div>
+            <button
+              id="btnBrowseFileEmpty"
+              type="button"
+              class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
+            >
+              Browse file
+            </button>
+          </div>
+
+          <div
+            id="jsonDropzone"
+            class="border border-dashed border-terminal-border hover:border-terminal-emerald/50 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-3 flex items-center justify-center text-center cursor-pointer transition-colors"
+          >
+            <input type="file" id="jsonFileInput" accept=".json,application/json" class="hidden" />
+            <div class="text-[11px] text-terminal-secondary">
+              Drop <code class="text-terminal-accent">lighter-trades-*.json</code> here or
+              <span class="text-white underline">click to select</span>
+            </div>
+          </div>
+
+          <div class="text-[10px] text-terminal-muted">
+            100% local in-browser parsing. Zero data sent to any server.
+          </div>
+        </div>
+      </div>
+
+      <!-- 2B. LOADED STATE TOOLBAR (Visible when trades are loaded) -->
+      <div
+        id="loadedToolbar"
+        class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono"
+      >
+        <div class="flex items-center gap-2">
+          <span class="text-terminal-muted">File:</span>
+          <span id="loadedFileName" class="text-white font-semibold">--</span>
+          <span class="text-terminal-border">|</span>
+          <span id="loadedFileNetwork" class="text-terminal-accent text-[11px] uppercase">--</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button
+            id="btnReupload"
+            type="button"
+            class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+            title="Upload a different JSON file"
+          >
+            Re-upload
+          </button>
+          <button
+            id="btnDownloadJson"
+            type="button"
+            class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+            title="Download trades as JSON"
+          >
+            Export JSON
+          </button>
+          <button
+            id="btnCopyJson"
+            type="button"
+            class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+            title="Copy JSON to clipboard"
+          >
+            Copy
+          </button>
+          <button
+            id="btnClearTrades"
+            type="button"
+            class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-coral/50 text-terminal-muted hover:text-terminal-coral transition cursor-pointer text-xs"
+            title="Clear loaded trades"
+          >
+            Clear
+          </button>
+          <span class="text-terminal-border">|</span>
+          <button
+            id="btnOpenExportHelpLoaded"
+            type="button"
+            class="text-[11px] text-terminal-muted hover:text-terminal-accent transition cursor-pointer flex items-center gap-1"
+          >
+            <span>? How to export</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 3. STATUS NOTIFICATION CARD -->
+      <div
+        id="statusCard"
+        class="hidden bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono transition-all duration-150"
+      >
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span id="statusDot" class="w-2 h-2 rounded-full bg-terminal-emerald"></span>
+            <span id="statusText" class="text-white font-medium">Ready</span>
+          </div>
+          <button
+            id="btnCloseStatus"
+            type="button"
+            class="text-terminal-muted hover:text-white text-xs cursor-pointer select-none px-1"
+            title="Dismiss notification"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- 4. RESULTS CONTAINER WITH TABS (Table View vs Raw JSON) -->
+      <div class="bg-terminal-surface border border-terminal-border rounded overflow-hidden">
+        <!-- Subheader & Tabs Navigation -->
+        <div
+          class="border-b border-terminal-border px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono bg-terminal-surface/60"
+        >
+          <!-- Left: Tab Switchers -->
+          <div class="flex items-center gap-2">
+            <div
+              class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px]"
+            >
+              <button
+                id="tabBtnTable"
+                type="button"
+                class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-semibold transition cursor-pointer select-none"
+              >
+                Table View
+              </button>
+              <button
+                id="tabBtnJson"
+                type="button"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer select-none bg-transparent"
+              >
+                Raw JSON
+              </button>
+            </div>
+
+            <span id="tradeCountNotice" class="text-[11px] text-terminal-muted ml-2"></span>
+          </div>
+
+          <!-- Right: In-table Filter -->
+          <div class="flex items-center gap-2">
+            <div class="relative">
+              <input
+                type="text"
+                id="inputSearchFilter"
+                placeholder="Filter (symbol, BUY, SELL, hash...)"
+                class="w-48 sm:w-64 px-2 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-[11px] focus:outline-none focus:border-terminal-accent placeholder:text-terminal-muted/60"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 1: Table View -->
+        <div id="tableContainer" class="overflow-x-auto no-scrollbar">
+          <table class="w-full border-collapse text-left">
+            <thead>
+              <tr
+                class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] font-mono select-none"
+              >
+                <th class="py-2 px-2 font-semibold w-8">#</th>
+                <th class="py-2 px-2 font-semibold">Time (UTC)</th>
+                <th class="py-2 px-2 font-semibold">Market</th>
+                <th class="py-2 px-2 font-semibold text-center">Side</th>
+                <th class="py-2 px-2 font-semibold text-center">Role</th>
+                <th class="py-2 px-2 font-semibold text-right">Price</th>
+                <th class="py-2 px-2 font-semibold text-right">Size</th>
+                <th class="py-2 px-2 font-semibold text-right">USD Value</th>
+                <th class="py-2 px-2 font-semibold text-right">Realized PnL</th>
+                <th class="py-2 px-2 font-semibold text-right">Fee</th>
+                <th class="py-2 px-2 font-semibold text-right">Tx Hash</th>
+              </tr>
+            </thead>
+            <tbody id="tradesTableBody" class="divide-y divide-terminal-borderSubtle">
+              <tr>
+                <td colspan="11" class="py-12 text-center text-terminal-muted">
+                  <div class="flex flex-col items-center justify-center gap-1.5">
+                    <span class="text-terminal-secondary font-medium">No trades loaded yet</span>
+                    <span class="text-[11px] text-terminal-muted"
+                      >Use the bookmarklet on Lighter or drop your exported JSON file above to see
+                      your complete trading history.</span
+                    >
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Tab 2: Raw JSON View -->
+        <div id="jsonContainer" class="hidden p-3 bg-terminal-bg/50">
+          <pre
+            id="jsonViewerPre"
+            class="text-[11px] font-mono text-terminal-primary overflow-x-auto p-3 bg-terminal-bg border border-terminal-border rounded max-h-[600px] select-text"
+          >
+// Raw JSON payload will appear here after importing trades...</pre>
+        </div>
+      </div>
+
+      <!-- 5. USER-FRIENDLY PRIVACY & HELP FOOTER -->
+      <footer
+        class="border border-terminal-borderSubtle rounded bg-terminal-surface/60 px-3 py-2 text-[11px] font-mono text-terminal-muted flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+      >
+        <div class="flex items-center gap-2">
+          <strong class="text-terminal-secondary">Privacy:</strong>
+          <span
+            >Calculations run 100% locally in browser. No trade data is sent to any server.</span
+          >
+        </div>
+        <div class="text-terminal-muted">Lighter × Robinhood</div>
+      </footer>
+    </main>
+
+    <!-- EXPORT INSTRUCTIONS MODAL -->
+    <div
+      id="exportModal"
+      class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modalTitle"
+    >
+      <div
+        class="bg-terminal-surface border border-terminal-border rounded-lg max-w-lg w-full p-4 space-y-3 font-mono text-xs shadow-2xl"
+      >
+        <div class="flex items-center justify-between border-b border-terminal-border pb-2.5">
+          <h3 id="modalTitle" class="text-xs font-bold text-white uppercase tracking-wider">
+            Export Trades from Lighter
+          </h3>
+          <button
+            id="btnCloseModal"
+            type="button"
+            class="text-terminal-muted hover:text-white cursor-pointer px-1 py-0.5 select-none"
+            title="Close modal (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2 pt-1">
+          <a
+            id="modalBookmarkletLink"
+            href="#"
+            draggable="true"
+            class="px-3 py-1.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white font-bold text-xs transition cursor-grab active:cursor-grabbing flex items-center gap-1.5 select-none no-underline"
+            title="Drag this button to your browser Bookmarks Toolbar"
+          >
+            <span>⚡ Lighter Trade Exporter</span>
+          </a>
+          <button
+            id="btnModalCopyBookmarklet"
+            type="button"
+            class="px-2.5 py-1.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+          >
+            Copy Code
+          </button>
+        </div>
+
+        <div class="space-y-2 text-[11px] text-terminal-secondary pt-1">
+          <div class="flex items-start gap-2">
+            <span
+              class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4"
+              >1</span
+            >
+            <span
+              >Drag the button above to your browser's Bookmarks bar (or click "Copy Code" to add
+              manually).</span
+            >
+          </div>
+          <div class="flex items-start gap-2">
+            <span
+              class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4"
+              >2</span
+            >
+            <span>
+              Open
+              <a
+                href="https://robinhoodchain.lighter.xyz"
+                target="_blank"
+                rel="noreferrer"
+                class="text-terminal-accent hover:underline"
+                >robinhoodchain.lighter.xyz</a
+              >
+              or
+              <a
+                href="https://app.lighter.xyz"
+                target="_blank"
+                rel="noreferrer"
+                class="text-terminal-accent hover:underline"
+                >app.lighter.xyz</a
+              >
+              where you are logged in.
+            </span>
+          </div>
+          <div class="flex items-start gap-2">
+            <span
+              class="w-4 h-4 rounded bg-terminal-bg border border-terminal-border text-center text-terminal-accent font-bold shrink-0 leading-4"
+              >3</span
+            >
+            <span
+              >Click the bookmark. The HUD will fetch your complete trade history and download a
+              JSON file.</span
+            >
+          </div>
+        </div>
+
+        <div
+          class="border-t border-terminal-borderSubtle pt-2.5 flex items-center justify-between text-[11px] text-terminal-muted"
+        >
+          <span>Runs locally inside your browser session.</span>
+          <button
+            id="btnDismissModal"
+            type="button"
+            class="px-3 py-1 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-white cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODULE ENTRY POINT -->
+    <script type="module" src="./src/checker/main.ts"></script>
+  </body>
+</html>

@@ -64,6 +64,22 @@ describe("Worker HTTP Routing", () => {
     expect(res.headers.get("Content-Type")).toContain("text/html");
   });
 
+  it("serves trade history checker HTML on GET /checker", async () => {
+    const req = new Request("https://worker.dev/checker", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Checker | Lighter");
+  });
+
+  it("serves trade history checker HTML on GET /checker/", async () => {
+    const req = new Request("https://worker.dev/checker/", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+  });
+
   it("does NOT intercept POST / with HTML; passes through to Telegram webhook", async () => {
     // A Telegram webhook POST to "/" without the secret token should be rejected with 403, NOT return HTML 200
     const req = new Request("https://worker.dev/", {

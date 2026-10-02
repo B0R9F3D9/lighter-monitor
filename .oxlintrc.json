@@ -20,5 +20,11 @@
   "env": {
     "builtin": true
   },
-  "ignorePatterns": ["node_modules", ".wrangler", "dist"]
+  "ignorePatterns": [
+    "node_modules",
+    ".wrangler",
+    "dist",
+    "src/spread_assets.ts",
+    "web/src/checker/bookmarklet_code.ts"
+  ]
 }

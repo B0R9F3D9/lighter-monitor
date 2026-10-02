@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [build]
 command = "bun scripts/build_web.ts"
+watch_dir = "web"
 
 [triggers]
 crons = ["* * * * *"]

@@ -19,6 +19,7 @@ export default defineConfig({
         index: path.resolve(import.meta.dirname, "web/index.html"),
         spread: path.resolve(import.meta.dirname, "web/spread.html"),
         analytics: path.resolve(import.meta.dirname, "web/analytics.html"),
+        checker: path.resolve(import.meta.dirname, "web/checker.html"),
       },
     },
   },

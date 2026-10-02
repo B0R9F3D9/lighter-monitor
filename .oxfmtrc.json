@@ -12,6 +12,7 @@
     "dist",
     "bun.lockb",
     "src/*.html",
-    "src/spread_assets.ts"
+    "src/spread_assets.ts",
+    "web/src/checker/bookmarklet_code.ts"
   ]
 }

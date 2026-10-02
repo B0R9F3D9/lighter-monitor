@@ -23,6 +23,9 @@ function initHub(): void {
     } else if (e.key === "2") {
       e.preventDefault();
       window.location.href = "/analytics";
+    } else if (e.key === "3") {
+      e.preventDefault();
+      window.location.href = "/checker";
     }
   });
 }

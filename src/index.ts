@@ -11,6 +11,8 @@ import {
   SPREAD_HTML_HASH,
   ANALYTICS_HTML,
   ANALYTICS_HTML_HASH,
+  CHECKER_HTML,
+  CHECKER_HTML_HASH,
   SPREAD_ASSETS,
 } from "./spread_assets";
 
@@ -41,6 +43,7 @@ export default {
               version: APP_VERSION,
               spreadHash: SPREAD_HTML_HASH,
               analyticsHash: ANALYTICS_HTML_HASH,
+              checkerHash: CHECKER_HTML_HASH,
               hubHash: HUB_HTML_HASH,
               timestamp: Date.now(),
             });
@@ -55,7 +58,7 @@ export default {
       });
     }
 
-    // Static assets for Spread & Analytics Terminals (CSS, JS, Favicons, Logos)
+    // Static assets for Spread, Analytics & Checker Terminals (CSS, JS, Favicons, Logos)
     const filename = url.pathname.split("/").pop() || "";
     const asset = SPREAD_ASSETS[filename];
 
@@ -65,6 +68,7 @@ export default {
       (url.pathname.startsWith("/assets/") ||
         url.pathname.startsWith("/spread/assets/") ||
         url.pathname.startsWith("/analytics/assets/") ||
+        url.pathname.startsWith("/checker/assets/") ||
         url.pathname.startsWith("/favicon") ||
         url.pathname.startsWith("/apple-touch-icon") ||
         url.pathname.startsWith("/lighter-logo"))
@@ -94,7 +98,8 @@ export default {
       isGetOrHead &&
       (url.pathname.startsWith("/assets/") ||
         url.pathname.startsWith("/spread/assets/") ||
-        url.pathname.startsWith("/analytics/assets/"))
+        url.pathname.startsWith("/analytics/assets/") ||
+        url.pathname.startsWith("/checker/assets/"))
     ) {
       return new Response("Asset Not Found", { status: 404 });
     }
@@ -148,6 +153,25 @@ export default {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           ETag: `"${ANALYTICS_HTML_HASH}"`,
+          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+        },
+      });
+    }
+
+    // Trade History Checker Terminal (GET/HEAD only)
+    if (isGetOrHead && (url.pathname === "/checker" || url.pathname === "/checker/")) {
+      const clientEtag = request.headers.get("if-none-match");
+      if (
+        clientEtag &&
+        (clientEtag === CHECKER_HTML_HASH || clientEtag === `"${CHECKER_HTML_HASH}"`)
+      ) {
+        return new Response(null, { status: 304 });
+      }
+
+      return new Response(CHECKER_HTML, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          ETag: `"${CHECKER_HTML_HASH}"`,
           "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
         },
       });

@@ -10,6 +10,7 @@ export interface VersionResponse {
   version: string;
   spreadHash?: string;
   analyticsHash?: string;
+  checkerHash?: string;
   hubHash?: string;
   timestamp?: number;
 }
