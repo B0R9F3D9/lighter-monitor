@@ -161,6 +161,7 @@ export interface HedgePair {
 }
 
 export interface UnhedgedTrade {
+  id?: string;
   tradeId: string;
   network: "RH" | "CORE";
   marketSymbol: string;
@@ -175,6 +176,17 @@ export interface UnhedgedTrade {
   timeFormatted: string;
   txHash: string;
   fillsCount?: number;
+}
+
+export interface SelectedHedgeMetrics {
+  selectedCount: number;
+  pairsCount: number;
+  unhedgedCount: number;
+  totalVolumeUsd: number;
+  totalNetPnlUsd: number;
+  totalPricePnlUsd: number;
+  totalFeesUsd: number;
+  avgPnlBps: number;
 }
 
 export interface HedgeSummaryMetrics {

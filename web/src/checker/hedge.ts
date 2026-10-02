@@ -3,6 +3,7 @@ import type {
   HedgePair,
   HedgeSummaryMetrics,
   ParsedTradeView,
+  SelectedHedgeMetrics,
   UnhedgedTrade,
 } from "./types";
 
@@ -290,6 +291,7 @@ export function matchHedgeTrades(
     for (const rhItem of marketRh) {
       if (rhItem.remainingSize > EPSILON) {
         unhedged.push({
+          id: `unhedged-RH-${rhItem.trade.tradeId}`,
           tradeId: rhItem.trade.tradeId,
           network: "RH",
           marketSymbol: market,
@@ -314,6 +316,7 @@ export function matchHedgeTrades(
     for (const coreItem of marketCore) {
       if (coreItem.remainingSize > EPSILON) {
         unhedged.push({
+          id: `unhedged-CORE-${coreItem.trade.tradeId}`,
           tradeId: coreItem.trade.tradeId,
           network: "CORE",
           marketSymbol: market,
@@ -435,6 +438,47 @@ export function calculateHedgeMetrics(
     coreTotalTrades,
     firstTradeTime,
     lastTradeTime,
+  };
+}
+
+/**
+ * Calculates aggregate summary metrics for a user-selected subset of hedge pairs and unhedged trades.
+ */
+export function calculateSelectedHedgeMetrics(
+  selectedPairs: HedgePair[],
+  selectedUnhedged: UnhedgedTrade[],
+): SelectedHedgeMetrics {
+  let totalHedgedVolumeUsd = 0;
+  let unhedgedVolumeUsd = 0;
+  let totalNetPnlUsd = 0;
+  let totalPricePnlUsd = 0;
+  let totalFeesUsd = 0;
+
+  for (const p of selectedPairs) {
+    totalHedgedVolumeUsd += p.notionalUsd;
+    totalNetPnlUsd += p.netPnlUsd;
+    totalPricePnlUsd += p.pricePnlUsd;
+    totalFeesUsd += p.totalFeesUsd;
+  }
+
+  for (const u of selectedUnhedged) {
+    unhedgedVolumeUsd += u.usdValue;
+    totalFeesUsd += u.feeUsd;
+    totalNetPnlUsd -= u.feeUsd;
+  }
+
+  const totalVolumeUsd = totalHedgedVolumeUsd + unhedgedVolumeUsd;
+  const avgPnlBps = totalVolumeUsd > 0 ? (totalNetPnlUsd / totalVolumeUsd) * 10000 : 0;
+
+  return {
+    selectedCount: selectedPairs.length + selectedUnhedged.length,
+    pairsCount: selectedPairs.length,
+    unhedgedCount: selectedUnhedged.length,
+    totalVolumeUsd,
+    totalNetPnlUsd,
+    totalPricePnlUsd,
+    totalFeesUsd,
+    avgPnlBps,
   };
 }
 

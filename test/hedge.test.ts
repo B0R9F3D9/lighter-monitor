@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { getStaticMarketMap, parseFeeUsd } from "../web/src/checker/api";
 import {
   aggregateTradesByOrder,
+  calculateSelectedHedgeMetrics,
   exportHedgeReportToCsv,
   matchHedgeTrades,
 } from "../web/src/checker/hedge";
@@ -29,6 +30,45 @@ function mockTrade(overrides: Partial<ParsedTradeView>): ParsedTradeView {
     ...overrides,
   };
 }
+
+const makeMockHedgePair = (
+  id: string,
+  notionalUsd: number,
+  pricePnlUsd: number,
+  totalFeesUsd: number,
+) => ({
+  id,
+  marketSymbol: "AAPL",
+  matchedSize: 50,
+  rhTradeId: `rh-${id}`,
+  rhSide: "BUY" as const,
+  rhPrice: 200,
+  rhSize: 50,
+  rhFeeUsd: totalFeesUsd / 2,
+  rhTimestampMs: 1000,
+  rhTimeFormatted: "10:00:00",
+  rhTxHash: "0x1",
+  rhRole: "TAKER" as const,
+  coreTradeId: `core-${id}`,
+  coreSide: "SELL" as const,
+  corePrice: 200,
+  coreSize: 50,
+  coreFeeUsd: totalFeesUsd / 2,
+  coreTimestampMs: 1000,
+  coreTimeFormatted: "10:00:00",
+  coreTxHash: "0x2",
+  coreRole: "MAKER" as const,
+  buyPrice: 200,
+  sellPrice: 200,
+  priceDelta: pricePnlUsd / 50,
+  pricePnlUsd,
+  totalFeesUsd,
+  netPnlUsd: pricePnlUsd - totalFeesUsd,
+  notionalUsd,
+  pnlBps: ((pricePnlUsd - totalFeesUsd) / notionalUsd) * 10000,
+  timeDeltaSec: 0,
+  status: "HEDGED" as const,
+});
 
 describe("Hedge Matching Engine", () => {
   it("matches 1-to-1 exact opposite trades across RH and Core with PnL terminology", () => {
@@ -443,5 +483,83 @@ describe("Hedge Matching Engine", () => {
     // Raw mode fragments into multiple partial fills
     expect(resultRaw.pairs.length).toBeGreaterThan(1);
     expect(resultRaw.pairs.some((p) => p.status === "PARTIAL")).toBe(true);
+  });
+
+  it("calculates accurate summary metrics for user-selected hedge rows", () => {
+    // Simulate opening campaign: 3 hedge pairs
+    // Pair 1: notional = 10,000, pricePnl = -2.0, fees = 4.0, netPnl = -6.0
+    // Pair 2: notional = 10,000, pricePnl = +1.0, fees = 4.0, netPnl = -3.0
+    // Pair 3: notional = 10,000, pricePnl = -1.5, fees = 4.0, netPnl = -5.5
+    // Simulate closing campaign: 3 hedge pairs
+    // Pair 4: notional = 10,000, pricePnl = -0.5, fees = 4.0, netPnl = -4.5
+    // Pair 5: notional = 10,000, pricePnl = 0.0, fees = 4.0, netPnl = -4.0
+    // Pair 6: notional = 10,000, pricePnl = -2.0, fees = 4.0, netPnl = -6.0
+
+    const pairs = [
+      makeMockHedgePair("p1", 10000, -2.0, 4.0),
+      makeMockHedgePair("p2", 10000, 1.0, 4.0),
+      makeMockHedgePair("p3", 10000, -1.5, 4.0),
+      makeMockHedgePair("p4", 10000, -0.5, 4.0),
+      makeMockHedgePair("p5", 10000, 0.0, 4.0),
+      makeMockHedgePair("p6", 10000, -2.0, 4.0),
+    ];
+
+    // Case 1: Empty selection
+    const emptyMetrics = calculateSelectedHedgeMetrics([], []);
+    expect(emptyMetrics.selectedCount).toBe(0);
+    expect(emptyMetrics.totalVolumeUsd).toBe(0);
+    expect(emptyMetrics.totalNetPnlUsd).toBe(0);
+    expect(emptyMetrics.avgPnlBps).toBe(0);
+
+    // Case 2: User selects all 6 hedges from open + close campaign
+    const selectedAll = calculateSelectedHedgeMetrics(pairs, []);
+    expect(selectedAll.selectedCount).toBe(6);
+    expect(selectedAll.pairsCount).toBe(6);
+    expect(selectedAll.unhedgedCount).toBe(0);
+    expect(selectedAll.totalVolumeUsd).toBe(60000);
+    // pricePnl = -2 + 1 - 1.5 - 0.5 + 0 - 2 = -5.0
+    expect(selectedAll.totalPricePnlUsd).toBeCloseTo(-5.0, 4);
+    // fees = 6 * 4.0 = 24.0
+    expect(selectedAll.totalFeesUsd).toBeCloseTo(24.0, 4);
+    // netPnl = -5.0 - 24.0 = -29.0
+    expect(selectedAll.totalNetPnlUsd).toBeCloseTo(-29.0, 4);
+    // bps = (-29.0 / 60000) * 10000 = -4.8333 bps
+    expect(selectedAll.avgPnlBps).toBeCloseTo(-4.8333, 4);
+
+    // Case 3: User selects opening 3 trades only
+    const selectedOpen = calculateSelectedHedgeMetrics(pairs.slice(0, 3), []);
+    expect(selectedOpen.selectedCount).toBe(3);
+    expect(selectedOpen.totalVolumeUsd).toBe(30000);
+    // pricePnl = -2.5, fees = 12.0, netPnl = -14.5
+    expect(selectedOpen.totalNetPnlUsd).toBeCloseTo(-14.5, 4);
+
+    // Case 4: Selection with unhedged trade
+    const unhedgedItem = {
+      id: "unhedged-RH-99",
+      tradeId: "99",
+      network: "RH" as const,
+      marketSymbol: "AAPL",
+      side: "BUY" as const,
+      role: "TAKER" as const,
+      unhedgedSize: 10,
+      originalSize: 10,
+      price: 200,
+      usdValue: 2000,
+      feeUsd: 1.5,
+      timestampMs: 1000,
+      timeFormatted: "10:00:00",
+      txHash: "0x3",
+    };
+
+    const mixed = calculateSelectedHedgeMetrics([pairs[0]], [unhedgedItem]);
+    expect(mixed.selectedCount).toBe(2);
+    expect(mixed.pairsCount).toBe(1);
+    expect(mixed.unhedgedCount).toBe(1);
+    // volume = 10,000 + 2,000 = 12,000
+    expect(mixed.totalVolumeUsd).toBe(12000);
+    // fees = 4.0 (pair) + 1.5 (unhedged) = 5.5
+    expect(mixed.totalFeesUsd).toBeCloseTo(5.5, 4);
+    // netPnl = -6.0 (pair net) - 1.5 (unhedged fee) = -7.5
+    expect(mixed.totalNetPnlUsd).toBeCloseTo(-7.5, 4);
   });
 });

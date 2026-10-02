@@ -545,6 +545,70 @@
           </div>
         </div>
 
+        <!-- 1B. HEDGE SELECTED ROWS SUMMARY STRIP -->
+        <div
+          id="hedgeSelectionCard"
+          class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono transition-all"
+        >
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Selected:</span>
+            <span
+              id="selectedCountBadge"
+              class="text-white font-bold text-sm tracking-tight tabular-nums"
+              >0 rows</span
+            >
+            <button
+              id="btnDeselectAllHedge"
+              type="button"
+              class="ml-1 px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-[10px]"
+              title="Clear selection (Esc)"
+            >
+              ✕ Deselect [Esc]
+            </button>
+          </div>
+
+          <!-- Inline metrics for selected rows -->
+          <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px] no-scrollbar">
+            <div>
+              <span class="text-terminal-muted mr-1.5">PAIRS:</span>
+              <span id="selectedPairsCount" class="font-bold text-white tabular-nums">0</span>
+            </div>
+            <div>
+              <span class="text-terminal-muted mr-1.5">HEDGED VOL:</span>
+              <span id="selectedVolume" class="font-bold text-terminal-accent tabular-nums"
+                >$0.00</span
+              >
+            </div>
+            <div>
+              <span class="text-terminal-muted mr-1.5">NET PNL:</span>
+              <span id="selectedNetPnl" class="font-bold text-terminal-muted tabular-nums"
+                >$0.00</span
+              >
+              <span id="selectedPnlBps" class="text-[10px] text-terminal-muted tabular-nums ml-1"
+                >(0.0 bps)</span
+              >
+            </div>
+            <div class="hidden sm:block">
+              <span class="text-terminal-muted mr-1.5">SLIPPAGE PNL:</span>
+              <span id="selectedSlippage" class="font-bold text-terminal-secondary tabular-nums"
+                >$0.00</span
+              >
+            </div>
+            <div class="hidden sm:block">
+              <span class="text-terminal-muted mr-1.5">FEES:</span>
+              <span id="selectedFees" class="font-bold text-terminal-secondary tabular-nums"
+                >$0.00</span
+              >
+            </div>
+            <div class="hidden md:block">
+              <span class="text-terminal-muted mr-1.5">UNHEDGED:</span>
+              <span id="selectedUnhedgedCount" class="font-bold text-terminal-coral tabular-nums"
+                >0</span
+              >
+            </div>
+          </div>
+        </div>
+
         <!-- 2A. HEDGE EMPTY STATE PANEL (Step 1: Exporter, Step 2: Import RH & Core files) -->
         <div id="hedgeEmptyStatePanel" class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
           <!-- Step 1: Export Bookmarklet -->
@@ -834,6 +898,14 @@
                 <tr
                   class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] font-mono select-none"
                 >
+                  <th class="py-2 px-2 font-semibold w-7 text-center">
+                    <input
+                      type="checkbox"
+                      id="checkAllHedge"
+                      class="hedge-cb"
+                      title="Select / deselect all visible rows"
+                    />
+                  </th>
                   <th class="py-2 px-2 font-semibold w-8">#</th>
                   <th class="py-2 px-2 font-semibold">Time (RH)</th>
                   <th class="py-2 px-2 font-semibold">Market</th>
@@ -852,7 +924,7 @@
               </thead>
               <tbody id="hedgeTableBody" class="divide-y divide-terminal-borderSubtle">
                 <tr>
-                  <td colspan="14" class="py-12 text-center text-terminal-muted">
+                  <td colspan="15" class="py-12 text-center text-terminal-muted">
                     <div class="flex flex-col items-center justify-center gap-1.5">
                       <span class="text-terminal-secondary font-medium">No hedge pairs loaded</span>
                       <span class="text-[11px] text-terminal-muted">

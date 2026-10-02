@@ -140,3 +140,66 @@ select,
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* Subtle dark terminal checkbox (neutral monochrome) */
+.hedge-cb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  border: 1px solid #30363d;
+  background-color: #0b0c0e;
+  outline: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  transition:
+    border-color 0.12s ease,
+    background-color 0.12s ease;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.hedge-cb:hover {
+  border-color: #8b949e;
+  background-color: #161b22;
+}
+
+.hedge-cb:checked {
+  background-color: #21262d;
+  border-color: #8b949e;
+}
+
+.hedge-cb:checked::after {
+  content: "";
+  display: block;
+  width: 3.5px;
+  height: 6.5px;
+  border: solid #f0f6fc;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+  margin-top: -1.5px;
+}
+
+.hedge-cb:indeterminate {
+  background-color: #21262d;
+  border-color: #8b949e;
+}
+
+.hedge-cb:indeterminate::after {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 1.5px;
+  background-color: #f0f6fc;
+  border-radius: 1px;
+}
+
+.hedge-cb:focus-visible {
+  border-color: #8b949e;
+}

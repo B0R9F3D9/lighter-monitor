@@ -4,6 +4,7 @@ import type {
   HedgePair,
   HedgeSummaryMetrics,
   ParsedTradeView,
+  SelectedHedgeMetrics,
   UnhedgedTrade,
 } from "./types";
 
@@ -198,9 +199,17 @@ export function renderTradesTable(
   container.appendChild(frag);
 }
 
-export function createHedgeRow(pair: HedgePair, index: number): HTMLTableRowElement {
+export function createHedgeRow(
+  pair: HedgePair,
+  index: number,
+  isSelected = false,
+): HTMLTableRowElement {
   const tr = document.createElement("tr");
-  tr.className = "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text";
+  const baseClass =
+    "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text cursor-pointer";
+  tr.className = isSelected ? `${baseClass} bg-white/10 hover:bg-white/[0.13]` : baseClass;
+  tr.dataset.id = pair.id;
+  tr.dataset.index = index.toString();
 
   const rhIsBuy = pair.rhSide === "BUY";
   const coreIsBuy = pair.coreSide === "BUY";
@@ -244,6 +253,14 @@ export function createHedgeRow(pair: HedgePair, index: number): HTMLTableRowElem
   const timeDeltaStr = (pair.timeDeltaSec >= 0 ? "+" : "") + pair.timeDeltaSec.toFixed(1) + "s";
 
   tr.innerHTML = `
+    <td class="py-1.5 px-2 text-center w-7">
+      <input
+        type="checkbox"
+        class="hedge-row-cb hedge-cb"
+        data-id="${pair.id}"
+        ${isSelected ? "checked" : ""}
+      />
+    </td>
     <td class="py-1.5 px-2 text-terminal-muted tabular-nums text-[11px]">${index}</td>
     <td class="py-1.5 px-2 text-white whitespace-nowrap text-[11px]">${pair.rhTimeFormatted}</td>
     <td class="py-1.5 px-2 whitespace-nowrap">
@@ -273,10 +290,20 @@ export function createHedgeRow(pair: HedgePair, index: number): HTMLTableRowElem
   return tr;
 }
 
-export function createUnhedgedRow(trade: UnhedgedTrade, index: number): HTMLTableRowElement {
+export function createUnhedgedRow(
+  trade: UnhedgedTrade,
+  index: number,
+  isSelected = false,
+): HTMLTableRowElement {
   const tr = document.createElement("tr");
-  tr.className =
-    "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text bg-terminal-coral/5";
+  const id = trade.id || `unhedged-${trade.network}-${trade.tradeId}`;
+  const baseClass =
+    "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text cursor-pointer";
+  tr.className = isSelected
+    ? `${baseClass} bg-white/10 hover:bg-white/[0.13]`
+    : `${baseClass} bg-terminal-coral/5`;
+  tr.dataset.id = id;
+  tr.dataset.index = index.toString();
 
   const isBuy = trade.side === "BUY";
   const sideColor = isBuy ? "text-terminal-emerald" : "text-terminal-coral";
@@ -292,6 +319,14 @@ export function createUnhedgedRow(trade: UnhedgedTrade, index: number): HTMLTabl
       : `<span class="text-terminal-muted">--</span>`;
 
   tr.innerHTML = `
+    <td class="py-1.5 px-2 text-center w-7">
+      <input
+        type="checkbox"
+        class="hedge-row-cb hedge-cb"
+        data-id="${id}"
+        ${isSelected ? "checked" : ""}
+      />
+    </td>
     <td class="py-1.5 px-2 text-terminal-muted tabular-nums text-[11px]">${index}</td>
     <td class="py-1.5 px-2 text-white whitespace-nowrap text-[11px]">${trade.timeFormatted}</td>
     <td class="py-1.5 px-2 whitespace-nowrap">
@@ -321,6 +356,7 @@ export function renderHedgeTable(
   unhedged: UnhedgedTrade[],
   filterMode: "all" | "unhedged" = "all",
   limit = 250,
+  selectedIds: Set<string> = new Set(),
 ): void {
   container.innerHTML = "";
 
@@ -330,7 +366,7 @@ export function renderHedgeTable(
   if (totalItems === 0) {
     const emptyRow = document.createElement("tr");
     emptyRow.innerHTML = `
-      <td colspan="14" class="py-12 text-center text-terminal-muted">
+      <td colspan="15" class="py-12 text-center text-terminal-muted">
         <div class="flex flex-col items-center justify-center gap-1.5">
           <span class="text-terminal-secondary font-medium">No hedge pairs to display</span>
           <span class="text-[11px] text-terminal-muted">Upload both your Robinhood JSON and Core JSON files to compare and audit your hedge efficiency.</span>
@@ -347,19 +383,20 @@ export function renderHedgeTable(
   if (showPairs) {
     for (const pair of pairs) {
       if (rowCount >= limit) break;
-      frag.appendChild(createHedgeRow(pair, ++rowCount));
+      frag.appendChild(createHedgeRow(pair, ++rowCount, selectedIds.has(pair.id)));
     }
   }
 
   for (const item of unhedged) {
     if (rowCount >= limit) break;
-    frag.appendChild(createUnhedgedRow(item, ++rowCount));
+    const uId = item.id || `unhedged-${item.network}-${item.tradeId}`;
+    frag.appendChild(createUnhedgedRow(item, ++rowCount, selectedIds.has(uId)));
   }
 
   if (totalItems > limit) {
     const noticeRow = document.createElement("tr");
     noticeRow.innerHTML = `
-      <td colspan="14" class="py-2.5 text-center text-[11px] text-terminal-secondary bg-terminal-surface/40">
+      <td colspan="15" class="py-2.5 text-center text-[11px] text-terminal-secondary bg-terminal-surface/40">
         Showing first ${limit} of ${totalItems} records. Export CSV to analyze the complete dataset.
       </td>
     `;
@@ -457,6 +494,95 @@ export function updateHedgeExecutiveMetrics(
     elements.unhedgedCount.textContent = metrics.totalUnhedgedTrades.toLocaleString();
     elements.unhedgedCount.className =
       metrics.totalUnhedgedTrades > 0
+        ? "font-bold text-terminal-coral tabular-nums"
+        : "font-bold text-terminal-secondary tabular-nums";
+  }
+}
+
+export interface HedgeSelectionMetricElements {
+  selectionCard: HTMLElement | null;
+  countBadge: HTMLElement | null;
+  pairsCount: HTMLElement | null;
+  volume: HTMLElement | null;
+  netPnl: HTMLElement | null;
+  pnlBps: HTMLElement | null;
+  slippage: HTMLElement | null;
+  fees: HTMLElement | null;
+  unhedgedCount: HTMLElement | null;
+}
+
+export function updateHedgeSelectionMetrics(
+  metrics: SelectedHedgeMetrics | null,
+  elements: HedgeSelectionMetricElements,
+): void {
+  if (!metrics || metrics.selectedCount === 0) {
+    if (elements.selectionCard) {
+      elements.selectionCard.classList.add("hidden");
+    }
+    return;
+  }
+
+  if (elements.selectionCard) {
+    elements.selectionCard.classList.remove("hidden");
+  }
+
+  if (elements.countBadge) {
+    const text = metrics.selectedCount === 1 ? "1 row" : `${metrics.selectedCount} rows`;
+    elements.countBadge.textContent = text;
+  }
+
+  if (elements.pairsCount) {
+    elements.pairsCount.textContent = metrics.pairsCount.toLocaleString();
+  }
+
+  if (elements.volume) {
+    elements.volume.textContent = formatMoney(metrics.totalVolumeUsd);
+  }
+
+  if (elements.netPnl) {
+    const sign = metrics.totalNetPnlUsd > 0.0001 ? "+" : "";
+    elements.netPnl.textContent = `${sign}${formatMoney(metrics.totalNetPnlUsd)}`;
+    if (metrics.totalNetPnlUsd > 0.001) {
+      elements.netPnl.className = "font-bold text-terminal-emerald tabular-nums";
+    } else if (metrics.totalNetPnlUsd < -0.001) {
+      elements.netPnl.className = "font-bold text-terminal-coral tabular-nums";
+    } else {
+      elements.netPnl.className = "font-bold text-terminal-muted tabular-nums";
+    }
+  }
+
+  if (elements.pnlBps) {
+    const sign = metrics.avgPnlBps > 0.001 ? "+" : "";
+    elements.pnlBps.textContent = `(${sign}${metrics.avgPnlBps.toFixed(2)} bps)`;
+    if (metrics.avgPnlBps > 0.01) {
+      elements.pnlBps.className = "text-[10px] text-terminal-emerald tabular-nums ml-1";
+    } else if (metrics.avgPnlBps < -0.01) {
+      elements.pnlBps.className = "text-[10px] text-terminal-coral tabular-nums ml-1";
+    } else {
+      elements.pnlBps.className = "text-[10px] text-terminal-muted tabular-nums ml-1";
+    }
+  }
+
+  if (elements.slippage) {
+    const sign = metrics.totalPricePnlUsd > 0.0001 ? "+" : "";
+    elements.slippage.textContent = `${sign}${formatMoney(metrics.totalPricePnlUsd)}`;
+    if (metrics.totalPricePnlUsd > 0.001) {
+      elements.slippage.className = "font-bold text-terminal-emerald tabular-nums";
+    } else if (metrics.totalPricePnlUsd < -0.001) {
+      elements.slippage.className = "font-bold text-terminal-coral tabular-nums";
+    } else {
+      elements.slippage.className = "font-bold text-terminal-secondary tabular-nums";
+    }
+  }
+
+  if (elements.fees) {
+    elements.fees.textContent = formatMoney(metrics.totalFeesUsd);
+  }
+
+  if (elements.unhedgedCount) {
+    elements.unhedgedCount.textContent = metrics.unhedgedCount.toLocaleString();
+    elements.unhedgedCount.className =
+      metrics.unhedgedCount > 0
         ? "font-bold text-terminal-coral tabular-nums"
         : "font-bold text-terminal-secondary tabular-nums";
   }

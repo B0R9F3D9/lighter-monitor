@@ -11,12 +11,14 @@ import {
 } from "./api";
 import { getBookmarkletHref } from "./bookmarklet";
 import {
+  HedgeSelectionMetricElements,
   renderHedgeTable,
   renderTradesTable,
   updateExecutiveMetrics,
   updateHedgeExecutiveMetrics,
+  updateHedgeSelectionMetrics,
 } from "./dom";
-import { exportHedgeReportToCsv, matchHedgeTrades } from "./hedge";
+import { calculateSelectedHedgeMetrics, exportHedgeReportToCsv, matchHedgeTrades } from "./hedge";
 import type {
   CheckerNetwork,
   CheckerSummaryMetrics,
@@ -171,6 +173,24 @@ export class CheckerController {
   private inputHedgeSearchFilter: HTMLInputElement | null = null;
   private hedgeTableBody: HTMLTableSectionElement | null = null;
 
+  // Hedge Row Selection State & Elements
+  private selectedHedgeRowIds: Set<string> = new Set();
+  private lastClickedHedgeRowId: string | null = null;
+  private hedgeSelectionCard: HTMLElement | null = null;
+  private btnDeselectAllHedge: HTMLButtonElement | null = null;
+  private checkAllHedge: HTMLInputElement | null = null;
+  private hedgeSelectionMetricElements: HedgeSelectionMetricElements = {
+    selectionCard: null,
+    countBadge: null,
+    pairsCount: null,
+    volume: null,
+    netPnl: null,
+    pnlBps: null,
+    slippage: null,
+    fees: null,
+    unhedgedCount: null,
+  };
+
   public init(): void {
     this.cacheDomElements();
     this.initBookmarkletSection();
@@ -285,6 +305,22 @@ export class CheckerController {
     this.hedgeCountNotice = document.querySelector("#hedgeCountNotice");
     this.inputHedgeSearchFilter = document.querySelector("#inputHedgeSearchFilter");
     this.hedgeTableBody = document.querySelector("#hedgeTableBody");
+
+    // Hedge Selection Card Elements
+    this.hedgeSelectionCard = document.querySelector("#hedgeSelectionCard");
+    this.btnDeselectAllHedge = document.querySelector("#btnDeselectAllHedge");
+    this.checkAllHedge = document.querySelector("#checkAllHedge");
+    this.hedgeSelectionMetricElements = {
+      selectionCard: this.hedgeSelectionCard,
+      countBadge: document.querySelector("#selectedCountBadge"),
+      pairsCount: document.querySelector("#selectedPairsCount"),
+      volume: document.querySelector("#selectedVolume"),
+      netPnl: document.querySelector("#selectedNetPnl"),
+      pnlBps: document.querySelector("#selectedPnlBps"),
+      slippage: document.querySelector("#selectedSlippage"),
+      fees: document.querySelector("#selectedFees"),
+      unhedgedCount: document.querySelector("#selectedUnhedgedCount"),
+    };
   }
 
   private handleBookmarkletClick(e: MouseEvent): void {
@@ -367,6 +403,10 @@ export class CheckerController {
         !this.exportModal.classList.contains("hidden")
       ) {
         this.closeExportModal();
+      } else if (e.key === "Escape" && this.selectedHedgeRowIds.size > 0) {
+        this.selectedHedgeRowIds.clear();
+        this.lastClickedHedgeRowId = null;
+        this.onHedgeSelectionChanged();
       }
     });
 
@@ -506,6 +546,15 @@ export class CheckerController {
       this.hedgeSearchQuery = (e.target as HTMLInputElement).value.toLowerCase().trim();
       this.applyHedgeFilter();
     });
+
+    // Hedge selection events
+    this.checkAllHedge?.addEventListener("click", () => this.toggleSelectAllVisibleHedge());
+    this.btnDeselectAllHedge?.addEventListener("click", () => {
+      this.selectedHedgeRowIds.clear();
+      this.lastClickedHedgeRowId = null;
+      this.onHedgeSelectionChanged();
+    });
+    this.hedgeTableBody?.addEventListener("click", (e) => this.handleHedgeTableClick(e));
   }
 
   private setupHedgeDropzone(dropzone: HTMLElement | null, defaultSlot: "rh" | "core"): void {
@@ -985,7 +1034,10 @@ export class CheckerController {
         this.filteredHedgePairs,
         this.filteredUnhedgedTrades,
         this.hedgeFilterTab,
+        250,
+        this.selectedHedgeRowIds,
       );
+      this.updateHeaderCheckboxState();
     }
 
     if (this.hedgeCountNotice) {
@@ -1050,6 +1102,10 @@ export class CheckerController {
       this.btnHedgeModeAggregated?.classList.add("text-terminal-muted");
     }
 
+    this.selectedHedgeRowIds.clear();
+    this.lastClickedHedgeRowId = null;
+    updateHedgeSelectionMetrics(null, this.hedgeSelectionMetricElements);
+
     if (this.rhRawTrades.length > 0 && this.coreRawTrades.length > 0) {
       this.recalculateAndRenderHedge();
     }
@@ -1058,9 +1114,20 @@ export class CheckerController {
   public downloadHedgeCsv(): void {
     if (this.hedgePairs.length === 0 && this.unhedgedTrades.length === 0) return;
 
-    const csvContent = exportHedgeReportToCsv(this.hedgePairs, this.unhedgedTrades);
+    let pairsToExport = this.hedgePairs;
+    let unhedgedToExport = this.unhedgedTrades;
+
+    if (this.selectedHedgeRowIds.size > 0) {
+      pairsToExport = this.hedgePairs.filter((p) => this.selectedHedgeRowIds.has(p.id));
+      unhedgedToExport = this.unhedgedTrades.filter((u) =>
+        this.selectedHedgeRowIds.has(u.id || `unhedged-${u.network}-${u.tradeId}`),
+      );
+    }
+
+    const csvContent = exportHedgeReportToCsv(pairsToExport, unhedgedToExport);
     const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = `lighter-hedge-audit-rh${this.rhAccountIndex ?? "0"}-core${this.coreAccountIndex ?? "0"}-${dateStr}.csv`;
+    const selSuffix = this.selectedHedgeRowIds.size > 0 ? "-selected" : "";
+    const filename = `lighter-hedge-audit-rh${this.rhAccountIndex ?? "0"}-core${this.coreAccountIndex ?? "0"}${selSuffix}-${dateStr}.csv`;
     downloadTextFile(csvContent, filename, "text/csv;charset=utf-8");
   }
 
@@ -1097,6 +1164,9 @@ export class CheckerController {
     this.filteredHedgePairs = [];
     this.filteredUnhedgedTrades = [];
     this.hedgeMetrics = null;
+    this.selectedHedgeRowIds.clear();
+    this.lastClickedHedgeRowId = null;
+    updateHedgeSelectionMetrics(null, this.hedgeSelectionMetricElements);
 
     this.hedgeLoadedToolbar?.classList.add("hidden");
     this.hedgeEmptyStatePanel?.classList.remove("hidden");
@@ -1108,6 +1178,147 @@ export class CheckerController {
   public clearHedge(): void {
     this.clearHedgeSlot("rh");
     this.clearHedgeSlot("core");
+  }
+
+  private getVisibleHedgeRowIds(): string[] {
+    if (!this.hedgeTableBody) return [];
+    const ids: string[] = [];
+    const rows = this.hedgeTableBody.querySelectorAll<HTMLTableRowElement>("tr[data-id]");
+    for (const r of rows) {
+      if (r.dataset.id) ids.push(r.dataset.id);
+    }
+    return ids;
+  }
+
+  private handleHedgeRangeSelection(fromId: string, toId: string): void {
+    const visibleIds = this.getVisibleHedgeRowIds();
+    const fromIndex = visibleIds.indexOf(fromId);
+    const toIndex = visibleIds.indexOf(toId);
+    if (fromIndex === -1 || toIndex === -1) {
+      this.selectedHedgeRowIds.add(toId);
+      this.lastClickedHedgeRowId = toId;
+      return;
+    }
+
+    const start = Math.min(fromIndex, toIndex);
+    const end = Math.max(fromIndex, toIndex);
+    for (let i = start; i <= end; i++) {
+      this.selectedHedgeRowIds.add(visibleIds[i]);
+    }
+    this.lastClickedHedgeRowId = toId;
+  }
+
+  private handleHedgeTableClick(e: MouseEvent): void {
+    const target = e.target as HTMLElement;
+    const tr = target.closest("tr") as HTMLTableRowElement | null;
+    if (!tr || !tr.dataset.id) return;
+
+    const id = tr.dataset.id;
+    const isCheckbox =
+      target.classList.contains("hedge-row-cb") || target instanceof HTMLInputElement;
+
+    // Ignore clicks on links or action buttons inside the row
+    if (!isCheckbox && (target.closest("a") || target.closest("button"))) return;
+
+    // Ignore text selection
+    const sel = window.getSelection();
+    if (!isCheckbox && sel && sel.toString().trim().length > 0) return;
+
+    if (e.shiftKey && this.lastClickedHedgeRowId) {
+      this.handleHedgeRangeSelection(this.lastClickedHedgeRowId, id);
+    } else {
+      if (isCheckbox) {
+        const cb = target as HTMLInputElement;
+        if (cb.checked) {
+          this.selectedHedgeRowIds.add(id);
+        } else {
+          this.selectedHedgeRowIds.delete(id);
+        }
+      } else {
+        if (this.selectedHedgeRowIds.has(id)) {
+          this.selectedHedgeRowIds.delete(id);
+        } else {
+          this.selectedHedgeRowIds.add(id);
+        }
+      }
+      this.lastClickedHedgeRowId = id;
+    }
+
+    this.onHedgeSelectionChanged();
+  }
+
+  private toggleSelectAllVisibleHedge(): void {
+    const visibleIds = this.getVisibleHedgeRowIds();
+    if (visibleIds.length === 0) return;
+
+    const allSelected = visibleIds.every((id) => this.selectedHedgeRowIds.has(id));
+    if (allSelected) {
+      for (const id of visibleIds) {
+        this.selectedHedgeRowIds.delete(id);
+      }
+    } else {
+      for (const id of visibleIds) {
+        this.selectedHedgeRowIds.add(id);
+      }
+    }
+    this.onHedgeSelectionChanged();
+  }
+
+  private updateHeaderCheckboxState(): void {
+    if (!this.checkAllHedge) return;
+    const visibleIds = this.getVisibleHedgeRowIds();
+    if (visibleIds.length === 0) {
+      this.checkAllHedge.checked = false;
+      this.checkAllHedge.indeterminate = false;
+      return;
+    }
+
+    const selectedVisibleCount = visibleIds.filter((id) => this.selectedHedgeRowIds.has(id)).length;
+    this.checkAllHedge.checked = selectedVisibleCount === visibleIds.length;
+    this.checkAllHedge.indeterminate =
+      selectedVisibleCount > 0 && selectedVisibleCount < visibleIds.length;
+  }
+
+  private onHedgeSelectionChanged(): void {
+    const selectedPairs = this.hedgePairs.filter((p) => this.selectedHedgeRowIds.has(p.id));
+    const selectedUnhedged = this.unhedgedTrades.filter((u) =>
+      this.selectedHedgeRowIds.has(u.id || `unhedged-${u.network}-${u.tradeId}`),
+    );
+
+    const metrics = calculateSelectedHedgeMetrics(selectedPairs, selectedUnhedged);
+    updateHedgeSelectionMetrics(metrics, this.hedgeSelectionMetricElements);
+
+    // Fast DOM sync without full table reconstruction
+    if (this.hedgeTableBody) {
+      const rows = this.hedgeTableBody.querySelectorAll<HTMLTableRowElement>("tr[data-id]");
+      for (const r of rows) {
+        const id = r.dataset.id;
+        if (!id) continue;
+        const isSelected = this.selectedHedgeRowIds.has(id);
+        const cb = r.querySelector<HTMLInputElement>(".hedge-row-cb");
+        if (cb && cb.checked !== isSelected) {
+          cb.checked = isSelected;
+        }
+
+        const baseClass =
+          "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text cursor-pointer";
+        const isUnhedged = id.startsWith("unhedged-");
+        if (isSelected) {
+          r.className = `${baseClass} bg-white/10 hover:bg-white/[0.13]`;
+        } else {
+          r.className = isUnhedged ? `${baseClass} bg-terminal-coral/5` : baseClass;
+        }
+      }
+    }
+
+    this.updateHeaderCheckboxState();
+
+    if (this.btnHedgeExportCsv) {
+      this.btnHedgeExportCsv.textContent =
+        this.selectedHedgeRowIds.size > 0
+          ? `Export CSV (${this.selectedHedgeRowIds.size})`
+          : "Export CSV";
+    }
   }
 
   // ==========================================
