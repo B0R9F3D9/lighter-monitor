@@ -114,3 +114,88 @@ export interface ExportPayload {
   };
   trades: LighterTrade[];
 }
+
+export type HedgeMatchStatus = "HEDGED" | "PARTIAL" | "UNHEDGED";
+
+export interface HedgePair {
+  id: string;
+  marketSymbol: string;
+  matchedSize: number;
+
+  // RH Leg
+  rhTradeId: string;
+  rhSide: "BUY" | "SELL";
+  rhPrice: number;
+  rhSize: number;
+  rhFeeUsd: number;
+  rhTimestampMs: number;
+  rhTimeFormatted: string;
+  rhTxHash: string;
+  rhRole: "MAKER" | "TAKER";
+
+  // Core Leg
+  coreTradeId: string;
+  coreSide: "BUY" | "SELL";
+  corePrice: number;
+  coreSize: number;
+  coreFeeUsd: number;
+  coreTimestampMs: number;
+  coreTimeFormatted: string;
+  coreTxHash: string;
+  coreRole: "MAKER" | "TAKER";
+
+  // Comparison & Loss
+  buyPrice: number;
+  sellPrice: number;
+  priceDelta: number; // sellPrice - buyPrice
+  priceLossUsd: number; // (sellPrice - buyPrice) * matchedSize
+  totalFeesUsd: number; // rhFeeUsd + coreFeeUsd
+  netLossUsd: number; // priceLossUsd - totalFeesUsd
+  notionalUsd: number; // matchedSize * ((rhPrice + corePrice) / 2)
+  costBps: number; // (netLossUsd / notionalUsd) * 10000
+  timeDeltaSec: number; // (coreTimestampMs - rhTimestampMs) / 1000
+  status: "HEDGED" | "PARTIAL";
+}
+
+export interface UnhedgedTrade {
+  tradeId: string;
+  network: "RH" | "CORE";
+  marketSymbol: string;
+  side: "BUY" | "SELL";
+  role: "MAKER" | "TAKER";
+  unhedgedSize: number;
+  originalSize: number;
+  price: number;
+  usdValue: number;
+  feeUsd: number;
+  timestampMs: number;
+  timeFormatted: string;
+  txHash: string;
+}
+
+export interface HedgeSummaryMetrics {
+  totalPairs: number;
+  totalHedgedVolumeUsd: number;
+  totalNetLossUsd: number;
+  totalPriceLossUsd: number;
+  totalFeesUsd: number;
+  avgCostBps: number;
+  bestPairLossUsd: number;
+  worstPairLossUsd: number;
+  totalUnhedgedTrades: number;
+  unhedgedVolumeUsd: number;
+  unhedgedRhCount: number;
+  unhedgedCoreCount: number;
+  rhAccountIndex: number | null;
+  coreAccountIndex: number | null;
+  rhTotalTrades: number;
+  coreTotalTrades: number;
+  firstTradeTime: number | null;
+  lastTradeTime: number | null;
+}
+
+export interface HedgeMatchingResult {
+  pairs: HedgePair[];
+  unhedged: UnhedgedTrade[];
+  metrics: HedgeSummaryMetrics;
+}

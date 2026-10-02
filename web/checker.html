@@ -121,200 +121,39 @@
 
     <!-- MAIN VIEWPORT -->
     <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 space-y-2.5">
-      <!-- 1. EXECUTIVE SUMMARY LEAD STRIP (Matches /spread topRankCard 1:1) -->
-      <div
-        id="topRankCard"
-        class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono"
-      >
-        <div class="flex items-center gap-2 shrink-0">
-          <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Account:</span>
-          <span id="leadAccountBadge" class="text-white font-bold text-sm tracking-tight">--</span>
-          <span id="leadNetworkBadge" class="text-terminal-muted text-[11px]">--</span>
-        </div>
-
-        <!-- Inline metrics -->
-        <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px] no-scrollbar">
-          <div>
-            <span class="text-terminal-muted mr-1.5">TRADES:</span>
-            <span id="leadTradesCount" class="font-bold text-white tabular-nums">0</span>
-          </div>
-          <div>
-            <span class="text-terminal-muted mr-1.5">TOTAL VOL:</span>
-            <span id="leadTotalVolume" class="font-bold text-terminal-accent tabular-nums"
-              >$0.00</span
-            >
-          </div>
-          <div>
-            <span class="text-terminal-muted mr-1.5">REALIZED PNL:</span>
-            <span id="leadRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
-              >$0.00</span
-            >
-          </div>
-          <div class="hidden sm:block">
-            <span class="text-terminal-muted mr-1.5">TOTAL FEES:</span>
-            <span id="leadTotalFees" class="font-bold text-terminal-secondary tabular-nums"
-              >$0.00</span
-            >
-          </div>
-          <div class="hidden md:block">
-            <span class="text-terminal-muted mr-1.5">DATE RANGE:</span>
-            <span id="leadDateRange" class="font-bold text-terminal-primary tabular-nums">--</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 2A. EMPTY STATE ONBOARDING (Visible when no trades loaded) -->
-      <div id="emptyStatePanel" class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-        <!-- 1. Export Bookmarklet -->
-        <div
-          class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
-        >
-          <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2">
-            <div class="flex items-center gap-2">
-              <span
-                class="w-5 h-5 rounded bg-terminal-accent/15 border border-terminal-accent/40 text-terminal-accent flex items-center justify-center text-[11px] font-bold"
-                >1</span
-              >
-              <h2 class="text-xs font-bold text-white uppercase tracking-wider">
-                Export from Lighter
-              </h2>
-            </div>
-            <button
-              id="btnOpenExportHelpEmpty"
-              type="button"
-              class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
-            >
-              ? Instructions
-            </button>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <a
-              id="bookmarkletLink"
-              href="#"
-              draggable="true"
-              class="px-3 py-1.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white font-bold text-xs transition cursor-grab active:cursor-grabbing flex items-center gap-1.5 select-none no-underline"
-              title="Drag this button to your browser Bookmarks Toolbar"
-            >
-              <span>⚡ Lighter Trade Exporter</span>
-            </a>
-            <button
-              id="btnCopyBookmarklet"
-              type="button"
-              class="px-2.5 py-1.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
-              title="Copy bookmarklet code"
-            >
-              Copy Code
-            </button>
-          </div>
-
-          <div class="text-[11px] text-terminal-muted">
-            Drag to bookmarks bar, click it on
-            <a
-              href="https://robinhoodchain.lighter.xyz"
-              target="_blank"
-              rel="noreferrer"
-              class="text-terminal-secondary hover:underline"
-              >robinhoodchain.lighter.xyz</a
-            >, and save your JSON.
-          </div>
-        </div>
-
-        <!-- 2. Import Dropzone -->
-        <div
-          class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
-        >
-          <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2">
-            <div class="flex items-center gap-2">
-              <span
-                class="w-5 h-5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 text-terminal-emerald flex items-center justify-center text-[11px] font-bold"
-                >2</span
-              >
-              <h2 class="text-xs font-bold text-white uppercase tracking-wider">Import Trades</h2>
-            </div>
-            <button
-              id="btnBrowseFileEmpty"
-              type="button"
-              class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
-            >
-              Browse file
-            </button>
-          </div>
-
+      <!-- 0. MODE SWITCHER -->
+      <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2">
+        <div class="flex items-center gap-2.5">
+          <span
+            class="text-terminal-muted text-[11px] font-mono uppercase tracking-wider font-semibold"
+            >Mode:</span
+          >
           <div
-            id="jsonDropzone"
-            class="border border-dashed border-terminal-border hover:border-terminal-emerald/50 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-3 flex items-center justify-center text-center cursor-pointer transition-colors"
+            class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-xs font-mono"
           >
-            <input type="file" id="jsonFileInput" accept=".json,application/json" class="hidden" />
-            <div class="text-[11px] text-terminal-secondary">
-              Drop <code class="text-terminal-accent">lighter-trades-*.json</code> here or
-              <span class="text-white underline">click to select</span>
-            </div>
+            <button
+              id="modeBtnSolo"
+              type="button"
+              class="px-3 py-0.5 rounded bg-terminal-surface text-white font-bold transition cursor-pointer select-none border border-terminal-border"
+            >
+              Solo Account
+            </button>
+            <button
+              id="modeBtnHedge"
+              type="button"
+              class="px-3 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer select-none bg-transparent"
+            >
+              Hedge Checker (RH vs Core)
+            </button>
           </div>
+        </div>
 
-          <div class="text-[10px] text-terminal-muted">
-            100% local in-browser parsing. Zero data sent to any server.
-          </div>
+        <div class="text-[11px] font-mono text-terminal-muted hidden sm:block">
+          <span id="modeDescription">Single account trade analysis (RH or Core)</span>
         </div>
       </div>
 
-      <!-- 2B. LOADED STATE TOOLBAR (Visible when trades are loaded) -->
-      <div
-        id="loadedToolbar"
-        class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono"
-      >
-        <div class="flex items-center gap-2">
-          <span class="text-terminal-muted">File:</span>
-          <span id="loadedFileName" class="text-white font-semibold">--</span>
-          <span class="text-terminal-border">|</span>
-          <span id="loadedFileNetwork" class="text-terminal-accent text-[11px] uppercase">--</span>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <button
-            id="btnReupload"
-            type="button"
-            class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
-            title="Upload a different JSON file"
-          >
-            Re-upload
-          </button>
-          <button
-            id="btnDownloadJson"
-            type="button"
-            class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
-            title="Download trades as JSON"
-          >
-            Export JSON
-          </button>
-          <button
-            id="btnCopyJson"
-            type="button"
-            class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
-            title="Copy JSON to clipboard"
-          >
-            Copy
-          </button>
-          <button
-            id="btnClearTrades"
-            type="button"
-            class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-coral/50 text-terminal-muted hover:text-terminal-coral transition cursor-pointer text-xs"
-            title="Clear loaded trades"
-          >
-            Clear
-          </button>
-          <span class="text-terminal-border">|</span>
-          <button
-            id="btnOpenExportHelpLoaded"
-            type="button"
-            class="text-[11px] text-terminal-muted hover:text-terminal-accent transition cursor-pointer flex items-center gap-1"
-          >
-            <span>? How to export</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- 3. STATUS NOTIFICATION CARD -->
+      <!-- SHARED STATUS NOTIFICATION CARD -->
       <div
         id="statusCard"
         class="hidden bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono transition-all duration-150"
@@ -324,103 +163,687 @@
             <span id="statusDot" class="w-2 h-2 rounded-full bg-terminal-emerald"></span>
             <span id="statusText" class="text-white font-medium">Ready</span>
           </div>
-          <button
-            id="btnCloseStatus"
-            type="button"
-            class="text-terminal-muted hover:text-white text-xs cursor-pointer select-none px-1"
-            title="Dismiss notification"
-          >
-            ✕
-          </button>
+          <div class="flex items-center gap-2 shrink-0">
+            <span id="statusCountdown" class="text-[11px] text-terminal-muted tabular-nums"></span>
+            <button
+              id="btnCloseStatus"
+              type="button"
+              class="text-terminal-muted hover:text-white text-xs cursor-pointer select-none px-1"
+              title="Dismiss notification"
+            >
+              ✕
+            </button>
+          </div>
         </div>
       </div>
 
-      <!-- 4. RESULTS CONTAINER WITH TABS (Table View vs Raw JSON) -->
-      <div class="bg-terminal-surface border border-terminal-border rounded overflow-hidden">
-        <!-- Subheader & Tabs Navigation -->
+      <!-- ============================================== -->
+      <!-- VIEW A: SOLO ACCOUNT CHECKER                   -->
+      <!-- ============================================== -->
+      <div id="soloViewWrapper" class="space-y-2.5">
+        <!-- 1. EXECUTIVE SUMMARY LEAD STRIP (Matches /spread topRankCard 1:1) -->
         <div
-          class="border-b border-terminal-border px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono bg-terminal-surface/60"
+          id="topRankCard"
+          class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono"
         >
-          <!-- Left: Tab Switchers -->
-          <div class="flex items-center gap-2">
-            <div
-              class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px]"
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Account:</span>
+            <span id="leadAccountBadge" class="text-white font-bold text-sm tracking-tight"
+              >--</span
             >
-              <button
-                id="tabBtnTable"
-                type="button"
-                class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-semibold transition cursor-pointer select-none"
+            <span id="leadNetworkBadge" class="text-terminal-muted text-[11px]">--</span>
+          </div>
+
+          <!-- Inline metrics -->
+          <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px] no-scrollbar">
+            <div>
+              <span class="text-terminal-muted mr-1.5">TRADES:</span>
+              <span id="leadTradesCount" class="font-bold text-white tabular-nums">0</span>
+            </div>
+            <div>
+              <span class="text-terminal-muted mr-1.5">TOTAL VOL:</span>
+              <span id="leadTotalVolume" class="font-bold text-terminal-accent tabular-nums"
+                >$0.00</span
               >
-                Table View
-              </button>
-              <button
-                id="tabBtnJson"
-                type="button"
-                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer select-none bg-transparent"
+            </div>
+            <div>
+              <span class="text-terminal-muted mr-1.5">REALIZED PNL:</span>
+              <span id="leadRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
+                >$0.00</span
               >
-                Raw JSON
+            </div>
+            <div class="hidden sm:block">
+              <span class="text-terminal-muted mr-1.5">TOTAL FEES:</span>
+              <span id="leadTotalFees" class="font-bold text-terminal-secondary tabular-nums"
+                >$0.00</span
+              >
+            </div>
+            <div class="hidden md:block">
+              <span class="text-terminal-muted mr-1.5">DATE RANGE:</span>
+              <span id="leadDateRange" class="font-bold text-terminal-primary tabular-nums"
+                >--</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- 2A. EMPTY STATE ONBOARDING (Visible when no trades loaded) -->
+        <div id="emptyStatePanel" class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          <!-- 1. Export Bookmarklet -->
+          <div
+            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+          >
+            <div
+              class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  class="w-5 h-5 rounded bg-terminal-accent/15 border border-terminal-accent/40 text-terminal-accent flex items-center justify-center text-[11px] font-bold"
+                  >1</span
+                >
+                <h2 class="text-xs font-bold text-white uppercase tracking-wider">
+                  Export from Lighter
+                </h2>
+              </div>
+              <button
+                id="btnOpenExportHelpEmpty"
+                type="button"
+                class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
+              >
+                ? Instructions
               </button>
             </div>
 
-            <span id="tradeCountNotice" class="text-[11px] text-terminal-muted ml-2"></span>
+            <div class="flex items-center gap-2">
+              <a
+                id="bookmarkletLink"
+                href="#"
+                draggable="true"
+                class="px-3 py-1.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white font-bold text-xs transition cursor-grab active:cursor-grabbing flex items-center gap-1.5 select-none no-underline"
+                title="Drag this button to your browser Bookmarks Toolbar"
+              >
+                <span>⚡ Lighter Trade Exporter</span>
+              </a>
+              <button
+                id="btnCopyBookmarklet"
+                type="button"
+                class="px-2.5 py-1.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+                title="Copy bookmarklet code"
+              >
+                Copy Code
+              </button>
+            </div>
+
+            <div class="text-[11px] text-terminal-muted">
+              Drag to bookmarks bar, click it on
+              <a
+                href="https://robinhoodchain.lighter.xyz"
+                target="_blank"
+                rel="noreferrer"
+                class="text-terminal-secondary hover:underline"
+                >robinhoodchain.lighter.xyz</a
+              >
+              or
+              <a
+                href="https://app.lighter.xyz"
+                target="_blank"
+                rel="noreferrer"
+                class="text-terminal-secondary hover:underline"
+                >app.lighter.xyz</a
+              >, and save your JSON.
+            </div>
           </div>
 
-          <!-- Right: In-table Filter -->
+          <!-- 2. Import Dropzone -->
+          <div
+            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+          >
+            <div
+              class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  class="w-5 h-5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 text-terminal-emerald flex items-center justify-center text-[11px] font-bold"
+                  >2</span
+                >
+                <h2 class="text-xs font-bold text-white uppercase tracking-wider">Import Trades</h2>
+              </div>
+              <button
+                id="btnBrowseFileEmpty"
+                type="button"
+                class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
+              >
+                Browse file
+              </button>
+            </div>
+
+            <div
+              id="jsonDropzone"
+              class="border border-dashed border-terminal-border hover:border-terminal-emerald/50 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-3 flex items-center justify-center text-center cursor-pointer transition-colors"
+            >
+              <input
+                type="file"
+                id="jsonFileInput"
+                accept=".json,application/json"
+                class="hidden"
+              />
+              <div class="text-[11px] text-terminal-secondary">
+                Drop <code class="text-terminal-accent">lighter-trades-*.json</code> here or
+                <span class="text-white underline">click to select</span>
+              </div>
+            </div>
+
+            <div class="text-[10px] text-terminal-muted">
+              100% local in-browser parsing. Zero data sent to any server.
+            </div>
+          </div>
+        </div>
+
+        <!-- 2B. LOADED STATE TOOLBAR (Visible when trades are loaded) -->
+        <div
+          id="loadedToolbar"
+          class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono"
+        >
           <div class="flex items-center gap-2">
-            <div class="relative">
+            <span class="text-terminal-muted">File:</span>
+            <span id="loadedFileName" class="text-white font-semibold">--</span>
+            <span class="text-terminal-border">|</span>
+            <span id="loadedFileNetwork" class="text-terminal-accent text-[11px] uppercase"
+              >--</span
+            >
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              id="btnReupload"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Upload a different JSON file"
+            >
+              Re-upload
+            </button>
+            <button
+              id="btnDownloadJson"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Download trades as JSON"
+            >
+              Export JSON
+            </button>
+            <button
+              id="btnCopyJson"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Copy JSON to clipboard"
+            >
+              Copy
+            </button>
+            <button
+              id="btnClearTrades"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-coral/50 text-terminal-muted hover:text-terminal-coral transition cursor-pointer text-xs"
+              title="Clear loaded trades"
+            >
+              Clear
+            </button>
+            <span class="text-terminal-border">|</span>
+            <button
+              id="btnOpenExportHelpLoaded"
+              type="button"
+              class="text-[11px] text-terminal-muted hover:text-terminal-accent transition cursor-pointer flex items-center gap-1"
+            >
+              <span>? How to export</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 4. RESULTS CONTAINER WITH TABS (Table View vs Raw JSON) -->
+        <div class="bg-terminal-surface border border-terminal-border rounded overflow-hidden">
+          <!-- Subheader & Tabs Navigation -->
+          <div
+            class="border-b border-terminal-border px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono bg-terminal-surface/60"
+          >
+            <!-- Left: Tab Switchers -->
+            <div class="flex items-center gap-2">
+              <div
+                class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px]"
+              >
+                <button
+                  id="tabBtnTable"
+                  type="button"
+                  class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-semibold transition cursor-pointer select-none"
+                >
+                  Table View
+                </button>
+                <button
+                  id="tabBtnJson"
+                  type="button"
+                  class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer select-none bg-transparent"
+                >
+                  Raw JSON
+                </button>
+              </div>
+
+              <span id="tradeCountNotice" class="text-[11px] text-terminal-muted ml-2"></span>
+            </div>
+
+            <!-- Right: In-table Filter -->
+            <div class="flex items-center gap-2">
+              <div class="relative">
+                <input
+                  type="text"
+                  id="inputSearchFilter"
+                  placeholder="Filter (symbol, BUY, SELL, hash...)"
+                  class="w-48 sm:w-64 px-2 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-[11px] focus:outline-none focus:border-terminal-accent placeholder:text-terminal-muted/60"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 1: Table View -->
+          <div id="tableContainer" class="overflow-x-auto no-scrollbar">
+            <table class="w-full border-collapse text-left">
+              <thead>
+                <tr
+                  class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] font-mono select-none"
+                >
+                  <th class="py-2 px-2 font-semibold w-8">#</th>
+                  <th class="py-2 px-2 font-semibold">Time (UTC)</th>
+                  <th class="py-2 px-2 font-semibold">Market</th>
+                  <th class="py-2 px-2 font-semibold text-center">Side</th>
+                  <th class="py-2 px-2 font-semibold text-center">Role</th>
+                  <th class="py-2 px-2 font-semibold text-right">Price</th>
+                  <th class="py-2 px-2 font-semibold text-right">Size</th>
+                  <th class="py-2 px-2 font-semibold text-right">USD Value</th>
+                  <th class="py-2 px-2 font-semibold text-right">Realized PnL</th>
+                  <th class="py-2 px-2 font-semibold text-right">Fee</th>
+                  <th class="py-2 px-2 font-semibold text-right">Tx Hash</th>
+                </tr>
+              </thead>
+              <tbody id="tradesTableBody" class="divide-y divide-terminal-borderSubtle">
+                <tr>
+                  <td colspan="11" class="py-12 text-center text-terminal-muted">
+                    <div class="flex flex-col items-center justify-center gap-1.5">
+                      <span class="text-terminal-secondary font-medium">No trades loaded yet</span>
+                      <span class="text-[11px] text-terminal-muted"
+                        >Use the bookmarklet on Lighter or drop your exported JSON file above to see
+                        your complete trading history.</span
+                      >
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Tab 2: Raw JSON View -->
+          <div id="jsonContainer" class="hidden p-3 bg-terminal-bg/50">
+            <pre
+              id="jsonViewerPre"
+              class="text-[11px] font-mono text-terminal-primary overflow-x-auto p-3 bg-terminal-bg border border-terminal-border rounded max-h-[600px] select-text"
+            >
+// Raw JSON payload will appear here after importing trades...</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================== -->
+      <!-- VIEW B: HEDGE CHECKER (RH vs CORE)             -->
+      <!-- ============================================== -->
+      <div id="hedgeViewWrapper" class="hidden space-y-2.5">
+        <!-- 1. HEDGE SUMMARY LEAD STRIP -->
+        <div
+          id="hedgeRankCard"
+          class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono"
+        >
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Hedge:</span>
+            <span id="leadHedgeAccountsBadge" class="text-white font-bold text-sm tracking-tight"
+              >RH vs CORE</span
+            >
+          </div>
+
+          <!-- Inline metrics -->
+          <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px] no-scrollbar">
+            <div>
+              <span class="text-terminal-muted mr-1.5">PAIRS:</span>
+              <span id="leadHedgePairsCount" class="font-bold text-white tabular-nums">0</span>
+            </div>
+            <div>
+              <span class="text-terminal-muted mr-1.5">HEDGED VOL:</span>
+              <span id="leadHedgeVolume" class="font-bold text-terminal-accent tabular-nums"
+                >$0.00</span
+              >
+            </div>
+            <div>
+              <span class="text-terminal-muted mr-1.5">NET LOSS:</span>
+              <span id="leadHedgeNetLoss" class="font-bold text-terminal-muted tabular-nums"
+                >$0.00</span
+              >
+              <span id="leadHedgeCostBps" class="text-[10px] text-terminal-muted tabular-nums ml-1"
+                >(0.0 bps)</span
+              >
+            </div>
+            <div class="hidden sm:block">
+              <span class="text-terminal-muted mr-1.5">SLIPPAGE:</span>
+              <span id="leadHedgeSlippage" class="font-bold text-terminal-secondary tabular-nums"
+                >$0.00</span
+              >
+            </div>
+            <div class="hidden sm:block">
+              <span class="text-terminal-muted mr-1.5">FEES:</span>
+              <span id="leadHedgeFees" class="font-bold text-terminal-secondary tabular-nums"
+                >$0.00</span
+              >
+            </div>
+            <div class="hidden md:block">
+              <span class="text-terminal-muted mr-1.5">UNHEDGED:</span>
+              <span id="leadHedgeUnhedgedCount" class="font-bold text-terminal-primary tabular-nums"
+                >0</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- 2A. HEDGE EMPTY STATE PANEL (Step 1: Exporter, Step 2: Import RH & Core files) -->
+        <div id="hedgeEmptyStatePanel" class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+          <!-- Step 1: Export Bookmarklet -->
+          <div
+            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+          >
+            <div
+              class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  class="w-5 h-5 rounded bg-terminal-accent/15 border border-terminal-accent/40 text-terminal-accent flex items-center justify-center text-[11px] font-bold"
+                  >1</span
+                >
+                <h2 class="text-xs font-bold text-white uppercase tracking-wider">
+                  Export from Lighter
+                </h2>
+              </div>
+              <button
+                id="btnOpenExportHelpHedgeEmpty"
+                type="button"
+                class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
+              >
+                ? Instructions
+              </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <a
+                id="hedgeBookmarkletLink"
+                href="#"
+                draggable="true"
+                class="px-3 py-1.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white font-bold text-xs transition cursor-grab active:cursor-grabbing flex items-center gap-1.5 select-none no-underline"
+                title="Drag this button to your browser Bookmarks Toolbar"
+              >
+                <span>⚡ Lighter Trade Exporter</span>
+              </a>
+              <button
+                id="btnCopyBookmarkletHedge"
+                type="button"
+                class="px-2.5 py-1.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+                title="Copy bookmarklet code"
+              >
+                Copy Code
+              </button>
+            </div>
+
+            <div class="text-[11px] text-terminal-muted space-y-0.5">
+              <div>
+                1. Open
+                <a
+                  href="https://robinhoodchain.lighter.xyz"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="text-terminal-secondary hover:underline"
+                  >robinhoodchain.lighter.xyz</a
+                >
+                &rarr; click exporter &rarr; save RH JSON
+              </div>
+              <div>
+                2. Open
+                <a
+                  href="https://app.lighter.xyz"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="text-terminal-secondary hover:underline"
+                  >app.lighter.xyz</a
+                >
+                &rarr; click exporter &rarr; save Core JSON
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Import Both Histories -->
+          <div
+            class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono flex flex-col justify-between space-y-2.5"
+          >
+            <div
+              class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  class="w-5 h-5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 text-terminal-emerald flex items-center justify-center text-[11px] font-bold"
+                  >2</span
+                >
+                <h2 class="text-xs font-bold text-white uppercase tracking-wider">
+                  Import Trade Histories
+                </h2>
+              </div>
+              <span class="text-[10px] text-terminal-muted">Auto-routes files</span>
+            </div>
+
+            <!-- Two dropzone windows for import -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <!-- Window 1: RH -->
+              <div
+                id="dropzoneRh"
+                class="border border-dashed border-terminal-border hover:border-terminal-accent/50 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-2.5 flex flex-col justify-between cursor-pointer transition-colors"
+              >
+                <input
+                  type="file"
+                  id="fileInputRh"
+                  accept=".json,application/json"
+                  class="hidden"
+                />
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] font-semibold text-white">Robinhood (RH)</span>
+                  <button
+                    id="btnBrowseRhFile"
+                    type="button"
+                    class="text-[10px] text-terminal-accent hover:underline cursor-pointer"
+                  >
+                    Browse
+                  </button>
+                </div>
+                <div id="statusRhFile" class="text-[11px] text-terminal-secondary my-1.5 truncate">
+                  Drop <code class="text-terminal-accent">rh-*.json</code>
+                </div>
+                <div class="text-[10px] text-terminal-muted flex items-center justify-between">
+                  <span id="labelRhAccount" class="truncate">No file loaded</span>
+                  <button
+                    id="btnClearRh"
+                    type="button"
+                    class="hidden text-terminal-coral hover:underline text-[10px] cursor-pointer ml-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              <!-- Window 2: Core -->
+              <div
+                id="dropzoneCore"
+                class="border border-dashed border-terminal-border hover:border-terminal-emerald/50 bg-terminal-bg/40 hover:bg-terminal-bg rounded p-2.5 flex flex-col justify-between cursor-pointer transition-colors"
+              >
+                <input
+                  type="file"
+                  id="fileInputCore"
+                  accept=".json,application/json"
+                  class="hidden"
+                />
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] font-semibold text-white">Lighter Core</span>
+                  <button
+                    id="btnBrowseCoreFile"
+                    type="button"
+                    class="text-[10px] text-terminal-accent hover:underline cursor-pointer"
+                  >
+                    Browse
+                  </button>
+                </div>
+                <div
+                  id="statusCoreFile"
+                  class="text-[11px] text-terminal-secondary my-1.5 truncate"
+                >
+                  Drop <code class="text-terminal-emerald">mainnet-*.json</code>
+                </div>
+                <div class="text-[10px] text-terminal-muted flex items-center justify-between">
+                  <span id="labelCoreAccount" class="truncate">No file loaded</span>
+                  <button
+                    id="btnClearCore"
+                    type="button"
+                    class="hidden text-terminal-coral hover:underline text-[10px] cursor-pointer ml-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="text-[10px] text-terminal-muted">
+              100% local in-browser comparison. Zero data sent to any server.
+            </div>
+          </div>
+        </div>
+
+        <!-- 2B. HEDGE LOADED TOOLBAR -->
+        <div
+          id="hedgeLoadedToolbar"
+          class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono"
+        >
+          <div class="flex items-center gap-2">
+            <span class="text-terminal-muted">RH:</span>
+            <span id="loadedRhFileName" class="text-white font-semibold">--</span>
+            <span class="text-terminal-border">|</span>
+            <span class="text-terminal-muted">Core:</span>
+            <span id="loadedCoreFileName" class="text-white font-semibold">--</span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              id="btnHedgeExportCsv"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              title="Download matched hedge audit as CSV"
+            >
+              Export CSV
+            </button>
+            <button
+              id="btnHedgeClear"
+              type="button"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-coral/50 text-terminal-muted hover:text-terminal-coral transition cursor-pointer text-xs"
+              title="Clear both hedge files"
+            >
+              Clear
+            </button>
+            <span class="text-terminal-border">|</span>
+            <button
+              id="btnOpenExportHelpHedge"
+              type="button"
+              class="text-[11px] text-terminal-muted hover:text-terminal-accent transition cursor-pointer flex items-center gap-1"
+            >
+              <span>? How to export</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. HEDGE RESULTS CONTAINER -->
+        <div
+          id="hedgeResultsContainer"
+          class="bg-terminal-surface border border-terminal-border rounded overflow-hidden"
+        >
+          <!-- Subheader & Filter Tabs -->
+          <div
+            class="border-b border-terminal-border px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono bg-terminal-surface/60"
+          >
+            <!-- Left: Tab Switchers -->
+            <div class="flex items-center gap-2">
+              <div
+                class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px]"
+              >
+                <button
+                  id="tabBtnHedgeAll"
+                  type="button"
+                  class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-semibold transition cursor-pointer select-none"
+                >
+                  All Pairs
+                </button>
+                <button
+                  id="tabBtnHedgeUnhedged"
+                  type="button"
+                  class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer select-none bg-transparent"
+                >
+                  Unhedged Only
+                </button>
+              </div>
+
+              <span id="hedgeCountNotice" class="text-[11px] text-terminal-muted ml-2"></span>
+            </div>
+
+            <!-- Right: In-table Filter -->
+            <div class="flex items-center gap-2">
               <input
                 type="text"
-                id="inputSearchFilter"
-                placeholder="Filter (symbol, BUY, SELL, hash...)"
+                id="inputHedgeSearchFilter"
+                placeholder="Filter (symbol, BUY, SELL...)"
                 class="w-48 sm:w-64 px-2 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-[11px] focus:outline-none focus:border-terminal-accent placeholder:text-terminal-muted/60"
               />
             </div>
           </div>
-        </div>
 
-        <!-- Tab 1: Table View -->
-        <div id="tableContainer" class="overflow-x-auto no-scrollbar">
-          <table class="w-full border-collapse text-left">
-            <thead>
-              <tr
-                class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] font-mono select-none"
-              >
-                <th class="py-2 px-2 font-semibold w-8">#</th>
-                <th class="py-2 px-2 font-semibold">Time (UTC)</th>
-                <th class="py-2 px-2 font-semibold">Market</th>
-                <th class="py-2 px-2 font-semibold text-center">Side</th>
-                <th class="py-2 px-2 font-semibold text-center">Role</th>
-                <th class="py-2 px-2 font-semibold text-right">Price</th>
-                <th class="py-2 px-2 font-semibold text-right">Size</th>
-                <th class="py-2 px-2 font-semibold text-right">USD Value</th>
-                <th class="py-2 px-2 font-semibold text-right">Realized PnL</th>
-                <th class="py-2 px-2 font-semibold text-right">Fee</th>
-                <th class="py-2 px-2 font-semibold text-right">Tx Hash</th>
-              </tr>
-            </thead>
-            <tbody id="tradesTableBody" class="divide-y divide-terminal-borderSubtle">
-              <tr>
-                <td colspan="11" class="py-12 text-center text-terminal-muted">
-                  <div class="flex flex-col items-center justify-center gap-1.5">
-                    <span class="text-terminal-secondary font-medium">No trades loaded yet</span>
-                    <span class="text-[11px] text-terminal-muted"
-                      >Use the bookmarklet on Lighter or drop your exported JSON file above to see
-                      your complete trading history.</span
-                    >
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Tab 2: Raw JSON View -->
-        <div id="jsonContainer" class="hidden p-3 bg-terminal-bg/50">
-          <pre
-            id="jsonViewerPre"
-            class="text-[11px] font-mono text-terminal-primary overflow-x-auto p-3 bg-terminal-bg border border-terminal-border rounded max-h-[600px] select-text"
-          >
-// Raw JSON payload will appear here after importing trades...</pre>
+          <!-- Table View -->
+          <div class="overflow-x-auto no-scrollbar">
+            <table class="w-full border-collapse text-left">
+              <thead>
+                <tr
+                  class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] font-mono select-none"
+                >
+                  <th class="py-2 px-2 font-semibold w-8">#</th>
+                  <th class="py-2 px-2 font-semibold">Time (RH)</th>
+                  <th class="py-2 px-2 font-semibold">Market</th>
+                  <th class="py-2 px-2 font-semibold">RH Leg</th>
+                  <th class="py-2 px-2 font-semibold">Core Leg</th>
+                  <th class="py-2 px-2 font-semibold text-right">Size</th>
+                  <th class="py-2 px-2 font-semibold text-right">Δ Price</th>
+                  <th class="py-2 px-2 font-semibold text-right">Notional</th>
+                  <th class="py-2 px-2 font-semibold text-right">Slippage</th>
+                  <th class="py-2 px-2 font-semibold text-right">Fees</th>
+                  <th class="py-2 px-2 font-semibold text-right">Net Loss</th>
+                  <th class="py-2 px-2 font-semibold text-right">Hedge Cost</th>
+                  <th class="py-2 px-2 font-semibold text-right">Time Δ</th>
+                  <th class="py-2 px-2 font-semibold text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody id="hedgeTableBody" class="divide-y divide-terminal-borderSubtle">
+                <tr>
+                  <td colspan="14" class="py-12 text-center text-terminal-muted">
+                    <div class="flex flex-col items-center justify-center gap-1.5">
+                      <span class="text-terminal-secondary font-medium">No hedge pairs loaded</span>
+                      <span class="text-[11px] text-terminal-muted">
+                        Upload both Robinhood (RH) and Core JSON exports to calculate round-trip
+                        hedge efficiency.
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

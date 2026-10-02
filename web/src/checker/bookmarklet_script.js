@@ -24,8 +24,10 @@
 
   const isRh = host.includes("rh") || host.includes("robinhood");
   const defaultNetwork = isRh ? "rh" : "mainnet";
-  // Robinhood DEX API is hosted on api.rh.lighter.xyz, mainnet on api.lighter.xyz
-  const apiBase = isRh ? "https://api.rh.lighter.xyz/api/v1" : "https://api.lighter.xyz/api/v1";
+  // Robinhood DEX API is hosted on api.rh.lighter.xyz, mainnet on mainnet.zklighter.elliot.ai
+  const apiBase = isRh
+    ? "https://api.rh.lighter.xyz/api/v1"
+    : "https://mainnet.zklighter.elliot.ai/api/v1";
 
   // Safety ceiling: prevent runaway pagination and browser tab memory overflow (OOM)
   const ROW_CAP = 150000;
@@ -425,9 +427,9 @@
         page++;
         let url =
           apiBase +
-          "/trades?account_index=" +
+          "/trades?market_type=all&account_index=" +
           encodeURIComponent(acc) +
-          "&sort_by=timestamp&sort_dir=desc&limit=100";
+          "&sort_by=timestamp&sort_dir=desc&ask_filter=-1&role=all&type=all&limit=100&aggregate=false";
         if (cursor) url += "&cursor=" + encodeURIComponent(cursor);
 
         const headers = {

@@ -2,28 +2,71 @@ import { copyToClipboard } from "../shared/clipboard";
 import {
   calculateTradeMetrics,
   downloadJsonFile,
+  downloadTextFile,
   fetchMarketMap,
   parseImportedTradesJson,
   parseTradeForView,
   prepareExportPayload,
 } from "./api";
 import { getBookmarkletHref } from "./bookmarklet";
-import { renderTradesTable, updateExecutiveMetrics } from "./dom";
-import type { CheckerNetwork, CheckerSummaryMetrics, LighterTrade, ParsedTradeView } from "./types";
+import {
+  renderHedgeTable,
+  renderTradesTable,
+  updateExecutiveMetrics,
+  updateHedgeExecutiveMetrics,
+} from "./dom";
+import { exportHedgeReportToCsv, matchHedgeTrades } from "./hedge";
+import type {
+  CheckerNetwork,
+  CheckerSummaryMetrics,
+  HedgePair,
+  HedgeSummaryMetrics,
+  LighterTrade,
+  ParsedTradeView,
+  UnhedgedTrade,
+} from "./types";
 
 export class CheckerController {
+  // Mode: "solo" (single account) vs "hedge" (RH vs Core)
+  private mode: "solo" | "hedge" = "solo";
+
+  // Solo mode state
   private network: CheckerNetwork = "rh";
   private resolvedAccountIndex: number | null = null;
   private resolvedL1Address: string | null = null;
-
   private rawTrades: LighterTrade[] = [];
   private parsedTrades: ParsedTradeView[] = [];
   private filteredTrades: ParsedTradeView[] = [];
   private summaryMetrics: CheckerSummaryMetrics | null = null;
   private marketMap: Map<number, string> = new Map();
-
   private activeTab: "table" | "json" = "table";
   private searchQuery = "";
+
+  // Hedge mode state
+  private rhRawTrades: LighterTrade[] = [];
+  private coreRawTrades: LighterTrade[] = [];
+  private rhParsedTrades: ParsedTradeView[] = [];
+  private coreParsedTrades: ParsedTradeView[] = [];
+  private rhAccountIndex: number | null = null;
+  private coreAccountIndex: number | null = null;
+  private rhFileName = "";
+  private coreFileName = "";
+  private hedgePairs: HedgePair[] = [];
+  private unhedgedTrades: UnhedgedTrade[] = [];
+  private filteredHedgePairs: HedgePair[] = [];
+  private filteredUnhedgedTrades: UnhedgedTrade[] = [];
+  private hedgeMetrics: HedgeSummaryMetrics | null = null;
+  private hedgeFilterTab: "all" | "unhedged" = "all";
+  private hedgeSearchQuery = "";
+  private rhMarketMap: Map<number, string> = new Map();
+  private coreMarketMap: Map<number, string> = new Map();
+
+  // Mode Switcher Elements
+  private modeBtnSolo: HTMLButtonElement | null = null;
+  private modeBtnHedge: HTMLButtonElement | null = null;
+  private modeDescription: HTMLElement | null = null;
+  private soloViewWrapper: HTMLElement | null = null;
+  private hedgeViewWrapper: HTMLElement | null = null;
 
   // Bookmarklet DOM Elements
   private bookmarkletLink: HTMLAnchorElement | null = null;
@@ -35,34 +78,24 @@ export class CheckerController {
   private exportModal: HTMLElement | null = null;
   private openExportHelpEmptyBtn: HTMLElement | null = null;
   private openExportHelpLoadedBtn: HTMLElement | null = null;
+  private openExportHelpHedgeBtn: HTMLElement | null = null;
   private closeModalBtn: HTMLButtonElement | null = null;
   private dismissModalBtn: HTMLButtonElement | null = null;
 
-  // Two-State Panels
+  // Solo Two-State Panels
   private emptyStatePanel: HTMLElement | null = null;
   private loadedToolbar: HTMLElement | null = null;
   private loadedFileName: HTMLElement | null = null;
   private loadedFileNetwork: HTMLElement | null = null;
   private reuploadBtn: HTMLButtonElement | null = null;
   private browseFileEmptyBtn: HTMLElement | null = null;
-
-  // Dropzone DOM Elements
   private dropzone: HTMLElement | null = null;
   private fileInput: HTMLInputElement | null = null;
-
-  // Actions
   private downloadBtn: HTMLButtonElement | null = null;
   private copyBtn: HTMLButtonElement | null = null;
   private clearBtn: HTMLButtonElement | null = null;
 
-  // Status Alert Card
-  private statusCard: HTMLElement | null = null;
-  private statusText: HTMLElement | null = null;
-  private statusDot: HTMLElement | null = null;
-  private closeStatusBtn: HTMLButtonElement | null = null;
-  private statusTimeoutId: ReturnType<typeof setTimeout> | null = null;
-
-  // Tabs & Table View
+  // Solo Table & Results
   private tabTableBtn: HTMLButtonElement | null = null;
   private tabJsonBtn: HTMLButtonElement | null = null;
   private tableContainer: HTMLElement | null = null;
@@ -72,7 +105,7 @@ export class CheckerController {
   private searchFilterInput: HTMLInputElement | null = null;
   private tradeCountNotice: HTMLElement | null = null;
 
-  // Executive Metrics Strip
+  // Solo Metric Elements
   private metricElements = {
     accountBadge: null as HTMLElement | null,
     networkBadge: null as HTMLElement | null,
@@ -83,52 +116,101 @@ export class CheckerController {
     dateRange: null as HTMLElement | null,
   };
 
+  // Status Notification Card (shared)
+  private statusCard: HTMLElement | null = null;
+  private statusText: HTMLElement | null = null;
+  private statusDot: HTMLElement | null = null;
+  private statusCountdown: HTMLElement | null = null;
+  private closeStatusBtn: HTMLButtonElement | null = null;
+  private statusTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private statusIntervalId: ReturnType<typeof setInterval> | null = null;
+
+  // Hedge Lead Strip Elements
+  private hedgeMetricElements = {
+    accountsBadge: null as HTMLElement | null,
+    pairsCount: null as HTMLElement | null,
+    hedgedVolume: null as HTMLElement | null,
+    netLoss: null as HTMLElement | null,
+    costBps: null as HTMLElement | null,
+    slippage: null as HTMLElement | null,
+    fees: null as HTMLElement | null,
+    unhedgedCount: null as HTMLElement | null,
+  };
+
+  // Hedge Upload & Toolbar Elements
+  private hedgeEmptyStatePanel: HTMLElement | null = null;
+  private hedgeLoadedToolbar: HTMLElement | null = null;
+  private dropzoneRh: HTMLElement | null = null;
+  private dropzoneCore: HTMLElement | null = null;
+  private fileInputRh: HTMLInputElement | null = null;
+  private fileInputCore: HTMLInputElement | null = null;
+  private btnBrowseRhFile: HTMLButtonElement | null = null;
+  private btnBrowseCoreFile: HTMLButtonElement | null = null;
+  private statusRhFile: HTMLElement | null = null;
+  private statusCoreFile: HTMLElement | null = null;
+  private labelRhAccount: HTMLElement | null = null;
+  private labelCoreAccount: HTMLElement | null = null;
+  private btnClearRh: HTMLButtonElement | null = null;
+  private btnClearCore: HTMLButtonElement | null = null;
+  private loadedRhFileName: HTMLElement | null = null;
+  private loadedCoreFileName: HTMLElement | null = null;
+  private btnHedgeExportCsv: HTMLButtonElement | null = null;
+  private btnHedgeClear: HTMLButtonElement | null = null;
+  private hedgeBookmarkletLink: HTMLAnchorElement | null = null;
+  private copyBookmarkletHedgeBtn: HTMLButtonElement | null = null;
+  private openExportHelpHedgeEmptyBtn: HTMLButtonElement | null = null;
+
+  // Hedge Table & Results Elements
+  private tabBtnHedgeAll: HTMLButtonElement | null = null;
+  private tabBtnHedgeUnhedged: HTMLButtonElement | null = null;
+  private hedgeCountNotice: HTMLElement | null = null;
+  private inputHedgeSearchFilter: HTMLInputElement | null = null;
+  private hedgeTableBody: HTMLTableSectionElement | null = null;
+
   public init(): void {
     this.cacheDomElements();
     this.initBookmarkletSection();
     this.bindEvents();
+    this.bindHedgeEvents();
     this.updateExecutiveSummary();
+    this.updateHedgeExecutiveSummary();
     this.loadMarketDefinitions();
   }
 
   private cacheDomElements(): void {
-    // Bookmarklet
+    // Mode Switcher
+    this.modeBtnSolo = document.querySelector("#modeBtnSolo");
+    this.modeBtnHedge = document.querySelector("#modeBtnHedge");
+    this.modeDescription = document.querySelector("#modeDescription");
+    this.soloViewWrapper = document.querySelector("#soloViewWrapper");
+    this.hedgeViewWrapper = document.querySelector("#hedgeViewWrapper");
+
+    // Bookmarklet & Modal
     this.bookmarkletLink = document.querySelector("#bookmarkletLink");
     this.copyBookmarkletBtn = document.querySelector("#btnCopyBookmarklet");
     this.modalBookmarkletLink = document.querySelector("#modalBookmarkletLink");
     this.modalCopyBookmarkletBtn = document.querySelector("#btnModalCopyBookmarklet");
-
-    // Modal
     this.exportModal = document.querySelector("#exportModal");
     this.openExportHelpEmptyBtn = document.querySelector("#btnOpenExportHelpEmpty");
     this.openExportHelpLoadedBtn = document.querySelector("#btnOpenExportHelpLoaded");
+    this.openExportHelpHedgeBtn = document.querySelector("#btnOpenExportHelpHedge");
     this.closeModalBtn = document.querySelector("#btnCloseModal");
     this.dismissModalBtn = document.querySelector("#btnDismissModal");
 
-    // Two-state workflow containers
+    // Solo Panels
     this.emptyStatePanel = document.querySelector("#emptyStatePanel");
     this.loadedToolbar = document.querySelector("#loadedToolbar");
     this.loadedFileName = document.querySelector("#loadedFileName");
     this.loadedFileNetwork = document.querySelector("#loadedFileNetwork");
     this.reuploadBtn = document.querySelector("#btnReupload");
     this.browseFileEmptyBtn = document.querySelector("#btnBrowseFileEmpty");
-
-    // Dropzone
     this.dropzone = document.querySelector("#jsonDropzone");
     this.fileInput = document.querySelector("#jsonFileInput");
-
-    // Actions
     this.downloadBtn = document.querySelector("#btnDownloadJson");
     this.copyBtn = document.querySelector("#btnCopyJson");
     this.clearBtn = document.querySelector("#btnClearTrades");
 
-    // Status Alert Card
-    this.statusCard = document.querySelector("#statusCard");
-    this.statusText = document.querySelector("#statusText");
-    this.statusDot = document.querySelector("#statusDot");
-    this.closeStatusBtn = document.querySelector("#btnCloseStatus");
-
-    // Table & JSON
+    // Solo Table & Results
     this.tabTableBtn = document.querySelector("#tabBtnTable");
     this.tabJsonBtn = document.querySelector("#tabBtnJson");
     this.tableContainer = document.querySelector("#tableContainer");
@@ -138,6 +220,7 @@ export class CheckerController {
     this.searchFilterInput = document.querySelector("#inputSearchFilter");
     this.tradeCountNotice = document.querySelector("#tradeCountNotice");
 
+    // Solo Metric Elements
     this.metricElements = {
       accountBadge: document.querySelector("#leadAccountBadge"),
       networkBadge: document.querySelector("#leadNetworkBadge"),
@@ -147,6 +230,55 @@ export class CheckerController {
       totalFees: document.querySelector("#leadTotalFees"),
       dateRange: document.querySelector("#leadDateRange"),
     };
+
+    // Shared Status Notification Card
+    this.statusCard = document.querySelector("#statusCard");
+    this.statusText = document.querySelector("#statusText");
+    this.statusDot = document.querySelector("#statusDot");
+    this.statusCountdown = document.querySelector("#statusCountdown");
+    this.closeStatusBtn = document.querySelector("#btnCloseStatus");
+
+    // Hedge Lead Strip Elements
+    this.hedgeMetricElements = {
+      accountsBadge: document.querySelector("#leadHedgeAccountsBadge"),
+      pairsCount: document.querySelector("#leadHedgePairsCount"),
+      hedgedVolume: document.querySelector("#leadHedgeVolume"),
+      netLoss: document.querySelector("#leadHedgeNetLoss"),
+      costBps: document.querySelector("#leadHedgeCostBps"),
+      slippage: document.querySelector("#leadHedgeSlippage"),
+      fees: document.querySelector("#leadHedgeFees"),
+      unhedgedCount: document.querySelector("#leadHedgeUnhedgedCount"),
+    };
+
+    // Hedge Upload & Toolbar Elements
+    this.hedgeEmptyStatePanel = document.querySelector("#hedgeEmptyStatePanel");
+    this.hedgeLoadedToolbar = document.querySelector("#hedgeLoadedToolbar");
+    this.dropzoneRh = document.querySelector("#dropzoneRh");
+    this.dropzoneCore = document.querySelector("#dropzoneCore");
+    this.fileInputRh = document.querySelector("#fileInputRh");
+    this.fileInputCore = document.querySelector("#fileInputCore");
+    this.btnBrowseRhFile = document.querySelector("#btnBrowseRhFile");
+    this.btnBrowseCoreFile = document.querySelector("#btnBrowseCoreFile");
+    this.statusRhFile = document.querySelector("#statusRhFile");
+    this.statusCoreFile = document.querySelector("#statusCoreFile");
+    this.labelRhAccount = document.querySelector("#labelRhAccount");
+    this.labelCoreAccount = document.querySelector("#labelCoreAccount");
+    this.btnClearRh = document.querySelector("#btnClearRh");
+    this.btnClearCore = document.querySelector("#btnClearCore");
+    this.loadedRhFileName = document.querySelector("#loadedRhFileName");
+    this.loadedCoreFileName = document.querySelector("#loadedCoreFileName");
+    this.btnHedgeExportCsv = document.querySelector("#btnHedgeExportCsv");
+    this.btnHedgeClear = document.querySelector("#btnHedgeClear");
+    this.hedgeBookmarkletLink = document.querySelector("#hedgeBookmarkletLink");
+    this.copyBookmarkletHedgeBtn = document.querySelector("#btnCopyBookmarkletHedge");
+    this.openExportHelpHedgeEmptyBtn = document.querySelector("#btnOpenExportHelpHedgeEmpty");
+
+    // Hedge Table & Results Elements
+    this.tabBtnHedgeAll = document.querySelector("#tabBtnHedgeAll");
+    this.tabBtnHedgeUnhedged = document.querySelector("#tabBtnHedgeUnhedged");
+    this.hedgeCountNotice = document.querySelector("#hedgeCountNotice");
+    this.inputHedgeSearchFilter = document.querySelector("#inputHedgeSearchFilter");
+    this.hedgeTableBody = document.querySelector("#hedgeTableBody");
   }
 
   private handleBookmarkletClick(e: MouseEvent): void {
@@ -164,6 +296,11 @@ export class CheckerController {
       this.bookmarkletLink.addEventListener("click", (e) => this.handleBookmarkletClick(e));
     }
 
+    if (this.hedgeBookmarkletLink) {
+      this.hedgeBookmarkletLink.href = bookmarkletHref;
+      this.hedgeBookmarkletLink.addEventListener("click", (e) => this.handleBookmarkletClick(e));
+    }
+
     if (this.modalBookmarkletLink) {
       this.modalBookmarkletLink.href = bookmarkletHref;
       this.modalBookmarkletLink.addEventListener("click", (e) => this.handleBookmarkletClick(e));
@@ -172,14 +309,25 @@ export class CheckerController {
 
   private async loadMarketDefinitions(): Promise<void> {
     try {
-      this.marketMap = await fetchMarketMap(this.network);
+      const [rhMap, coreMap] = await Promise.all([fetchMarketMap("rh"), fetchMarketMap("mainnet")]);
+      this.rhMarketMap = rhMap;
+      this.coreMarketMap = coreMap;
+      this.marketMap = this.network === "rh" ? rhMap : coreMap;
+
       if (this.rawTrades.length > 0 && this.resolvedAccountIndex !== null) {
         this.recalculateAndRender();
+      }
+      if (this.rhRawTrades.length > 0 && this.coreRawTrades.length > 0) {
+        this.recalculateAndRenderHedge();
       }
     } catch {}
   }
 
   private bindEvents(): void {
+    // 0. Mode switch
+    this.modeBtnSolo?.addEventListener("click", () => this.switchMode("solo"));
+    this.modeBtnHedge?.addEventListener("click", () => this.switchMode("hedge"));
+
     // 1. Bookmarklet copy
     this.copyBookmarkletBtn?.addEventListener("click", () => {
       if (this.copyBookmarkletBtn) {
@@ -196,6 +344,7 @@ export class CheckerController {
     // 2. Export instructions modal open / close
     this.openExportHelpEmptyBtn?.addEventListener("click", () => this.openExportModal());
     this.openExportHelpLoadedBtn?.addEventListener("click", () => this.openExportModal());
+    this.openExportHelpHedgeBtn?.addEventListener("click", () => this.openExportModal());
     this.closeModalBtn?.addEventListener("click", () => this.closeExportModal());
     this.dismissModalBtn?.addEventListener("click", () => this.closeExportModal());
 
@@ -215,7 +364,7 @@ export class CheckerController {
       }
     });
 
-    // 3. File upload / browse events
+    // 3. Solo file upload / browse events
     this.browseFileEmptyBtn?.addEventListener("click", () => {
       this.fileInput?.click();
     });
@@ -261,27 +410,175 @@ export class CheckerController {
 
     // 4. Status card close button
     this.closeStatusBtn?.addEventListener("click", () => {
-      if (this.statusTimeoutId) {
-        clearTimeout(this.statusTimeoutId);
-        this.statusTimeoutId = null;
-      }
+      this.clearStatusTimers();
       this.statusCard?.classList.add("hidden");
     });
 
-    // 5. Action Buttons
+    // 5. Solo Action Buttons
     this.downloadBtn?.addEventListener("click", () => this.downloadJson());
     this.copyBtn?.addEventListener("click", () => this.copyJson());
     this.clearBtn?.addEventListener("click", () => this.clearAll());
 
-    // 6. Tabs Switcher
+    // 6. Solo Tabs Switcher
     this.tabTableBtn?.addEventListener("click", () => this.switchTab("table"));
     this.tabJsonBtn?.addEventListener("click", () => this.switchTab("json"));
 
-    // 7. Search filter
+    // 7. Solo Search filter
     this.searchFilterInput?.addEventListener("input", (e) => {
       this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase().trim();
       this.applyFilter();
     });
+  }
+
+  private bindHedgeEvents(): void {
+    // Bookmarklet copy and instructions
+    this.copyBookmarkletHedgeBtn?.addEventListener("click", () => {
+      if (this.copyBookmarkletHedgeBtn) {
+        copyToClipboard(getBookmarkletHref(), this.copyBookmarkletHedgeBtn, "Copy Code");
+      }
+    });
+
+    this.openExportHelpHedgeEmptyBtn?.addEventListener("click", () => this.openExportModal());
+
+    // Browse buttons
+    this.btnBrowseRhFile?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.fileInputRh?.click();
+    });
+    this.btnBrowseCoreFile?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.fileInputCore?.click();
+    });
+
+    // Clear individual slots
+    this.btnClearRh?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.clearHedgeSlot("rh");
+    });
+    this.btnClearCore?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.clearHedgeSlot("core");
+    });
+
+    // File input changes
+    this.fileInputRh?.addEventListener("change", (e) => {
+      const files = (e.target as HTMLInputElement).files;
+      if (files && files.length > 0) {
+        this.processHedgeUploadedFiles(Array.from(files), "rh");
+      }
+    });
+
+    this.fileInputCore?.addEventListener("change", (e) => {
+      const files = (e.target as HTMLInputElement).files;
+      if (files && files.length > 0) {
+        this.processHedgeUploadedFiles(Array.from(files), "core");
+      }
+    });
+
+    // Drag and drop for RH slot
+    this.setupHedgeDropzone(this.dropzoneRh, "rh");
+    this.setupHedgeDropzone(this.dropzoneCore, "core");
+
+    // Hedge Actions
+    this.btnHedgeExportCsv?.addEventListener("click", () => this.downloadHedgeCsv());
+    this.btnHedgeClear?.addEventListener("click", () => this.clearHedge());
+
+    // Hedge table tabs
+    this.tabBtnHedgeAll?.addEventListener("click", () => this.switchHedgeFilterTab("all"));
+    this.tabBtnHedgeUnhedged?.addEventListener("click", () =>
+      this.switchHedgeFilterTab("unhedged"),
+    );
+
+    // Hedge search filter
+    this.inputHedgeSearchFilter?.addEventListener("input", (e) => {
+      this.hedgeSearchQuery = (e.target as HTMLInputElement).value.toLowerCase().trim();
+      this.applyHedgeFilter();
+    });
+  }
+
+  private setupHedgeDropzone(dropzone: HTMLElement | null, defaultSlot: "rh" | "core"): void {
+    if (!dropzone) return;
+
+    dropzone.addEventListener("click", () => {
+      if (defaultSlot === "rh") this.fileInputRh?.click();
+      else this.fileInputCore?.click();
+    });
+
+    dropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.add("border-terminal-emerald", "bg-terminal-emerald/5");
+    });
+
+    dropzone.addEventListener("dragleave", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.remove("border-terminal-emerald", "bg-terminal-emerald/5");
+    });
+
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.remove("border-terminal-emerald", "bg-terminal-emerald/5");
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        this.processHedgeUploadedFiles(Array.from(files), defaultSlot);
+      }
+    });
+  }
+
+  private switchMode(newMode: "solo" | "hedge"): void {
+    this.mode = newMode;
+    if (newMode === "solo") {
+      this.modeBtnSolo?.classList.add(
+        "bg-terminal-surface",
+        "text-white",
+        "font-bold",
+        "border",
+        "border-terminal-border",
+      );
+      this.modeBtnSolo?.classList.remove("text-terminal-muted", "bg-transparent");
+      this.modeBtnHedge?.classList.remove(
+        "bg-terminal-surface",
+        "text-white",
+        "font-bold",
+        "border",
+        "border-terminal-border",
+      );
+      this.modeBtnHedge?.classList.add("text-terminal-muted", "bg-transparent");
+
+      this.soloViewWrapper?.classList.remove("hidden");
+      this.hedgeViewWrapper?.classList.add("hidden");
+
+      if (this.modeDescription) {
+        this.modeDescription.textContent = "Single account trade analysis (RH or Core)";
+      }
+    } else {
+      this.modeBtnHedge?.classList.add(
+        "bg-terminal-surface",
+        "text-white",
+        "font-bold",
+        "border",
+        "border-terminal-border",
+      );
+      this.modeBtnHedge?.classList.remove("text-terminal-muted", "bg-transparent");
+      this.modeBtnSolo?.classList.remove(
+        "bg-terminal-surface",
+        "text-white",
+        "font-bold",
+        "border",
+        "border-terminal-border",
+      );
+      this.modeBtnSolo?.classList.add("text-terminal-muted", "bg-transparent");
+
+      this.hedgeViewWrapper?.classList.remove("hidden");
+      this.soloViewWrapper?.classList.add("hidden");
+
+      if (this.modeDescription) {
+        this.modeDescription.textContent =
+          "Round-trip hedge audit & slippage comparison (RH vs Core)";
+      }
+    }
   }
 
   private openExportModal(): void {
@@ -292,9 +589,10 @@ export class CheckerController {
     this.exportModal?.classList.add("hidden");
   }
 
-  /**
-   * Handles user uploading / dropping a JSON trade file.
-   */
+  // ==========================================
+  // SOLO MODE IMPLEMENTATION
+  // ==========================================
+
   public handleFileUpload(file: File): void {
     if (!file.name.endsWith(".json") && file.type !== "application/json" && file.type !== "") {
       this.showStatusError("Please upload a valid .json file.");
@@ -506,18 +804,271 @@ export class CheckerController {
     if (this.copyBtn) this.copyBtn.disabled = true;
     if (this.clearBtn) this.clearBtn.disabled = true;
 
-    if (this.statusTimeoutId) {
-      clearTimeout(this.statusTimeoutId);
-      this.statusTimeoutId = null;
-    }
+    this.clearStatusTimers();
     if (this.statusCard) this.statusCard.classList.add("hidden");
   }
 
-  private showStatusSuccess(message: string, durationMs = 4000): void {
+  // ==========================================
+  // HEDGE MODE IMPLEMENTATION
+  // ==========================================
+
+  private async processHedgeUploadedFiles(
+    files: File[],
+    defaultSlot: "rh" | "core",
+  ): Promise<void> {
+    for (const file of files) {
+      if (!file.name.endsWith(".json") && file.type !== "application/json" && file.type !== "") {
+        this.showStatusError(`Skipped "${file.name}": not a valid .json file.`);
+        continue;
+      }
+
+      try {
+        const text = await file.text();
+        const parsed = parseImportedTradesJson(text);
+
+        // Smart network routing
+        let targetSlot = defaultSlot;
+        if (
+          parsed.network === "mainnet" ||
+          file.name.toLowerCase().includes("mainnet") ||
+          file.name.toLowerCase().includes("core")
+        ) {
+          targetSlot = "core";
+        } else if (parsed.network === "rh" || file.name.toLowerCase().includes("-rh-")) {
+          targetSlot = "rh";
+        }
+
+        if (targetSlot === "rh") {
+          this.rhRawTrades = parsed.trades;
+          this.rhAccountIndex = parsed.accountIndex;
+          this.rhFileName = file.name;
+          if (this.statusRhFile) {
+            this.statusRhFile.textContent = `✓ ${file.name} (${parsed.trades.length} trades)`;
+            this.statusRhFile.className =
+              "text-[11px] text-terminal-emerald font-semibold my-1.5 truncate";
+          }
+          if (this.labelRhAccount) {
+            this.labelRhAccount.textContent = `Account #${parsed.accountIndex ?? "--"}`;
+          }
+          if (this.btnClearRh) this.btnClearRh.classList.remove("hidden");
+        } else {
+          this.coreRawTrades = parsed.trades;
+          this.coreAccountIndex = parsed.accountIndex;
+          this.coreFileName = file.name;
+          if (this.statusCoreFile) {
+            this.statusCoreFile.textContent = `✓ ${file.name} (${parsed.trades.length} trades)`;
+            this.statusCoreFile.className =
+              "text-[11px] text-terminal-emerald font-semibold my-1.5 truncate";
+          }
+          if (this.labelCoreAccount) {
+            this.labelCoreAccount.textContent = `Account #${parsed.accountIndex ?? "--"}`;
+          }
+          if (this.btnClearCore) this.btnClearCore.classList.remove("hidden");
+        }
+      } catch (err: any) {
+        this.showStatusError(`Error reading "${file.name}": ${err.message || String(err)}`);
+      }
+    }
+
+    // If both files are now loaded, compute hedge matches
+    if (this.rhRawTrades.length > 0 && this.coreRawTrades.length > 0) {
+      this.recalculateAndRenderHedge();
+      this.hedgeEmptyStatePanel?.classList.add("hidden");
+      this.hedgeLoadedToolbar?.classList.remove("hidden");
+      if (this.loadedRhFileName) this.loadedRhFileName.textContent = this.rhFileName;
+      if (this.loadedCoreFileName) this.loadedCoreFileName.textContent = this.coreFileName;
+
+      this.showStatusSuccess(
+        `Hedge audit ready: matched ${this.hedgePairs.length} pairs between RH (#${this.rhAccountIndex ?? "--"}) and Core (#${this.coreAccountIndex ?? "--"}).`,
+      );
+    } else if (this.rhRawTrades.length > 0) {
+      this.showStatusSuccess(
+        `Loaded RH file: ${this.rhRawTrades.length} trades. Now upload your Core file.`,
+      );
+    } else if (this.coreRawTrades.length > 0) {
+      this.showStatusSuccess(
+        `Loaded Core file: ${this.coreRawTrades.length} trades. Now upload your RH file.`,
+      );
+    }
+  }
+
+  private recalculateAndRenderHedge(): void {
+    const rhAcc = this.rhAccountIndex ?? 0;
+    const coreAcc = this.coreAccountIndex ?? 0;
+
+    this.rhParsedTrades = this.rhRawTrades.map((t) =>
+      parseTradeForView(t, rhAcc, this.rhMarketMap),
+    );
+    this.coreParsedTrades = this.coreRawTrades.map((t) =>
+      parseTradeForView(t, coreAcc, this.coreMarketMap),
+    );
+
+    const result = matchHedgeTrades(
+      this.rhParsedTrades,
+      this.coreParsedTrades,
+      this.rhAccountIndex,
+      this.coreAccountIndex,
+    );
+
+    this.hedgePairs = result.pairs;
+    this.unhedgedTrades = result.unhedged;
+    this.hedgeMetrics = result.metrics;
+
+    this.updateHedgeExecutiveSummary();
+    this.applyHedgeFilter();
+  }
+
+  private updateHedgeExecutiveSummary(): void {
+    updateHedgeExecutiveMetrics(this.hedgeMetrics, this.hedgeMetricElements);
+  }
+
+  private applyHedgeFilter(): void {
+    const q = this.hedgeSearchQuery;
+
+    if (!q) {
+      this.filteredHedgePairs = this.hedgePairs;
+      this.filteredUnhedgedTrades = this.unhedgedTrades;
+    } else {
+      this.filteredHedgePairs = this.hedgePairs.filter(
+        (p) =>
+          p.marketSymbol.toLowerCase().includes(q) ||
+          p.rhSide.toLowerCase().includes(q) ||
+          p.coreSide.toLowerCase().includes(q) ||
+          p.rhTradeId.includes(q) ||
+          p.coreTradeId.includes(q),
+      );
+
+      this.filteredUnhedgedTrades = this.unhedgedTrades.filter(
+        (u) =>
+          u.marketSymbol.toLowerCase().includes(q) ||
+          u.side.toLowerCase().includes(q) ||
+          u.network.toLowerCase().includes(q) ||
+          u.tradeId.includes(q),
+      );
+    }
+
+    if (this.hedgeTableBody) {
+      renderHedgeTable(
+        this.hedgeTableBody,
+        this.filteredHedgePairs,
+        this.filteredUnhedgedTrades,
+        this.hedgeFilterTab,
+      );
+    }
+
+    if (this.hedgeCountNotice) {
+      const showPairs = this.hedgeFilterTab === "all";
+      const count =
+        (showPairs ? this.filteredHedgePairs.length : 0) + this.filteredUnhedgedTrades.length;
+      const total = (showPairs ? this.hedgePairs.length : 0) + this.unhedgedTrades.length;
+
+      if (q && total > 0) {
+        this.hedgeCountNotice.textContent = `Showing ${count} of ${total} records`;
+        this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium";
+      } else if (total > 0) {
+        this.hedgeCountNotice.textContent = `${this.hedgePairs.length} pairs hedged`;
+        this.hedgeCountNotice.className = "text-[11px] text-terminal-muted";
+      } else {
+        this.hedgeCountNotice.textContent = "";
+      }
+    }
+  }
+
+  private switchHedgeFilterTab(tab: "all" | "unhedged"): void {
+    this.hedgeFilterTab = tab;
+    if (tab === "all") {
+      this.tabBtnHedgeAll?.classList.add("bg-terminal-surface", "text-white", "font-semibold");
+      this.tabBtnHedgeAll?.classList.remove("text-terminal-muted");
+      this.tabBtnHedgeUnhedged?.classList.remove(
+        "bg-terminal-surface",
+        "text-white",
+        "font-semibold",
+      );
+      this.tabBtnHedgeUnhedged?.classList.add("text-terminal-muted");
+    } else {
+      this.tabBtnHedgeUnhedged?.classList.add("bg-terminal-surface", "text-white", "font-semibold");
+      this.tabBtnHedgeUnhedged?.classList.remove("text-terminal-muted");
+      this.tabBtnHedgeAll?.classList.remove("bg-terminal-surface", "text-white", "font-semibold");
+      this.tabBtnHedgeAll?.classList.add("text-terminal-muted");
+    }
+    this.applyHedgeFilter();
+  }
+
+  public downloadHedgeCsv(): void {
+    if (this.hedgePairs.length === 0 && this.unhedgedTrades.length === 0) return;
+
+    const csvContent = exportHedgeReportToCsv(this.hedgePairs, this.unhedgedTrades);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const filename = `lighter-hedge-audit-rh${this.rhAccountIndex ?? "0"}-core${this.coreAccountIndex ?? "0"}-${dateStr}.csv`;
+    downloadTextFile(csvContent, filename, "text/csv;charset=utf-8");
+  }
+
+  public clearHedgeSlot(slot: "rh" | "core"): void {
+    if (slot === "rh") {
+      this.rhRawTrades = [];
+      this.rhParsedTrades = [];
+      this.rhAccountIndex = null;
+      this.rhFileName = "";
+      if (this.statusRhFile) {
+        this.statusRhFile.innerHTML = 'Drop <code class="text-terminal-accent">rh-*.json</code>';
+        this.statusRhFile.className = "text-[11px] text-terminal-secondary my-1.5 truncate";
+      }
+      if (this.labelRhAccount) this.labelRhAccount.textContent = "No file loaded";
+      if (this.btnClearRh) this.btnClearRh.classList.add("hidden");
+      if (this.fileInputRh) this.fileInputRh.value = "";
+    } else {
+      this.coreRawTrades = [];
+      this.coreParsedTrades = [];
+      this.coreAccountIndex = null;
+      this.coreFileName = "";
+      if (this.statusCoreFile) {
+        this.statusCoreFile.innerHTML =
+          'Drop <code class="text-terminal-emerald">mainnet-*.json</code>';
+        this.statusCoreFile.className = "text-[11px] text-terminal-secondary my-1.5 truncate";
+      }
+      if (this.labelCoreAccount) this.labelCoreAccount.textContent = "No file loaded";
+      if (this.btnClearCore) this.btnClearCore.classList.add("hidden");
+      if (this.fileInputCore) this.fileInputCore.value = "";
+    }
+
+    this.hedgePairs = [];
+    this.unhedgedTrades = [];
+    this.filteredHedgePairs = [];
+    this.filteredUnhedgedTrades = [];
+    this.hedgeMetrics = null;
+
+    this.hedgeLoadedToolbar?.classList.add("hidden");
+    this.hedgeEmptyStatePanel?.classList.remove("hidden");
+
+    this.updateHedgeExecutiveSummary();
+    this.applyHedgeFilter();
+  }
+
+  public clearHedge(): void {
+    this.clearHedgeSlot("rh");
+    this.clearHedgeSlot("core");
+  }
+
+  // ==========================================
+  // SHARED NOTIFICATIONS
+  // ==========================================
+
+  private clearStatusTimers(): void {
     if (this.statusTimeoutId) {
       clearTimeout(this.statusTimeoutId);
       this.statusTimeoutId = null;
     }
+    if (this.statusIntervalId) {
+      clearInterval(this.statusIntervalId);
+      this.statusIntervalId = null;
+    }
+    if (this.statusCountdown) {
+      this.statusCountdown.textContent = "";
+    }
+  }
+
+  private showStatusSuccess(message: string, durationMs = 5000): void {
+    this.clearStatusTimers();
 
     if (this.statusCard) this.statusCard.classList.remove("hidden");
     if (this.statusDot) {
@@ -529,18 +1080,27 @@ export class CheckerController {
     }
 
     if (durationMs > 0) {
-      this.statusTimeoutId = setTimeout(() => {
-        this.statusCard?.classList.add("hidden");
-        this.statusTimeoutId = null;
-      }, durationMs);
+      let secondsLeft = Math.ceil(durationMs / 1000);
+      if (this.statusCountdown) {
+        this.statusCountdown.textContent = `${secondsLeft}s`;
+      }
+
+      this.statusIntervalId = setInterval(() => {
+        secondsLeft--;
+        if (secondsLeft > 0) {
+          if (this.statusCountdown) {
+            this.statusCountdown.textContent = `${secondsLeft}s`;
+          }
+        } else {
+          this.clearStatusTimers();
+          this.statusCard?.classList.add("hidden");
+        }
+      }, 1000);
     }
   }
 
   private showStatusError(errorMsg: string): void {
-    if (this.statusTimeoutId) {
-      clearTimeout(this.statusTimeoutId);
-      this.statusTimeoutId = null;
-    }
+    this.clearStatusTimers();
 
     if (this.statusCard) this.statusCard.classList.remove("hidden");
     if (this.statusDot) {

@@ -1,5 +1,11 @@
 import { formatMoney, formatPrice } from "../shared/formatters";
-import type { CheckerSummaryMetrics, ParsedTradeView } from "./types";
+import type {
+  CheckerSummaryMetrics,
+  HedgePair,
+  HedgeSummaryMetrics,
+  ParsedTradeView,
+  UnhedgedTrade,
+} from "./types";
 
 export function formatSmartSize(size: number): string {
   if (size === 0 || isNaN(size)) return "0.0";
@@ -190,4 +196,263 @@ export function renderTradesTable(
   }
 
   container.appendChild(frag);
+}
+
+export function createHedgeRow(pair: HedgePair, index: number): HTMLTableRowElement {
+  const tr = document.createElement("tr");
+  tr.className = "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text";
+
+  const rhIsBuy = pair.rhSide === "BUY";
+  const coreIsBuy = pair.coreSide === "BUY";
+
+  const rhSideColor = rhIsBuy ? "text-terminal-emerald" : "text-terminal-coral";
+  const coreSideColor = coreIsBuy ? "text-terminal-emerald" : "text-terminal-coral";
+
+  let priceDeltaHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
+  if (pair.priceDelta > 0.0001) {
+    priceDeltaHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${formatPrice(pair.priceDelta)}</span>`;
+  } else if (pair.priceDelta < -0.0001) {
+    priceDeltaHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${formatPrice(pair.priceDelta)}</span>`;
+  }
+
+  let slippageHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
+  if (pair.priceLossUsd > 0.0001) {
+    slippageHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${formatMoney(pair.priceLossUsd)}</span>`;
+  } else if (pair.priceLossUsd < -0.0001) {
+    slippageHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${formatMoney(pair.priceLossUsd)}</span>`;
+  }
+
+  let netLossHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
+  if (pair.netLossUsd > 0.0001) {
+    netLossHtml = `<span class="text-terminal-emerald font-bold tabular-nums">+${formatMoney(pair.netLossUsd)}</span>`;
+  } else if (pair.netLossUsd < -0.0001) {
+    netLossHtml = `<span class="text-terminal-coral font-bold tabular-nums">${formatMoney(pair.netLossUsd)}</span>`;
+  }
+
+  let bpsHtml = `<span class="text-terminal-muted tabular-nums">0.0 bps</span>`;
+  if (pair.costBps > 0.01) {
+    bpsHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${pair.costBps.toFixed(2)} bps</span>`;
+  } else if (pair.costBps < -0.01) {
+    bpsHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${pair.costBps.toFixed(2)} bps</span>`;
+  }
+
+  const statusBadge =
+    pair.status === "HEDGED"
+      ? `<span class="text-terminal-emerald font-semibold text-[11px]">HEDGED</span>`
+      : `<span class="text-terminal-amber font-semibold text-[11px]">PARTIAL</span>`;
+
+  const timeDeltaStr = (pair.timeDeltaSec >= 0 ? "+" : "") + pair.timeDeltaSec.toFixed(1) + "s";
+
+  tr.innerHTML = `
+    <td class="py-1.5 px-2 text-terminal-muted tabular-nums text-[11px]">${index}</td>
+    <td class="py-1.5 px-2 text-white whitespace-nowrap text-[11px]">${pair.rhTimeFormatted}</td>
+    <td class="py-1.5 px-2 whitespace-nowrap">
+      <span class="font-bold text-white">${pair.marketSymbol}</span>
+    </td>
+    <td class="py-1.5 px-2 whitespace-nowrap text-[11px]">
+      <span class="font-bold ${rhSideColor}">${pair.rhSide}</span>
+      <span class="text-white tabular-nums ml-1">@ ${formatPrice(pair.rhPrice)}</span>
+    </td>
+    <td class="py-1.5 px-2 whitespace-nowrap text-[11px]">
+      <span class="font-bold ${coreSideColor}">${pair.coreSide}</span>
+      <span class="text-white tabular-nums ml-1">@ ${formatPrice(pair.corePrice)}</span>
+    </td>
+    <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatSmartSize(pair.matchedSize)}</td>
+    <td class="py-1.5 px-2 text-right whitespace-nowrap">${priceDeltaHtml}</td>
+    <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatMoney(pair.notionalUsd)}</td>
+    <td class="py-1.5 px-2 text-right whitespace-nowrap">${slippageHtml}</td>
+    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${pair.totalFeesUsd > 0 ? formatMoney(pair.totalFeesUsd) : "$0.00"}</td>
+    <td class="py-1.5 px-2 text-right whitespace-nowrap">${netLossHtml}</td>
+    <td class="py-1.5 px-2 text-right whitespace-nowrap text-[11px]">${bpsHtml}</td>
+    <td class="py-1.5 px-2 text-right text-terminal-muted text-[11px] tabular-nums">${timeDeltaStr}</td>
+    <td class="py-1.5 px-2 text-center whitespace-nowrap">${statusBadge}</td>
+  `;
+
+  return tr;
+}
+
+export function createUnhedgedRow(trade: UnhedgedTrade, index: number): HTMLTableRowElement {
+  const tr = document.createElement("tr");
+  tr.className =
+    "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text bg-terminal-coral/5";
+
+  const isBuy = trade.side === "BUY";
+  const sideColor = isBuy ? "text-terminal-emerald" : "text-terminal-coral";
+
+  const rhLegHtml =
+    trade.network === "RH"
+      ? `<span class="font-bold ${sideColor}">${trade.side}</span> <span class="text-white tabular-nums">@ ${formatPrice(trade.price)}</span>`
+      : `<span class="text-terminal-muted">--</span>`;
+
+  const coreLegHtml =
+    trade.network === "CORE"
+      ? `<span class="font-bold ${sideColor}">${trade.side}</span> <span class="text-white tabular-nums">@ ${formatPrice(trade.price)}</span>`
+      : `<span class="text-terminal-muted">--</span>`;
+
+  tr.innerHTML = `
+    <td class="py-1.5 px-2 text-terminal-muted tabular-nums text-[11px]">${index}</td>
+    <td class="py-1.5 px-2 text-white whitespace-nowrap text-[11px]">${trade.timeFormatted}</td>
+    <td class="py-1.5 px-2 whitespace-nowrap">
+      <span class="font-bold text-white">${trade.marketSymbol}</span>
+    </td>
+    <td class="py-1.5 px-2 whitespace-nowrap text-[11px]">${rhLegHtml}</td>
+    <td class="py-1.5 px-2 whitespace-nowrap text-[11px]">${coreLegHtml}</td>
+    <td class="py-1.5 px-2 text-right text-terminal-coral tabular-nums font-semibold">${formatSmartSize(trade.unhedgedSize)}</td>
+    <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
+    <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatMoney(trade.usdValue)}</td>
+    <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
+    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${trade.feeUsd > 0 ? formatMoney(trade.feeUsd) : "$0.00"}</td>
+    <td class="py-1.5 px-2 text-right text-terminal-muted font-bold">--</td>
+    <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
+    <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
+    <td class="py-1.5 px-2 text-center whitespace-nowrap">
+      <span class="text-terminal-coral font-bold text-[11px]">UNHEDGED (${trade.network})</span>
+    </td>
+  `;
+
+  return tr;
+}
+
+export function renderHedgeTable(
+  container: HTMLTableSectionElement,
+  pairs: HedgePair[],
+  unhedged: UnhedgedTrade[],
+  filterMode: "all" | "unhedged" = "all",
+  limit = 250,
+): void {
+  container.innerHTML = "";
+
+  const showPairs = filterMode === "all";
+  const totalItems = (showPairs ? pairs.length : 0) + unhedged.length;
+
+  if (totalItems === 0) {
+    const emptyRow = document.createElement("tr");
+    emptyRow.innerHTML = `
+      <td colspan="14" class="py-12 text-center text-terminal-muted">
+        <div class="flex flex-col items-center justify-center gap-1.5">
+          <span class="text-terminal-secondary font-medium">No hedge pairs to display</span>
+          <span class="text-[11px] text-terminal-muted">Upload both your Robinhood JSON and Core JSON files to compare and audit your hedge efficiency.</span>
+        </div>
+      </td>
+    `;
+    container.appendChild(emptyRow);
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  let rowCount = 0;
+
+  if (showPairs) {
+    for (const pair of pairs) {
+      if (rowCount >= limit) break;
+      frag.appendChild(createHedgeRow(pair, ++rowCount));
+    }
+  }
+
+  for (const item of unhedged) {
+    if (rowCount >= limit) break;
+    frag.appendChild(createUnhedgedRow(item, ++rowCount));
+  }
+
+  if (totalItems > limit) {
+    const noticeRow = document.createElement("tr");
+    noticeRow.innerHTML = `
+      <td colspan="14" class="py-2.5 text-center text-[11px] text-terminal-secondary bg-terminal-surface/40">
+        Showing first ${limit} of ${totalItems} records. Export CSV to analyze the complete dataset.
+      </td>
+    `;
+    frag.appendChild(noticeRow);
+  }
+
+  container.appendChild(frag);
+}
+
+export interface HedgeMetricElements {
+  accountsBadge?: HTMLElement | null;
+  pairsCount: HTMLElement | null;
+  hedgedVolume: HTMLElement | null;
+  netLoss: HTMLElement | null;
+  costBps: HTMLElement | null;
+  slippage: HTMLElement | null;
+  fees: HTMLElement | null;
+  unhedgedCount: HTMLElement | null;
+}
+
+export function updateHedgeExecutiveMetrics(
+  metrics: HedgeSummaryMetrics | null,
+  elements: HedgeMetricElements,
+): void {
+  if (!metrics || (metrics.totalPairs === 0 && metrics.totalUnhedgedTrades === 0)) {
+    if (elements.accountsBadge) elements.accountsBadge.textContent = "RH vs CORE";
+    if (elements.pairsCount) elements.pairsCount.textContent = "0";
+    if (elements.hedgedVolume) elements.hedgedVolume.textContent = "$0.00";
+    if (elements.netLoss) {
+      elements.netLoss.textContent = "$0.00";
+      elements.netLoss.className = "font-bold text-terminal-muted tabular-nums";
+    }
+    if (elements.costBps) elements.costBps.textContent = "(0.0 bps)";
+    if (elements.slippage) elements.slippage.textContent = "$0.00";
+    if (elements.fees) elements.fees.textContent = "$0.00";
+    if (elements.unhedgedCount) elements.unhedgedCount.textContent = "0";
+    return;
+  }
+
+  const rhAcc = metrics.rhAccountIndex ? `#${metrics.rhAccountIndex}` : "RH";
+  const coreAcc = metrics.coreAccountIndex ? `#${metrics.coreAccountIndex}` : "CORE";
+  if (elements.accountsBadge) {
+    elements.accountsBadge.textContent = `${rhAcc} vs ${coreAcc}`;
+  }
+
+  if (elements.pairsCount) {
+    elements.pairsCount.textContent = metrics.totalPairs.toLocaleString();
+  }
+
+  if (elements.hedgedVolume) {
+    elements.hedgedVolume.textContent = formatMoney(metrics.totalHedgedVolumeUsd);
+  }
+
+  if (elements.netLoss) {
+    const sign = metrics.totalNetLossUsd > 0.0001 ? "+" : "";
+    elements.netLoss.textContent = `${sign}${formatMoney(metrics.totalNetLossUsd)}`;
+    if (metrics.totalNetLossUsd > 0.001) {
+      elements.netLoss.className = "font-bold text-terminal-emerald tabular-nums";
+    } else if (metrics.totalNetLossUsd < -0.001) {
+      elements.netLoss.className = "font-bold text-terminal-coral tabular-nums";
+    } else {
+      elements.netLoss.className = "font-bold text-terminal-muted tabular-nums";
+    }
+  }
+
+  if (elements.costBps) {
+    const sign = metrics.avgCostBps > 0.001 ? "+" : "";
+    elements.costBps.textContent = `(${sign}${metrics.avgCostBps.toFixed(2)} bps)`;
+    if (metrics.avgCostBps > 0.01) {
+      elements.costBps.className = "text-[10px] text-terminal-emerald tabular-nums ml-1";
+    } else if (metrics.avgCostBps < -0.01) {
+      elements.costBps.className = "text-[10px] text-terminal-coral tabular-nums ml-1";
+    } else {
+      elements.costBps.className = "text-[10px] text-terminal-muted tabular-nums ml-1";
+    }
+  }
+
+  if (elements.slippage) {
+    const sign = metrics.totalPriceLossUsd > 0.0001 ? "+" : "";
+    elements.slippage.textContent = `${sign}${formatMoney(metrics.totalPriceLossUsd)}`;
+    elements.slippage.className =
+      metrics.totalPriceLossUsd < -0.001
+        ? "font-bold text-terminal-coral tabular-nums"
+        : "font-bold text-terminal-secondary tabular-nums";
+  }
+
+  if (elements.fees) {
+    elements.fees.textContent = formatMoney(metrics.totalFeesUsd);
+  }
+
+  if (elements.unhedgedCount) {
+    elements.unhedgedCount.textContent = metrics.totalUnhedgedTrades.toLocaleString();
+    elements.unhedgedCount.className =
+      metrics.totalUnhedgedTrades > 0
+        ? "font-bold text-terminal-coral tabular-nums"
+        : "font-bold text-terminal-secondary tabular-nums";
+  }
 }
