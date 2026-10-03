@@ -67,8 +67,15 @@ if (fs.existsSync(bookmarkletScriptPath)) {
 
 console.log(`🚀 Building frontend with Vite 8 + Tailwind v4 (Version: ${buildVersion})...`);
 await build({
-  root: path.resolve(rootDir, "web"),
+  root: path.resolve(rootDir, "web/app"),
+  publicDir: path.resolve(rootDir, "web/public"),
   base: "/",
+  resolve: {
+    alias: {
+      "@": path.resolve(rootDir, "web/src"),
+      "/src": path.resolve(rootDir, "web/src"),
+    },
+  },
   plugins: [tailwindcss()],
   define: {
     APP_VERSION: JSON.stringify(buildVersion),
@@ -80,11 +87,11 @@ await build({
     cssMinify: "esbuild",
     rollupOptions: {
       input: {
-        index: path.resolve(rootDir, "web/index.html"),
-        spread: path.resolve(rootDir, "web/spread.html"),
-        analytics: path.resolve(rootDir, "web/analytics.html"),
-        checkerSolo: path.resolve(rootDir, "web/checker/solo.html"),
-        checkerHedge: path.resolve(rootDir, "web/checker/hedge.html"),
+        index: path.resolve(rootDir, "web/app/index.html"),
+        spread: path.resolve(rootDir, "web/app/spread.html"),
+        analytics: path.resolve(rootDir, "web/app/analytics.html"),
+        checkerSolo: path.resolve(rootDir, "web/app/checker/solo.html"),
+        checkerHedge: path.resolve(rootDir, "web/app/checker/hedge.html"),
       },
     },
   },

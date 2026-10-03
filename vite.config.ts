@@ -3,8 +3,20 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
 export default defineConfig({
-  root: "web",
+  root: path.resolve(import.meta.dirname, "web/app"),
+  publicDir: path.resolve(import.meta.dirname, "web/public"),
   base: "/",
+  resolve: {
+    alias: {
+      "@": path.resolve(import.meta.dirname, "web/src"),
+      "/src": path.resolve(import.meta.dirname, "web/src"),
+    },
+  },
+  server: {
+    fs: {
+      allow: [path.resolve(import.meta.dirname, "web")],
+    },
+  },
   plugins: [tailwindcss()],
   define: {
     APP_VERSION: JSON.stringify("dev"),
@@ -16,11 +28,11 @@ export default defineConfig({
     cssMinify: "esbuild",
     rollupOptions: {
       input: {
-        index: path.resolve(import.meta.dirname, "web/index.html"),
-        spread: path.resolve(import.meta.dirname, "web/spread.html"),
-        analytics: path.resolve(import.meta.dirname, "web/analytics.html"),
-        checkerSolo: path.resolve(import.meta.dirname, "web/checker/solo.html"),
-        checkerHedge: path.resolve(import.meta.dirname, "web/checker/hedge.html"),
+        index: path.resolve(import.meta.dirname, "web/app/index.html"),
+        spread: path.resolve(import.meta.dirname, "web/app/spread.html"),
+        analytics: path.resolve(import.meta.dirname, "web/app/analytics.html"),
+        checkerSolo: path.resolve(import.meta.dirname, "web/app/checker/solo.html"),
+        checkerHedge: path.resolve(import.meta.dirname, "web/app/checker/hedge.html"),
       },
     },
   },
