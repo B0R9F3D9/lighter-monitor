@@ -48,10 +48,10 @@
   >
     <!-- TOP HEADER / APP BAR -->
     <header
-      class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md"
+      class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md select-none"
     >
       <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div class="flex items-center justify-between gap-3">
           <!-- Brand & Navigation Tabs -->
           <div class="flex items-center gap-3">
             <a
@@ -78,9 +78,9 @@
               >
             </a>
 
-            <!-- Navigation Tabs Bar -->
+            <!-- Desktop Navigation Tabs Bar -->
             <nav
-              class="flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-xs font-mono"
+              class="hidden md:flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-xs font-mono ml-1"
             >
               <a
                 href="/spread"
@@ -100,8 +100,8 @@
             </nav>
           </div>
 
-          <!-- Font Selector -->
-          <div class="flex items-center gap-2.5 text-xs font-mono">
+          <!-- Desktop Font Selector (Hidden on mobile & medium < lg) -->
+          <div class="hidden lg:flex items-center gap-2.5 text-xs font-mono">
             <div
               class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
             >
@@ -126,6 +126,100 @@
               </select>
             </div>
           </div>
+
+          <!-- Hamburger / Sandwich Button (Visible on mobile & medium < lg) -->
+          <div class="flex lg:hidden items-center gap-2">
+            <button
+              type="button"
+              id="mobileMenuBtn"
+              class="p-1.5 rounded border border-terminal-border bg-terminal-bg hover:bg-terminal-surface text-terminal-secondary hover:text-white transition flex items-center justify-center cursor-pointer focus:outline-none focus:ring-1 focus:ring-terminal-accent"
+              aria-label="Toggle navigation menu"
+              aria-expanded="false"
+              aria-controls="mobileNavMenu"
+            >
+              <svg
+                class="hamburger-icon-open w-5 h-5 text-current block"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              <svg
+                class="hamburger-icon-close w-5 h-5 text-current hidden"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dropdown Navigation Menu (Visible on mobile & medium < lg) -->
+      <div
+        id="mobileNavMenu"
+        class="mobile-nav-panel hidden lg:hidden border-t border-terminal-border bg-terminal-surface/98 backdrop-blur-md px-4 py-3 space-y-3 transition-all select-none"
+      >
+        <!-- Navigation Section (3 Tabs matching Header and Hub - Hidden on md+ because header already shows them) -->
+        <div class="space-y-1 md:hidden">
+          <div
+            class="text-[10px] uppercase font-mono tracking-wider text-terminal-muted px-1 py-0.5 font-semibold"
+          >
+            Navigation
+          </div>
+          <div class="grid grid-cols-3 gap-1.5 font-mono text-xs">
+            <a
+              href="/spread"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-emerald shrink-0"></span>
+              <span class="font-bold">Spread</span>
+            </a>
+            <a
+              href="/analytics"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent shrink-0"></span>
+              <span class="font-bold">Analytics</span>
+            </a>
+            <a
+              href="/checker/solo"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border bg-terminal-surface text-white font-bold transition no-underline shadow-xs text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-amber shrink-0"></span>
+              <span class="font-bold">Checker</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Typography / Font Picker Section -->
+        <div
+          class="border-t md:border-t-0 border-terminal-border/70 pt-2.5 md:pt-0 flex items-center justify-between text-xs font-mono"
+        >
+          <span class="text-terminal-muted text-[11px]">Interface Font:</span>
+          <div
+            class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
+          >
+            <select
+              id="mobileFontSelector"
+              class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
+              title="Select Interface Font"
+            >
+              <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
+              <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
+              <option value="Montserrat" class="bg-terminal-surface text-white">Montserrat</option>
+              <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
+              <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
+              <option value="JetBrains Mono" class="bg-terminal-surface text-white">
+                JetBrains Mono
+              </option>
+            </select>
+          </div>
         </div>
       </div>
     </header>
@@ -133,26 +227,28 @@
     <!-- MAIN VIEWPORT -->
     <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 space-y-2.5">
       <!-- 0. MODE SWITCHER -->
-      <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2">
-        <div class="flex items-center gap-2.5">
+      <div
+        class="flex flex-wrap items-center justify-between border-b border-terminal-borderSubtle pb-2 gap-2"
+      >
+        <div class="flex flex-wrap items-center gap-2 sm:gap-2.5">
           <span
             class="text-terminal-muted text-[11px] font-mono uppercase tracking-wider font-semibold"
             >Mode:</span
           >
           <div
-            class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-xs font-mono"
+            class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px] sm:text-xs font-mono"
           >
             <a
               id="modeBtnSolo"
               href="/checker/solo"
-              class="px-3 py-0.5 rounded bg-terminal-surface text-white font-bold transition select-none no-underline border border-terminal-border shadow-xs"
+              class="px-2.5 sm:px-3 py-0.5 rounded bg-terminal-surface text-white font-bold transition select-none no-underline border border-terminal-border shadow-xs"
             >
               Solo Account
             </a>
             <a
               id="modeBtnHedge"
               href="/checker/hedge"
-              class="px-3 py-0.5 rounded text-terminal-muted hover:text-white transition select-none no-underline bg-transparent"
+              class="px-2.5 sm:px-3 py-0.5 rounded text-terminal-muted hover:text-white transition select-none no-underline bg-transparent"
             >
               Hedge Checker (RH vs Core)
             </a>
@@ -192,7 +288,7 @@
         <!-- 1. EXECUTIVE SUMMARY LEAD STRIP (Matches /spread topRankCard 1:1) -->
         <div
           id="topRankCard"
-          class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono"
+          class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs font-mono"
         >
           <div class="flex items-center gap-2 shrink-0">
             <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Account:</span>
@@ -203,7 +299,9 @@
           </div>
 
           <!-- Inline metrics -->
-          <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px] no-scrollbar">
+          <div
+            class="flex items-center gap-4 sm:gap-6 overflow-x-auto text-[11px] no-scrollbar w-full sm:w-auto pb-0.5 sm:pb-0"
+          >
             <div>
               <span class="text-terminal-muted mr-1.5">TRADES:</span>
               <span id="leadTradesCount" class="font-bold text-white tabular-nums">0</span>
@@ -262,7 +360,7 @@
               </button>
             </div>
 
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <a
                 id="bookmarkletLink"
                 href="#"
@@ -407,7 +505,7 @@
             >
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
               id="btnAddFilesSolo"
               type="button"
@@ -474,7 +572,7 @@
             class="border-b border-terminal-border px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono bg-terminal-surface/60"
           >
             <!-- Left: Tab Switchers -->
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <div
                 class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px]"
               >
@@ -498,13 +596,13 @@
             </div>
 
             <!-- Right: In-table Filter -->
-            <div class="flex items-center gap-2">
-              <div class="relative">
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+              <div class="relative w-full sm:w-auto">
                 <input
                   type="text"
                   id="inputSearchFilter"
                   placeholder="Filter (symbol, BUY, SELL, hash...)"
-                  class="w-48 sm:w-64 px-2 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-[11px] focus:outline-none focus:border-terminal-accent placeholder:text-terminal-muted/60"
+                  class="w-full sm:w-64 px-2 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-[11px] focus:outline-none focus:border-terminal-accent placeholder:text-terminal-muted/60"
                 />
               </div>
             </div>
@@ -713,7 +811,7 @@
         </div>
 
         <div
-          class="border-t border-terminal-borderSubtle pt-2.5 flex items-center justify-between text-[11px] text-terminal-muted"
+          class="border-t border-terminal-borderSubtle pt-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-terminal-muted"
         >
           <span>100% local in-browser processing. Zero scripts run on your wallet.</span>
           <button
@@ -769,7 +867,7 @@
         </div>
 
         <div
-          class="border-t border-terminal-borderSubtle pt-2.5 flex items-center justify-between text-[11px]"
+          class="border-t border-terminal-borderSubtle pt-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px]"
         >
           <span class="text-terminal-muted">Deduplicates trades & auto-detects user accounts.</span>
           <div class="flex items-center gap-2">

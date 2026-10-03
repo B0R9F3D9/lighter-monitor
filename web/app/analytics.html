@@ -78,9 +78,9 @@
                 >Lighter × Robinhood</span
               >
             </a>
-            <!-- Navigation Tabs Bar -->
+            <!-- Desktop Navigation Tabs Bar -->
             <nav
-              class="flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-xs font-mono"
+              class="hidden md:flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-xs font-mono ml-1"
             >
               <a
                 href="/spread"
@@ -100,8 +100,8 @@
             </nav>
           </div>
 
-          <!-- Font Selector -->
-          <div class="flex items-center gap-2.5 text-xs font-mono">
+          <!-- Desktop Font Selector (Hidden on mobile & medium < lg) -->
+          <div class="hidden lg:flex items-center gap-2.5 text-xs font-mono">
             <div
               class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
             >
@@ -125,6 +125,100 @@
                 </option>
               </select>
             </div>
+          </div>
+
+          <!-- Hamburger / Sandwich Button (Visible on mobile & medium < lg) -->
+          <div class="flex lg:hidden items-center gap-2">
+            <button
+              type="button"
+              id="mobileMenuBtn"
+              class="p-1.5 rounded border border-terminal-border bg-terminal-bg hover:bg-terminal-surface text-terminal-secondary hover:text-white transition flex items-center justify-center cursor-pointer focus:outline-none focus:ring-1 focus:ring-terminal-accent"
+              aria-label="Toggle navigation menu"
+              aria-expanded="false"
+              aria-controls="mobileNavMenu"
+            >
+              <svg
+                class="hamburger-icon-open w-5 h-5 text-current block"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              <svg
+                class="hamburger-icon-close w-5 h-5 text-current hidden"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dropdown Navigation Menu (Visible on mobile & medium < lg) -->
+      <div
+        id="mobileNavMenu"
+        class="mobile-nav-panel hidden lg:hidden border-t border-terminal-border bg-terminal-surface/98 backdrop-blur-md px-4 py-3 space-y-3 transition-all select-none"
+      >
+        <!-- Navigation Section (3 Tabs matching Header and Hub - Hidden on md+ because header already shows them) -->
+        <div class="space-y-1 md:hidden">
+          <div
+            class="text-[10px] uppercase font-mono tracking-wider text-terminal-muted px-1 py-0.5 font-semibold"
+          >
+            Navigation
+          </div>
+          <div class="grid grid-cols-3 gap-1.5 font-mono text-xs">
+            <a
+              href="/spread"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-emerald shrink-0"></span>
+              <span class="font-bold">Spread</span>
+            </a>
+            <a
+              href="/analytics"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border bg-terminal-surface text-white font-bold transition no-underline shadow-xs text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent shrink-0"></span>
+              <span class="font-bold">Analytics</span>
+            </a>
+            <a
+              href="/checker/solo"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-amber shrink-0"></span>
+              <span class="font-bold">Checker</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Typography / Font Picker Section -->
+        <div
+          class="border-t md:border-t-0 border-terminal-border/70 pt-2.5 md:pt-0 flex items-center justify-between text-xs font-mono"
+        >
+          <span class="text-terminal-muted text-[11px]">Interface Font:</span>
+          <div
+            class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
+          >
+            <select
+              id="mobileFontSelector"
+              class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
+              title="Select Interface Font"
+            >
+              <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
+              <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
+              <option value="Montserrat" class="bg-terminal-surface text-white">Montserrat</option>
+              <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
+              <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
+              <option value="JetBrains Mono" class="bg-terminal-surface text-white">
+                JetBrains Mono
+              </option>
+            </select>
           </div>
         </div>
       </div>
@@ -184,7 +278,7 @@
 
           <!-- Lighter-Style Stats (Horizontal Strip) -->
           <div
-            class="flex items-center gap-4 sm:gap-6 text-xs shrink-0 select-text overflow-x-auto no-scrollbar"
+            class="flex items-center gap-4 sm:gap-6 text-xs select-text overflow-x-auto no-scrollbar w-full xl:w-auto max-w-full pb-0.5 xl:pb-0"
           >
             <!-- 1. Mark Price -->
             <div class="space-y-0.5">
@@ -300,7 +394,9 @@
         </div>
 
         <!-- Right: Timeframe Segmented Control & Refresh -->
-        <div class="flex items-center justify-between xl:justify-end gap-2 shrink-0 select-none">
+        <div
+          class="flex items-center justify-between xl:justify-end gap-2 shrink-0 select-none overflow-x-auto no-scrollbar max-w-full pb-0.5 xl:pb-0 w-full xl:w-auto"
+        >
           <!-- Logarithmic Scale Toggle Button -->
           <button
             id="logScaleBtn"
@@ -419,7 +515,7 @@
         class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs font-mono"
       >
         <!-- Left: Signal indicator + Current Basis Hero -->
-        <div class="flex items-center gap-3 shrink-0">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 sm:shrink-0">
           <div class="flex items-center gap-1.5">
             <span class="text-terminal-muted text-[11px] uppercase tracking-wider"
               >ENTRY SIGNAL:</span
@@ -452,7 +548,7 @@
 
         <!-- Right: Inline Quant Metrics (Divided subtly, no card bloat) -->
         <div
-          class="flex items-center gap-4 sm:gap-6 overflow-x-auto no-scrollbar text-[11px] select-text"
+          class="flex items-center gap-4 sm:gap-6 overflow-x-auto no-scrollbar text-[11px] select-text w-full md:w-auto pb-0.5 md:pb-0"
         >
           <div>
             <span class="text-terminal-muted mr-1.5 text-[10px] uppercase">MEAN (SMA):</span>
@@ -513,7 +609,9 @@
         <div
           class="px-3 py-1.5 border-b border-terminal-border flex flex-wrap items-center justify-between text-[11px] gap-2 bg-terminal-bg/50 select-text"
         >
-          <div class="flex items-center gap-4 text-terminal-secondary select-text">
+          <div
+            class="flex flex-wrap items-center gap-x-4 gap-y-1 text-terminal-secondary select-text"
+          >
             <div>
               RH:
               <span
@@ -558,7 +656,7 @@
         </div>
 
         <!-- Price Comparison Chart Container -->
-        <div id="priceChartContainer" class="w-full h-[340px] relative"></div>
+        <div id="priceChartContainer" class="w-full h-[340px] relative cursor-crosshair"></div>
 
         <!-- Draggable Height Resizer Handle -->
         <div
@@ -579,16 +677,16 @@
       >
         <!-- Sub-chart Title Strip -->
         <div
-          class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex items-center justify-between text-[10px] text-terminal-muted uppercase tracking-wider font-mono select-none"
+          class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex flex-wrap items-center justify-between gap-2 text-[10px] text-terminal-muted uppercase tracking-wider font-mono select-none"
         >
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span class="font-bold text-terminal-secondary">Basis &amp; Spread</span>
             <span>•</span>
             <span class="text-terminal-emerald">RH Discount (≤ 0)</span>
             <span>•</span>
             <span class="text-terminal-accent">RH Premium (&gt; 0)</span>
           </div>
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2.5 shrink-0">
             <button
               id="toggleBandsBtn"
               type="button"
@@ -602,7 +700,7 @@
         </div>
 
         <!-- Spread & Basis Sub-Chart Container -->
-        <div id="basisChartContainer" class="w-full h-[220px] relative"></div>
+        <div id="basisChartContainer" class="w-full h-[220px] relative cursor-crosshair"></div>
 
         <!-- Draggable Height Resizer Handle -->
         <div
@@ -620,7 +718,7 @@
       <div
         class="bg-terminal-surface border border-terminal-border rounded p-3 space-y-2 font-mono"
       >
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
           <div>
             <div class="font-bold text-white text-xs uppercase tracking-tight">
               24-Hour Execution Clock (Time-of-Day Heatmap)
@@ -647,7 +745,7 @@
         </div>
 
         <!-- Heatmap Grid Container -->
-        <div id="heatmapContainer" class="w-full pt-1">
+        <div id="heatmapContainer" class="w-full pt-1.5 pb-1 overflow-x-auto no-scrollbar">
           <!-- Rendered dynamically by heatmap.ts -->
         </div>
       </div>
@@ -1117,7 +1215,7 @@
               <span class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold">
                 Days of Week
               </span>
-              <div class="flex items-center gap-1.5 text-[10px]">
+              <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
                 <button
                   type="button"
                   id="dayFilterQuickAll"
@@ -1229,7 +1327,7 @@
 
         <!-- Modal Footer Actions -->
         <div
-          class="p-3 border-t border-terminal-border bg-terminal-bg/50 flex items-center justify-between gap-2"
+          class="p-3 border-t border-terminal-border bg-terminal-bg/50 flex flex-wrap items-center justify-between gap-2"
         >
           <button
             id="resetDateFilterModalBtn"

@@ -60,7 +60,12 @@ export function showUpdateSonner(
   sonner.setAttribute("role", "alert");
   sonner.setAttribute("aria-live", "polite");
   sonner.className =
-    "fixed bottom-4 right-4 z-50 w-72 p-3 bg-terminal-surface border border-terminal-border rounded shadow-xl shadow-black/70 text-xs font-sans select-none transition-all duration-200 transform translate-y-2 opacity-0 pointer-events-auto";
+    "fixed bottom-4 right-4 z-50 w-72 max-w-[calc(100vw-2rem)] p-3 bg-terminal-surface border border-terminal-border rounded shadow-xl shadow-black/70 text-xs font-sans select-none transition-all duration-200 transform translate-y-2 opacity-0 pointer-events-auto";
+
+  if (sonner.style) {
+    sonner.style.bottom = "1rem";
+    sonner.style.right = "1rem";
+  }
 
   const shortVersion = newVersion
     ? newVersion.length > 14

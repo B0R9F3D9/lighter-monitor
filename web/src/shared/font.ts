@@ -140,33 +140,70 @@ export function renderFontSelectorMarkup(selectedFont?: string): string {
  * Synchronizes with localStorage and cross-tab storage changes.
  */
 export function initFontSelector(options?: FontSelectorOptions): () => void {
-  const selectorId = options?.selectorId || "fontSelector";
+  if (typeof document === "undefined") {
+    return () => {};
+  }
+
+  const customSelectorId = options?.selectorId || "fontSelector";
   const selectEl =
-    typeof document !== "undefined"
-      ? (document.getElementById(selectorId) as HTMLSelectElement | null)
+    typeof document.getElementById === "function"
+      ? (document.getElementById(customSelectorId) as HTMLSelectElement | null)
+      : null;
+  const mobileSelectEl =
+    typeof document.getElementById === "function"
+      ? (document.getElementById("mobileFontSelector") as HTMLSelectElement | null)
       : null;
 
   const currentFont = getSavedFont();
   applyFont(currentFont);
 
-  if (selectEl) {
-    selectEl.value = currentFont;
-  }
+  const getSelectElements = (): HTMLSelectElement[] => {
+    const list: HTMLSelectElement[] = [];
+    if (selectEl) list.push(selectEl);
+    if (mobileSelectEl && !list.includes(mobileSelectEl)) list.push(mobileSelectEl);
+    if (typeof document.querySelectorAll === "function") {
+      try {
+        const elements = document.querySelectorAll(
+          "#fontSelector, #mobileFontSelector, select[data-font-selector]",
+        );
+        elements.forEach((el) => {
+          const select = el as unknown as HTMLSelectElement;
+          if (select && !list.includes(select)) {
+            list.push(select);
+          }
+        });
+      } catch {}
+    }
+    return list;
+  };
+
+  const syncAll = (fontName: string) => {
+    for (const el of getSelectElements()) {
+      if (el.value !== fontName) {
+        el.value = fontName;
+      }
+    }
+  };
+
+  syncAll(currentFont);
 
   const handleChange = (e: Event) => {
-    const val = (e.target as HTMLSelectElement).value;
+    const target = e.target as HTMLSelectElement | null;
+    const val = target?.value || "";
     setFont(val);
+    syncAll(val);
     options?.onFontChange?.(val as AvailableFont, getFontStack(val));
   };
 
-  selectEl?.addEventListener("change", handleChange);
+  const selects = getSelectElements();
+  for (const el of selects) {
+    el.addEventListener?.("change", handleChange as EventListener);
+  }
 
   const handleStorage = (e: StorageEvent) => {
     if (e.key === FONT_STORAGE_KEY && e.newValue) {
       applyFont(e.newValue);
-      if (selectEl) {
-        selectEl.value = e.newValue;
-      }
+      syncAll(e.newValue);
       options?.onFontChange?.(e.newValue as AvailableFont, getFontStack(e.newValue));
     }
   };
@@ -174,9 +211,7 @@ export function initFontSelector(options?: FontSelectorOptions): () => void {
   const handleFontChange = (e: Event) => {
     const detail = (e as CustomEvent<{ font: AvailableFont; stack: string }>).detail;
     if (detail && detail.font) {
-      if (selectEl && selectEl.value !== detail.font) {
-        selectEl.value = detail.font;
-      }
+      syncAll(detail.font);
       options?.onFontChange?.(detail.font, detail.stack);
     }
   };
@@ -192,7 +227,9 @@ export function initFontSelector(options?: FontSelectorOptions): () => void {
   }
 
   return () => {
-    selectEl?.removeEventListener("change", handleChange);
+    for (const el of getSelectElements()) {
+      el.removeEventListener?.("change", handleChange as EventListener);
+    }
     if (typeof window !== "undefined") {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("terminal:fontchange", handleFontChange);

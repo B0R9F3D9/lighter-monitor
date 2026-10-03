@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source ".";
+@source "../app";
 
 @theme {
   --color-terminal-bg: #0b0c0e;
@@ -78,6 +80,51 @@ button:focus-visible {
   container-type: inline-size;
 }
 
+.heatmap-ribbon {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(38px, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .heatmap-ribbon {
+    grid-template-columns: repeat(24, minmax(42px, 1fr));
+  }
+}
+
+/* Version Update Sonner (Bottom-Right Toast Notification) */
+#versionUpdateSonner {
+  position: fixed !important;
+  bottom: 1rem !important;
+  right: 1rem !important;
+  z-index: 50 !important;
+}
+
+/* Crosshair cursor on Analytics charts */
+#priceChartContainer,
+#priceChartContainer canvas,
+#priceChartContainer .tv-lightweight-charts,
+#basisChartContainer,
+#basisChartContainer canvas,
+#basisChartContainer .tv-lightweight-charts {
+  cursor: crosshair !important;
+}
+
+#priceChartContainer [style*="ns-resize"],
+#priceChartContainer [style*="ns-resize"] canvas,
+#basisChartContainer [style*="ns-resize"],
+#basisChartContainer [style*="ns-resize"] canvas {
+  cursor: ns-resize !important;
+}
+
+#priceChartContainer [style*="ew-resize"],
+#priceChartContainer [style*="ew-resize"] canvas,
+#basisChartContainer [style*="ew-resize"],
+#basisChartContainer [style*="ew-resize"] canvas {
+  cursor: ew-resize !important;
+}
+
 .detail-expanded-container {
   position: sticky;
   left: 0.5rem;
@@ -119,6 +166,11 @@ button:focus-visible {
 .select-text * {
   user-select: text !important;
   -webkit-user-select: text !important;
+}
+
+html,
+body {
+  max-width: 100%;
 }
 
 :root {
@@ -227,4 +279,21 @@ select,
 .dropzone-active-core *,
 .dropzone-active-solo * {
   pointer-events: none;
+}
+
+/* Mobile Navigation Panel animation */
+.mobile-nav-panel {
+  animation: mobileNavSlideDown 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform-origin: top center;
+}
+
+@keyframes mobileNavSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

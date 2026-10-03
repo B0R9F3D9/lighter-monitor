@@ -3,7 +3,9 @@ import type { HourlyBucketStats } from "./types";
 let sharedHeatmapTooltip: HTMLElement | null = null;
 
 function getOrCreateHeatmapTooltip(): HTMLElement {
-  if (!sharedHeatmapTooltip || !document.body.contains(sharedHeatmapTooltip)) {
+  const isDetached =
+    typeof document?.body?.contains === "function" && !document.body.contains(sharedHeatmapTooltip);
+  if (!sharedHeatmapTooltip || isDetached) {
     const existing = document.getElementById("heatmapSharedTooltip");
     if (existing) {
       sharedHeatmapTooltip = existing;
@@ -41,17 +43,26 @@ export function renderHourlyHeatmap(
   const tooltip = getOrCreateHeatmapTooltip();
 
   const grid = document.createElement("div");
-  grid.className = "grid grid-cols-6 sm:grid-cols-12 md:grid-cols-24 gap-1 w-full";
+  grid.className = "heatmap-ribbon";
 
   grid.addEventListener("mouseleave", () => {
     tooltip.style.opacity = "0";
     tooltip.style.display = "none";
   });
 
+  container.addEventListener(
+    "scroll",
+    () => {
+      tooltip.style.opacity = "0";
+      tooltip.style.display = "none";
+    },
+    { passive: true },
+  );
+
   for (const b of buckets) {
     const isCurrent = b.hour === currentHourLocal;
     const cell = document.createElement("div");
-    cell.className = `relative flex flex-col items-center justify-center py-2 px-1 rounded border cursor-pointer transition select-none ${
+    cell.className = `relative flex flex-col items-center justify-center h-[46px] px-0.5 rounded border cursor-pointer transition select-none ${
       isCurrent ? "ring-1 ring-terminal-accent" : ""
     }`;
 
@@ -141,4 +152,23 @@ export function renderHourlyHeatmap(
   }
 
   container.appendChild(grid);
+
+  if (
+    typeof requestAnimationFrame === "function" &&
+    currentHourLocal >= 0 &&
+    currentHourLocal < 24
+  ) {
+    requestAnimationFrame(() => {
+      const currentCell = grid.children[currentHourLocal] as HTMLElement | undefined;
+      if (currentCell && container.scrollWidth > container.clientWidth) {
+        const offset =
+          currentCell.offsetLeft - (container.clientWidth - currentCell.clientWidth) / 2;
+        if (typeof container.scrollTo === "function") {
+          container.scrollTo({ left: Math.max(0, offset), behavior: "smooth" });
+        } else {
+          container.scrollLeft = Math.max(0, offset);
+        }
+      }
+    });
+  }
 }

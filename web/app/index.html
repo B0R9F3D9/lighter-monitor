@@ -56,29 +56,55 @@
         <div class="flex items-center justify-between gap-3">
           <!-- Brand & Context -->
           <div class="flex items-center gap-2.5">
-            <div
-              class="w-7 h-7 rounded border border-terminal-border bg-terminal-bg flex items-center justify-center p-1.5 shrink-0"
-              title="Lighter"
+            <a
+              href="/"
+              class="group flex items-center gap-2.5 no-underline transition"
+              title="Return to Hub (/)"
             >
-              <svg class="h-3.5 w-auto text-white" viewBox="0 0 14 26" fill="currentColor">
-                <path
-                  d="M5.989 20.388 0 25.498V5.888L5.989.502zm7.811.012-5.989 5.098V17.85l5.989-5.37z"
-                />
-              </svg>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-bold tracking-tight text-white uppercase"
+              <div
+                class="w-7 h-7 rounded border border-terminal-border bg-terminal-bg flex items-center justify-center p-1.5 shrink-0 group-hover:border-terminal-accent transition"
+                title="Lighter"
+              >
+                <svg
+                  class="h-3.5 w-auto text-white group-hover:text-terminal-accent transition"
+                  viewBox="0 0 14 26"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M5.989 20.388 0 25.498V5.888L5.989.502zm7.811.012-5.989 5.098V17.85l5.989-5.37z"
+                  />
+                </svg>
+              </div>
+              <span
+                class="text-sm font-bold tracking-tight text-white uppercase group-hover:text-terminal-accent transition"
                 >Lighter × Robinhood</span
               >
-              <span
-                class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-muted"
-                >Terminal Hub</span
+            </a>
+
+            <!-- Desktop Navigation Tabs Bar -->
+            <nav
+              class="hidden md:flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-xs font-mono ml-1.5"
+            >
+              <a
+                href="/spread"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
+                >Spread</a
               >
-            </div>
+              <a
+                href="/analytics"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
+                >Analytics</a
+              >
+              <a
+                href="/checker/solo"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
+                >Checker</a
+              >
+            </nav>
           </div>
 
-          <!-- Font Selector -->
-          <div class="flex items-center gap-2.5 text-xs font-mono">
+          <!-- Desktop Font Selector (Hidden on mobile & medium < lg) -->
+          <div class="hidden lg:flex items-center gap-2.5 text-xs font-mono">
             <div
               class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
             >
@@ -103,6 +129,100 @@
               </select>
             </div>
           </div>
+
+          <!-- Hamburger / Sandwich Button (Visible on mobile & medium < lg) -->
+          <div class="flex lg:hidden items-center gap-2">
+            <button
+              type="button"
+              id="mobileMenuBtn"
+              class="p-1.5 rounded border border-terminal-border bg-terminal-bg hover:bg-terminal-surface text-terminal-secondary hover:text-white transition flex items-center justify-center cursor-pointer focus:outline-none focus:ring-1 focus:ring-terminal-accent"
+              aria-label="Toggle navigation menu"
+              aria-expanded="false"
+              aria-controls="mobileNavMenu"
+            >
+              <svg
+                class="hamburger-icon-open w-5 h-5 text-current block"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              <svg
+                class="hamburger-icon-close w-5 h-5 text-current hidden"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dropdown Navigation Menu (Visible on mobile & medium < lg) -->
+      <div
+        id="mobileNavMenu"
+        class="mobile-nav-panel hidden lg:hidden border-t border-terminal-border bg-terminal-surface/98 backdrop-blur-md px-4 py-3 space-y-3 transition-all select-none"
+      >
+        <!-- Navigation Section (3 Tabs matching Header and Hub - Hidden on md+ because header already shows them) -->
+        <div class="space-y-1 md:hidden">
+          <div
+            class="text-[10px] uppercase font-mono tracking-wider text-terminal-muted px-1 py-0.5 font-semibold"
+          >
+            Navigation
+          </div>
+          <div class="grid grid-cols-3 gap-1.5 font-mono text-xs">
+            <a
+              href="/spread"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-emerald shrink-0"></span>
+              <span class="font-bold">Spread</span>
+            </a>
+            <a
+              href="/analytics"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent shrink-0"></span>
+              <span class="font-bold">Analytics</span>
+            </a>
+            <a
+              href="/checker/solo"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-amber shrink-0"></span>
+              <span class="font-bold">Checker</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Typography / Font Picker Section -->
+        <div
+          class="border-t md:border-t-0 border-terminal-border/70 pt-2.5 md:pt-0 flex items-center justify-between text-xs"
+        >
+          <span class="text-terminal-muted text-[11px] font-mono">Interface Font:</span>
+          <div
+            class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
+          >
+            <select
+              id="mobileFontSelector"
+              class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
+              title="Select Interface Font"
+            >
+              <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
+              <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
+              <option value="Montserrat" class="bg-terminal-surface text-white">Montserrat</option>
+              <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
+              <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
+              <option value="JetBrains Mono" class="bg-terminal-surface text-white">
+                JetBrains Mono
+              </option>
+            </select>
+          </div>
         </div>
       </div>
     </header>
@@ -121,9 +241,9 @@
         <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white uppercase select-text">
           Select Terminal Workspace
         </h1>
-        <p class="text-xs text-terminal-muted max-w-lg mx-auto select-text">
-          Dual-chain cross-exchange execution & quantitative research engine for Robinhood Chain
-          (2.0x Boost) and Lighter Core (2.5x Boost).
+        <p class="text-xs text-terminal-muted max-w-xl mx-auto select-text leading-relaxed">
+          All-in-one trading intelligence & analytics suite: monitor real-time spreads, analyze
+          portfolio performance, and audit cross-exchange hedges with institutional precision.
         </p>
       </div>
 
@@ -324,9 +444,9 @@
 
       <!-- Quick Hotkey Navigation Bar -->
       <div
-        class="border border-terminal-border rounded bg-terminal-surface/60 px-3 py-2 flex items-center justify-between text-[11px] text-terminal-muted select-text"
+        class="border border-terminal-border rounded bg-terminal-surface/60 px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-terminal-muted select-text"
       >
-        <div class="flex flex-wrap items-center gap-4">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <span class="text-white font-semibold uppercase text-[10px]">Hotkeys:</span>
           <span
             ><kbd

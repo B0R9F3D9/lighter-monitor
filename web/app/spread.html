@@ -48,10 +48,10 @@
   >
     <!-- TOP HEADER / APP BAR -->
     <header
-      class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md"
+      class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md select-none"
     >
       <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div class="flex items-center justify-between gap-3">
           <!-- Brand & Strategy Context -->
           <div class="flex items-center gap-2.5">
             <a
@@ -77,9 +77,9 @@
                 >Lighter × Robinhood</span
               >
             </a>
-            <!-- Navigation Tabs Bar -->
+            <!-- Desktop Navigation Tabs Bar -->
             <nav
-              class="flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-xs font-mono"
+              class="hidden md:flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-xs font-mono ml-1"
             >
               <a
                 href="/spread"
@@ -99,8 +99,8 @@
             </nav>
           </div>
 
-          <!-- Connection Diagnostics & Auto Re-rank Progress -->
-          <div class="flex flex-wrap items-center gap-2.5 text-xs font-mono">
+          <!-- Desktop Connection Diagnostics & Auto Re-rank Progress (Hidden on mobile & medium < lg) -->
+          <div class="hidden lg:flex items-center gap-2.5 text-xs font-mono">
             <!-- Re-rank Timer & Controls -->
             <div
               class="flex items-center gap-1.5 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
@@ -166,6 +166,174 @@
               </select>
             </div>
           </div>
+
+          <!-- Mobile / Medium Right Bar: Live Stream Dots + Sandwich Button (Visible on mobile & medium < lg) -->
+          <div class="flex lg:hidden items-center gap-2">
+            <!-- Stream status indicators -->
+            <div
+              class="flex items-center gap-1.5 bg-terminal-bg border border-terminal-border px-2 py-1 rounded text-[10px] font-mono"
+            >
+              <span class="flex items-center gap-1">
+                <span
+                  id="mobileHeaderCoreDot"
+                  class="w-1.5 h-1.5 rounded-full bg-terminal-amber"
+                ></span>
+                <span class="text-terminal-muted">Core</span>
+              </span>
+              <span class="text-terminal-border">|</span>
+              <span class="flex items-center gap-1">
+                <span
+                  id="mobileHeaderRhDot"
+                  class="w-1.5 h-1.5 rounded-full bg-terminal-amber"
+                ></span>
+                <span class="text-terminal-muted">RH</span>
+              </span>
+            </div>
+
+            <!-- Hamburger Button -->
+            <button
+              type="button"
+              id="mobileMenuBtn"
+              class="p-1.5 rounded border border-terminal-border bg-terminal-bg hover:bg-terminal-surface text-terminal-secondary hover:text-white transition flex items-center justify-center cursor-pointer focus:outline-none focus:ring-1 focus:ring-terminal-accent"
+              aria-label="Toggle navigation menu"
+              aria-expanded="false"
+              aria-controls="mobileNavMenu"
+            >
+              <svg
+                class="hamburger-icon-open w-5 h-5 text-current block"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              <svg
+                class="hamburger-icon-close w-5 h-5 text-current hidden"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dropdown Navigation Menu (Visible on mobile & medium < lg) -->
+      <div
+        id="mobileNavMenu"
+        class="mobile-nav-panel hidden lg:hidden border-t border-terminal-border bg-terminal-surface/98 backdrop-blur-md px-4 py-3 space-y-3 transition-all select-none"
+      >
+        <!-- Navigation Section (3 Tabs matching Header and Hub - Hidden on md+ because header already shows them) -->
+        <div class="space-y-1 md:hidden">
+          <div
+            class="text-[10px] uppercase font-mono tracking-wider text-terminal-muted px-1 py-0.5 font-semibold"
+          >
+            Navigation
+          </div>
+          <div class="grid grid-cols-3 gap-1.5 font-mono text-xs">
+            <a
+              href="/spread"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border bg-terminal-surface text-white font-bold transition no-underline shadow-xs text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-emerald shrink-0"></span>
+              <span class="font-bold">Spread</span>
+            </a>
+            <a
+              href="/analytics"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent shrink-0"></span>
+              <span class="font-bold">Analytics</span>
+            </a>
+            <a
+              href="/checker/solo"
+              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-amber shrink-0"></span>
+              <span class="font-bold">Checker</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- Live Diagnostics & Controls Section -->
+        <div
+          class="border-t md:border-t-0 border-terminal-border/70 pt-2.5 md:pt-0 space-y-2 font-mono"
+        >
+          <div
+            class="text-[10px] uppercase font-mono tracking-wider text-terminal-muted px-1 py-0.5 font-semibold flex items-center justify-between"
+          >
+            <span>Live Diagnostics</span>
+            <div class="flex items-center gap-2 normal-case text-[10px]">
+              <span class="flex items-center gap-1">
+                <span
+                  id="mobileCoreWsDot"
+                  class="w-1.5 h-1.5 rounded-full bg-terminal-amber"
+                ></span>
+                <span class="text-terminal-muted">Core</span>
+              </span>
+              <span class="text-terminal-border">|</span>
+              <span class="flex items-center gap-1">
+                <span id="mobileRhWsDot" class="w-1.5 h-1.5 rounded-full bg-terminal-amber"></span>
+                <span class="text-terminal-muted">RH</span>
+              </span>
+            </div>
+          </div>
+          <div
+            class="flex items-center justify-between gap-2 bg-terminal-bg border border-terminal-border p-2 rounded text-xs"
+          >
+            <div class="flex items-center gap-1.5">
+              <span class="text-terminal-muted text-[11px]">Freeze:</span>
+              <span
+                id="mobileRerankTimerText"
+                class="text-white font-bold tabular-nums text-xs min-w-[20px]"
+                >5s</span
+              >
+              <button
+                id="mobileManualRerankBtn"
+                type="button"
+                title="Force Re-rank"
+                class="px-2 py-0.5 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-[11px]"
+              >
+                ↻ Re-rank
+              </button>
+            </div>
+            <button
+              id="mobileAutoSortToggle"
+              type="button"
+              class="text-[11px] text-terminal-muted hover:text-white px-2 py-0.5 rounded border border-terminal-border bg-terminal-surface transition cursor-pointer select-none"
+            >
+              Auto: ON
+            </button>
+          </div>
+        </div>
+
+        <!-- Typography / Font Picker Section -->
+        <div
+          class="border-t border-terminal-border/70 pt-2.5 flex items-center justify-between text-xs font-mono"
+        >
+          <span class="text-terminal-muted text-[11px]">Interface Font:</span>
+          <div
+            class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
+          >
+            <select
+              id="mobileFontSelector"
+              class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
+              title="Select Interface Font"
+            >
+              <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
+              <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
+              <option value="Montserrat" class="bg-terminal-surface text-white">Montserrat</option>
+              <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
+              <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
+              <option value="JetBrains Mono" class="bg-terminal-surface text-white">
+                JetBrains Mono
+              </option>
+            </select>
+          </div>
         </div>
       </div>
     </header>
@@ -175,7 +343,7 @@
       <!-- Compact Lead Strip -->
       <div
         id="topRankCard"
-        class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono"
+        class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs font-mono"
       >
         <div class="flex items-center gap-2 shrink-0">
           <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Best Spread:</span>
@@ -187,7 +355,9 @@
         </div>
 
         <!-- Inline metrics without sub-boxes -->
-        <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px]">
+        <div
+          class="flex items-center gap-4 sm:gap-6 overflow-x-auto no-scrollbar w-full sm:w-auto text-[11px] pb-0.5 sm:pb-0"
+        >
           <div>
             <span class="text-terminal-muted mr-1.5" id="topSizeLabel">SIZE:</span>
             <span id="topOptSize" class="font-bold text-terminal-accent tabular-nums">$--</span>
@@ -222,34 +392,30 @@
       <div
         class="bg-terminal-surface border border-terminal-border rounded p-2 sm:px-3 sm:py-1.5 flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs font-mono"
       >
-        <div class="flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar">
-          <!-- Sizing Badge & Input Group -->
-          <div class="flex items-center gap-2 shrink-0">
+        <div
+          class="flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar w-full md:w-auto pb-0.5 md:pb-0"
+        >
+          <!-- Sizing Input Group -->
+          <div class="flex items-center gap-1.5 shrink-0">
             <span
-              class="text-terminal-muted text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border shrink-0 select-none"
-              >Size</span
+              id="sizeInputLabel"
+              class="text-terminal-muted text-[11px] uppercase font-semibold"
+              >Cap:</span
             >
-            <div class="flex items-center gap-1.5">
-              <span
-                id="sizeInputLabel"
-                class="text-terminal-muted text-[11px] uppercase font-semibold"
-                >Cap:</span
+            <div class="relative">
+              <span class="absolute left-2 top-1/2 -translate-y-1/2 text-terminal-muted text-xs"
+                >$</span
               >
-              <div class="relative">
-                <span class="absolute left-2 top-1/2 -translate-y-1/2 text-terminal-muted text-xs"
-                  >$</span
-                >
-                <input
-                  type="number"
-                  id="sizeInput"
-                  value="20000"
-                  min="500"
-                  max="1000000"
-                  step="1000"
-                  class="w-20 sm:w-24 pl-5 pr-1.5 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-xs focus:outline-none focus:border-terminal-accent tabular-nums"
-                  title="Max Position Cap for Auto modes, or fixed size in manual mode"
-                />
-              </div>
+              <input
+                type="number"
+                id="sizeInput"
+                value="20000"
+                min="500"
+                max="1000000"
+                step="500"
+                class="w-20 sm:w-24 pl-5 pr-1.5 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-xs focus:outline-none focus:border-terminal-accent tabular-nums"
+                title="Max Position Cap for Auto modes, or fixed size in manual mode"
+              />
             </div>
           </div>
 
@@ -272,6 +438,12 @@
               Max Vol
             </button>
             <span class="w-px h-3 bg-terminal-border mx-1 shrink-0 self-center"></span>
+            <button
+              class="size-btn px-1.5 sm:px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
+              data-size="2500"
+            >
+              2.5K
+            </button>
             <button
               class="size-btn px-1.5 sm:px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
               data-size="5000"
@@ -312,8 +484,7 @@
         </div>
 
         <!-- Strategy Context Tag / Legend -->
-        <div class="hidden md:flex items-center gap-1.5 text-[11px] text-terminal-muted shrink-0">
-          <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent/70 shrink-0"></span>
+        <div class="hidden md:flex items-center text-[11px] text-terminal-muted shrink-0">
           <span id="sizeModeHint" class="text-terminal-secondary"
             >Auto Min Burn: Lowest Point Cost ($/pt)</span
           >
@@ -325,14 +496,11 @@
         class="bg-terminal-surface border border-terminal-border rounded p-2 sm:px-3 sm:py-1.5 flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs font-mono"
       >
         <!-- Search & Leverage Group -->
-        <div class="flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar">
-          <span
-            class="text-terminal-muted text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border shrink-0 select-none"
-            >Filters</span
-          >
-
+        <div
+          class="flex items-center gap-2 sm:gap-3 overflow-x-auto no-scrollbar w-full md:w-auto pb-0.5 md:pb-0"
+        >
           <!-- Search Box -->
-          <div class="relative w-36 sm:w-44 shrink-0">
+          <div class="relative w-32 sm:w-44 shrink-0">
             <input
               type="text"
               id="searchBox"
@@ -526,7 +694,7 @@
           <span
             ><strong>Point Cost Formula:</strong> Loss_USD / (RoundTripVol_RH / 1M * 52 * 5.0)</span
           >
-          <span class="text-terminal-border">|</span>
+          <span class="text-terminal-border hidden sm:inline">|</span>
           <span class="text-terminal-emerald">&lt; $1.50/pt (High Profit)</span>
           <span class="text-terminal-amber">$1.50–$3.00/pt (Fair)</span>
           <span class="text-terminal-coral">&gt; $3.00/pt (Unfavorable)</span>

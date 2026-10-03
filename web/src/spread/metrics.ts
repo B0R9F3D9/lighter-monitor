@@ -20,8 +20,8 @@ function formatOptSize(sz: number): number {
 }
 
 const BASE_SIZE_GRID: readonly number[] = [
-  1000, 2000, 3000, 4000, 5000, 6000, 7500, 10000, 12500, 15000, 20000, 25000, 35000, 50000, 75000,
-  100000,
+  1000, 2000, 2500, 3000, 4000, 5000, 6000, 7500, 10000, 12500, 15000, 20000, 25000, 35000, 50000,
+  75000, 100000,
 ];
 
 export function findOptimalSize(

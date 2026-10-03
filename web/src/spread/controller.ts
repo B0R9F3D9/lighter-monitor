@@ -111,6 +111,18 @@ export class TerminalController {
   private updateDotStatus(id: string, className: string): void {
     const el = document.getElementById(id);
     if (el) el.className = `w-1.5 h-1.5 rounded-full ${className}`;
+    const mobileId =
+      id === "coreWsDot" ? "mobileCoreWsDot" : id === "rhWsDot" ? "mobileRhWsDot" : null;
+    if (mobileId) {
+      const mobileEl = document.getElementById(mobileId);
+      if (mobileEl) mobileEl.className = `w-1.5 h-1.5 rounded-full ${className}`;
+    }
+    const mobileHeaderId =
+      id === "coreWsDot" ? "mobileHeaderCoreDot" : id === "rhWsDot" ? "mobileHeaderRhDot" : null;
+    if (mobileHeaderId) {
+      const mobileHeaderEl = document.getElementById(mobileHeaderId);
+      if (mobileHeaderEl) mobileHeaderEl.className = `w-1.5 h-1.5 rounded-full ${className}`;
+    }
   }
 
   private handleCoreBookUpdate(
@@ -608,6 +620,10 @@ export class TerminalController {
       if (timerText) {
         timerText.textContent = `${Math.ceil(this.state.rerankTimerRemaining)}s`;
       }
+      const mobileTimerText = document.getElementById("mobileRerankTimerText");
+      if (mobileTimerText) {
+        mobileTimerText.textContent = `${Math.ceil(this.state.rerankTimerRemaining)}s`;
+      }
     }, 200);
   }
 
@@ -847,28 +863,49 @@ export class TerminalController {
 
     // 1. Auto-sort toggle button & manual rerank button
     const autoSortBtn = document.getElementById("autoSortToggle");
+    const mobileAutoSortBtn = document.getElementById("mobileAutoSortToggle");
     const manualRerankBtn = document.getElementById("manualRerankBtn");
+    const mobileManualRerankBtn = document.getElementById("mobileManualRerankBtn");
 
-    manualRerankBtn?.addEventListener("click", () => {
+    const doRerank = () => {
       this.rerank();
-    });
+    };
 
-    autoSortBtn?.addEventListener("click", () => {
-      this.state.isAutoSortEnabled = !this.state.isAutoSortEnabled;
-      if (this.state.isAutoSortEnabled) {
-        if (autoSortBtn) {
+    manualRerankBtn?.addEventListener("click", doRerank);
+    mobileManualRerankBtn?.addEventListener("click", doRerank);
+
+    const updateAutoSortButtons = () => {
+      if (autoSortBtn) {
+        if (this.state.isAutoSortEnabled) {
           autoSortBtn.textContent = "Auto: ON";
           autoSortBtn.className =
             "text-[11px] text-terminal-muted hover:text-white transition cursor-pointer select-none outline-none focus:outline-none border-0 bg-transparent p-0";
-        }
-      } else {
-        if (autoSortBtn) {
+        } else {
           autoSortBtn.textContent = "Auto: FROZEN";
           autoSortBtn.className =
             "text-[11px] text-terminal-amber font-semibold hover:text-amber-400 transition cursor-pointer select-none outline-none focus:outline-none border-0 bg-transparent p-0";
         }
       }
-    });
+      if (mobileAutoSortBtn) {
+        if (this.state.isAutoSortEnabled) {
+          mobileAutoSortBtn.textContent = "Auto: ON";
+          mobileAutoSortBtn.className =
+            "text-[11px] text-terminal-muted hover:text-white px-2 py-0.5 rounded border border-terminal-border bg-terminal-surface transition cursor-pointer select-none";
+        } else {
+          mobileAutoSortBtn.textContent = "Auto: FROZEN";
+          mobileAutoSortBtn.className =
+            "text-[11px] text-terminal-amber font-semibold hover:text-amber-400 px-2 py-0.5 rounded border border-terminal-amber/50 bg-terminal-surface transition cursor-pointer select-none";
+        }
+      }
+    };
+
+    const toggleAutoSort = () => {
+      this.state.isAutoSortEnabled = !this.state.isAutoSortEnabled;
+      updateAutoSortButtons();
+    };
+
+    autoSortBtn?.addEventListener("click", toggleAutoSort);
+    mobileAutoSortBtn?.addEventListener("click", toggleAutoSort);
 
     // 2. Size input and buttons
     const sizeInput = document.getElementById("sizeInput") as HTMLInputElement | null;

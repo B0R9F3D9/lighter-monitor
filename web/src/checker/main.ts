@@ -1,12 +1,12 @@
 // eslint-disable-next-line import/no-unassigned-import
 import "../style.css";
 import { CheckerController } from "./controller";
-import { initFontSelector } from "../shared";
-import { initVersionChecker } from "../shared/version_checker";
+import { initFontSelector, initVersionChecker, initMobileNav } from "../shared";
 
 function bootstrap(): void {
   initFontSelector();
   initVersionChecker();
+  initMobileNav();
   const controller = new CheckerController();
   controller.init();
 }

@@ -50,6 +50,9 @@ export function initAnalyticsCharts(
   basisContainer: HTMLElement,
   callbacks?: AnalyticsChartCallbacks | ((point: BasisPoint | null) => void),
 ): ChartSyncContext {
+  priceContainer.style.cursor = "crosshair";
+  basisContainer.style.cursor = "crosshair";
+
   const commonOptions = {
     layout: {
       background: { type: ColorType.Solid, color: "#0B0C0E" },

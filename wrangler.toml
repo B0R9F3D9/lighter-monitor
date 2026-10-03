@@ -8,13 +8,7 @@ directory = "./dist"
 binding = "ASSETS"
 html_handling = "drop-trailing-slash"
 not_found_handling = "none"
-run_worker_first = [
-  "/*",
-  "!/assets/*",
-  "!/favicon*",
-  "!/apple-touch-icon*",
-  "!/lighter-logo.svg",
-]
+run_worker_first = ["/*", "!/assets/*", "!/favicon*", "!/apple-touch-icon*", "!/lighter-logo.svg"]
 
 [build]
 command = "bun scripts/build_web.ts"

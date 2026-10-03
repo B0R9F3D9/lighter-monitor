@@ -1,10 +1,11 @@
 import { AnalyticsController } from "./controller";
-import { initVersionChecker } from "../shared/version_checker";
+import { initVersionChecker, initMobileNav } from "../shared";
 
 function bootstrap() {
   const controller = new AnalyticsController();
   controller.init();
   initVersionChecker();
+  initMobileNav();
 }
 
 if (document.readyState === "loading") {

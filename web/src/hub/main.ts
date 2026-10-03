@@ -1,10 +1,11 @@
 // eslint-disable-next-line import/no-unassigned-import
 import "../style.css";
-import { initVersionChecker, initFontSelector } from "../shared";
+import { initVersionChecker, initFontSelector, initMobileNav } from "../shared";
 
 function initHub(): void {
   initVersionChecker();
   initFontSelector();
+  initMobileNav();
 
   // Listen for keyboard navigation hotkeys [1] -> /spread, [2] -> /analytics
   window.addEventListener("keydown", (e: KeyboardEvent) => {
