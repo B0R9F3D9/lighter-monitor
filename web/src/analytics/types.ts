@@ -106,3 +106,14 @@ export interface LiveSpreadTick {
   entryDragBps: number;
   exitDragBps: number;
 }
+
+export interface DateFilterConfig {
+  isActive: boolean;
+  fromDate: string; // "YYYY-MM-DD"
+  toDate: string; // "YYYY-MM-DD"
+  daysOfWeek: Set<number>; // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  presetLabel?: string;
+  activePresetId?: string;
+  resolution?: string;
+}
+

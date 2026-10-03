@@ -5,11 +5,15 @@ import {
   calculateRollingBands,
   calculateHourlyBuckets,
   evaluateSignalVerdict,
+  chooseDateFilterResolution,
   chooseOptimalResolution,
+  computeDateFilterIntervals,
+  dedupeAndSortCandles,
   extrapolateTimeRange,
   formatMarketPrice,
   getTokenIcon,
   getTokenImageUrl,
+  splitIntervalsIntoApiChunks,
 } from "../web/src/analytics/math";
 import type { RawCandle } from "../web/src/analytics/types";
 
@@ -222,5 +226,98 @@ describe("Analytics Math Engine", () => {
     for (const { sym, expected } of tokens) {
       expect(getTokenImageUrl(sym)).toBe(expected);
     }
+  });
+
+  describe("Targeted Date Filter & Chunking Logic", () => {
+    it("partitions date ranges into contiguous intervals matching specific days of week", () => {
+      // 2026-09-12 is Saturday, 2026-09-13 is Sunday
+      // 2026-09-14 is Monday ... 2026-09-18 is Friday
+      // 2026-09-19 is Saturday, 2026-09-20 is Sunday
+      // Range: 2026-09-12 to 2026-09-20 (9 days total, containing 2 weekends)
+      const nowSec = Math.floor(new Date(2026, 8, 25, 0, 0, 0).getTime() / 1000);
+      const weekends = new Set([0, 6]); // Sat, Sun
+
+      const res = computeDateFilterIntervals("2026-09-12", "2026-09-20", weekends, nowSec);
+      expect(res.totalActiveDays).toBe(4);
+      expect(res.intervals.length).toBe(2);
+
+      // Interval 1: 2026-09-12 00:00:00 to 2026-09-13 23:59:59
+      const start1 = Math.floor(new Date(2026, 8, 12, 0, 0, 0).getTime() / 1000);
+      const end1 = Math.floor(new Date(2026, 8, 13, 23, 59, 59, 999).getTime() / 1000);
+      expect(res.intervals[0].startSec).toBe(start1);
+      expect(res.intervals[0].endSec).toBe(end1);
+
+      // Interval 2: 2026-09-19 00:00:00 to 2026-09-20 23:59:59
+      const start2 = Math.floor(new Date(2026, 8, 19, 0, 0, 0).getTime() / 1000);
+      const end2 = Math.floor(new Date(2026, 8, 20, 23, 59, 59, 999).getTime() / 1000);
+      expect(res.intervals[1].startSec).toBe(start2);
+      expect(res.intervals[1].endSec).toBe(end2);
+    });
+
+    it("clamps intervals to nowSec and ignores future days", () => {
+      // Suppose nowSec is Sunday at 14:30:00
+      const nowSec = Math.floor(new Date(2026, 8, 13, 14, 30, 0).getTime() / 1000);
+      const weekends = new Set([0, 6]);
+
+      const res = computeDateFilterIntervals("2026-09-12", "2026-09-20", weekends, nowSec);
+      // Only Sat Sep 12 and Sun Sep 13 occurred so far
+      expect(res.totalActiveDays).toBe(2);
+      expect(res.intervals.length).toBe(1);
+      expect(res.intervals[0].endSec).toBe(nowSec);
+    });
+
+    it("chooses optimal resolution based on active days parsed", () => {
+      // 1-2 days -> 5m
+      expect(chooseDateFilterResolution(1).resolution).toBe("5m");
+      expect(chooseDateFilterResolution(2).resolution).toBe("5m");
+
+      // 3-10 days (e.g. 14D weekends = 4 days, 21D weekends = 6 days, 30D weekends = 8-10 days) -> 15m
+      expect(chooseDateFilterResolution(4).resolution).toBe("15m");
+      expect(chooseDateFilterResolution(6).resolution).toBe("15m");
+      expect(chooseDateFilterResolution(10).resolution).toBe("15m");
+
+      // 11-20 days (e.g. 21D weekdays = 15 days) -> 30m
+      expect(chooseDateFilterResolution(15).resolution).toBe("30m");
+      expect(chooseDateFilterResolution(20).resolution).toBe("30m");
+
+      // 21-45 days (e.g. 30D all days) -> 1h
+      expect(chooseDateFilterResolution(21).resolution).toBe("1h");
+      expect(chooseDateFilterResolution(30).resolution).toBe("1h");
+
+      // > 45 days -> 4h
+      expect(chooseDateFilterResolution(60).resolution).toBe("4h");
+    });
+
+    it("splits long intervals into API chunks under exchange limit (max 500 countBack)", () => {
+      // Weekend: 48 hours = 172,800 sec. At 15m step (900 sec), expected 192 candles.
+      // Should remain a single chunk since 192 <= 400.
+      const weekendInterval = { startSec: 1000000, endSec: 1000000 + 48 * 3600 };
+      const chunks = splitIntervalsIntoApiChunks([weekendInterval], 900, 400);
+      expect(chunks.length).toBe(1);
+      expect(chunks[0].countBack).toBeLessThanOrEqual(500);
+      expect(chunks[0].countBack).toBeGreaterThanOrEqual(192);
+
+      // Long interval: 10 days at 15m step = 960 candles.
+      // Should be split into 3 chunks (400 + 400 + 160).
+      const longInterval = { startSec: 1000000, endSec: 1000000 + 10 * 86400 };
+      const longChunks = splitIntervalsIntoApiChunks([longInterval], 900, 400);
+      expect(longChunks.length).toBe(3);
+      for (const ch of longChunks) {
+        expect(ch.countBack).toBeLessThanOrEqual(500);
+      }
+    });
+
+    it("deduplicates candles by timestamp and sorts chronologically", () => {
+      const candles: RawCandle[] = [
+        { t: 3000, o: 10, h: 11, l: 9, c: 10.5, v: 1, V: 10 },
+        { t: 1000, o: 10, h: 11, l: 9, c: 10.2, v: 1, V: 10 },
+        { t: 3000, o: 10, h: 11, l: 9, c: 10.5, v: 1, V: 10 }, // duplicate
+        { t: 2000, o: 10, h: 11, l: 9, c: 10.3, v: 1, V: 10 },
+      ];
+
+      const deduped = dedupeAndSortCandles(candles);
+      expect(deduped.length).toBe(3);
+      expect(deduped.map((c) => c.t)).toEqual([1000, 2000, 3000]);
+    });
   });
 });

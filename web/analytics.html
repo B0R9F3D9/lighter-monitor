@@ -35,7 +35,7 @@
     </script>
   </head>
   <body
-    class="bg-terminal-bg text-terminal-primary antialiased min-h-screen flex flex-col font-mono text-xs selection:bg-terminal-accent/30 selection:text-white"
+    class="bg-terminal-bg text-terminal-primary antialiased min-h-screen flex flex-col font-mono text-xs selection:bg-terminal-accent/30 selection:text-white overflow-x-hidden"
   >
     <!-- TOP HEADER / APP BAR (Matches /spread 1:1) -->
     <header
@@ -121,7 +121,7 @@
     </header>
 
     <!-- MAIN VIEWPORT -->
-    <main class="max-w-[1600px] mx-auto px-3 sm:px-6 py-2.5 space-y-2 w-full flex-1">
+    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 space-y-2.5 w-full flex-1">
       <!-- Controls & Ticker Toolbar -->
       <div
         class="bg-terminal-surface border border-terminal-border rounded p-2 sm:px-3 sm:py-1.5 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 text-xs font-mono"
@@ -291,6 +291,27 @@
 
         <!-- Right: Timeframe Segmented Control & Refresh -->
         <div class="flex items-center justify-between xl:justify-end gap-2 shrink-0 select-none">
+          <!-- Logarithmic Scale Toggle Button -->
+          <button
+            id="logScaleBtn"
+            type="button"
+            class="px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer text-xs font-mono select-none"
+            title="Toggle Logarithmic Price Scale (Normal vs Log)"
+          >
+            LOG
+          </button>
+
+          <!-- Date & Day-of-Week Filter Button -->
+          <button
+            id="openDateFilterBtn"
+            type="button"
+            class="flex items-center gap-1.5 px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer text-xs font-mono select-none"
+            title="Filter by Dates & Days of Week"
+          >
+            <span id="dateFilterBtnText">Dates</span>
+            <span id="dateFilterActiveDot" class="hidden w-1.5 h-1.5 rounded-full bg-terminal-accent"></span>
+          </button>
+
           <div
             class="inline-flex rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px] shrink-0"
           >
@@ -347,6 +368,27 @@
             ↻
           </button>
         </div>
+      </div>
+
+      <!-- ACTIVE DATE & DAY FILTER BANNER -->
+      <div
+        id="activeFilterBanner"
+        class="hidden bg-terminal-surface border border-terminal-accent/40 rounded px-3 py-1 flex flex-wrap items-center justify-between gap-2 text-xs font-mono select-text"
+      >
+        <div class="flex items-center gap-2 flex-wrap text-terminal-secondary text-[11px] select-text">
+          <span class="text-terminal-accent font-semibold uppercase text-[10px] tracking-wider select-text">Filtered:</span>
+          <span id="filterSummaryText" class="text-white font-medium select-text">Weekends (Sat, Sun)</span>
+          <span class="text-terminal-muted text-[10px] select-text" id="filterStatsCount">(0 points)</span>
+        </div>
+        <button
+          id="clearFilterBtn"
+          type="button"
+          class="text-[10px] text-terminal-muted hover:text-white px-2 py-0.5 rounded border border-terminal-border hover:border-terminal-muted bg-terminal-bg transition cursor-pointer flex items-center gap-1 select-none"
+          title="Clear Date Filter and Return to Live Timeframe"
+        >
+          <span>Reset</span>
+          <span class="text-[9px]">✕</span>
+        </button>
       </div>
 
       <!-- QUANT STATUS LEAD STRIP (Replaces bloated cards with contiguous status bar) -->
@@ -429,9 +471,10 @@
         </div>
       </div>
 
-      <!-- CHARTS SECTION -->
+      <!-- 1. PRICE COMPARISON CHART -->
       <div
-        class="bg-terminal-surface border border-terminal-border rounded overflow-hidden relative"
+        id="priceChartBlock"
+        class="bg-terminal-surface border border-terminal-border rounded overflow-hidden relative flex flex-col"
       >
         <!-- Chart Loading Overlay -->
         <div
@@ -492,31 +535,68 @@
           </div>
         </div>
 
-        <!-- 1. Price Comparison Chart Container -->
-        <div id="priceChartContainer" class="w-full h-[340px]"></div>
+        <!-- Price Comparison Chart Container -->
+        <div id="priceChartContainer" class="w-full h-[340px] relative"></div>
 
-        <!-- Divider with Sub-chart Title -->
+        <!-- Draggable Height Resizer Handle -->
         <div
-          class="px-3 py-1 bg-terminal-bg border-t border-b border-terminal-border flex items-center justify-between text-[10px] text-terminal-muted uppercase tracking-wider font-mono select-none"
+          id="priceChartResizeHandle"
+          class="h-3 bg-terminal-bg/80 hover:bg-terminal-surfaceHover border-t border-terminal-border/60 flex items-center justify-center cursor-row-resize select-none group transition-colors touch-none"
+          title="Drag to resize Price Chart height (Double-click to reset)"
+        >
+          <div
+            class="w-10 h-1 rounded-full bg-terminal-border group-hover:bg-terminal-accent/70 transition-colors"
+          ></div>
+        </div>
+      </div>
+
+      <!-- 2. BASIS & SPREAD SUB-CHART -->
+      <div
+        id="basisChartBlock"
+        class="bg-terminal-surface border border-terminal-border rounded overflow-hidden relative flex flex-col"
+      >
+        <!-- Sub-chart Title Strip -->
+        <div
+          class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex items-center justify-between text-[10px] text-terminal-muted uppercase tracking-wider font-mono select-none"
         >
           <div class="flex items-center gap-2">
-            <span class="font-bold text-terminal-secondary">Basis & Dispersion</span>
-            <span class="text-terminal-muted">(SMA ± 2σ)</span>
+            <span class="font-bold text-terminal-secondary">Basis &amp; Spread</span>
             <span>•</span>
             <span class="text-terminal-emerald">RH Discount (≤ 0)</span>
             <span>•</span>
             <span class="text-terminal-accent">RH Premium (&gt; 0)</span>
           </div>
-          <div>Parity: $0.00</div>
+          <div class="flex items-center gap-3">
+            <button
+              id="toggleBandsBtn"
+              type="button"
+              class="text-[9px] px-1.5 py-0.5 rounded border border-terminal-border hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer"
+              title="Toggle SMA and ±2σ Bollinger Dispersion Bands"
+            >
+              ±2σ Bands
+            </button>
+            <span>Parity: $0.00</span>
+          </div>
         </div>
 
-        <!-- 2. Spread & Basis Sub-Chart Container -->
-        <div id="basisChartContainer" class="w-full h-[220px]"></div>
+        <!-- Spread & Basis Sub-Chart Container -->
+        <div id="basisChartContainer" class="w-full h-[220px] relative"></div>
+
+        <!-- Draggable Height Resizer Handle -->
+        <div
+          id="basisChartResizeHandle"
+          class="h-3 bg-terminal-bg/80 hover:bg-terminal-surfaceHover border-t border-terminal-border/60 flex items-center justify-center cursor-row-resize select-none group transition-colors touch-none"
+          title="Drag to resize Basis Chart height (Double-click to reset)"
+        >
+          <div
+            class="w-10 h-1 rounded-full bg-terminal-border group-hover:bg-terminal-accent/70 transition-colors"
+          ></div>
+        </div>
       </div>
 
       <!-- 24-HOUR EXECUTION CLOCK (HEATMAP) -->
       <div
-        class="bg-terminal-surface border border-terminal-border rounded p-2.5 space-y-1.5 font-mono"
+        class="bg-terminal-surface border border-terminal-border rounded p-3 space-y-2 font-mono"
       >
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
           <div>
@@ -839,6 +919,305 @@
               >/</kbd
             >
             Quick Search
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DATE & DAY-OF-WEEK FILTER MODAL -->
+    <div
+      id="dateFilterModal"
+      class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 select-none"
+    >
+      <div id="dateFilterModalBackdrop" class="absolute inset-0 bg-black/75 backdrop-blur-xs"></div>
+      <div
+        class="relative bg-terminal-surface border border-terminal-border rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col z-10 font-mono text-xs"
+      >
+        <!-- Modal Top Bar -->
+        <div class="p-3 border-b border-terminal-border flex items-center justify-between bg-terminal-bg/50">
+          <span class="text-white font-bold text-xs uppercase tracking-tight">Date &amp; Day-of-Week Filter</span>
+          <button
+            id="closeDateFilterModalBtn"
+            type="button"
+            class="text-terminal-muted hover:text-white p-1 text-xs cursor-pointer transition"
+            title="Close (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="p-4 space-y-4 overflow-y-auto max-h-[75vh]">
+          <!-- Explanation Note -->
+          <div class="text-[11px] text-terminal-muted">
+            Filter historical candles, basis metrics, and the 24-hour heatmap to specific dates or isolated days of the week (e.g. weekends only).
+          </div>
+
+          <!-- Section 1: Quick Presets (1-Click) -->
+          <div class="space-y-2.5">
+            <div class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold">
+              Quick Presets
+            </div>
+
+            <!-- Row 1: Weekends (30, 21, 14, Last) -->
+            <div class="space-y-1">
+              <div class="text-[9px] text-terminal-emerald uppercase tracking-wider font-semibold">
+                Weekends (Sat &amp; Sun)
+              </div>
+              <div class="grid grid-cols-4 gap-1.5">
+                <button
+                  type="button"
+                  data-preset="weekends-30d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-terminal-emerald font-bold text-xs">30D</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">30 days</div>
+                </button>
+                <button
+                  type="button"
+                  data-preset="weekends-21d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-terminal-emerald font-bold text-xs">21D</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">21 days</div>
+                </button>
+                <button
+                  type="button"
+                  data-preset="weekends-14d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-terminal-emerald font-bold text-xs">14D</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">14 days</div>
+                </button>
+                <button
+                  type="button"
+                  data-preset="weekends-last"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-terminal-emerald font-bold text-xs">Last</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">Latest w/e</div>
+                </button>
+              </div>
+            </div>
+
+            <!-- Row 2: Weekdays (30, 21, 14, Last) -->
+            <div class="space-y-1">
+              <div class="text-[9px] text-terminal-primary uppercase tracking-wider font-semibold">
+                Weekdays (Mon–Fri)
+              </div>
+              <div class="grid grid-cols-4 gap-1.5">
+                <button
+                  type="button"
+                  data-preset="weekdays-30d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-terminal-primary font-bold text-xs">30D</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">30 days</div>
+                </button>
+                <button
+                  type="button"
+                  data-preset="weekdays-21d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-terminal-primary font-bold text-xs">21D</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">21 days</div>
+                </button>
+                <button
+                  type="button"
+                  data-preset="weekdays-14d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-terminal-primary font-bold text-xs">14D</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">14 days</div>
+                </button>
+                <button
+                  type="button"
+                  data-preset="weekdays-last"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-terminal-primary font-bold text-xs">Last</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">Latest w/d</div>
+                </button>
+              </div>
+            </div>
+
+            <!-- Row 3: All Days (30, 21, 14, Last) -->
+            <div class="space-y-1">
+              <div class="text-[9px] text-terminal-secondary uppercase tracking-wider font-semibold">
+                All Days
+              </div>
+              <div class="grid grid-cols-4 gap-1.5">
+                <button
+                  type="button"
+                  data-preset="all-30d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-muted text-center bg-terminal-bg hover:bg-terminal-surface transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-white font-bold text-xs">30D</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">30 days</div>
+                </button>
+                <button
+                  type="button"
+                  data-preset="all-21d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-muted text-center bg-terminal-bg hover:bg-terminal-surface transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-white font-bold text-xs">21D</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">21 days</div>
+                </button>
+                <button
+                  type="button"
+                  data-preset="all-14d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-muted text-center bg-terminal-bg hover:bg-terminal-surface transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-white font-bold text-xs">14D</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">14 days</div>
+                </button>
+                <button
+                  type="button"
+                  data-preset="all-7d"
+                  class="date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-muted text-center bg-terminal-bg hover:bg-terminal-surface transition cursor-pointer select-none"
+                >
+                  <div class="preset-title text-white font-bold text-xs">Last</div>
+                  <div class="preset-sub text-[9px] text-terminal-muted">Last 7d</div>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: Day-of-Week Filter -->
+          <div class="space-y-1.5 pt-1 border-t border-terminal-borderSubtle">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold">
+                Days of Week
+              </span>
+              <div class="flex items-center gap-1.5 text-[10px]">
+                <button
+                  type="button"
+                  id="dayFilterQuickAll"
+                  class="text-terminal-muted hover:text-white underline cursor-pointer"
+                >
+                  All
+                </button>
+                <span class="text-terminal-border">|</span>
+                <button
+                  type="button"
+                  id="dayFilterQuickWeekends"
+                  class="text-terminal-emerald hover:underline cursor-pointer font-bold"
+                >
+                  Weekends Only
+                </button>
+                <span class="text-terminal-border">|</span>
+                <button
+                  type="button"
+                  id="dayFilterQuickWeekdays"
+                  class="text-terminal-muted hover:text-white underline cursor-pointer"
+                >
+                  Weekdays
+                </button>
+              </div>
+            </div>
+            <!-- Individual Day Pills -->
+            <div class="grid grid-cols-7 gap-1">
+              <button
+                type="button"
+                data-day="1"
+                class="dow-btn py-1.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted text-[11px] font-bold text-center transition cursor-pointer"
+              >
+                Mon
+              </button>
+              <button
+                type="button"
+                data-day="2"
+                class="dow-btn py-1.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted text-[11px] font-bold text-center transition cursor-pointer"
+              >
+                Tue
+              </button>
+              <button
+                type="button"
+                data-day="3"
+                class="dow-btn py-1.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted text-[11px] font-bold text-center transition cursor-pointer"
+              >
+                Wed
+              </button>
+              <button
+                type="button"
+                data-day="4"
+                class="dow-btn py-1.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted text-[11px] font-bold text-center transition cursor-pointer"
+              >
+                Thu
+              </button>
+              <button
+                type="button"
+                data-day="5"
+                class="dow-btn py-1.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted text-[11px] font-bold text-center transition cursor-pointer"
+              >
+                Fri
+              </button>
+              <button
+                type="button"
+                data-day="6"
+                class="dow-btn py-1.5 rounded border border-terminal-accent/50 bg-terminal-accent text-terminal-bg text-[11px] font-bold text-center transition cursor-pointer"
+              >
+                Sat
+              </button>
+              <button
+                type="button"
+                data-day="0"
+                class="dow-btn py-1.5 rounded border border-terminal-accent/50 bg-terminal-accent text-terminal-bg text-[11px] font-bold text-center transition cursor-pointer"
+              >
+                Sun
+              </button>
+            </div>
+          </div>
+
+          <!-- Section 3: Exact Date Range Pickers -->
+          <div class="space-y-1.5 pt-1 border-t border-terminal-borderSubtle">
+            <div class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold">
+              Date Range (Local Time)
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div class="space-y-1">
+                <label for="dateFilterFromInput" class="text-[10px] text-terminal-secondary">From Date:</label>
+                <input
+                  id="dateFilterFromInput"
+                  type="date"
+                  class="w-full bg-terminal-bg border border-terminal-border rounded px-2.5 py-1.5 text-white text-xs font-mono focus:border-terminal-accent outline-none"
+                />
+              </div>
+              <div class="space-y-1">
+                <label for="dateFilterToInput" class="text-[10px] text-terminal-secondary">To Date:</label>
+                <input
+                  id="dateFilterToInput"
+                  type="date"
+                  class="w-full bg-terminal-bg border border-terminal-border rounded px-2.5 py-1.5 text-white text-xs font-mono focus:border-terminal-accent outline-none"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="p-3 border-t border-terminal-border bg-terminal-bg/50 flex items-center justify-between gap-2">
+          <button
+            id="resetDateFilterModalBtn"
+            type="button"
+            class="px-3 py-1.5 rounded border border-terminal-border bg-terminal-surface hover:bg-terminal-surfaceHover text-terminal-muted hover:text-white transition cursor-pointer text-xs"
+          >
+            Reset to Live
+          </button>
+          <div class="flex items-center gap-2">
+            <button
+              id="cancelDateFilterModalBtn"
+              type="button"
+              class="px-3 py-1.5 rounded border border-terminal-border text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+            >
+              Cancel
+            </button>
+            <button
+              id="applyDateFilterModalBtn"
+              type="button"
+              class="px-4 py-1.5 rounded bg-terminal-accent hover:bg-terminal-accentHover text-terminal-bg font-bold transition cursor-pointer text-xs"
+            >
+              Apply Filter
+            </button>
           </div>
         </div>
       </div>

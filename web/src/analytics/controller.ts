@@ -5,10 +5,14 @@ import {
   calculateHourlyBuckets,
   calculateQuantStats,
   calculateRollingBands,
+  chooseDateFilterResolution,
   chooseOptimalResolution,
+  computeDateFilterIntervals,
+  dedupeAndSortCandles,
   formatMarketPrice,
   getTokenIcon,
   getTokenImageUrl,
+  splitIntervalsIntoApiChunks,
 } from "./math";
 import { renderHourlyHeatmap } from "./heatmap";
 import { ticksStorage } from "./storage";
@@ -16,11 +20,14 @@ import type {
   AnalyticsMarketPair,
   AnalyticsVenue,
   BasisPoint,
+  DateFilterConfig,
   LiveSpreadTick,
   QuantStats,
+  RawCandle,
   TimeframeId,
 } from "./types";
 import { CONFIG, CRYPTO_SYMBOLS, formatMoney, initFontSelector, WebSocketManager } from "../shared";
+
 
 export type SortField = "volume" | "oi" | "change" | "price" | "symbol";
 export type SortDirection = "asc" | "desc";
@@ -42,6 +49,17 @@ export class AnalyticsController {
   private chartContext: ChartSyncContext | null = null;
   private activePoints: BasisPoint[] = [];
   private activeStats: QuantStats | null = null;
+
+  private isLogScale = false;
+  private showBands = false;
+  private dateFilter: DateFilterConfig = {
+    isActive: false,
+    fromDate: "",
+    toDate: "",
+    daysOfWeek: new Set([0, 1, 2, 3, 4, 5, 6]),
+  };
+  private modalSelectedDays: Set<number> = new Set([0, 6]);
+  private modalSelectedPreset: string | null = null;
 
   private rangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private isFetchingRange = false;
@@ -97,6 +115,12 @@ export class AnalyticsController {
         const parsed = JSON.parse(savedFavs);
         if (Array.isArray(parsed)) this.favorites = new Set(parsed);
       }
+
+      const savedLog = localStorage.getItem("analytics_log_scale");
+      if (savedLog === "true") this.isLogScale = true;
+
+      const savedBands = localStorage.getItem("analytics_show_bands");
+      if (savedBands === "true") this.showBands = true;
     } catch {}
   }
 
@@ -112,6 +136,8 @@ export class AnalyticsController {
         "analytics_favorite_symbols",
         JSON.stringify(Array.from(this.favorites)),
       );
+      localStorage.setItem("analytics_log_scale", String(this.isLogScale));
+      localStorage.setItem("analytics_show_bands", String(this.showBands));
     } catch {}
   }
 
@@ -140,6 +166,23 @@ export class AnalyticsController {
     const basisContainer = document.getElementById("basisChartContainer");
     if (!priceContainer || !basisContainer) return;
 
+    try {
+      const savedPriceH = localStorage.getItem("analytics_price_chart_h");
+      if (savedPriceH) {
+        const ph = parseInt(savedPriceH, 10);
+        if (!isNaN(ph) && ph >= 180 && ph <= 1200) {
+          priceContainer.style.height = `${ph}px`;
+        }
+      }
+      const savedBasisH = localStorage.getItem("analytics_basis_chart_h");
+      if (savedBasisH) {
+        const bh = parseInt(savedBasisH, 10);
+        if (!isNaN(bh) && bh >= 120 && bh <= 800) {
+          basisContainer.style.height = `${bh}px`;
+        }
+      }
+    } catch {}
+
     this.chartContext = initAnalyticsCharts(priceContainer, basisContainer, {
       onCrosshairMove: (point) => {
         this.updateLegend(point);
@@ -148,11 +191,23 @@ export class AnalyticsController {
         this.onVisibleTimeRangeChange(range);
       },
     });
+
+    if (this.isLogScale) this.chartContext.setLogScale(true);
+    if (this.showBands) this.chartContext.setShowBands(true);
+    this.updateLogScaleButton();
+    this.updateBandsButton();
+
+    this.setupChartResizers();
   }
 
   private async loadData(): Promise<void> {
     const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
     if (!pair) return;
+
+    if (this.dateFilter.isActive) {
+      await this.applyDateFilter(this.dateFilter);
+      return;
+    }
 
     if (this.rangeDebounceTimer) {
       clearTimeout(this.rangeDebounceTimer);
@@ -185,6 +240,8 @@ export class AnalyticsController {
   }
 
   private onVisibleTimeRangeChange(range: { fromSec: number; toSec: number }): void {
+    if (this.dateFilter.isActive) return;
+
     if (this.rangeDebounceTimer) {
       clearTimeout(this.rangeDebounceTimer);
       this.rangeDebounceTimer = null;
@@ -424,6 +481,7 @@ export class AnalyticsController {
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        hour12: false,
       });
     }
   }
@@ -510,9 +568,7 @@ export class AnalyticsController {
     const container = document.getElementById("heatmapContainer");
     if (!container) return;
 
-    // Detect user timezone offset in hours
-    const userOffsetHours = -new Date().getTimezoneOffset() / 60;
-    const buckets = calculateHourlyBuckets(this.activePoints, userOffsetHours);
+    const buckets = calculateHourlyBuckets(this.activePoints);
     const nowLocalHour = new Date().getHours();
 
     renderHourlyHeatmap(container, buckets, nowLocalHour);
@@ -863,6 +919,10 @@ export class AnalyticsController {
   }
 
   public setTimeframe(tf: TimeframeId): void {
+    if (this.dateFilter.isActive) {
+      this.dateFilter.isActive = false;
+      this.updateDateFilterUI();
+    }
     this.activeTimeframe = tf;
     this.saveSettings();
 
@@ -878,6 +938,617 @@ export class AnalyticsController {
     });
 
     this.loadData();
+  }
+
+  // --- LOG SCALE & BANDS CONTROLS ---
+
+  public toggleLogScale(): void {
+    this.isLogScale = !this.isLogScale;
+    this.saveSettings();
+    this.updateLogScaleButton();
+    if (this.chartContext) {
+      this.chartContext.setLogScale(this.isLogScale);
+    }
+  }
+
+  private updateLogScaleButton(): void {
+    const btn = document.getElementById("logScaleBtn");
+    if (!btn) return;
+    if (this.isLogScale) {
+      btn.className =
+        "px-2 py-0.5 rounded border border-terminal-accent bg-terminal-accent/15 text-terminal-accent font-bold transition cursor-pointer text-xs font-mono select-none";
+    } else {
+      btn.className =
+        "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer text-xs font-mono select-none";
+    }
+  }
+
+  public toggleBands(): void {
+    this.showBands = !this.showBands;
+    this.saveSettings();
+    this.updateBandsButton();
+    if (this.chartContext) {
+      this.chartContext.setShowBands(this.showBands);
+    }
+  }
+
+  private updateBandsButton(): void {
+    const btn = document.getElementById("toggleBandsBtn");
+    if (!btn) return;
+    if (this.showBands) {
+      btn.className =
+        "text-[9px] px-1.5 py-0.5 rounded border border-terminal-accent/50 bg-terminal-accent/15 text-terminal-accent font-bold transition cursor-pointer";
+    } else {
+      btn.className =
+        "text-[9px] px-1.5 py-0.5 rounded border border-terminal-border hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer";
+    }
+  }
+
+  // --- DRAGGABLE CHART RESIZERS ---
+
+  private setupChartResizers(): void {
+    const setupHandle = (
+      handleId: string,
+      containerId: string,
+      storageKey: string,
+      defaultHeight: number,
+      minHeight: number,
+      maxHeight: number,
+    ) => {
+      const handle = document.getElementById(handleId);
+      const container = document.getElementById(containerId);
+      if (!handle || !container) return;
+
+      // Double-click to reset to default height
+      handle.addEventListener("dblclick", () => {
+        container.style.height = `${defaultHeight}px`;
+        try {
+          localStorage.removeItem(storageKey);
+        } catch {}
+        this.chartContext?.resize();
+      });
+
+      let startY = 0;
+      let startHeight = 0;
+      let isDragging = false;
+
+      const onPointerMove = (e: PointerEvent) => {
+        if (!isDragging) return;
+        const deltaY = e.clientY - startY;
+        const newHeight = Math.max(
+          minHeight,
+          Math.min(maxHeight, Math.round(startHeight + deltaY)),
+        );
+        container.style.height = `${newHeight}px`;
+        this.chartContext?.resize();
+      };
+
+      const onPointerUp = (e: PointerEvent) => {
+        if (!isDragging) return;
+        isDragging = false;
+        try {
+          handle.releasePointerCapture(e.pointerId);
+        } catch {}
+        document.body.style.removeProperty("cursor");
+        document.body.style.removeProperty("user-select");
+
+        const finalHeight = container.clientHeight;
+        if (finalHeight >= minHeight && finalHeight <= maxHeight) {
+          try {
+            localStorage.setItem(storageKey, String(finalHeight));
+          } catch {}
+        }
+        this.chartContext?.resize();
+      };
+
+      handle.addEventListener("pointerdown", (e: PointerEvent) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        isDragging = true;
+        startY = e.clientY;
+        startHeight = container.clientHeight;
+
+        try {
+          handle.setPointerCapture(e.pointerId);
+        } catch {}
+
+        document.body.style.cursor = "row-resize";
+        document.body.style.userSelect = "none";
+      });
+
+      handle.addEventListener("pointermove", onPointerMove);
+      handle.addEventListener("pointerup", onPointerUp);
+      handle.addEventListener("pointercancel", onPointerUp);
+    };
+
+    setupHandle(
+      "priceChartResizeHandle",
+      "priceChartContainer",
+      "analytics_price_chart_h",
+      340,
+      180,
+      1200,
+    );
+
+    setupHandle(
+      "basisChartResizeHandle",
+      "basisChartContainer",
+      "analytics_basis_chart_h",
+      220,
+      120,
+      800,
+    );
+  }
+
+  // --- DATE & DAY-OF-WEEK FILTER ---
+
+  private getLocalDateString(d: Date): string {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  private getDayStartTimestampSec(dateStr: string): number {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return Math.floor(new Date(y, m - 1, d, 0, 0, 0, 0).getTime() / 1000);
+  }
+
+  private getDayEndTimestampSec(dateStr: string): number {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return Math.floor(new Date(y, m - 1, d, 23, 59, 59, 999).getTime() / 1000);
+  }
+
+  public openDateFilterModal(): void {
+    const modal = document.getElementById("dateFilterModal");
+    if (!modal) return;
+
+    const fromInput = document.getElementById("dateFilterFromInput") as HTMLInputElement | null;
+    const toInput = document.getElementById("dateFilterToInput") as HTMLInputElement | null;
+    const now = new Date();
+
+    if (this.dateFilter.isActive && this.dateFilter.fromDate && this.dateFilter.toDate) {
+      if (fromInput) fromInput.value = this.dateFilter.fromDate;
+      if (toInput) toInput.value = this.dateFilter.toDate;
+      this.modalSelectedDays = new Set(this.dateFilter.daysOfWeek);
+      this.modalSelectedPreset = this.dateFilter.activePresetId || this.detectMatchingPreset();
+    } else {
+      if (fromInput && !fromInput.value) {
+        const d30 = new Date(Date.now() - 30 * 86400000);
+        fromInput.value = this.getLocalDateString(d30);
+      }
+      if (toInput && !toInput.value) {
+        toInput.value = this.getLocalDateString(now);
+      }
+      // Default to weekends (Sat: 6, Sun: 0)
+      this.modalSelectedDays = new Set([0, 6]);
+      this.modalSelectedPreset = null;
+    }
+
+    this.updateModalDayPills();
+    this.updateModalPresetUi();
+    modal.classList.remove("hidden");
+  }
+
+  public closeDateFilterModal(): void {
+    const modal = document.getElementById("dateFilterModal");
+    modal?.classList.add("hidden");
+  }
+
+  private updateModalDayPills(): void {
+    document.querySelectorAll(".dow-btn").forEach((btn) => {
+      const d = parseInt((btn as HTMLElement).dataset.day || "", 10);
+      if (this.modalSelectedDays.has(d)) {
+        btn.className =
+          "dow-btn py-1.5 rounded border border-terminal-accent/50 bg-terminal-accent text-terminal-bg text-[11px] font-bold text-center transition cursor-pointer";
+      } else {
+        btn.className =
+          "dow-btn py-1.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] font-bold text-center transition cursor-pointer";
+      }
+    });
+  }
+
+  private handleDatePresetClick(preset: string): void {
+    this.modalSelectedPreset = preset;
+    const now = new Date();
+    const todayStr = this.getLocalDateString(now);
+    const fromInput = document.getElementById("dateFilterFromInput") as HTMLInputElement | null;
+    const toInput = document.getElementById("dateFilterToInput") as HTMLInputElement | null;
+    const day = now.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+
+    switch (preset) {
+      // Row 1: Weekends (Sat & Sun)
+      case "weekends-30d": {
+        const d30 = new Date(now.getTime() - 30 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d30);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([0, 6]);
+        break;
+      }
+      case "weekends-21d": {
+        const d21 = new Date(now.getTime() - 21 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d21);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([0, 6]);
+        break;
+      }
+      case "weekends-14d": {
+        const d14 = new Date(now.getTime() - 14 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d14);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([0, 6]);
+        break;
+      }
+      case "weekends-last": {
+        // Most recent Saturday & Sunday
+        let satDate: Date;
+        let sunDate: Date;
+        if (day === 0) {
+          // Sunday: yesterday (Sat) & today (Sun)
+          sunDate = now;
+          satDate = new Date(now.getTime() - 86400000);
+        } else if (day === 6) {
+          // Saturday: today (Sat) & tomorrow (Sun)
+          satDate = now;
+          sunDate = new Date(now.getTime() + 86400000);
+        } else {
+          // Weekday (1..5): preceding Sunday and Saturday
+          const diffToSun = day;
+          sunDate = new Date(now.getTime() - diffToSun * 86400000);
+          satDate = new Date(now.getTime() - (diffToSun + 1) * 86400000);
+        }
+        if (fromInput) fromInput.value = this.getLocalDateString(satDate);
+        if (toInput) toInput.value = this.getLocalDateString(sunDate);
+        this.modalSelectedDays = new Set([0, 6]);
+        break;
+      }
+
+      // Row 2: Weekdays (Mon–Fri)
+      case "weekdays-30d": {
+        const d30 = new Date(now.getTime() - 30 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d30);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([1, 2, 3, 4, 5]);
+        break;
+      }
+      case "weekdays-21d": {
+        const d21 = new Date(now.getTime() - 21 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d21);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([1, 2, 3, 4, 5]);
+        break;
+      }
+      case "weekdays-14d": {
+        const d14 = new Date(now.getTime() - 14 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d14);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([1, 2, 3, 4, 5]);
+        break;
+      }
+      case "weekdays-last": {
+        // Most recent completed or active business week (Mon..Fri)
+        let fromDate: Date;
+        let toDate: Date = now;
+        if (day === 0) {
+          // Sunday: preceding Mon..Fri (6 to 2 days ago)
+          fromDate = new Date(now.getTime() - 6 * 86400000);
+          toDate = new Date(now.getTime() - 2 * 86400000);
+        } else if (day === 6) {
+          // Saturday: preceding Mon..Fri (5 to 1 days ago)
+          fromDate = new Date(now.getTime() - 5 * 86400000);
+          toDate = new Date(now.getTime() - 1 * 86400000);
+        } else if (day === 1) {
+          // Monday: preceding full business week (7 to 3 days ago)
+          fromDate = new Date(now.getTime() - 7 * 86400000);
+          toDate = new Date(now.getTime() - 3 * 86400000);
+        } else {
+          // Tue..Fri: Monday of current week through today
+          const diffToMon = day - 1;
+          fromDate = new Date(now.getTime() - diffToMon * 86400000);
+          toDate = now;
+        }
+        if (fromInput) fromInput.value = this.getLocalDateString(fromDate);
+        if (toInput) toInput.value = this.getLocalDateString(toDate);
+        this.modalSelectedDays = new Set([1, 2, 3, 4, 5]);
+        break;
+      }
+
+      // Row 3: All Days
+      case "all-30d": {
+        const d30 = new Date(now.getTime() - 30 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d30);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([0, 1, 2, 3, 4, 5, 6]);
+        break;
+      }
+      case "all-21d": {
+        const d21 = new Date(now.getTime() - 21 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d21);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([0, 1, 2, 3, 4, 5, 6]);
+        break;
+      }
+      case "all-14d": {
+        const d14 = new Date(now.getTime() - 14 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d14);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([0, 1, 2, 3, 4, 5, 6]);
+        break;
+      }
+      case "all-7d": {
+        const d7 = new Date(now.getTime() - 7 * 86400000);
+        if (fromInput) fromInput.value = this.getLocalDateString(d7);
+        if (toInput) toInput.value = todayStr;
+        this.modalSelectedDays = new Set([0, 1, 2, 3, 4, 5, 6]);
+        break;
+      }
+    }
+
+    this.updateModalDayPills();
+    this.updateModalPresetUi();
+  }
+
+  private detectMatchingPreset(): string | null {
+    if (!this.dateFilter.isActive || !this.dateFilter.fromDate || !this.dateFilter.toDate) {
+      return null;
+    }
+    const days = this.dateFilter.daysOfWeek;
+    const isWeekends = days.size === 2 && days.has(0) && days.has(6);
+    const isWeekdays = days.size === 5 && [1, 2, 3, 4, 5].every((d) => days.has(d));
+    const isAll = days.size === 7;
+
+    const from = this.dateFilter.fromDate;
+    const to = this.dateFilter.toDate;
+    const now = new Date();
+    const todayStr = this.getLocalDateString(now);
+
+    if (to === todayStr) {
+      const fromTs = new Date(from).getTime();
+      const toTs = new Date(to).getTime();
+      const diffDays = Math.round((toTs - fromTs) / 86400000);
+
+      if (isWeekends) {
+        if (diffDays === 30) return "weekends-30d";
+        if (diffDays === 21) return "weekends-21d";
+        if (diffDays === 14) return "weekends-14d";
+      } else if (isWeekdays) {
+        if (diffDays === 30) return "weekdays-30d";
+        if (diffDays === 21) return "weekdays-21d";
+        if (diffDays === 14) return "weekdays-14d";
+      } else if (isAll) {
+        if (diffDays === 30) return "all-30d";
+        if (diffDays === 21) return "all-21d";
+        if (diffDays === 14) return "all-14d";
+        if (diffDays === 7) return "all-7d";
+      }
+    }
+    return null;
+  }
+
+  private updateModalPresetUi(): void {
+    document.querySelectorAll(".date-preset-btn").forEach((btn) => {
+      const el = btn as HTMLElement;
+      const presetId = el.dataset.preset;
+      const isSelected = presetId === this.modalSelectedPreset;
+
+      const isWeekend = presetId?.startsWith("weekends");
+      const isWeekday = presetId?.startsWith("weekdays");
+
+      const titleEl = el.querySelector(".preset-title") as HTMLElement | null;
+      const subEl = el.querySelector(".preset-sub") as HTMLElement | null;
+
+      if (isSelected) {
+        if (isWeekend) {
+          el.className =
+            "date-preset-btn date-preset-active px-2 py-1.5 rounded border-2 border-terminal-emerald bg-terminal-emerald/20 ring-1 ring-terminal-emerald text-center transition cursor-pointer select-none shadow-md";
+          if (titleEl) titleEl.className = "preset-title text-white font-black text-xs";
+          if (subEl) subEl.className = "preset-sub text-terminal-emerald font-bold text-[9px]";
+        } else if (isWeekday) {
+          el.className =
+            "date-preset-btn date-preset-active px-2 py-1.5 rounded border-2 border-terminal-accent bg-terminal-accent/20 ring-1 ring-terminal-accent text-center transition cursor-pointer select-none shadow-md";
+          if (titleEl) titleEl.className = "preset-title text-white font-black text-xs";
+          if (subEl) subEl.className = "preset-sub text-terminal-accent font-bold text-[9px]";
+        } else {
+          el.className =
+            "date-preset-btn date-preset-active px-2 py-1.5 rounded border-2 border-white/80 bg-white/20 ring-1 ring-white/60 text-center transition cursor-pointer select-none shadow-md";
+          if (titleEl) titleEl.className = "preset-title text-white font-black text-xs";
+          if (subEl) subEl.className = "preset-sub text-white font-bold text-[9px]";
+        }
+      } else {
+        if (isWeekend) {
+          el.className =
+            "date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none";
+          if (titleEl) titleEl.className = "preset-title text-terminal-emerald font-bold text-xs";
+          if (subEl) subEl.className = "preset-sub text-[9px] text-terminal-muted";
+        } else if (isWeekday) {
+          el.className =
+            "date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg hover:bg-terminal-surface text-center transition cursor-pointer select-none";
+          if (titleEl) titleEl.className = "preset-title text-terminal-primary font-bold text-xs";
+          if (subEl) subEl.className = "preset-sub text-[9px] text-terminal-muted";
+        } else {
+          el.className =
+            "date-preset-btn px-2 py-1.5 rounded border border-terminal-border hover:border-terminal-muted text-center bg-terminal-bg hover:bg-terminal-surface transition cursor-pointer select-none";
+          if (titleEl) titleEl.className = "preset-title text-white font-bold text-xs";
+          if (subEl) subEl.className = "preset-sub text-[9px] text-terminal-muted";
+        }
+      }
+    });
+  }
+
+  private updateDateFilterUI(): void {
+    const banner = document.getElementById("activeFilterBanner");
+    const summaryEl = document.getElementById("filterSummaryText");
+    const countEl = document.getElementById("filterStatsCount");
+    const activeDot = document.getElementById("dateFilterActiveDot");
+    const btn = document.getElementById("openDateFilterBtn");
+
+    if (this.dateFilter.isActive) {
+      if (banner) banner.classList.remove("hidden");
+      if (activeDot) activeDot.classList.remove("hidden");
+      if (btn) {
+        btn.className =
+          "flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-terminal-accent bg-terminal-accent/15 text-terminal-accent font-bold transition cursor-pointer text-xs font-mono select-none";
+      }
+
+      let daysLabel = "Custom Days";
+      const isWeekends =
+        this.dateFilter.daysOfWeek.size === 2 &&
+        this.dateFilter.daysOfWeek.has(0) &&
+        this.dateFilter.daysOfWeek.has(6);
+      const isWeekdays =
+        this.dateFilter.daysOfWeek.size === 5 &&
+        [1, 2, 3, 4, 5].every((d) => this.dateFilter.daysOfWeek.has(d));
+      const isAll = this.dateFilter.daysOfWeek.size === 7;
+
+      if (isWeekends) daysLabel = "Weekends (Sat, Sun)";
+      else if (isWeekdays) daysLabel = "Weekdays (Mon–Fri)";
+      else if (isAll) daysLabel = "All Days";
+      else {
+        const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        daysLabel = Array.from(this.dateFilter.daysOfWeek)
+          .sort((a, b) => a - b)
+          .map((d) => names[d])
+          .join(", ");
+      }
+
+      if (summaryEl) {
+        summaryEl.textContent = `${daysLabel} · ${this.dateFilter.fromDate} .. ${this.dateFilter.toDate}`;
+      }
+      if (countEl) {
+        const stepLabel = this.dateFilter.resolution ? ` · ${this.dateFilter.resolution} step` : "";
+        countEl.textContent = `(${this.activePoints.length} points${stepLabel})`;
+      }
+    } else {
+      if (banner) banner.classList.add("hidden");
+      if (activeDot) activeDot.classList.add("hidden");
+      if (btn) {
+        btn.className =
+          "flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs font-mono select-none";
+      }
+    }
+  }
+
+  public async applyDateFilter(config: DateFilterConfig): Promise<void> {
+    const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+    if (!pair) return;
+
+    if (!config.fromDate || !config.toDate) return;
+    const fromSec = this.getDayStartTimestampSec(config.fromDate);
+    const toSec = this.getDayEndTimestampSec(config.toDate);
+    if (toSec <= fromSec) {
+      alert("End date must be greater than or equal to Start date.");
+      return;
+    }
+
+    if (this.rangeDebounceTimer) {
+      clearTimeout(this.rangeDebounceTimer);
+      this.rangeDebounceTimer = null;
+    }
+
+    this.setLoading(true);
+
+    try {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const { intervals, totalActiveDays } = computeDateFilterIntervals(
+        config.fromDate,
+        config.toDate,
+        config.daysOfWeek,
+        nowSec,
+      );
+
+      if (totalActiveDays === 0 || intervals.length === 0) {
+        alert("No historical days match the selected date and day-of-week filter.");
+        return;
+      }
+
+      // Compute optimal resolution and step strictly based on how many active days we parse
+      const { resolution, stepSec } = chooseDateFilterResolution(totalActiveDays);
+
+      // Split into parallel chunks respecting the exchange limit (max 400 candles per query)
+      const chunks = splitIntervalsIntoApiChunks(intervals, stepSec, 400);
+
+      const chunkResults = await Promise.all(
+        chunks.map(async (chunk) => {
+          try {
+            const [rh, core] = await Promise.all([
+              fetchRawCandles(
+                CONFIG.RH_API_URL,
+                pair.rhMarketId,
+                resolution,
+                chunk.startSec,
+                chunk.endSec,
+                chunk.countBack,
+              ),
+              fetchRawCandles(
+                CONFIG.CORE_API_URL,
+                pair.coreMarketId,
+                resolution,
+                chunk.startSec,
+                chunk.endSec,
+                chunk.countBack,
+              ),
+            ]);
+            return { rh, core };
+          } catch (err) {
+            console.warn(`[Analytics] Chunk fetch failed (${chunk.startSec}..${chunk.endSec}):`, err);
+            return { rh: [] as RawCandle[], core: [] as RawCandle[] };
+          }
+        }),
+      );
+
+      const rawRh: RawCandle[] = [];
+      const rawCore: RawCandle[] = [];
+      for (const res of chunkResults) {
+        rawRh.push(...res.rh);
+        rawCore.push(...res.core);
+      }
+
+      const uniqueRh = dedupeAndSortCandles(rawRh);
+      const uniqueCore = dedupeAndSortCandles(rawCore);
+
+      const allPoints = alignCandlesToBasisPoints(uniqueRh, uniqueCore);
+
+      // Filter points: only include timestamps in range and matching selected days of week
+      const filtered = allPoints.filter((pt) => {
+        if (pt.timeSec < fromSec || pt.timeSec > toSec) return false;
+        const d = new Date(pt.timestampMs);
+        const dow = d.getDay(); // 0 = Sun, 6 = Sat
+        return config.daysOfWeek.has(dow);
+      });
+
+      if (filtered.length === 0) {
+        alert("No historical candles found matching the selected date and day-of-week filter.");
+        return;
+      }
+
+      this.dateFilter = { ...config, isActive: true, resolution };
+      this.activePoints = filtered;
+      const stats = calculateQuantStats(filtered);
+      const bands = calculateRollingBands(filtered, 20);
+      this.activeStats = stats;
+
+      if (this.chartContext) {
+        this.chartContext.setData(filtered, bands, true);
+      }
+
+      this.updateQuantGauges(stats);
+      this.renderHeatmap();
+      this.updateTopMarketStats(pair);
+      this.updateLegend(filtered[filtered.length - 1] || null);
+      this.clearActiveTimeframeButtons();
+      this.updateDateFilterUI();
+      this.closeDateFilterModal();
+    } catch (err) {
+      console.error("Failed to apply date filter:", err);
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
+  public clearDateFilter(): void {
+    this.dateFilter.isActive = false;
+    this.updateDateFilterUI();
+    this.setTimeframe(this.activeTimeframe);
   }
 
   private closeTickerModal(): void {
@@ -1058,6 +1729,121 @@ export class AnalyticsController {
       this.setVenue("core");
     });
 
+    // Logarithmic scale toggle button
+    document.getElementById("logScaleBtn")?.addEventListener("click", () => {
+      this.toggleLogScale();
+    });
+
+    // Dispersion bands toggle button
+    document.getElementById("toggleBandsBtn")?.addEventListener("click", () => {
+      this.toggleBands();
+    });
+
+    // Date & Day-of-Week filter controls
+    document.getElementById("openDateFilterBtn")?.addEventListener("click", () => {
+      this.openDateFilterModal();
+    });
+    document.getElementById("closeDateFilterModalBtn")?.addEventListener("click", () => {
+      this.closeDateFilterModal();
+    });
+    document.getElementById("cancelDateFilterModalBtn")?.addEventListener("click", () => {
+      this.closeDateFilterModal();
+    });
+    document.getElementById("dateFilterModalBackdrop")?.addEventListener("click", () => {
+      this.closeDateFilterModal();
+    });
+    document.getElementById("clearFilterBtn")?.addEventListener("click", () => {
+      this.clearDateFilter();
+    });
+    document.getElementById("resetDateFilterModalBtn")?.addEventListener("click", () => {
+      this.modalSelectedPreset = null;
+      this.updateModalPresetUi();
+      this.clearDateFilter();
+      this.closeDateFilterModal();
+    });
+
+    document.getElementById("applyDateFilterModalBtn")?.addEventListener("click", () => {
+      const fromInput = document.getElementById("dateFilterFromInput") as HTMLInputElement | null;
+      const toInput = document.getElementById("dateFilterToInput") as HTMLInputElement | null;
+      const fromDate = fromInput?.value || "";
+      const toDate = toInput?.value || "";
+
+      if (!fromDate || !toDate) {
+        alert("Please select both From and To dates.");
+        return;
+      }
+
+      if (this.modalSelectedDays.size === 0) {
+        alert("Please select at least one day of the week.");
+        return;
+      }
+
+      this.applyDateFilter({
+        isActive: true,
+        fromDate,
+        toDate,
+        daysOfWeek: new Set(this.modalSelectedDays),
+        activePresetId: this.modalSelectedPreset || undefined,
+      });
+    });
+
+    // Reset preset highlight when user manually modifies dates
+    const onDateInputChange = () => {
+      this.modalSelectedPreset = null;
+      this.updateModalPresetUi();
+    };
+    document.getElementById("dateFilterFromInput")?.addEventListener("input", onDateInputChange);
+    document.getElementById("dateFilterToInput")?.addEventListener("input", onDateInputChange);
+
+    // Date presets
+    document.querySelectorAll(".date-preset-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const preset = (btn as HTMLElement).dataset.preset;
+        if (preset) {
+          this.handleDatePresetClick(preset);
+        }
+      });
+    });
+
+    // Day of week quick filters
+    document.getElementById("dayFilterQuickAll")?.addEventListener("click", () => {
+      this.modalSelectedDays = new Set([0, 1, 2, 3, 4, 5, 6]);
+      this.modalSelectedPreset = null;
+      this.updateModalDayPills();
+      this.updateModalPresetUi();
+    });
+    document.getElementById("dayFilterQuickWeekends")?.addEventListener("click", () => {
+      this.modalSelectedDays = new Set([0, 6]);
+      this.modalSelectedPreset = null;
+      this.updateModalDayPills();
+      this.updateModalPresetUi();
+    });
+    document.getElementById("dayFilterQuickWeekdays")?.addEventListener("click", () => {
+      this.modalSelectedDays = new Set([1, 2, 3, 4, 5]);
+      this.modalSelectedPreset = null;
+      this.updateModalDayPills();
+      this.updateModalPresetUi();
+    });
+
+    // Individual day pills
+    document.querySelectorAll(".dow-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const d = parseInt((btn as HTMLElement).dataset.day || "", 10);
+        if (!isNaN(d)) {
+          if (this.modalSelectedDays.has(d)) {
+            if (this.modalSelectedDays.size > 1) {
+              this.modalSelectedDays.delete(d);
+            }
+          } else {
+            this.modalSelectedDays.add(d);
+          }
+          this.modalSelectedPreset = null;
+          this.updateModalDayPills();
+          this.updateModalPresetUi();
+        }
+      });
+    });
+
     // Global hotkey '/' to search ticker, Escape to close
     document.addEventListener("keydown", (e) => {
       if (e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName || "")) {
@@ -1065,6 +1851,7 @@ export class AnalyticsController {
         this.openTickerModal();
       } else if (e.key === "Escape") {
         this.closeTickerModal();
+        this.closeDateFilterModal();
       }
     });
   }

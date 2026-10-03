@@ -179,7 +179,7 @@ export function calculateRollingBands(
  */
 export function calculateHourlyBuckets(
   points: BasisPoint[],
-  timezoneOffsetHours = 2, // Default: Warsaw / Europe (UTC+2)
+  timezoneOffsetHours?: number,
 ): HourlyBucketStats[] {
   const buckets: Array<{
     hour: number;
@@ -193,9 +193,12 @@ export function calculateHourlyBuckets(
 
   for (const p of points) {
     const date = new Date(p.timestampMs);
-    // Shift UTC hour by timezone offset
-    let h = (date.getUTCHours() + timezoneOffsetHours) % 24;
-    if (h < 0) h += 24;
+    let h: number;
+    if (typeof timezoneOffsetHours === "number") {
+      h = ((date.getUTCHours() + Math.round(timezoneOffsetHours)) % 24 + 24) % 24;
+    } else {
+      h = date.getHours(); // Always user's local hour in browser
+    }
 
     buckets[h].valuesUsd.push(p.basisUsd);
     buckets[h].valuesBps.push(p.basisBps);
@@ -321,6 +324,151 @@ export function extrapolateTimeRange(
   return { fromSec, toSec };
 }
 
+export interface DateFilterInterval {
+  startSec: number;
+  endSec: number;
+}
+
+export interface DateFilterIntervalsResult {
+  intervals: DateFilterInterval[];
+  totalActiveDays: number;
+}
+
+/**
+ * Computes contiguous intervals of matching days within [fromDateStr, toDateStr]
+ * based on selected days of the week, clamped to current timestamp.
+ */
+export function computeDateFilterIntervals(
+  fromDateStr: string,
+  toDateStr: string,
+  daysOfWeek: Set<number>,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): DateFilterIntervalsResult {
+  if (!fromDateStr || !toDateStr || daysOfWeek.size === 0) {
+    return { intervals: [], totalActiveDays: 0 };
+  }
+
+  const [startY, startM, startD] = fromDateStr.split("-").map(Number);
+  const [endY, endM, endD] = toDateStr.split("-").map(Number);
+
+  const cur = new Date(startY, startM - 1, startD, 0, 0, 0, 0);
+  const endDate = new Date(endY, endM - 1, endD, 23, 59, 59, 999);
+
+  if (endDate.getTime() < cur.getTime()) {
+    return { intervals: [], totalActiveDays: 0 };
+  }
+
+  const intervals: DateFilterInterval[] = [];
+  let currentStart: number | null = null;
+  let currentEnd: number | null = null;
+  let totalActiveDays = 0;
+
+  while (cur.getTime() <= endDate.getTime()) {
+    const dayOfWeek = cur.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+    const y = cur.getFullYear();
+    const m = cur.getMonth();
+    const d = cur.getDate();
+
+    const dayStartSec = Math.floor(new Date(y, m, d, 0, 0, 0, 0).getTime() / 1000);
+    const dayEndSec = Math.floor(new Date(y, m, d, 23, 59, 59, 999).getTime() / 1000);
+
+    if (dayStartSec <= nowSec) {
+      if (daysOfWeek.has(dayOfWeek)) {
+        totalActiveDays++;
+        if (currentStart === null) {
+          currentStart = dayStartSec;
+        }
+        currentEnd = Math.min(nowSec, dayEndSec);
+      } else {
+        if (currentStart !== null && currentEnd !== null) {
+          if (currentEnd >= currentStart) {
+            intervals.push({ startSec: currentStart, endSec: currentEnd });
+          }
+          currentStart = null;
+          currentEnd = null;
+        }
+      }
+    } else {
+      break;
+    }
+
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  if (currentStart !== null && currentEnd !== null) {
+    if (currentEnd >= currentStart) {
+      intervals.push({ startSec: currentStart, endSec: currentEnd });
+    }
+  }
+
+  return { intervals, totalActiveDays };
+}
+
+/**
+ * Chooses the best candle resolution and step based on the number of matching active days.
+ * Enables much finer granularity (e.g. 5m / 15m) when isolating weekends or specific days.
+ */
+export function chooseDateFilterResolution(totalActiveDays: number): { resolution: string; stepSec: number } {
+  if (totalActiveDays <= 2) {
+    return { resolution: "5m", stepSec: 300 };
+  } else if (totalActiveDays <= 10) {
+    return { resolution: "15m", stepSec: 900 };
+  } else if (totalActiveDays <= 20) {
+    return { resolution: "30m", stepSec: 1800 };
+  } else if (totalActiveDays <= 45) {
+    return { resolution: "1h", stepSec: 3600 };
+  } else {
+    return { resolution: "4h", stepSec: 14400 };
+  }
+}
+
+export interface ApiCandleChunk {
+  startSec: number;
+  endSec: number;
+  countBack: number;
+}
+
+/**
+ * Splits intervals into chunks that never exceed the exchange API candlestick limit (500 candles per query).
+ */
+export function splitIntervalsIntoApiChunks(
+  intervals: DateFilterInterval[],
+  stepSec: number,
+  maxCandlesPerChunk: number = 400,
+): ApiCandleChunk[] {
+  const chunks: ApiCandleChunk[] = [];
+  const chunkSpanSec = Math.max(stepSec, maxCandlesPerChunk * stepSec);
+
+  for (const interval of intervals) {
+    let curStart = interval.startSec;
+    while (curStart < interval.endSec) {
+      const curEnd = Math.min(interval.endSec, curStart + chunkSpanSec);
+      const span = curEnd - curStart;
+      const expectedCount = Math.ceil(span / stepSec);
+      const countBack = Math.min(500, Math.max(10, expectedCount + 10));
+      chunks.push({
+        startSec: curStart,
+        endSec: curEnd,
+        countBack,
+      });
+      curStart = curEnd;
+    }
+  }
+
+  return chunks;
+}
+
+/**
+ * Deduplicates candlesticks by timestamp and sorts them chronologically.
+ */
+export function dedupeAndSortCandles(candles: RawCandle[]): RawCandle[] {
+  const map = new Map<number, RawCandle>();
+  for (const c of candles) {
+    map.set(c.t, c);
+  }
+  return Array.from(map.values()).sort((a, b) => a.t - b.t);
+}
+
 export {
   formatMarketPrice,
   getTokenIcon,
@@ -328,3 +476,4 @@ export {
   OFFICIAL_TOKEN_LOGOS,
   registerTokenLogos,
 } from "../shared";
+

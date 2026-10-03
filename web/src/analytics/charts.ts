@@ -4,6 +4,8 @@ import {
   createChart,
   LineSeries,
   LineStyle,
+  PriceScaleMode,
+  TickMarkType,
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
@@ -27,6 +29,7 @@ export interface ChartSyncContext {
   rhPriceLine: IPriceLine;
   corePriceLine: IPriceLine;
   basisSeries: ISeriesApi<"Baseline">;
+  basisPriceLine: IPriceLine;
   smaSeries: ISeriesApi<"Line">;
   upperBandSeries: ISeriesApi<"Line">;
   lowerBandSeries: ISeriesApi<"Line">;
@@ -37,6 +40,9 @@ export interface ChartSyncContext {
     fitContent?: boolean,
     targetRange?: { fromSec: number; toSec: number },
   ) => void;
+  setLogScale: (enabled: boolean) => void;
+  setShowBands: (visible: boolean) => void;
+  resize: () => void;
 }
 
 export function initAnalyticsCharts(
@@ -50,6 +56,23 @@ export function initAnalyticsCharts(
       textColor: "#8B949E",
       fontFamily: getFontStack(getSavedFont()),
       fontSize: 11,
+    },
+    localization: {
+      timeFormatter: (time: Time) => {
+        let d: Date;
+        if (typeof time === "number") {
+          d = new Date(time * 1000);
+        } else if (typeof time === "object" && time !== null && "year" in time) {
+          d = new Date(time.year, time.month - 1, time.day);
+        } else {
+          return String(time);
+        }
+        const month = d.toLocaleDateString(undefined, { month: "short" });
+        const day = String(d.getDate()).padStart(2, "0");
+        const hours = String(d.getHours()).padStart(2, "0");
+        const minutes = String(d.getMinutes()).padStart(2, "0");
+        return `${day} ${month}, ${hours}:${minutes}`;
+      },
     },
     grid: {
       vertLines: { color: "#16191D" },
@@ -73,6 +96,36 @@ export function initAnalyticsCharts(
       borderColor: "#1F2328",
       timeVisible: true,
       secondsVisible: false,
+      tickMarkFormatter: (time: Time, tickMarkType: TickMarkType) => {
+        let d: Date;
+        if (typeof time === "number") {
+          d = new Date(time * 1000);
+        } else if (typeof time === "object" && time !== null && "year" in time) {
+          d = new Date(time.year, time.month - 1, time.day);
+        } else {
+          return null;
+        }
+
+        const hours = String(d.getHours()).padStart(2, "0");
+        const minutes = String(d.getMinutes()).padStart(2, "0");
+        const month = d.toLocaleDateString(undefined, { month: "short" });
+        const day = String(d.getDate()).padStart(2, "0");
+
+        switch (tickMarkType) {
+          case TickMarkType.Year:
+            return String(d.getFullYear());
+          case TickMarkType.Month:
+            return month;
+          case TickMarkType.DayOfMonth:
+            return `${day} ${month}`;
+          case TickMarkType.Time:
+            return `${hours}:${minutes}`;
+          case TickMarkType.TimeWithSeconds:
+            return `${hours}:${minutes}:${String(d.getSeconds()).padStart(2, "0")}`;
+          default:
+            return `${hours}:${minutes}`;
+        }
+      },
     },
     rightPriceScale: {
       borderColor: "#1F2328",
@@ -83,7 +136,7 @@ export function initAnalyticsCharts(
   const priceChart = createChart(priceContainer, {
     ...commonOptions,
     width: priceContainer.clientWidth || 800,
-    height: 340,
+    height: priceContainer.clientHeight || 340,
     crosshair: {
       ...commonOptions.crosshair,
       horzLine: {
@@ -140,57 +193,84 @@ export function initAnalyticsCharts(
   const basisChart = createChart(basisContainer, {
     ...commonOptions,
     width: basisContainer.clientWidth || 800,
-    height: 220,
+    height: basisContainer.clientHeight || 220,
+    crosshair: {
+      ...commonOptions.crosshair,
+      horzLine: {
+        color: "#30363D",
+        width: 1 as const,
+        style: LineStyle.Dashed,
+        labelVisible: false, // The price scale badges are driven dynamically by hovered basis
+      },
+    },
   });
 
   // BaselineSeries: above 0 (RH expensive) is slate/accent, below 0 (RH discount) is emerald green
   const basisSeries = basisChart.addSeries(BaselineSeries, {
     baseValue: { type: "price", price: 0 },
     topLineColor: "#58A6FF",
-    topFillColor1: "rgba(88, 166, 255, 0.10)",
-    topFillColor2: "rgba(88, 166, 255, 0.01)",
+    topFillColor1: "rgba(88, 166, 255, 0.12)",
+    topFillColor2: "rgba(88, 166, 255, 0.02)",
     bottomLineColor: "#2EA043",
-    bottomFillColor1: "rgba(46, 160, 67, 0.01)",
-    bottomFillColor2: "rgba(46, 160, 67, 0.10)",
+    bottomFillColor1: "rgba(46, 160, 67, 0.02)",
+    bottomFillColor2: "rgba(46, 160, 67, 0.12)",
     lineWidth: 2,
+    lastValueVisible: false,
+    priceLineVisible: false,
     priceFormat: { type: "price", precision: 3, minMove: 0.001 },
   });
 
-  const upperBandSeries = basisChart.addSeries(LineSeries, {
-    color: "rgba(139, 148, 158, 0.40)",
+  // Dedicated dynamic price line for Basis on the right price scale (matches top chart hover badge)
+  const basisPriceLine = basisSeries.createPriceLine({
+    price: 0,
+    color: "#58A6FF",
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
-    title: "Upper (+2σ)",
+    lineVisible: true,
+    axisLabelVisible: true,
+    title: "Basis",
+    axisLabelColor: "#58A6FF",
+    axisLabelTextColor: "#0B0C0E",
+  });
+
+  // Dispersion bands (clean, without titles that clutter canvas; hidden by default for maximum clarity)
+  const upperBandSeries = basisChart.addSeries(LineSeries, {
+    color: "rgba(139, 148, 158, 0.35)",
+    lineWidth: 1,
+    lineStyle: LineStyle.Dashed,
     lastValueVisible: false,
     priceLineVisible: false,
+    visible: false,
   });
 
   const smaSeries = basisChart.addSeries(LineSeries, {
-    color: "rgba(110, 118, 129, 0.55)",
+    color: "rgba(110, 118, 129, 0.45)",
     lineWidth: 1,
     lineStyle: LineStyle.Solid,
-    title: "SMA (Mean)",
     lastValueVisible: false,
     priceLineVisible: false,
+    visible: false,
   });
 
   const lowerBandSeries = basisChart.addSeries(LineSeries, {
-    color: "rgba(139, 148, 158, 0.40)",
+    color: "rgba(139, 148, 158, 0.35)",
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
-    title: "Lower (-2σ)",
     lastValueVisible: false,
     priceLineVisible: false,
+    visible: false,
   });
 
-  // Zero Reference Line in Basis Sub-chart
+  // Zero Reference Line in Basis Sub-chart (clean Parity anchor)
   basisSeries.createPriceLine({
     price: 0,
-    color: "#30363D",
+    color: "#21262D",
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
     axisLabelVisible: true,
     title: "0.00",
+    axisLabelColor: "#21262D",
+    axisLabelTextColor: "#8B949E",
   });
 
   let isSyncing = false;
@@ -264,6 +344,7 @@ export function initAnalyticsCharts(
     if (!p || typeof p.rhPrice !== "number" || typeof p.corePrice !== "number" || p.rhPrice <= 0) {
       rhPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
       corePriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
+      basisPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
       return;
     }
 
@@ -277,6 +358,19 @@ export function initAnalyticsCharts(
       axisLabelVisible: true,
       lineVisible: true,
     });
+
+    if (typeof p.basisUsd === "number") {
+      const isDiscount = p.basisUsd <= 0;
+      basisPriceLine.applyOptions({
+        price: p.basisUsd,
+        axisLabelVisible: true,
+        lineVisible: true,
+        axisLabelColor: isDiscount ? "#2EA043" : "#58A6FF",
+        axisLabelTextColor: isDiscount ? "#FFFFFF" : "#0B0C0E",
+      });
+    } else {
+      basisPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
+    }
   }
 
   // Crosshair move handler (drives dynamic price scale labels on right)
@@ -304,14 +398,24 @@ export function initAnalyticsCharts(
   basisContainer.addEventListener("mouseleave", handleMouseLeave);
 
   // Responsive resize
-  const resizeObserver = new ResizeObserver(() => {
-    if (priceContainer.clientWidth > 0) {
-      priceChart.applyOptions({ width: priceContainer.clientWidth });
-      basisChart.applyOptions({ width: basisContainer.clientWidth });
+  const resizeObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.target === priceContainer && priceContainer.clientWidth > 0 && priceContainer.clientHeight > 0) {
+        priceChart.applyOptions({
+          width: priceContainer.clientWidth,
+          height: priceContainer.clientHeight,
+        });
+      } else if (entry.target === basisContainer && basisContainer.clientWidth > 0 && basisContainer.clientHeight > 0) {
+        basisChart.applyOptions({
+          width: basisContainer.clientWidth,
+          height: basisContainer.clientHeight,
+        });
+      }
     }
   });
 
   resizeObserver.observe(priceContainer);
+  resizeObserver.observe(basisContainer);
 
   const setData = (
     points: BasisPoint[],
@@ -378,6 +482,33 @@ export function initAnalyticsCharts(
     basisChart.remove();
   };
 
+  const setLogScale = (enabled: boolean) => {
+    priceChart.priceScale("right").applyOptions({
+      mode: enabled ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+    });
+  };
+
+  const setShowBands = (visible: boolean) => {
+    upperBandSeries.applyOptions({ visible });
+    smaSeries.applyOptions({ visible });
+    lowerBandSeries.applyOptions({ visible });
+  };
+
+  const resize = () => {
+    if (priceContainer.clientWidth > 0 && priceContainer.clientHeight > 0) {
+      priceChart.applyOptions({
+        width: priceContainer.clientWidth,
+        height: priceContainer.clientHeight,
+      });
+    }
+    if (basisContainer.clientWidth > 0 && basisContainer.clientHeight > 0) {
+      basisChart.applyOptions({
+        width: basisContainer.clientWidth,
+        height: basisContainer.clientHeight,
+      });
+    }
+  };
+
   return {
     priceChart,
     basisChart,
@@ -386,10 +517,14 @@ export function initAnalyticsCharts(
     rhPriceLine,
     corePriceLine,
     basisSeries,
+    basisPriceLine,
     smaSeries,
     upperBandSeries,
     lowerBandSeries,
     destroy,
     setData,
+    setLogScale,
+    setShowBands,
+    resize,
   };
 }
