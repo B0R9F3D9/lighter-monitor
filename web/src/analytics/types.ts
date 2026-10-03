@@ -116,4 +116,3 @@ export interface DateFilterConfig {
   activePresetId?: string;
   resolution?: string;
 }
-

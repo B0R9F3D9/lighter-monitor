@@ -490,6 +490,7 @@ export function detectUserAccounts(trades: LighterTrade[]): number[] {
  * Sorts trades chronologically descending (most recent first) with microsecond and trade_id tie-breakers.
  */
 export function sortTradesChronologicalDesc(trades: LighterTrade[]): LighterTrade[] {
+  // oxlint-disable-next-line unicorn/no-array-sort
   return trades.sort((a, b) => {
     const aTs = normalizeTimestampMs(a.timestamp);
     const bTs = normalizeTimestampMs(b.timestamp);
@@ -509,6 +510,7 @@ export function sortTradesChronologicalDesc(trades: LighterTrade[]): LighterTrad
  * Sorts parsed trade views chronologically descending (most recent first).
  */
 export function sortParsedTradesChronologicalDesc(trades: ParsedTradeView[]): ParsedTradeView[] {
+  // oxlint-disable-next-line unicorn/no-array-sort
   return trades.sort((a, b) => {
     if (b.timestampMs !== a.timestampMs) return b.timestampMs - a.timestampMs;
 

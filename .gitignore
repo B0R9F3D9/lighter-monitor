@@ -39,6 +39,7 @@ load-tests/*.sql
 
 # Generated web assets
 /src/spread_assets.ts
+/src/version.ts
 /src/*.html
 /web/src/checker/bookmarklet_code.ts
 

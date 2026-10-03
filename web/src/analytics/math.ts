@@ -195,7 +195,7 @@ export function calculateHourlyBuckets(
     const date = new Date(p.timestampMs);
     let h: number;
     if (typeof timezoneOffsetHours === "number") {
-      h = ((date.getUTCHours() + Math.round(timezoneOffsetHours)) % 24 + 24) % 24;
+      h = (((date.getUTCHours() + Math.round(timezoneOffsetHours)) % 24) + 24) % 24;
     } else {
       h = date.getHours(); // Always user's local hour in browser
     }
@@ -408,7 +408,10 @@ export function computeDateFilterIntervals(
  * Chooses the best candle resolution and step based on the number of matching active days.
  * Enables much finer granularity (e.g. 5m / 15m) when isolating weekends or specific days.
  */
-export function chooseDateFilterResolution(totalActiveDays: number): { resolution: string; stepSec: number } {
+export function chooseDateFilterResolution(totalActiveDays: number): {
+  resolution: string;
+  stepSec: number;
+} {
   if (totalActiveDays <= 2) {
     return { resolution: "5m", stepSec: 300 };
   } else if (totalActiveDays <= 10) {
@@ -466,7 +469,7 @@ export function dedupeAndSortCandles(candles: RawCandle[]): RawCandle[] {
   for (const c of candles) {
     map.set(c.t, c);
   }
-  return Array.from(map.values()).sort((a, b) => a.t - b.t);
+  return Array.from(map.values()).toSorted((a, b) => a.t - b.t);
 }
 
 export {
@@ -476,4 +479,3 @@ export {
   OFFICIAL_TOKEN_LOGOS,
   registerTokenLogos,
 } from "../shared";
-

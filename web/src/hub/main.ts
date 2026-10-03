@@ -25,7 +25,7 @@ function initHub(): void {
       window.location.href = "/analytics";
     } else if (e.key === "3") {
       e.preventDefault();
-      window.location.href = "/checker";
+      window.location.href = "/checker/solo";
     }
   });
 }

@@ -28,7 +28,6 @@ import type {
 } from "./types";
 import { CONFIG, CRYPTO_SYMBOLS, formatMoney, initFontSelector, WebSocketManager } from "../shared";
 
-
 export type SortField = "volume" | "oi" | "change" | "price" | "symbol";
 export type SortDirection = "asc" | "desc";
 
@@ -1406,7 +1405,7 @@ export class AnalyticsController {
       else {
         const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         daysLabel = Array.from(this.dateFilter.daysOfWeek)
-          .sort((a, b) => a - b)
+          .toSorted((a, b) => a - b)
           .map((d) => names[d])
           .join(", ");
       }
@@ -1490,7 +1489,10 @@ export class AnalyticsController {
             ]);
             return { rh, core };
           } catch (err) {
-            console.warn(`[Analytics] Chunk fetch failed (${chunk.startSec}..${chunk.endSec}):`, err);
+            console.warn(
+              `[Analytics] Chunk fetch failed (${chunk.startSec}..${chunk.endSec}):`,
+              err,
+            );
             return { rh: [] as RawCandle[], core: [] as RawCandle[] };
           }
         }),

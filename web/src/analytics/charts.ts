@@ -400,12 +400,20 @@ export function initAnalyticsCharts(
   // Responsive resize
   const resizeObserver = new ResizeObserver((entries) => {
     for (const entry of entries) {
-      if (entry.target === priceContainer && priceContainer.clientWidth > 0 && priceContainer.clientHeight > 0) {
+      if (
+        entry.target === priceContainer &&
+        priceContainer.clientWidth > 0 &&
+        priceContainer.clientHeight > 0
+      ) {
         priceChart.applyOptions({
           width: priceContainer.clientWidth,
           height: priceContainer.clientHeight,
         });
-      } else if (entry.target === basisContainer && basisContainer.clientWidth > 0 && basisContainer.clientHeight > 0) {
+      } else if (
+        entry.target === basisContainer &&
+        basisContainer.clientWidth > 0 &&
+        basisContainer.clientHeight > 0
+      ) {
         basisChart.applyOptions({
           width: basisContainer.clientWidth,
           height: basisContainer.clientHeight,

@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <script>
@@ -30,6 +30,16 @@
               : `"${f}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
           document.documentElement.style.setProperty("--font-selected", stack);
           document.documentElement.style.setProperty("--font-sans", stack);
+          if (f !== "Inter" && f !== "JetBrains Mono") {
+            const link = document.createElement("link");
+            link.id = "gfont-" + f.toLowerCase().replace(/\s+/g, "-");
+            link.rel = "stylesheet";
+            link.href =
+              "https://fonts.googleapis.com/css2?family=" +
+              encodeURIComponent(f) +
+              ":wght@400;500;600;700&display=swap";
+            document.head.appendChild(link);
+          }
         }
       } catch {}
     </script>
@@ -83,7 +93,7 @@
                 >Analytics</a
               >
               <a
-                href="/checker"
+                href="/checker/solo"
                 class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
                 >Checker</a
               >
@@ -309,7 +319,10 @@
             title="Filter by Dates & Days of Week"
           >
             <span id="dateFilterBtnText">Dates</span>
-            <span id="dateFilterActiveDot" class="hidden w-1.5 h-1.5 rounded-full bg-terminal-accent"></span>
+            <span
+              id="dateFilterActiveDot"
+              class="hidden w-1.5 h-1.5 rounded-full bg-terminal-accent"
+            ></span>
           </button>
 
           <div
@@ -375,10 +388,19 @@
         id="activeFilterBanner"
         class="hidden bg-terminal-surface border border-terminal-accent/40 rounded px-3 py-1 flex flex-wrap items-center justify-between gap-2 text-xs font-mono select-text"
       >
-        <div class="flex items-center gap-2 flex-wrap text-terminal-secondary text-[11px] select-text">
-          <span class="text-terminal-accent font-semibold uppercase text-[10px] tracking-wider select-text">Filtered:</span>
-          <span id="filterSummaryText" class="text-white font-medium select-text">Weekends (Sat, Sun)</span>
-          <span class="text-terminal-muted text-[10px] select-text" id="filterStatsCount">(0 points)</span>
+        <div
+          class="flex items-center gap-2 flex-wrap text-terminal-secondary text-[11px] select-text"
+        >
+          <span
+            class="text-terminal-accent font-semibold uppercase text-[10px] tracking-wider select-text"
+            >Filtered:</span
+          >
+          <span id="filterSummaryText" class="text-white font-medium select-text"
+            >Weekends (Sat, Sun)</span
+          >
+          <span class="text-terminal-muted text-[10px] select-text" id="filterStatsCount"
+            >(0 points)</span
+          >
         </div>
         <button
           id="clearFilterBtn"
@@ -934,8 +956,12 @@
         class="relative bg-terminal-surface border border-terminal-border rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col z-10 font-mono text-xs"
       >
         <!-- Modal Top Bar -->
-        <div class="p-3 border-b border-terminal-border flex items-center justify-between bg-terminal-bg/50">
-          <span class="text-white font-bold text-xs uppercase tracking-tight">Date &amp; Day-of-Week Filter</span>
+        <div
+          class="p-3 border-b border-terminal-border flex items-center justify-between bg-terminal-bg/50"
+        >
+          <span class="text-white font-bold text-xs uppercase tracking-tight"
+            >Date &amp; Day-of-Week Filter</span
+          >
           <button
             id="closeDateFilterModalBtn"
             type="button"
@@ -949,7 +975,8 @@
         <div class="p-4 space-y-4 overflow-y-auto max-h-[75vh]">
           <!-- Explanation Note -->
           <div class="text-[11px] text-terminal-muted">
-            Filter historical candles, basis metrics, and the 24-hour heatmap to specific dates or isolated days of the week (e.g. weekends only).
+            Filter historical candles, basis metrics, and the 24-hour heatmap to specific dates or
+            isolated days of the week (e.g. weekends only).
           </div>
 
           <!-- Section 1: Quick Presets (1-Click) -->
@@ -1042,7 +1069,9 @@
 
             <!-- Row 3: All Days (30, 21, 14, Last) -->
             <div class="space-y-1">
-              <div class="text-[9px] text-terminal-secondary uppercase tracking-wider font-semibold">
+              <div
+                class="text-[9px] text-terminal-secondary uppercase tracking-wider font-semibold"
+              >
                 All Days
               </div>
               <div class="grid grid-cols-4 gap-1.5">
@@ -1175,7 +1204,9 @@
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div class="space-y-1">
-                <label for="dateFilterFromInput" class="text-[10px] text-terminal-secondary">From Date:</label>
+                <label for="dateFilterFromInput" class="text-[10px] text-terminal-secondary"
+                  >From Date:</label
+                >
                 <input
                   id="dateFilterFromInput"
                   type="date"
@@ -1183,7 +1214,9 @@
                 />
               </div>
               <div class="space-y-1">
-                <label for="dateFilterToInput" class="text-[10px] text-terminal-secondary">To Date:</label>
+                <label for="dateFilterToInput" class="text-[10px] text-terminal-secondary"
+                  >To Date:</label
+                >
                 <input
                   id="dateFilterToInput"
                   type="date"
@@ -1195,7 +1228,9 @@
         </div>
 
         <!-- Modal Footer Actions -->
-        <div class="p-3 border-t border-terminal-border bg-terminal-bg/50 flex items-center justify-between gap-2">
+        <div
+          class="p-3 border-t border-terminal-border bg-terminal-bg/50 flex items-center justify-between gap-2"
+        >
           <button
             id="resetDateFilterModalBtn"
             type="button"

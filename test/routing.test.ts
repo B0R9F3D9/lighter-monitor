@@ -64,20 +64,66 @@ describe("Worker HTTP Routing", () => {
     expect(res.headers.get("Content-Type")).toContain("text/html");
   });
 
-  it("serves trade history checker HTML on GET /checker", async () => {
-    const req = new Request("https://worker.dev/checker", { method: "GET" });
+  it("serves solo trade history checker HTML on GET /checker/solo", async () => {
+    const req = new Request("https://worker.dev/checker/solo", { method: "GET" });
     const res = await worker.fetch(req, mockEnv, mockCtx);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
     const html = await res.text();
     expect(html).toContain("Checker | Lighter");
+    expect(html).toContain("Solo Account");
   });
 
-  it("serves trade history checker HTML on GET /checker/", async () => {
-    const req = new Request("https://worker.dev/checker/", { method: "GET" });
+  it("serves solo trade history checker HTML on GET /checker/solo/", async () => {
+    const req = new Request("https://worker.dev/checker/solo/", { method: "GET" });
     const res = await worker.fetch(req, mockEnv, mockCtx);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
+  });
+
+  it("serves hedge matcher HTML on GET /checker/hedge", async () => {
+    const req = new Request("https://worker.dev/checker/hedge", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Checker | Lighter");
+    expect(html).toContain("Hedge Checker");
+  });
+
+  it("serves hedge matcher HTML on GET /checker/hedge/", async () => {
+    const req = new Request("https://worker.dev/checker/hedge/", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+  });
+
+  it("redirects GET /checker to /checker/solo", async () => {
+    const req = new Request("https://worker.dev/checker", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("https://worker.dev/checker/solo");
+  });
+
+  it("redirects GET /checker/ to /checker/solo", async () => {
+    const req = new Request("https://worker.dev/checker/", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("https://worker.dev/checker/solo");
+  });
+
+  it("redirects legacy GET /hedge to /checker/hedge", async () => {
+    const req = new Request("https://worker.dev/hedge", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("https://worker.dev/checker/hedge");
+  });
+
+  it("redirects legacy GET /hedge/ to /checker/hedge", async () => {
+    const req = new Request("https://worker.dev/hedge/", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("https://worker.dev/checker/hedge");
   });
 
   it("does NOT intercept POST / with HTML; passes through to Telegram webhook", async () => {

@@ -46,12 +46,34 @@ export function getSavedFont(): AvailableFont {
 }
 
 /**
+ * Dynamically loads font stylesheet from Google Fonts if not already loaded and not bundled/primary
+ */
+export function loadFontStylesheet(fontName: string): void {
+  if (
+    typeof document === "undefined" ||
+    typeof document.createElement !== "function" ||
+    !document.head
+  ) {
+    return;
+  }
+  if (fontName === "Inter" || fontName === "JetBrains Mono") return;
+  const linkId = `gfont-${fontName.toLowerCase().replace(/\s+/g, "-")}`;
+  if (typeof document.getElementById === "function" && document.getElementById(linkId)) return;
+  const link = document.createElement("link");
+  link.id = linkId;
+  link.rel = "stylesheet";
+  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;500;600;700&display=swap`;
+  document.head.appendChild(link);
+}
+
+/**
  * Applies the given font to CSS custom properties and document body
  */
 export function applyFont(fontName: string): void {
   const font = AVAILABLE_FONTS.includes(fontName as AvailableFont)
     ? (fontName as AvailableFont)
     : DEFAULT_FONT;
+  loadFontStylesheet(font);
   const stack = getFontStack(font);
 
   if (typeof document !== "undefined") {

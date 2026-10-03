@@ -18,7 +18,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600;700&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <script>
@@ -31,6 +31,16 @@
               : `"${f}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
           document.documentElement.style.setProperty("--font-selected", stack);
           document.documentElement.style.setProperty("--font-sans", stack);
+          if (f !== "Inter" && f !== "JetBrains Mono") {
+            const link = document.createElement("link");
+            link.id = "gfont-" + f.toLowerCase().replace(/\s+/g, "-");
+            link.rel = "stylesheet";
+            link.href =
+              "https://fonts.googleapis.com/css2?family=" +
+              encodeURIComponent(f) +
+              ":wght@400;500;600;700&display=swap";
+            document.head.appendChild(link);
+          }
         }
       } catch {}
     </script>
@@ -118,7 +128,7 @@
       </div>
 
       <!-- WORKSPACE CARDS GRID -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 select-text">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 select-text">
         <!-- 1. Spread Monitor Workspace -->
         <a
           href="/spread"
@@ -249,7 +259,7 @@
 
         <!-- 3. Trade History Checker Workspace -->
         <a
-          href="/checker"
+          href="/checker/solo"
           id="hubCardChecker"
           class="group relative bg-terminal-surface hover:bg-terminal-surfaceHover border border-terminal-border hover:border-terminal-amber transition-all duration-150 rounded p-5 flex flex-col justify-between space-y-4 no-underline cursor-pointer select-text shadow-sm hover:shadow-md"
         >
@@ -279,7 +289,7 @@
               </h2>
               <p class="text-[11px] text-terminal-secondary mt-1 leading-relaxed select-text">
                 1-Click bookmarklet trade history exporter & analytical viewer with volume, realized
-                PnL and fee breakdown.
+                PnL, fees and cross-exchange hedge matching.
               </p>
             </div>
 
@@ -296,7 +306,7 @@
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-terminal-amber">✓</span>
-                <span>Volume, Realized PnL, Fees & Maker/Taker metrics</span>
+                <span>Solo account breakdown & RH vs Core hedge audit</span>
               </div>
             </div>
           </div>
@@ -306,7 +316,7 @@
               class="w-full py-1.5 rounded bg-terminal-bg border border-terminal-border group-hover:border-terminal-amber/60 text-white font-semibold text-xs text-center transition flex items-center justify-center gap-1.5"
             >
               <span>Open Checker</span>
-              <span class="text-terminal-muted text-[10px]">[/checker]</span>
+              <span class="text-terminal-muted text-[10px]">[/checker/solo]</span>
             </div>
           </div>
         </a>
@@ -316,7 +326,7 @@
       <div
         class="border border-terminal-border rounded bg-terminal-surface/60 px-3 py-2 flex items-center justify-between text-[11px] text-terminal-muted select-text"
       >
-        <div class="flex items-center gap-4">
+        <div class="flex flex-wrap items-center gap-4">
           <span class="text-white font-semibold uppercase text-[10px]">Hotkeys:</span>
           <span
             ><kbd

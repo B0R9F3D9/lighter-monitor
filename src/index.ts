@@ -5,16 +5,58 @@ import { runCronMonitor } from "./cron/monitor";
 import { executionContextStorage } from "./utils/background";
 import {
   APP_VERSION,
-  HUB_HTML,
   HUB_HTML_HASH,
-  SPREAD_HTML,
   SPREAD_HTML_HASH,
-  ANALYTICS_HTML,
   ANALYTICS_HTML_HASH,
-  CHECKER_HTML,
+  CHECKER_SOLO_HTML_HASH,
+  CHECKER_HEDGE_HTML_HASH,
   CHECKER_HTML_HASH,
-  SPREAD_ASSETS,
-} from "./spread_assets";
+  HEDGE_HTML_HASH,
+} from "./version";
+
+/**
+ * Local Bun fallback to serve static assets from `./dist` during local development
+ * (e.g. `bun run web` or `bun test`) when Cloudflare CDN / env.ASSETS is not available.
+ */
+async function serveLocalBunAsset(request: Request): Promise<Response | null> {
+  const BunRef = (globalThis as any).Bun;
+  if (!BunRef) return null;
+
+  const url = new URL(request.url);
+  let pathname = url.pathname;
+
+  if (pathname === "/" || pathname === "") {
+    pathname = "/index.html";
+  } else if (pathname === "/spread" || pathname === "/spread/") {
+    pathname = "/spread.html";
+  } else if (pathname === "/analytics" || pathname === "/analytics/") {
+    pathname = "/analytics.html";
+  } else if (pathname === "/checker" || pathname === "/checker/") {
+    return Response.redirect(new URL("/checker/solo", request.url).toString(), 302);
+  } else if (pathname === "/hedge" || pathname === "/hedge/") {
+    return Response.redirect(new URL("/checker/hedge", request.url).toString(), 302);
+  } else if (pathname === "/checker/solo" || pathname === "/checker/solo/") {
+    pathname = "/checker/solo.html";
+  } else if (pathname === "/checker/hedge" || pathname === "/checker/hedge/") {
+    pathname = "/checker/hedge.html";
+  } else if (pathname.includes("/assets/")) {
+    pathname = pathname.slice(pathname.indexOf("/assets/"));
+  }
+
+  const file = BunRef.file("./dist" + pathname);
+  if (await file.exists()) {
+    const isImmutable = pathname.includes("/assets/");
+    return new Response(file, {
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "Cache-Control": isImmutable
+          ? "public, max-age=31536000, immutable"
+          : "public, max-age=60, stale-while-revalidate=300",
+      },
+    });
+  }
+  return null;
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -28,6 +70,16 @@ export default {
     }
 
     const isGetOrHead = request.method === "GET" || request.method === "HEAD";
+
+    // Clean URL redirects for Checker sub-routes (/checker -> /checker/solo, /hedge -> /checker/hedge)
+    if (isGetOrHead) {
+      if (url.pathname === "/checker" || url.pathname === "/checker/") {
+        return Response.redirect(new URL("/checker/solo", request.url).toString(), 302);
+      }
+      if (url.pathname === "/hedge" || url.pathname === "/hedge/") {
+        return Response.redirect(new URL("/checker/hedge", request.url).toString(), 302);
+      }
+    }
 
     // Version check endpoint for automatic client updates
     if (isGetOrHead && (url.pathname === "/api/version" || url.pathname === "/api/version/")) {
@@ -43,7 +95,10 @@ export default {
               version: APP_VERSION,
               spreadHash: SPREAD_HTML_HASH,
               analyticsHash: ANALYTICS_HTML_HASH,
+              checkerSoloHash: CHECKER_SOLO_HTML_HASH,
+              checkerHedgeHash: CHECKER_HEDGE_HTML_HASH,
               checkerHash: CHECKER_HTML_HASH,
+              hedgeHash: HEDGE_HTML_HASH,
               hubHash: HUB_HTML_HASH,
               timestamp: Date.now(),
             });
@@ -54,125 +109,6 @@ export default {
           "Cache-Control": "no-cache, no-store, must-revalidate",
           Pragma: "no-cache",
           ETag: `"${APP_VERSION}"`,
-        },
-      });
-    }
-
-    // Static assets for Spread, Analytics & Checker Terminals (CSS, JS, Favicons, Logos)
-    const filename = url.pathname.split("/").pop() || "";
-    const asset = SPREAD_ASSETS[filename];
-
-    if (
-      isGetOrHead &&
-      asset &&
-      (url.pathname.startsWith("/assets/") ||
-        url.pathname.startsWith("/spread/assets/") ||
-        url.pathname.startsWith("/analytics/assets/") ||
-        url.pathname.startsWith("/checker/assets/") ||
-        url.pathname.startsWith("/favicon") ||
-        url.pathname.startsWith("/apple-touch-icon") ||
-        url.pathname.startsWith("/lighter-logo"))
-    ) {
-      const clientEtag = request.headers.get("if-none-match");
-      if (clientEtag && (clientEtag === asset.hash || clientEtag === `"${asset.hash}"`)) {
-        return new Response(null, { status: 304 });
-      }
-
-      const isImmutable = url.pathname.includes("/assets/");
-      const body = asset.isBase64
-        ? Uint8Array.from(atob(asset.content), (c) => c.charCodeAt(0))
-        : asset.content;
-
-      return new Response(body, {
-        headers: {
-          "Content-Type": asset.contentType,
-          ETag: `"${asset.hash}"`,
-          "Cache-Control": isImmutable
-            ? "public, max-age=31536000, immutable"
-            : "public, max-age=86400",
-        },
-      });
-    }
-
-    if (
-      isGetOrHead &&
-      (url.pathname.startsWith("/assets/") ||
-        url.pathname.startsWith("/spread/assets/") ||
-        url.pathname.startsWith("/analytics/assets/") ||
-        url.pathname.startsWith("/checker/assets/"))
-    ) {
-      return new Response("Asset Not Found", { status: 404 });
-    }
-
-    // Terminal Workspace Hub Router (GET/HEAD only; POST to "/" routes to Telegram webhook)
-    if (isGetOrHead && (url.pathname === "/" || url.pathname === "")) {
-      const clientEtag = request.headers.get("if-none-match");
-      if (clientEtag && (clientEtag === HUB_HTML_HASH || clientEtag === `"${HUB_HTML_HASH}"`)) {
-        return new Response(null, { status: 304 });
-      }
-
-      return new Response(HUB_HTML, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          ETag: `"${HUB_HTML_HASH}"`,
-          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
-        },
-      });
-    }
-
-    // Spread & Arbitrage Terminal (GET/HEAD only)
-    if (isGetOrHead && (url.pathname === "/spread" || url.pathname === "/spread/")) {
-      const clientEtag = request.headers.get("if-none-match");
-      if (
-        clientEtag &&
-        (clientEtag === SPREAD_HTML_HASH || clientEtag === `"${SPREAD_HTML_HASH}"`)
-      ) {
-        return new Response(null, { status: 304 });
-      }
-
-      return new Response(SPREAD_HTML, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          ETag: `"${SPREAD_HTML_HASH}"`,
-          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
-        },
-      });
-    }
-
-    // Spread & Basis Analytics Terminal (GET/HEAD only)
-    if (isGetOrHead && (url.pathname === "/analytics" || url.pathname === "/analytics/")) {
-      const clientEtag = request.headers.get("if-none-match");
-      if (
-        clientEtag &&
-        (clientEtag === ANALYTICS_HTML_HASH || clientEtag === `"${ANALYTICS_HTML_HASH}"`)
-      ) {
-        return new Response(null, { status: 304 });
-      }
-
-      return new Response(ANALYTICS_HTML, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          ETag: `"${ANALYTICS_HTML_HASH}"`,
-          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
-        },
-      });
-    }
-
-    // Trade History Checker Terminal (GET/HEAD only)
-    if (isGetOrHead && (url.pathname === "/checker" || url.pathname === "/checker/")) {
-      const clientEtag = request.headers.get("if-none-match");
-      if (
-        clientEtag &&
-        (clientEtag === CHECKER_HTML_HASH || clientEtag === `"${CHECKER_HTML_HASH}"`)
-      ) {
-        return new Response(null, { status: 304 });
-      }
-
-      return new Response(CHECKER_HTML, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          ETag: `"${CHECKER_HTML_HASH}"`,
-          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
         },
       });
     }
@@ -210,31 +146,42 @@ export default {
       );
     }
 
-    // Для любых не-POST запросов Telegram логика никогда не вызывается
-    if (request.method !== "POST") {
-      return new Response("Not Found", { status: 404 });
-    }
-
-    // Вебхук Telegram обрабатывается только на корневом эндпоинте "/"
-    if (url.pathname !== "/") {
-      return new Response("Not Found", { status: 404 });
-    }
-
-    // Проверка Secret Token для безопасности вебхука Telegram
-    if (env.TELEGRAM_SECRET_TOKEN) {
-      const headerSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
-      if (headerSecret !== env.TELEGRAM_SECRET_TOKEN) {
-        return new Response("Unauthorized", { status: 403 });
+    // Static Assets on Cloudflare via Workers Assets binding
+    if (env.ASSETS) {
+      const assetResponse = await env.ASSETS.fetch(request);
+      if (assetResponse.status !== 404) {
+        return assetResponse;
       }
     }
 
-    if (!env.TELEGRAM_BOT_TOKEN) {
-      return new Response("Bot token not configured", { status: 503 });
+    // Local Bun fallback for static assets when running standalone (bun run web / bun test)
+    if (isGetOrHead && typeof (globalThis as any).Bun !== "undefined") {
+      const localResponse = await serveLocalBunAsset(request);
+      if (localResponse) {
+        return localResponse;
+      }
     }
 
-    const bot = getBot(env);
-    const cb = webhookCallback(bot, "cloudflare-mod");
-    return await executionContextStorage.run(ctx, () => cb(request as any));
+    // Telegram webhook handler (POST to "/")
+    if (request.method === "POST" && (url.pathname === "/" || url.pathname === "")) {
+      // Проверка Secret Token для безопасности вебхука Telegram
+      if (env.TELEGRAM_SECRET_TOKEN) {
+        const headerSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
+        if (headerSecret !== env.TELEGRAM_SECRET_TOKEN) {
+          return new Response("Unauthorized", { status: 403 });
+        }
+      }
+
+      if (!env.TELEGRAM_BOT_TOKEN) {
+        return new Response("Bot token not configured", { status: 503 });
+      }
+
+      const bot = getBot(env);
+      const cb = webhookCallback(bot, "cloudflare-mod");
+      return await executionContextStorage.run(ctx, () => cb(request as any));
+    }
+
+    return new Response("Not Found", { status: 404 });
   },
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
