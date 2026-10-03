@@ -30,7 +30,8 @@ export class TerminalController {
     sortDirection: "asc",
     isAutoSortEnabled: true,
     displayedSymbolsOrder: [],
-    rerankTimerRemaining: CONFIG.RERANK_INTERVAL_SEC,
+    rerankTimerRemaining: CONFIG.DEFAULT_RERANK_INTERVAL_SEC,
+    rerankIntervalSec: CONFIG.DEFAULT_RERANK_INTERVAL_SEC,
     emaMap: new Map(),
     expandedSymbol: null,
     isCoreConnected: false,
@@ -52,10 +53,7 @@ export class TerminalController {
   private nextFetchTimer: ReturnType<typeof setTimeout> | null = null;
 
   private updateScheduled = false;
-  private lastRenderTime = 0;
-  private isWarmupActive = true;
   private hasInitialRenderHappened = false;
-  private warmupDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private resetHysteresisTimerCallback: (() => void) | null = null;
 
   constructor() {
@@ -95,10 +93,6 @@ export class TerminalController {
         this.handleRhBookUpdate(marketId, data, isSnapshot, offset);
       },
     });
-
-    setTimeout(() => {
-      this.isWarmupActive = false;
-    }, 3500);
   }
 
   public init(): void {
@@ -151,33 +145,22 @@ export class TerminalController {
     this.scheduleInPlaceUpdate();
   }
 
-  private triggerWarmupSync(): void {
-    if (this.warmupDebounceTimer) return;
-    this.warmupDebounceTimer = setTimeout(() => {
-      this.warmupDebounceTimer = null;
-      this.rerank();
-    }, 350);
-  }
-
   private scheduleInPlaceUpdate(): void {
-    if (!this.hasInitialRenderHappened || this.isWarmupActive) {
-      this.triggerWarmupSync();
+    if (!this.hasInitialRenderHappened) {
+      this.rerank();
+      return;
     }
 
     if (this.updateScheduled) return;
     this.updateScheduled = true;
 
-    const now = performance.now();
-    const elapsed = now - this.lastRenderTime;
-    const wait = Math.max(0, CONFIG.THROTTLE_MS - elapsed);
-
-    setTimeout(() => {
-      requestAnimationFrame(() => {
-        this.lastRenderTime = performance.now();
-        this.updateScheduled = false;
-        this.updateCellsInPlace(false);
-      });
-    }, wait);
+    requestAnimationFrame(() => {
+      this.updateScheduled = false;
+      this.updateCellsInPlace(false);
+      if (this.state.rerankIntervalSec === 0 && this.state.isAutoSortEnabled) {
+        this.rerank();
+      }
+    });
   }
 
   public updateCellsInPlace(forceAll = false): void {
@@ -211,7 +194,7 @@ export class TerminalController {
 
       applyRowMetricsToDom(cache, row);
       if (this.state.expandedSymbol === symbol && this.detailRowDom) {
-        updateDetailRow(row, this.state.targetSizeUsd);
+        updateDetailRow(row, this.state.targetSizeUsd, this.detailRowDom);
       }
     }
 
@@ -426,7 +409,7 @@ export class TerminalController {
     // If order has not changed — skip DOM mutations entirely!
     if (isOrderUnchanged && this.hasInitialRenderHappened) {
       this.updateCellsInPlace(true);
-      this.state.rerankTimerRemaining = CONFIG.RERANK_INTERVAL_SEC;
+      this.state.rerankTimerRemaining = this.state.rerankIntervalSec;
       this.resetHysteresisTimerCallback?.();
       return;
     }
@@ -439,6 +422,7 @@ export class TerminalController {
         cache = createRowElement(r, (sym) => this.toggleExpand(sym));
         this.rowDomCache.set(r.symbol, cache);
       }
+      cache.chevronEl?.classList.toggle("rotate-180", this.state.expandedSymbol === r.symbol);
       fragment.appendChild(cache.tr);
 
       if (this.state.expandedSymbol === r.symbol && this.detailRowDom) {
@@ -449,16 +433,22 @@ export class TerminalController {
 
     this.updateCellsInPlace(true);
     this.hasInitialRenderHappened = true;
-    this.state.rerankTimerRemaining = CONFIG.RERANK_INTERVAL_SEC;
+    this.state.rerankTimerRemaining = this.state.rerankIntervalSec;
     this.resetHysteresisTimerCallback?.();
   }
 
   private toggleExpand(symbol: string): void {
     if (this.state.expandedSymbol === symbol) {
+      const prevCache = this.rowDomCache.get(this.state.expandedSymbol);
+      prevCache?.chevronEl?.classList.remove("rotate-180");
       this.state.expandedSymbol = null;
       if (this.detailRowDom) this.detailRowDom.remove();
       this.detailRowDom = null;
     } else {
+      if (this.state.expandedSymbol) {
+        const prevCache = this.rowDomCache.get(this.state.expandedSymbol);
+        prevCache?.chevronEl?.classList.remove("rotate-180");
+      }
       const m = this.state.markets.get(symbol);
       if (!m) return;
       this.state.expandedSymbol = symbol;
@@ -473,6 +463,7 @@ export class TerminalController {
       const cache = this.rowDomCache.get(symbol);
       if (cache?.tr) {
         cache.tr.after(this.detailRowDom);
+        cache.chevronEl?.classList.add("rotate-180");
       }
     }
   }
@@ -586,7 +577,7 @@ export class TerminalController {
         this.wsManager.connectAll();
       }
 
-      this.triggerWarmupSync();
+      this.rerank();
       this.scheduleNextFetch(60000);
     } catch (e) {
       console.error("Error fetching market metadata:", e);
@@ -597,32 +588,25 @@ export class TerminalController {
   }
 
   private setupHysteresisTimer(): void {
-    const timerText = document.getElementById("rerankTimerText");
-    let targetExpiry = performance.now() + CONFIG.RERANK_INTERVAL_SEC * 1000;
+    let targetExpiry = performance.now() + this.state.rerankIntervalSec * 1000;
 
     this.resetHysteresisTimerCallback = () => {
-      targetExpiry = performance.now() + CONFIG.RERANK_INTERVAL_SEC * 1000;
+      targetExpiry = performance.now() + this.state.rerankIntervalSec * 1000;
     };
 
     setInterval(() => {
-      if (!this.state.isAutoSortEnabled) return;
+      if (!this.state.isAutoSortEnabled || this.state.rerankIntervalSec === 0) {
+        return;
+      }
 
       const now = performance.now();
       const remainingSec = Math.max(0, (targetExpiry - now) / 1000);
       this.state.rerankTimerRemaining = remainingSec;
 
       if (remainingSec <= 0) {
-        targetExpiry = performance.now() + CONFIG.RERANK_INTERVAL_SEC * 1000;
-        this.state.rerankTimerRemaining = CONFIG.RERANK_INTERVAL_SEC;
+        targetExpiry = performance.now() + this.state.rerankIntervalSec * 1000;
+        this.state.rerankTimerRemaining = this.state.rerankIntervalSec;
         this.rerank();
-      }
-
-      if (timerText) {
-        timerText.textContent = `${Math.ceil(this.state.rerankTimerRemaining)}s`;
-      }
-      const mobileTimerText = document.getElementById("mobileRerankTimerText");
-      if (mobileTimerText) {
-        mobileTimerText.textContent = `${Math.ceil(this.state.rerankTimerRemaining)}s`;
       }
     }, 200);
   }
@@ -771,11 +755,29 @@ export class TerminalController {
       localStorage.setItem(STORAGE_KEYS.LEVERAGE, String(this.state.minLeverageFilter));
       localStorage.setItem(STORAGE_KEYS.FILTER_EQUITIES, String(this.state.filterEquities));
       localStorage.setItem(STORAGE_KEYS.FILTER_READY, String(this.state.filterReadyOnly));
+      localStorage.setItem(STORAGE_KEYS.RERANK_INTERVAL, String(this.state.rerankIntervalSec));
     } catch {}
   }
 
   private restoreFilterSettings(): void {
     try {
+      const savedRerank =
+        localStorage.getItem(STORAGE_KEYS.RERANK_INTERVAL) ??
+        localStorage.getItem("terminal_freeze_interval");
+      if (savedRerank !== null) {
+        const sec = parseInt(savedRerank, 10);
+        if ([0, 3, 5, 10].includes(sec)) {
+          this.state.rerankIntervalSec = sec;
+          this.state.rerankTimerRemaining = sec;
+          const rerankSelector = document.getElementById("rerankSelector") as HTMLSelectElement | null;
+          const mobileRerankSelector = document.getElementById(
+            "mobileRerankSelector",
+          ) as HTMLSelectElement | null;
+          if (rerankSelector) rerankSelector.value = String(sec);
+          if (mobileRerankSelector) mobileRerankSelector.value = String(sec);
+        }
+      }
+
       const savedCap = localStorage.getItem(STORAGE_KEYS.MAX_CAP);
       if (savedCap !== null) {
         const cap = parseFloat(savedCap);
@@ -834,6 +836,15 @@ export class TerminalController {
     this.state.filterReadyOnly = false;
     this.state.searchQuery = "";
     this.state.emaMap.clear();
+    this.state.rerankIntervalSec = CONFIG.DEFAULT_RERANK_INTERVAL_SEC;
+    this.state.rerankTimerRemaining = CONFIG.DEFAULT_RERANK_INTERVAL_SEC;
+
+    const rerankSelector = document.getElementById("rerankSelector") as HTMLSelectElement | null;
+    const mobileRerankSelector = document.getElementById(
+      "mobileRerankSelector",
+    ) as HTMLSelectElement | null;
+    if (rerankSelector) rerankSelector.value = String(this.state.rerankIntervalSec);
+    if (mobileRerankSelector) mobileRerankSelector.value = String(this.state.rerankIntervalSec);
 
     const searchBox = document.getElementById("searchBox") as HTMLInputElement | null;
     const clearSearchBtn = document.getElementById("clearSearchBtn");
@@ -852,6 +863,8 @@ export class TerminalController {
       localStorage.removeItem(STORAGE_KEYS.LEVERAGE);
       localStorage.removeItem(STORAGE_KEYS.FILTER_EQUITIES);
       localStorage.removeItem(STORAGE_KEYS.FILTER_READY);
+      localStorage.removeItem(STORAGE_KEYS.RERANK_INTERVAL);
+      localStorage.removeItem("terminal_freeze_interval");
     } catch {}
 
     this.rerank();
@@ -861,18 +874,39 @@ export class TerminalController {
     // 0. Font selector
     initFontSelector();
 
-    // 1. Auto-sort toggle button & manual rerank button
-    const autoSortBtn = document.getElementById("autoSortToggle");
-    const mobileAutoSortBtn = document.getElementById("mobileAutoSortToggle");
-    const manualRerankBtn = document.getElementById("manualRerankBtn");
-    const mobileManualRerankBtn = document.getElementById("mobileManualRerankBtn");
+    // 0.5. Rerank interval selectors (Desktop & Mobile)
+    const rerankSelector = document.getElementById("rerankSelector") as HTMLSelectElement | null;
+    const mobileRerankSelector = document.getElementById(
+      "mobileRerankSelector",
+    ) as HTMLSelectElement | null;
 
-    const doRerank = () => {
-      this.rerank();
+    if (rerankSelector) rerankSelector.value = String(this.state.rerankIntervalSec);
+    if (mobileRerankSelector) mobileRerankSelector.value = String(this.state.rerankIntervalSec);
+
+    const handleRerankChange = (sec: number) => {
+      this.state.rerankIntervalSec = sec;
+      this.state.rerankTimerRemaining = sec;
+      if (rerankSelector) rerankSelector.value = String(sec);
+      if (mobileRerankSelector) mobileRerankSelector.value = String(sec);
+      this.resetHysteresisTimerCallback?.();
+      try {
+        localStorage.setItem(STORAGE_KEYS.RERANK_INTERVAL, String(sec));
+      } catch {}
+      if (sec === 0 && this.state.isAutoSortEnabled) {
+        this.rerank();
+      }
     };
 
-    manualRerankBtn?.addEventListener("click", doRerank);
-    mobileManualRerankBtn?.addEventListener("click", doRerank);
+    rerankSelector?.addEventListener("change", (e) => {
+      handleRerankChange(parseInt((e.target as HTMLSelectElement).value, 10) || 0);
+    });
+    mobileRerankSelector?.addEventListener("change", (e) => {
+      handleRerankChange(parseInt((e.target as HTMLSelectElement).value, 10) || 0);
+    });
+
+    // 1. Auto-sort toggle button
+    const autoSortBtn = document.getElementById("autoSortToggle");
+    const mobileAutoSortBtn = document.getElementById("mobileAutoSortToggle");
 
     const updateAutoSortButtons = () => {
       if (autoSortBtn) {
@@ -897,6 +931,7 @@ export class TerminalController {
             "text-[11px] text-terminal-amber font-semibold hover:text-amber-400 px-2 py-0.5 rounded border border-terminal-amber/50 bg-terminal-surface transition cursor-pointer select-none";
         }
       }
+      this.resetHysteresisTimerCallback?.();
     };
 
     const toggleAutoSort = () => {
@@ -955,9 +990,10 @@ export class TerminalController {
       });
     });
 
-    // 4. Search Box
+    // 4. Search Box with 100ms Debounce
     const searchBox = document.getElementById("searchBox") as HTMLInputElement | null;
     const clearSearchBtn = document.getElementById("clearSearchBtn");
+    let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     searchBox?.addEventListener("input", (e) => {
       this.state.searchQuery = (e.target as HTMLInputElement).value.trim();
@@ -966,13 +1002,18 @@ export class TerminalController {
       } else {
         clearSearchBtn?.classList.add("hidden");
       }
-      this.rerank();
+      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        searchDebounceTimer = null;
+        this.rerank();
+      }, 100);
     });
 
     clearSearchBtn?.addEventListener("click", () => {
       if (searchBox) searchBox.value = "";
       this.state.searchQuery = "";
       clearSearchBtn.classList.add("hidden");
+      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
       this.rerank();
     });
 

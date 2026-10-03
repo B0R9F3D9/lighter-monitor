@@ -227,10 +227,12 @@ export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): vo
   }
 
   // 6. 24h Vol & 24h OI
-  if (cache.volEl) {
+  if (cache.volEl && cache.lastVol !== row.totalVolume24h) {
+    cache.lastVol = row.totalVolume24h;
     setTextIfChanged(cache.volEl, formatMoney(row.totalVolume24h));
   }
-  if (cache.oiEl) {
+  if (cache.oiEl && cache.lastOi !== row.totalOiUsd) {
+    cache.lastOi = row.totalOiUsd;
     setTextIfChanged(cache.oiEl, formatMoney(row.totalOiUsd));
   }
 }
@@ -381,30 +383,45 @@ export function createDetailRowElement(
     </td>
   `;
 
-  updateDetailRow(r, targetSizeUsd);
+  updateDetailRow(r, targetSizeUsd, detailTr);
   return detailTr;
 }
 
-function setElementText(id: string, text: string): void {
-  const el = document.getElementById(id);
+function setElementText(
+  id: string,
+  text: string,
+  root: HTMLElement | Document = document,
+): void {
+  const el =
+    root instanceof Document
+      ? root.getElementById(id)
+      : (root.querySelector(`#${id}`) as HTMLElement | null);
   if (el && el.textContent !== text) el.textContent = text;
 }
 
-export function updateDetailRow(r: MarketMetrics, targetSizeUsd: number): void {
+export function updateDetailRow(
+  r: MarketMetrics,
+  targetSizeUsd: number,
+  root: HTMLElement | Document = document,
+): void {
   const l = r.legs;
 
   // Header info
-  setElementText("dtlSymbol", r.symbol);
-  setElementText("dtlLev", `[Min Lev: ${r.leverage}]`);
-  setElementText("dtlLevVenues", `(RH: ${r.rhLeverage} • Core: ${r.coreLeverage})`);
+  setElementText("dtlSymbol", r.symbol, root);
+  setElementText("dtlLev", `[Min Lev: ${r.leverage}]`, root);
+  setElementText("dtlLevVenues", `(RH: ${r.rhLeverage} • Core: ${r.coreLeverage})`, root);
   setElementText(
     "dtlSize",
     `Size: ${formatMoney(r.effectiveTargetUsd || targetSizeUsd)}${
       r.isDynamic ? (r.dynamicMode === "min_burn" ? " (Min Burn Opt)" : " (Max Vol Opt)") : ""
     }`,
+    root,
   );
 
-  const basisEl = document.getElementById("dtlBasis");
+  const basisEl =
+    root instanceof Document
+      ? root.getElementById("dtlBasis")
+      : (root.querySelector("#dtlBasis") as HTMLElement | null);
   if (basisEl) {
     basisEl.textContent = formatDeltaMid(r.deltaMidUsd, r.deltaMidBps);
     basisEl.className =
@@ -413,52 +430,58 @@ export function updateDetailRow(r: MarketMetrics, targetSizeUsd: number): void {
         : "text-white font-bold tabular-nums";
   }
 
-  setElementText("dtlEntry", formatMoney(r.entryLossUsd));
-  setElementText("dtlEntryDrag", `(${formatBps(r.entryDragBps, true)})`);
-  setElementText("dtlExit", formatMoney(r.exitLossUsd));
-  setElementText("dtlExitDrag", `(${formatBps(r.exitDragBps, true)})`);
+  setElementText("dtlEntry", formatMoney(r.entryLossUsd), root);
+  setElementText("dtlEntryDrag", `(${formatBps(r.entryDragBps, true)})`, root);
+  setElementText("dtlExit", formatMoney(r.exitLossUsd), root);
+  setElementText("dtlExitDrag", `(${formatBps(r.exitDragBps, true)})`, root);
 
   // Leg 1: RH LONG
-  setElementText("dtlL1Top", formatPrice(l.rhBestAsk));
-  setElementText("dtlL1Fill", formatPrice(l.entryRh.avgPrice));
-  setElementText("dtlL1Slip", formatBps(l.entryRh.slippageBps, true));
-  setElementText("dtlL1Swept", String(l.entryRh.levelsSwept));
-  setElementText("dtlL1Depth", formatMoney(l.entryRh.totalAvailableUsd));
+  setElementText("dtlL1Top", formatPrice(l.rhBestAsk), root);
+  setElementText("dtlL1Fill", formatPrice(l.entryRh.avgPrice), root);
+  setElementText("dtlL1Slip", formatBps(l.entryRh.slippageBps, true), root);
+  setElementText("dtlL1Swept", String(l.entryRh.levelsSwept), root);
+  setElementText("dtlL1Depth", formatMoney(l.entryRh.totalAvailableUsd), root);
 
   // Leg 2: CORE SHORT
-  setElementText("dtlL2Top", formatPrice(l.coreBestBid));
-  setElementText("dtlL2Fill", formatPrice(l.entryCore.avgPrice));
-  setElementText("dtlL2Slip", formatBps(l.entryCore.slippageBps, true));
-  setElementText("dtlL2Swept", String(l.entryCore.levelsSwept));
-  setElementText("dtlL2Depth", formatMoney(l.entryCore.totalAvailableUsd));
+  setElementText("dtlL2Top", formatPrice(l.coreBestBid), root);
+  setElementText("dtlL2Fill", formatPrice(l.entryCore.avgPrice), root);
+  setElementText("dtlL2Slip", formatBps(l.entryCore.slippageBps, true), root);
+  setElementText("dtlL2Swept", String(l.entryCore.levelsSwept), root);
+  setElementText("dtlL2Depth", formatMoney(l.entryCore.totalAvailableUsd), root);
 
   // Leg 3: CLOSE RH
-  setElementText("dtlL3Top", formatPrice(l.rhBestBid));
-  setElementText("dtlL3Fill", formatPrice(l.exitRh.avgPrice));
-  setElementText("dtlL3Slip", formatBps(l.exitRh.slippageBps, true));
-  setElementText("dtlL3Swept", String(l.exitRh.levelsSwept));
-  setElementText("dtlL3Depth", formatMoney(l.exitRh.totalAvailableUsd));
+  setElementText("dtlL3Top", formatPrice(l.rhBestBid), root);
+  setElementText("dtlL3Fill", formatPrice(l.exitRh.avgPrice), root);
+  setElementText("dtlL3Slip", formatBps(l.exitRh.slippageBps, true), root);
+  setElementText("dtlL3Swept", String(l.exitRh.levelsSwept), root);
+  setElementText("dtlL3Depth", formatMoney(l.exitRh.totalAvailableUsd), root);
 
   // Leg 4: CLOSE CORE
-  setElementText("dtlL4Top", formatPrice(l.coreBestAsk));
-  setElementText("dtlL4Fill", formatPrice(l.exitCore.avgPrice));
-  setElementText("dtlL4Slip", formatBps(l.exitCore.slippageBps, true));
-  setElementText("dtlL4Swept", String(l.exitCore.levelsSwept));
-  setElementText("dtlL4Depth", formatMoney(l.exitCore.totalAvailableUsd));
+  setElementText("dtlL4Top", formatPrice(l.coreBestAsk), root);
+  setElementText("dtlL4Fill", formatPrice(l.exitCore.avgPrice), root);
+  setElementText("dtlL4Slip", formatBps(l.exitCore.slippageBps, true), root);
+  setElementText("dtlL4Swept", String(l.exitCore.levelsSwept), root);
+  setElementText("dtlL4Depth", formatMoney(l.exitCore.totalAvailableUsd), root);
 
   // Footnote summary
-  setElementText("dtlFntMid", formatPrice(r.midPrice));
+  setElementText("dtlFntMid", formatPrice(r.midPrice), root);
 
-  const fntEntryCost = document.getElementById("dtlFntEntryCost");
+  const fntEntryCost =
+    root instanceof Document
+      ? root.getElementById("dtlFntEntryCost")
+      : (root.querySelector("#dtlFntEntryCost") as HTMLElement | null);
   if (fntEntryCost) {
     fntEntryCost.textContent = formatMoney(r.entryLossUsd);
     fntEntryCost.className = r.entryLossUsd <= 0 ? "text-terminal-emerald" : "text-white";
   }
 
-  setElementText("dtlFntDrag", formatBps(r.vwapTotalDragBps));
-  setElementText("dtlFntRtLoss", formatMoney(r.costUsd));
+  setElementText("dtlFntDrag", formatBps(r.vwapTotalDragBps), root);
+  setElementText("dtlFntRtLoss", formatMoney(r.costUsd), root);
 
-  const fntPtCost = document.getElementById("dtlFntPtCost");
+  const fntPtCost =
+    root instanceof Document
+      ? root.getElementById("dtlFntPtCost")
+      : (root.querySelector("#dtlFntPtCost") as HTMLElement | null);
   if (fntPtCost) {
     fntPtCost.textContent = `$${r.pointCostUsd.toFixed(2)} / pt`;
     fntPtCost.className =
@@ -466,54 +489,87 @@ export function updateDetailRow(r: MarketMetrics, targetSizeUsd: number): void {
   }
 }
 
+interface ExecutiveSummaryDomElements {
+  vBadge: HTMLElement | null;
+  topSymbol: HTMLElement | null;
+  topLeverage: HTMLElement | null;
+  topSizeLabel: HTMLElement | null;
+  topOptSize: HTMLElement | null;
+  topLossUsd: HTMLElement | null;
+  topEntryLossUsd: HTMLElement | null;
+  topPointCost: HTMLElement | null;
+  topVwapDrag: HTMLElement | null;
+  topLiquidity: HTMLElement | null;
+}
+
+let cachedSummaryElements: ExecutiveSummaryDomElements | null = null;
+
+function getSummaryElements(): ExecutiveSummaryDomElements {
+  if (!cachedSummaryElements) {
+    cachedSummaryElements = {
+      vBadge: document.getElementById("topVerdictBadge"),
+      topSymbol: document.getElementById("topSymbol"),
+      topLeverage: document.getElementById("topLeverage"),
+      topSizeLabel: document.getElementById("topSizeLabel"),
+      topOptSize: document.getElementById("topOptSize"),
+      topLossUsd: document.getElementById("topLossUsd"),
+      topEntryLossUsd: document.getElementById("topEntryLossUsd"),
+      topPointCost: document.getElementById("topPointCost"),
+      topVwapDrag: document.getElementById("topVwapDrag"),
+      topLiquidity: document.getElementById("topLiquidity"),
+    };
+  }
+  return cachedSummaryElements;
+}
+
 export function updateExecutiveSummary(
   r: MarketMetrics | null,
   dynamicMode: "none" | "min_burn" | "max_vol" | boolean = "none",
 ): void {
-  const vBadge = document.getElementById("topVerdictBadge");
+  const els = getSummaryElements();
   const isDynamic = typeof dynamicMode === "boolean" ? dynamicMode : dynamicMode !== "none";
 
   if (!r) {
-    setElementText("topSymbol", "--");
-    setElementText("topLeverage", "--");
-    setElementText("topSizeLabel", isDynamic ? "OPT SIZE:" : "SIZE:");
-    setElementText("topOptSize", "$--");
-    setElementText("topLossUsd", "$--");
-    setElementText("topEntryLossUsd", "");
-    setElementText("topPointCost", "$--/pt");
-    setElementText("topVwapDrag", "-- bps");
-    setElementText("topLiquidity", "$--");
-    if (vBadge) {
-      setTextIfChanged(vBadge, "○ SCANNING");
-      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-muted");
+    setTextIfChanged(els.topSymbol, "--");
+    setTextIfChanged(els.topLeverage, "--");
+    setTextIfChanged(els.topSizeLabel, isDynamic ? "OPT SIZE:" : "SIZE:");
+    setTextIfChanged(els.topOptSize, "$--");
+    setTextIfChanged(els.topLossUsd, "$--");
+    setTextIfChanged(els.topEntryLossUsd, "");
+    setTextIfChanged(els.topPointCost, "$--/pt");
+    setTextIfChanged(els.topVwapDrag, "-- bps");
+    setTextIfChanged(els.topLiquidity, "$--");
+    if (els.vBadge) {
+      setTextIfChanged(els.vBadge, "○ SCANNING");
+      setClassIfChanged(els.vBadge, "text-[11px] font-semibold text-terminal-muted");
     }
     return;
   }
 
-  setElementText("topSymbol", r.symbol);
-  setElementText("topLeverage", r.leverage);
-  setElementText("topSizeLabel", isDynamic ? "OPT SIZE:" : "SIZE:");
-  setElementText("topOptSize", formatMoney(r.effectiveTargetUsd));
-  setElementText("topLossUsd", formatMoney(r.costUsd));
+  setTextIfChanged(els.topSymbol, r.symbol);
+  setTextIfChanged(els.topLeverage, r.leverage);
+  setTextIfChanged(els.topSizeLabel, isDynamic ? "OPT SIZE:" : "SIZE:");
+  setTextIfChanged(els.topOptSize, formatMoney(r.effectiveTargetUsd));
+  setTextIfChanged(els.topLossUsd, formatMoney(r.costUsd));
   const sign = r.entryLossUsd > 0 ? "+" : "";
-  setElementText("topEntryLossUsd", `(${sign}${formatMoney(r.entryLossUsd)} entry)`);
-  setElementText("topPointCost", `$${r.pointCostUsd.toFixed(2)}/pt`);
-  setElementText("topVwapDrag", formatBps(r.vwapTotalDragBps));
-  setElementText("topLiquidity", formatMoney(r.minDepthUsd));
+  setTextIfChanged(els.topEntryLossUsd, `(${sign}${formatMoney(r.entryLossUsd)} entry)`);
+  setTextIfChanged(els.topPointCost, `$${r.pointCostUsd.toFixed(2)}/pt`);
+  setTextIfChanged(els.topVwapDrag, formatBps(r.vwapTotalDragBps));
+  setTextIfChanged(els.topLiquidity, formatMoney(r.minDepthUsd));
 
-  if (vBadge) {
+  if (els.vBadge) {
     if (r.costUsd <= 0) {
-      setTextIfChanged(vBadge, "● ARB EDGE");
-      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-accent animate-pulse");
+      setTextIfChanged(els.vBadge, "● ARB EDGE");
+      setClassIfChanged(els.vBadge, "text-[11px] font-semibold text-terminal-accent animate-pulse");
     } else if (dynamicMode === "min_burn" || (isDynamic && dynamicMode !== "max_vol")) {
-      setTextIfChanged(vBadge, "● MIN BURN");
-      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-accent");
+      setTextIfChanged(els.vBadge, "● MIN BURN");
+      setClassIfChanged(els.vBadge, "text-[11px] font-semibold text-terminal-accent");
     } else if (dynamicMode === "max_vol") {
-      setTextIfChanged(vBadge, "● MAX VOL");
-      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-accent");
+      setTextIfChanged(els.vBadge, "● MAX VOL");
+      setClassIfChanged(els.vBadge, "text-[11px] font-semibold text-terminal-accent");
     } else {
-      setTextIfChanged(vBadge, "● READY");
-      setClassIfChanged(vBadge, "text-[11px] font-semibold text-terminal-emerald");
+      setTextIfChanged(els.vBadge, "● READY");
+      setClassIfChanged(els.vBadge, "text-[11px] font-semibold text-terminal-emerald");
     }
   }
 }

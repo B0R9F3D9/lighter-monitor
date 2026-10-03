@@ -101,22 +101,22 @@
 
           <!-- Desktop Connection Diagnostics & Auto Re-rank Progress (Hidden on mobile & medium < lg) -->
           <div class="hidden lg:flex items-center gap-2.5 text-xs font-mono">
-            <!-- Re-rank Timer & Controls -->
+            <!-- Rerank Interval & Auto-Sort Control -->
             <div
-              class="flex items-center gap-1.5 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
+              class="flex items-center gap-1.5 bg-terminal-bg border border-terminal-border px-1.5 py-0.5 rounded text-[11px]"
             >
-              <span class="text-terminal-muted">Freeze:</span>
-              <span id="rerankTimerText" class="text-white font-bold tabular-nums w-4 text-center"
-                >5s</span
+              <span class="text-terminal-muted">Rerank:</span>
+              <select
+                id="rerankSelector"
+                class="bg-transparent text-white font-mono text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 hover:text-terminal-accent transition"
+                title="Table Order Rerank Interval"
               >
-              <button
-                id="manualRerankBtn"
-                title="Force Re-rank"
-                class="px-1 py-0.2 rounded hover:bg-terminal-surface text-terminal-secondary hover:text-white transition cursor-pointer outline-none focus:outline-none border-0 bg-transparent"
-              >
-                ↻
-              </button>
-              <span class="text-terminal-border">|</span>
+                <option value="0" class="bg-terminal-surface text-white" selected>0s</option>
+                <option value="3" class="bg-terminal-surface text-white">3s</option>
+                <option value="5" class="bg-terminal-surface text-white">5s</option>
+                <option value="10" class="bg-terminal-surface text-white">10s</option>
+              </select>
+              <span class="text-terminal-border/60">|</span>
               <button
                 id="autoSortToggle"
                 class="text-[11px] text-terminal-muted hover:text-white transition cursor-pointer select-none outline-none focus:outline-none border-0 bg-transparent p-0"
@@ -283,23 +283,20 @@
             </div>
           </div>
           <div
-            class="flex items-center justify-between gap-2 bg-terminal-bg border border-terminal-border p-2 rounded text-xs"
+            class="flex items-center justify-between gap-2 bg-terminal-bg border border-terminal-border px-2.5 py-1.5 rounded text-xs"
           >
             <div class="flex items-center gap-1.5">
-              <span class="text-terminal-muted text-[11px]">Freeze:</span>
-              <span
-                id="mobileRerankTimerText"
-                class="text-white font-bold tabular-nums text-xs min-w-[20px]"
-                >5s</span
+              <span class="text-terminal-muted text-[11px]">Rerank:</span>
+              <select
+                id="mobileRerankSelector"
+                class="bg-transparent text-white font-mono text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 hover:text-terminal-accent transition"
+                title="Table Order Rerank Interval"
               >
-              <button
-                id="mobileManualRerankBtn"
-                type="button"
-                title="Force Re-rank"
-                class="px-2 py-0.5 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-[11px]"
-              >
-                ↻ Re-rank
-              </button>
+                <option value="0" class="bg-terminal-surface text-white" selected>0s</option>
+                <option value="3" class="bg-terminal-surface text-white">3s</option>
+                <option value="5" class="bg-terminal-surface text-white">5s</option>
+                <option value="10" class="bg-terminal-surface text-white">10s</option>
+              </select>
             </div>
             <button
               id="mobileAutoSortToggle"

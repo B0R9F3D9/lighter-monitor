@@ -383,20 +383,10 @@ export function getMetrics(
   }
 
   if (r.allFilled && !r.isStale && isFinite(r.rawCostUsd) && !isNaN(r.rawCostUsd)) {
-    let e = state.emaMap.get(m.symbol);
-    if (!e || !isFinite(e.cost) || isNaN(e.cost)) {
-      e = { cost: r.rawCostUsd, lastTs: nowTime };
-      state.emaMap.set(m.symbol, e);
-    } else {
-      const dt = Math.max(0, nowTime - (e.lastTs || nowTime));
-      const tau = CONFIG.EMA_TAU_MS;
-      const a = 1 - Math.exp(-dt / tau);
-      e.cost = a * r.rawCostUsd + (1 - a) * e.cost;
-      e.lastTs = nowTime;
-    }
-    r.costUsd = e.cost;
-    r.pointCostUsd = r.pointsEarned > 0 ? e.cost / r.pointsEarned : 0;
-    r.vwapTotalDragBps = r.effectiveTargetUsd > 0 ? (e.cost / r.effectiveTargetUsd) * 10000 : 0;
+    r.costUsd = r.rawCostUsd;
+    r.pointCostUsd = r.pointsEarned > 0 ? r.rawCostUsd / r.pointsEarned : 0;
+    r.vwapTotalDragBps =
+      r.effectiveTargetUsd > 0 ? (r.rawCostUsd / r.effectiveTargetUsd) * 10000 : 0;
   } else {
     r.costUsd = 999999;
     r.pointCostUsd = 999999;

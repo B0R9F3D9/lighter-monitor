@@ -120,6 +120,7 @@ export interface TerminalState {
   isAutoSortEnabled: boolean;
   displayedSymbolsOrder: string[];
   rerankTimerRemaining: number;
+  rerankIntervalSec: number;
   emaMap: Map<string, EmaEntry>;
   expandedSymbol: string | null;
   isCoreConnected: boolean;
@@ -139,4 +140,6 @@ export interface RowDomCache {
   oiEl: HTMLElement | null;
   chevronEl: SVGElement | null;
   verdictText: string;
+  lastVol?: number;
+  lastOi?: number;
 }

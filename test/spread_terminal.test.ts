@@ -308,7 +308,7 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     expect(metrics.status).toBe("READY");
   });
 
-  it("smooths rawCostUsd through getMetrics and derives consistent bps and point cost", () => {
+  it("calculates instant real-time rawCostUsd through getMetrics and derives consistent bps and point cost", () => {
     const rhBook: OrderBook = {
       marketId: 1,
       asks: new Map([[100.1, 100]]),
@@ -342,7 +342,8 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
       sortDirection: "asc",
       isAutoSortEnabled: true,
       displayedSymbolsOrder: [dummyMarket.symbol],
-      rerankTimerRemaining: 5,
+      rerankTimerRemaining: 0,
+      rerankIntervalSec: 0,
       emaMap: new Map(),
       expandedSymbol: null,
       isCoreConnected: true,
@@ -354,13 +355,13 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     expect(m1).not.toBeNull();
     if (!m1) return;
 
-    // Initial EMA cost equals rawCostUsd ($30.0)
+    // Initial cost equals rawCostUsd ($30.0)
     expect(m1.costUsd).toBeCloseTo(30.0, 2);
     // Drag bps = (30 / 10000) * 10000 = 30.0 bps
     expect(m1.vwapTotalDragBps).toBeCloseTo(30.0, 2);
     expect(m1.pointCostUsd).toBeGreaterThan(0);
 
-    // After 1 second with a spike in price, EMA dampens the move
+    // After 1 second with a spike in price, instant real-time cost updates immediately
     const dtNow = now + 1000;
     // Simulate spike: raw cost increases
     updateBookFromWs(rhBook, {
@@ -373,11 +374,11 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     expect(m2).not.toBeNull();
     if (!m2) return;
 
-    // Raw cost increased, but smoothed costUsd moved gradually
+    // Instant real-time cost matches raw cost immediately without dampening
     expect(m2.rawCostUsd).toBeGreaterThan(m1.rawCostUsd);
+    expect(m2.costUsd).toBe(m2.rawCostUsd);
     expect(m2.costUsd).toBeGreaterThan(m1.costUsd);
-    expect(m2.costUsd).toBeLessThan(m2.rawCostUsd); // Dampened!
-    // vwapTotalDragBps stays strictly aligned with smoothed costUsd
+    // vwapTotalDragBps stays strictly aligned with instant costUsd
     expect(m2.vwapTotalDragBps).toBeCloseTo((m2.costUsd / 10000) * 10000, 4);
   });
 });
