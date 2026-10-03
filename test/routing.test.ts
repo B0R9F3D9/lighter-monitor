@@ -139,6 +139,33 @@ describe("Worker HTTP Routing", () => {
     expect(body).toBe("Unauthorized");
   });
 
+  it("does NOT allow env.ASSETS to intercept POST / or return 405 for Telegram webhooks", async () => {
+    const envWithAssets: Env = {
+      ...mockEnv,
+      ASSETS: {
+        fetch: async () => new Response(null, { status: 405 }),
+      } as any,
+    };
+    const req = new Request("https://worker.dev/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ update_id: 1 }),
+    });
+    const res = await worker.fetch(req, envWithAssets, mockCtx);
+    // Should NOT be 405 from ASSETS, must be handled by telegram webhook handler (403 without secret token)
+    expect(res.status).toBe(403);
+  });
+
+  it("supports POST /webhook for Telegram webhook updates", async () => {
+    const req = new Request("https://worker.dev/webhook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ update_id: 1 }),
+    });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(403);
+  });
+
   it("never invokes Telegram bot logic on unknown GET requests even if TELEGRAM_BOT_TOKEN is empty", async () => {
     const emptyEnv: Env = {
       DB: {} as any,

@@ -146,24 +146,14 @@ export default {
       );
     }
 
-    // Static Assets on Cloudflare via Workers Assets binding
-    if (env.ASSETS) {
-      const assetResponse = await env.ASSETS.fetch(request);
-      if (assetResponse.status !== 404) {
-        return assetResponse;
-      }
-    }
-
-    // Local Bun fallback for static assets when running standalone (bun run web / bun test)
-    if (isGetOrHead && typeof (globalThis as any).Bun !== "undefined") {
-      const localResponse = await serveLocalBunAsset(request);
-      if (localResponse) {
-        return localResponse;
-      }
-    }
-
-    // Telegram webhook handler (POST to "/")
-    if (request.method === "POST" && (url.pathname === "/" || url.pathname === "")) {
+    // Telegram webhook handler (POST to "/" or "/webhook")
+    if (
+      request.method === "POST" &&
+      (url.pathname === "/" ||
+        url.pathname === "" ||
+        url.pathname === "/webhook" ||
+        url.pathname === "/webhook/")
+    ) {
       // Проверка Secret Token для безопасности вебхука Telegram
       if (env.TELEGRAM_SECRET_TOKEN) {
         const headerSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
@@ -179,6 +169,22 @@ export default {
       const bot = getBot(env);
       const cb = webhookCallback(bot, "cloudflare-mod");
       return await executionContextStorage.run(ctx, () => cb(request as any));
+    }
+
+    // Static Assets on Cloudflare via Workers Assets binding (GET / HEAD only)
+    if (isGetOrHead && env.ASSETS) {
+      const assetResponse = await env.ASSETS.fetch(request);
+      if (assetResponse.status !== 404) {
+        return assetResponse;
+      }
+    }
+
+    // Local Bun fallback for static assets when running standalone (bun run web / bun test)
+    if (isGetOrHead && typeof (globalThis as any).Bun !== "undefined") {
+      const localResponse = await serveLocalBunAsset(request);
+      if (localResponse) {
+        return localResponse;
+      }
     }
 
     return new Response("Not Found", { status: 404 });
