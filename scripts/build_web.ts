@@ -160,13 +160,7 @@ const minifiedCheckerHedgeHtml = injectVersionMeta(
 );
 fs.writeFileSync(checkerHedgeHtmlPath, minifiedCheckerHedgeHtml, "utf-8");
 
-// 6. Generate lightweight redirect fallbacks for /checker, /checker/, and /hedge
-const checkerRedirectHtml = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/checker/solo"><title>Redirecting to Checker...</title><script>window.location.replace("/checker/solo");</script></head><body></body></html>`;
-fs.writeFileSync(path.resolve(outDir, "checker.html"), checkerRedirectHtml, "utf-8");
-fs.writeFileSync(path.resolve(outDir, "checker/index.html"), checkerRedirectHtml, "utf-8");
-
-const hedgeRedirectHtml = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=/checker/hedge"><title>Redirecting to Hedge Checker...</title><script>window.location.replace("/checker/hedge");</script></head><body></body></html>`;
-fs.writeFileSync(path.resolve(outDir, "hedge.html"), hedgeRedirectHtml, "utf-8");
+// 6. Worker handles HTTP 302 redirects for /checker and /hedge directly in src/index.ts
 
 const hubHtmlHash = crypto.createHash("sha256").update(minifiedHubHtml).digest("hex").slice(0, 10);
 const spreadHtmlHash = crypto
