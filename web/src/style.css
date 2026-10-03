@@ -206,3 +206,25 @@ select,
 .hedge-cb:focus-visible {
   border-color: #8b949e;
 }
+
+/* Dropzone active drag states */
+.dropzone-active-rh {
+  border-color: var(--color-terminal-accent) !important;
+  background-color: rgba(88, 166, 255, 0.12) !important;
+}
+
+.dropzone-active-core {
+  border-color: var(--color-terminal-emerald) !important;
+  background-color: rgba(46, 160, 67, 0.12) !important;
+}
+
+.dropzone-active-solo {
+  border-color: var(--color-terminal-emerald) !important;
+  background-color: rgba(46, 160, 67, 0.08) !important;
+}
+
+.dropzone-active-rh *,
+.dropzone-active-core *,
+.dropzone-active-solo * {
+  pointer-events: none;
+}

@@ -525,26 +525,49 @@ export class CheckerController {
     });
 
     if (this.dropzone) {
-      this.dropzone.addEventListener("click", () => {
+      const dropzone = this.dropzone;
+      const activeClass = "dropzone-active-solo";
+      let soloDragCounter = 0;
+
+      dropzone.addEventListener("click", () => {
         this.fileInput?.click();
       });
 
-      this.dropzone.addEventListener("dragover", (e) => {
+      dropzone.addEventListener("dragenter", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        this.dropzone?.classList.add("border-terminal-emerald", "bg-terminal-emerald/5");
+        soloDragCounter++;
+        if (soloDragCounter === 1) {
+          dropzone.classList.add(activeClass);
+        }
       });
 
-      this.dropzone.addEventListener("dragleave", (e) => {
+      dropzone.addEventListener("dragover", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        this.dropzone?.classList.remove("border-terminal-emerald", "bg-terminal-emerald/5");
+        if (e.dataTransfer) {
+          e.dataTransfer.dropEffect = "copy";
+        }
+        if (!dropzone.classList.contains(activeClass)) {
+          dropzone.classList.add(activeClass);
+        }
       });
 
-      this.dropzone.addEventListener("drop", (e) => {
+      dropzone.addEventListener("dragleave", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        this.dropzone?.classList.remove("border-terminal-emerald", "bg-terminal-emerald/5");
+        soloDragCounter--;
+        if (soloDragCounter <= 0) {
+          soloDragCounter = 0;
+          dropzone.classList.remove(activeClass);
+        }
+      });
+
+      dropzone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        soloDragCounter = 0;
+        dropzone.classList.remove(activeClass);
         const files = e.dataTransfer?.files;
         if (files && files.length > 0) {
           this.handleFileUploads(Array.from(files), true);
@@ -711,34 +734,49 @@ export class CheckerController {
   private setupHedgeDropzone(dropzone: HTMLElement | null, defaultSlot: "rh" | "core"): void {
     if (!dropzone) return;
 
-    const highlightBorder =
-      defaultSlot === "rh" ? "border-terminal-accent" : "border-terminal-emerald";
-    const highlightBg = defaultSlot === "rh" ? "bg-terminal-accent/10" : "bg-terminal-emerald/10";
+    const activeClass = defaultSlot === "rh" ? "dropzone-active-rh" : "dropzone-active-core";
+    let dragCounter = 0;
 
     dropzone.addEventListener("click", () => {
       if (defaultSlot === "rh") this.fileInputRh?.click();
       else this.fileInputCore?.click();
     });
 
+    dropzone.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter++;
+      if (dragCounter === 1) {
+        dropzone.classList.add(activeClass);
+      }
+    });
+
     dropzone.addEventListener("dragover", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      dropzone.classList.add(highlightBorder, highlightBg);
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+      if (!dropzone.classList.contains(activeClass)) {
+        dropzone.classList.add(activeClass);
+      }
     });
 
     dropzone.addEventListener("dragleave", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (e.relatedTarget && dropzone.contains(e.relatedTarget as Node)) {
-        return;
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        dropzone.classList.remove(activeClass);
       }
-      dropzone.classList.remove(highlightBorder, highlightBg);
     });
 
     dropzone.addEventListener("drop", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      dropzone.classList.remove(highlightBorder, highlightBg);
+      dragCounter = 0;
+      dropzone.classList.remove(activeClass);
       const files = e.dataTransfer?.files;
       if (files && files.length > 0) {
         this.processHedgeUploadedFiles(Array.from(files), defaultSlot);
