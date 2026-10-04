@@ -4,11 +4,13 @@ import type {
   MarketMetrics,
   OrderBook,
   OrderBookLevel,
+  SimFillResult,
   TerminalState,
 } from "./types";
 import { CONFIG } from "./config";
-import { ASC_COMP, getSortedLevels } from "./orderbook";
-import { fastSimFill, simulateFillBase } from "./simulation";
+import { ASC_COMP, FlatOrderBookSide } from "./orderbook";
+import type { FastSimResult } from "./simulation";
+import { fastSimFillInto, simulateFillBaseInto } from "./simulation";
 
 function formatOptSize(sz: number): number {
   if (sz >= 10000) {
@@ -24,33 +26,58 @@ const BASE_SIZE_GRID: readonly number[] = [
   75000, 100000,
 ];
 
+// Pre-allocated reusable structures for zero-allocation simulation during optimization
+const staticSimEntryRh: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+const staticSimEntryCore: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+const staticSimExitRh: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+const staticSimExitCore: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+const scratchCandidates: number[] = [];
+
+function getSideDepth(side: OrderBookLevel[] | FlatOrderBookSide): number {
+  if ("totalDepthUsd" in side) return side.totalDepthUsd;
+  let d = 0;
+  for (let i = 0; i < side.length; i++) d += side[i]!.totalUsd;
+  return d;
+}
+
+function getBestPrice(side: OrderBookLevel[] | FlatOrderBookSide): number {
+  if ("prices" in side) return side.count > 0 ? side.prices[0]! : 0;
+  return side[0]?.price || 0;
+}
+
+function getL1DepthUsd(side: OrderBookLevel[] | FlatOrderBookSide): number {
+  if ("totalUsds" in side) return side.count > 0 ? side.totalUsds[0]! : 0;
+  return side[0]?.totalUsd || 0;
+}
+
+function getSideCount(side: OrderBookLevel[] | FlatOrderBookSide): number {
+  if ("count" in side) return side.count;
+  return side ? side.length : 0;
+}
+
 export function findOptimalSize(
-  rhAsks: OrderBookLevel[],
-  coreBids: OrderBookLevel[],
-  rhBids: OrderBookLevel[],
-  coreAsks: OrderBookLevel[],
+  rhAsks: OrderBookLevel[] | FlatOrderBookSide,
+  coreBids: OrderBookLevel[] | FlatOrderBookSide,
+  rhBids: OrderBookLevel[] | FlatOrderBookSide,
+  coreAsks: OrderBookLevel[] | FlatOrderBookSide,
   midPrice: number,
   mode: DynamicSizeMode = "min_burn",
   maxCapUsd: number = 50000,
 ): number {
   if (
     midPrice <= 0 ||
-    !rhAsks?.length ||
-    !coreBids?.length ||
-    !rhBids?.length ||
-    !coreAsks?.length
+    getSideCount(rhAsks) === 0 ||
+    getSideCount(coreBids) === 0 ||
+    getSideCount(rhBids) === 0 ||
+    getSideCount(coreAsks) === 0
   ) {
     return 10000;
   }
 
-  let d0 = 0;
-  for (let i = 0; i < rhAsks.length; i++) d0 += rhAsks[i]!.totalUsd;
-  let d1 = 0;
-  for (let i = 0; i < coreBids.length; i++) d1 += coreBids[i]!.totalUsd;
-  let d2 = 0;
-  for (let i = 0; i < rhBids.length; i++) d2 += rhBids[i]!.totalUsd;
-  let d3 = 0;
-  for (let i = 0; i < coreAsks.length; i++) d3 += coreAsks[i]!.totalUsd;
+  const d0 = getSideDepth(rhAsks);
+  const d1 = getSideDepth(coreBids);
+  const d2 = getSideDepth(rhBids);
+  const d3 = getSideDepth(coreAsks);
 
   let maxAvail = d0 < d1 ? d0 : d1;
   if (d2 < maxAvail) maxAvail = d2;
@@ -59,10 +86,10 @@ export function findOptimalSize(
   const upperLimit = Math.min(maxAvail, maxCapUsd > 0 ? maxCapUsd : 50000);
   if (upperLimit < 500) return Math.max(100, Math.floor(upperLimit));
 
-  const rhBestAsk = rhAsks[0]?.price || 0;
-  const coreBestBid = coreBids[0]?.price || 0;
-  const rhBestBid = rhBids[0]?.price || 0;
-  const coreBestAsk = coreAsks[0]?.price || 0;
+  const rhBestAsk = getBestPrice(rhAsks);
+  const coreBestBid = getBestPrice(coreBids);
+  const rhBestBid = getBestPrice(rhBids);
+  const coreBestAsk = getBestPrice(coreAsks);
 
   const rawEntryDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
   const rawExitDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
@@ -70,53 +97,49 @@ export function findOptimalSize(
 
   const l1Depth = Math.floor(
     Math.min(
-      rhAsks[0]?.totalUsd || 0,
-      coreBids[0]?.totalUsd || 0,
-      rhBids[0]?.totalUsd || 0,
-      coreAsks[0]?.totalUsd || 0,
+      getL1DepthUsd(rhAsks),
+      getL1DepthUsd(coreBids),
+      getL1DepthUsd(rhBids),
+      getL1DepthUsd(coreAsks),
     ),
   );
 
-  const candidates: number[] = [];
+  scratchCandidates.length = 0;
   for (let i = 0; i < BASE_SIZE_GRID.length; i++) {
     const s = BASE_SIZE_GRID[i]!;
     if (s >= 500 && s <= upperLimit) {
-      candidates.push(s);
+      scratchCandidates.push(s);
     }
   }
-  if (l1Depth >= 500 && l1Depth <= upperLimit && !candidates.includes(l1Depth)) {
-    candidates.push(l1Depth);
+  if (l1Depth >= 500 && l1Depth <= upperLimit && !scratchCandidates.includes(l1Depth)) {
+    scratchCandidates.push(l1Depth);
   }
-  if (maxCapUsd >= 500 && maxCapUsd <= upperLimit && !candidates.includes(maxCapUsd)) {
-    candidates.push(maxCapUsd);
+  if (maxCapUsd >= 500 && maxCapUsd <= upperLimit && !scratchCandidates.includes(maxCapUsd)) {
+    scratchCandidates.push(maxCapUsd);
   }
-  candidates.sort(ASC_COMP);
+  scratchCandidates.sort(ASC_COMP);
 
-  if (candidates.length === 0) return Math.min(10000, Math.floor(upperLimit));
+  if (scratchCandidates.length === 0) return Math.min(10000, Math.floor(upperLimit));
 
   let hasCompletedSim = false;
-  let bestSize = candidates[0]!;
+  let bestSize = scratchCandidates[0]!;
   let bestArbSize = 0;
   let basePtCost = -1;
   let bestScore = -Infinity;
 
-  for (let i = 0; i < candidates.length; i++) {
-    const s = candidates[i]!;
+  for (let i = 0; i < scratchCandidates.length; i++) {
+    const s = scratchCandidates[i]!;
     const q = s / midPrice;
 
-    const simEntryRh = fastSimFill(rhAsks, q);
-    if (!simEntryRh.isComplete) break;
-    const simEntryCore = fastSimFill(coreBids, q);
-    if (!simEntryCore.isComplete) break;
-    const simExitRh = fastSimFill(rhBids, q);
-    if (!simExitRh.isComplete) break;
-    const simExitCore = fastSimFill(coreAsks, q);
-    if (!simExitCore.isComplete) break;
+    if (!fastSimFillInto(staticSimEntryRh, rhAsks, q)) break;
+    if (!fastSimFillInto(staticSimEntryCore, coreBids, q)) break;
+    if (!fastSimFillInto(staticSimExitRh, rhBids, q)) break;
+    if (!fastSimFillInto(staticSimExitCore, coreAsks, q)) break;
 
     hasCompletedSim = true;
 
-    const entryLossUsd = simEntryRh.totalCostUsd - simEntryCore.totalCostUsd;
-    const exitLossUsd = simExitCore.totalCostUsd - simExitRh.totalCostUsd;
+    const entryLossUsd = staticSimEntryRh.totalCostUsd - staticSimEntryCore.totalCostUsd;
+    const exitLossUsd = staticSimExitCore.totalCostUsd - staticSimExitRh.totalCostUsd;
     const costUsd = entryLossUsd + exitLossUsd;
 
     if (costUsd <= 0) {
@@ -131,10 +154,10 @@ export function findOptimalSize(
     const pointsEarned = ((s * 2) / 1000000) * 52 * 5.0;
     const pointCostUsd = pointsEarned > 0 ? costUsd / pointsEarned : 0;
     const maxSwept = Math.max(
-      simEntryRh.levelsSwept,
-      simEntryCore.levelsSwept,
-      simExitRh.levelsSwept,
-      simExitCore.levelsSwept,
+      staticSimEntryRh.levelsSwept,
+      staticSimEntryCore.levelsSwept,
+      staticSimExitRh.levelsSwept,
+      staticSimExitCore.levelsSwept,
     );
 
     if (mode === "max_vol") {
@@ -149,6 +172,9 @@ export function findOptimalSize(
       if (score > bestScore) {
         bestScore = score;
         bestSize = s;
+      } else if (slippageBps > 10.0 && maxSwept > 6) {
+        // High slippage and deteriorating score: break early to save cycles
+        break;
       }
     } else {
       // ALGORITHM 1: Min Burn (Strict minimum unit cost $/pt & bps, stops immediately on price degradation)
@@ -177,6 +203,71 @@ export function findOptimalSize(
   return formatOptSize(bestSize);
 }
 
+function createEmptyLeg(): SimFillResult {
+  return {
+    isComplete: false,
+    avgPrice: 0,
+    bestPrice: 0,
+    slippageBps: 0,
+    levelsSwept: 0,
+    totalCostUsd: 0,
+    filledBase: 0,
+    totalAvailableUsd: 0,
+    totalAvailableBase: 0,
+  };
+}
+
+function createEmptyMetrics(symbol: string): MarketMetrics {
+  return {
+    symbol,
+    leverage: "",
+    leverageNum: 0,
+    rhLeverage: "",
+    coreLeverage: "",
+    midPrice: 0,
+    rhMid: 0,
+    coreMid: 0,
+    deltaMidUsd: 0,
+    deltaMidBps: 0,
+    baseQty: 0,
+    allFilled: false,
+    isStale: false,
+    totalVolume24h: 0,
+    rhVolume24h: 0,
+    totalOiUsd: 0,
+    rawSpreadBps: 0,
+    slippageBps: 0,
+    entryDragBps: 0,
+    exitDragBps: 0,
+    entryLossUsd: 0,
+    exitLossUsd: 0,
+    vwapTotalDragBps: 0,
+    costUsd: 999999,
+    rawCostUsd: 999999,
+    pointCostUsd: 999999,
+    pointsEarned: 0,
+    maxLevelsSwept: 0,
+    minDepthUsd: 0,
+    optimalSizeUsd: 0,
+    effectiveTargetUsd: 0,
+    isDynamic: false,
+    dynamicMode: "none",
+    status: "LOW LIQ",
+    legs: {
+      entryRh: createEmptyLeg(),
+      entryCore: createEmptyLeg(),
+      exitRh: createEmptyLeg(),
+      exitCore: createEmptyLeg(),
+      rhBestAsk: 0,
+      coreBestBid: 0,
+      rhBestBid: 0,
+      coreBestAsk: 0,
+      rhMid: 0,
+      coreMid: 0,
+    },
+  };
+}
+
 export function calculateMarketMetrics(
   m: MarketInfo,
   targetUsd: number,
@@ -186,13 +277,28 @@ export function calculateMarketMetrics(
   lastRhMsgAt: number,
   dynamicMode: DynamicSizeMode = "none",
   maxCapUsd: number = 50000,
+  target?: MarketMetrics | null,
 ): MarketMetrics | null {
   if (!rhBook?.isSnapshotReceived || !coreBook?.isSnapshotReceived) return null;
+
+  const rhAsks: FlatOrderBookSide = ("prices" in rhBook.asks)
+    ? (rhBook.asks as FlatOrderBookSide)
+    : ((rhBook.asks = new FlatOrderBookSide(true, (rhBook.asks as unknown as Map<number, number>).entries())) as FlatOrderBookSide);
+  const rhBids: FlatOrderBookSide = ("prices" in rhBook.bids)
+    ? (rhBook.bids as FlatOrderBookSide)
+    : ((rhBook.bids = new FlatOrderBookSide(false, (rhBook.bids as unknown as Map<number, number>).entries())) as FlatOrderBookSide);
+  const coreAsks: FlatOrderBookSide = ("prices" in coreBook.asks)
+    ? (coreBook.asks as FlatOrderBookSide)
+    : ((coreBook.asks = new FlatOrderBookSide(true, (coreBook.asks as unknown as Map<number, number>).entries())) as FlatOrderBookSide);
+  const coreBids: FlatOrderBookSide = ("prices" in coreBook.bids)
+    ? (coreBook.bids as FlatOrderBookSide)
+    : ((coreBook.bids = new FlatOrderBookSide(false, (coreBook.bids as unknown as Map<number, number>).entries())) as FlatOrderBookSide);
+
   if (
-    rhBook.asks.size === 0 ||
-    rhBook.bids.size === 0 ||
-    coreBook.asks.size === 0 ||
-    coreBook.bids.size === 0
+    rhAsks.count === 0 ||
+    rhBids.count === 0 ||
+    coreAsks.count === 0 ||
+    coreBids.count === 0
   ) {
     return null;
   }
@@ -202,24 +308,10 @@ export function calculateMarketMetrics(
     (lastCoreMsgAt > 0 && now - lastCoreMsgAt > CONFIG.SOCKET_SILENCE_TIMEOUT_MS) ||
     (lastRhMsgAt > 0 && now - lastRhMsgAt > CONFIG.SOCKET_SILENCE_TIMEOUT_MS);
 
-  const rhAsks = getSortedLevels(rhBook, true);
-  const rhBids = getSortedLevels(rhBook, false);
-  const coreAsks = getSortedLevels(coreBook, true);
-  const coreBids = getSortedLevels(coreBook, false);
-
-  if (
-    rhAsks.length === 0 ||
-    rhBids.length === 0 ||
-    coreAsks.length === 0 ||
-    coreBids.length === 0
-  ) {
-    return null;
-  }
-
-  const rhBestAsk = rhAsks[0]!.price;
-  const rhBestBid = rhBids[0]!.price;
-  const coreBestAsk = coreAsks[0]!.price;
-  const coreBestBid = coreBids[0]!.price;
+  const rhBestAsk = getBestPrice(rhAsks);
+  const rhBestBid = getBestPrice(rhBids);
+  const coreBestAsk = getBestPrice(coreAsks);
+  const coreBestBid = getBestPrice(coreBids);
 
   // Crossed book check (reject corrupted book ticks)
   if (rhBestBid >= rhBestAsk || coreBestBid >= coreBestAsk) {
@@ -244,11 +336,19 @@ export function calculateMarketMetrics(
   // Base Asset Quantity for target size (Strict Delta-Neutral)
   const baseQty = effectiveTargetUsd / midPrice;
 
-  // 4-Leg VWAP fills by EXACT baseQty
-  const simEntryRh = simulateFillBase(rhAsks, baseQty, true);
-  const simEntryCore = simulateFillBase(coreBids, baseQty, false);
-  const simExitRh = simulateFillBase(rhBids, baseQty, false);
-  const simExitCore = simulateFillBase(coreAsks, baseQty, true);
+  // Mutate target in place or instantiate once
+  const res = target ?? createEmptyMetrics(m.symbol);
+
+  // 4-Leg VWAP fills directly into pre-allocated legs!
+  simulateFillBaseInto(res.legs.entryRh, rhAsks, baseQty, true);
+  simulateFillBaseInto(res.legs.entryCore, coreBids, baseQty, false);
+  simulateFillBaseInto(res.legs.exitRh, rhBids, baseQty, false);
+  simulateFillBaseInto(res.legs.exitCore, coreAsks, baseQty, true);
+
+  const simEntryRh = res.legs.entryRh;
+  const simEntryCore = res.legs.entryCore;
+  const simExitRh = res.legs.exitRh;
+  const simExitCore = res.legs.exitCore;
 
   // Theoretical top-of-book spread
   const rawEntryDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
@@ -308,54 +408,49 @@ export function calculateMarketMetrics(
   const effectiveCostUsd = allFilled && !isStale ? costUsd : 999999;
   const effectivePointCostUsd = allFilled && !isStale ? pointCostUsd : 999999;
 
-  return {
-    symbol: m.symbol,
-    leverage: m.leverage,
-    leverageNum: m.leverageNum,
-    rhLeverage: m.rhLeverage,
-    coreLeverage: m.coreLeverage,
-    midPrice,
-    rhMid,
-    coreMid,
-    deltaMidUsd,
-    deltaMidBps,
-    baseQty,
-    allFilled,
-    isStale,
-    totalVolume24h: m.totalVolume24h,
-    rhVolume24h: m.rhVolume24h,
-    totalOiUsd: m.totalOiUsd,
-    rawSpreadBps,
-    slippageBps,
-    entryDragBps: vwapEntryDragBps,
-    exitDragBps: vwapExitDragBps,
-    entryLossUsd,
-    exitLossUsd,
-    vwapTotalDragBps,
-    costUsd: effectiveCostUsd,
-    rawCostUsd: costUsd,
-    pointCostUsd: effectivePointCostUsd,
-    pointsEarned,
-    maxLevelsSwept,
-    minDepthUsd,
-    optimalSizeUsd,
-    effectiveTargetUsd,
-    isDynamic,
-    dynamicMode,
-    status,
-    legs: {
-      entryRh: simEntryRh,
-      entryCore: simEntryCore,
-      exitRh: simExitRh,
-      exitCore: simExitCore,
-      rhBestAsk,
-      coreBestBid,
-      rhBestBid,
-      coreBestAsk,
-      rhMid,
-      coreMid,
-    },
-  };
+  res.symbol = m.symbol;
+  res.leverage = m.leverage;
+  res.leverageNum = m.leverageNum;
+  res.rhLeverage = m.rhLeverage;
+  res.coreLeverage = m.coreLeverage;
+  res.midPrice = midPrice;
+  res.rhMid = rhMid;
+  res.coreMid = coreMid;
+  res.deltaMidUsd = deltaMidUsd;
+  res.deltaMidBps = deltaMidBps;
+  res.baseQty = baseQty;
+  res.allFilled = allFilled;
+  res.isStale = isStale;
+  res.totalVolume24h = m.totalVolume24h;
+  res.rhVolume24h = m.rhVolume24h;
+  res.totalOiUsd = m.totalOiUsd;
+  res.rawSpreadBps = rawSpreadBps;
+  res.slippageBps = slippageBps;
+  res.entryDragBps = vwapEntryDragBps;
+  res.exitDragBps = vwapExitDragBps;
+  res.entryLossUsd = entryLossUsd;
+  res.exitLossUsd = exitLossUsd;
+  res.vwapTotalDragBps = vwapTotalDragBps;
+  res.costUsd = effectiveCostUsd;
+  res.rawCostUsd = costUsd;
+  res.pointCostUsd = effectivePointCostUsd;
+  res.pointsEarned = pointsEarned;
+  res.maxLevelsSwept = maxLevelsSwept;
+  res.minDepthUsd = minDepthUsd;
+  res.optimalSizeUsd = optimalSizeUsd;
+  res.effectiveTargetUsd = effectiveTargetUsd;
+  res.isDynamic = isDynamic;
+  res.dynamicMode = dynamicMode;
+  res.status = status;
+
+  res.legs.rhBestAsk = rhBestAsk;
+  res.legs.coreBestBid = coreBestBid;
+  res.legs.rhBestBid = rhBestBid;
+  res.legs.coreBestAsk = coreBestAsk;
+  res.legs.rhMid = rhMid;
+  res.legs.coreMid = coreMid;
+
+  return res;
 }
 
 export function getMetrics(
@@ -364,6 +459,7 @@ export function getMetrics(
   lastCoreMsgAt: number,
   lastRhMsgAt: number,
   nowTime: number = performance.now(),
+  target?: MarketMetrics | null,
 ): MarketMetrics | null {
   const mode = state.dynamicMode || (state.isDynamicSize ? "min_burn" : "none");
   const r = calculateMarketMetrics(
@@ -375,6 +471,7 @@ export function getMetrics(
     lastRhMsgAt,
     mode,
     state.maxCapUsd || state.targetSizeUsd || 50000,
+    target,
   );
 
   if (!r) {

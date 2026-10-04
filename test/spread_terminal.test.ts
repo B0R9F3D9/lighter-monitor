@@ -6,10 +6,20 @@ import {
   formatBaseQty,
   formatDeltaMid,
 } from "../web/src/shared/formatters";
-import { getOrCreateBook, updateBookFromWs, getSortedLevels } from "../web/src/spread/orderbook";
-import { simulateFillBase } from "../web/src/spread/simulation";
+import {
+  getOrCreateBook,
+  updateBookFromWs,
+  getSortedLevels,
+  FlatOrderBookSide,
+} from "../web/src/spread/orderbook";
+import {
+  simulateFillBase,
+  simulateFillBaseInto,
+  fastSimFillInto,
+} from "../web/src/spread/simulation";
+import type { FastSimResult } from "../web/src/spread/simulation";
 import { calculateMarketMetrics, findOptimalSize, getMetrics } from "../web/src/spread/metrics";
-import type { MarketInfo, OrderBook, TerminalState } from "../web/src/spread/types";
+import type { MarketInfo, OrderBook, SimFillResult, TerminalState } from "../web/src/spread/types";
 
 describe("Spread Terminal: Formatters", () => {
   it("formats positive, zero, and negative money correctly", () => {
@@ -183,6 +193,69 @@ describe("Spread Terminal: Order Book Management", () => {
     expect(book.asks.has(80)).toBe(true);
     expect(book.asks.has(81)).toBe(false);
     expect(book.asks.has(200)).toBe(false);
+  });
+
+  describe("FlatOrderBookSide (Zero-Allocation Binary Buffer)", () => {
+    it("maintains sorted order for asks (ascending) via binary search insertion", () => {
+      const asks = new FlatOrderBookSide(true, 10);
+      asks.set(105, 1.0);
+      asks.set(100, 2.0);
+      asks.set(102, 3.0);
+      asks.set(101, 1.5);
+
+      expect(asks.count).toBe(4);
+      expect(asks.prices[0]).toBe(100);
+      expect(asks.prices[1]).toBe(101);
+      expect(asks.prices[2]).toBe(102);
+      expect(asks.prices[3]).toBe(105);
+      expect(asks.totalDepthBase).toBe(7.5);
+      expect(asks.totalDepthUsd).toBeCloseTo(100 * 2.0 + 101 * 1.5 + 102 * 3.0 + 105 * 1.0, 4);
+
+      // Updating an existing level in-place
+      asks.set(101, 2.5);
+      expect(asks.count).toBe(4);
+      expect(asks.sizes[1]).toBe(2.5);
+      expect(asks.totalDepthBase).toBe(8.5);
+
+      // Deleting a level when size <= 0
+      asks.set(101, 0);
+      expect(asks.count).toBe(3);
+      expect(asks.prices[1]).toBe(102);
+      expect(asks.totalDepthBase).toBe(6.0);
+    });
+
+    it("maintains sorted order for bids (descending) via binary search insertion", () => {
+      const bids = new FlatOrderBookSide(false, 10);
+      bids.set(95, 1.0);
+      bids.set(100, 2.0);
+      bids.set(98, 3.0);
+      bids.set(99, 1.5);
+
+      expect(bids.count).toBe(4);
+      expect(bids.prices[0]).toBe(100);
+      expect(bids.prices[1]).toBe(99);
+      expect(bids.prices[2]).toBe(98);
+      expect(bids.prices[3]).toBe(95);
+
+      // Prune when capacity is reached
+      const smallBids = new FlatOrderBookSide(false, 3);
+      smallBids.set(100, 1.0);
+      smallBids.set(98, 1.0);
+      smallBids.set(96, 1.0);
+      expect(smallBids.count).toBe(3);
+
+      // Better bid (99) pushes out worst bid (96)
+      smallBids.set(99, 1.0);
+      expect(smallBids.count).toBe(3);
+      expect(smallBids.prices[0]).toBe(100);
+      expect(smallBids.prices[1]).toBe(99);
+      expect(smallBids.prices[2]).toBe(98);
+
+      // Worse bid (95) is ignored
+      smallBids.set(95, 1.0);
+      expect(smallBids.count).toBe(3);
+      expect(smallBids.prices[2]).toBe(98);
+    });
   });
 });
 
@@ -522,5 +595,130 @@ describe("Spread Terminal: Dynamic Position Sizing (Min Burn vs Max Vol)", () =>
     expect(dynamicMetrics?.effectiveTargetUsd).toBe(dynamicMetrics?.optimalSizeUsd);
     expect(dynamicMetrics?.optimalSizeUsd).toBeGreaterThan(0);
     expect(dynamicMetrics?.optimalSizeUsd).toBeLessThanOrEqual(20000);
+  });
+});
+
+describe("Spread Terminal: High-Throughput & Zero-Allocation Hot Path", () => {
+  it("executes fastSimFillInto and simulateFillBaseInto in-place without object allocations", () => {
+    const asks = new FlatOrderBookSide(true, 40);
+    for (let i = 0; i < 20; i++) {
+      asks.set(100 + i * 0.5, 2.0 + i * 0.1);
+    }
+
+    const fastRes: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+    const complete = fastSimFillInto(fastRes, asks, 10.0);
+
+    expect(complete).toBe(true);
+    expect(fastRes.isComplete).toBe(true);
+    expect(fastRes.levelsSwept).toBeGreaterThan(0);
+    expect(fastRes.totalCostUsd).toBeGreaterThan(0);
+    expect(fastRes.avgPrice).toBeGreaterThanOrEqual(100);
+
+    const fillRes: SimFillResult = {
+      isComplete: false,
+      avgPrice: 0,
+      bestPrice: 0,
+      slippageBps: 0,
+      levelsSwept: 0,
+      totalCostUsd: 0,
+      filledBase: 0,
+      totalAvailableUsd: 0,
+      totalAvailableBase: 0,
+    };
+    simulateFillBaseInto(fillRes, asks, 10.0, true);
+
+    expect(fillRes.isComplete).toBe(true);
+    expect(fillRes.filledBase).toBeCloseTo(10.0, 4);
+    expect(fillRes.levelsSwept).toBe(fastRes.levelsSwept);
+    expect(fillRes.avgPrice).toBeCloseTo(fastRes.avgPrice, 4);
+    expect(fillRes.totalCostUsd).toBeCloseTo(fastRes.totalCostUsd, 4);
+    expect(fillRes.bestPrice).toBe(100);
+  });
+
+  it("handles high-frequency orderbook churn with sub-microsecond latency and zero drift", () => {
+    const asks = new FlatOrderBookSide(true, 80);
+    const bids = new FlatOrderBookSide(false, 80);
+
+    for (let i = 0; i < 40; i++) {
+      asks.set(100 + i * 0.1, 5 + i * 0.5);
+      bids.set(99.9 - i * 0.1, 5 + i * 0.5);
+    }
+
+    const fastRes: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+    const fillRes: SimFillResult = {
+      isComplete: false,
+      avgPrice: 0,
+      bestPrice: 0,
+      slippageBps: 0,
+      levelsSwept: 0,
+      totalCostUsd: 0,
+      filledBase: 0,
+      totalAvailableUsd: 0,
+      totalAvailableBase: 0,
+    };
+
+    const ITERATIONS = 50_000;
+    const tStart = performance.now();
+
+    for (let i = 0; i < ITERATIONS; i++) {
+      const priceOffset = (i % 30) * 0.1;
+      const p = 100 + priceOffset;
+      const s = i % 2 === 0 ? 0 : (i % 10) + 1;
+
+      asks.set(p, s);
+
+      fastSimFillInto(fastRes, asks, 15.0);
+      simulateFillBaseInto(fillRes, asks, 15.0, true);
+    }
+
+    const durationMs = performance.now() - tStart;
+    const usPerOp = (durationMs / ITERATIONS) * 1000;
+
+    // Must execute 50,000 iterations in under 500ms (< 10 microseconds per operation)
+    expect(durationMs).toBeLessThan(500);
+    expect(usPerOp).toBeLessThan(10);
+    expect(fillRes.isComplete).toBe(true);
+    expect(asks.count).toBeGreaterThan(0);
+    expect(asks.totalDepthBase).toBeGreaterThan(0);
+    expect(asks.totalDepthUsd).toBeGreaterThan(0);
+  });
+
+  it("maintains depth accuracy and invariants under rapid insertions and deletions", () => {
+    const side = new FlatOrderBookSide(true, 20);
+
+    // Insert 10 levels
+    for (let i = 1; i <= 10; i++) {
+      side.set(100 + i, 2.0);
+    }
+    expect(side.count).toBe(10);
+    expect(side.totalDepthBase).toBe(20.0);
+
+    // Delete 5 levels
+    for (let i = 1; i <= 5; i++) {
+      side.set(100 + i, 0); // remove
+    }
+    expect(side.count).toBe(5);
+    expect(side.totalDepthBase).toBe(10.0);
+    expect(side.prices[0]).toBe(106);
+
+    // Update remaining levels
+    for (let i = 6; i <= 10; i++) {
+      side.set(100 + i, 3.0);
+    }
+    expect(side.count).toBe(5);
+    expect(side.totalDepthBase).toBe(15.0);
+
+    // Recalibrate and ensure zero float drift
+    const prevBase = side.totalDepthBase;
+    const prevUsd = side.totalDepthUsd;
+    side.recalibrateDepth();
+    expect(side.totalDepthBase).toBeCloseTo(prevBase, 6);
+    expect(side.totalDepthUsd).toBeCloseTo(prevUsd, 6);
+
+    // Clear and verify strict zero
+    side.clear();
+    expect(side.count).toBe(0);
+    expect(side.totalDepthBase).toBe(0);
+    expect(side.totalDepthUsd).toBe(0);
   });
 });

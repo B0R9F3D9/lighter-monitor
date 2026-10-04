@@ -13,6 +13,8 @@ import {
   updateExecutiveSummary,
 } from "./dom";
 
+const STATUS_RANK: Record<string, number> = { READY: 1, SLIPPAGE: 2, "LOW LIQ": 3, STALE: 4 };
+
 export class TerminalController {
   public state: TerminalState = {
     markets: new Map(),
@@ -46,6 +48,9 @@ export class TerminalController {
   private dirtySymbols = new Set<string>();
   private rowDomCache = new Map<string, RowDomCache>();
   private detailRowDom: HTMLTableRowElement | null = null;
+  private activeTrRows: HTMLElement[] = [];
+  private scratchRows: MarketMetrics[] = [];
+  private scratchOrder: string[] = [];
 
   private wsManager: WebSocketManager;
   private isWsInitialized = false;
@@ -156,9 +161,10 @@ export class TerminalController {
 
     requestAnimationFrame(() => {
       this.updateScheduled = false;
-      this.updateCellsInPlace(false);
       if (this.state.rerankIntervalSec === 0 && this.state.isAutoSortEnabled) {
         this.rerank();
+      } else {
+        this.updateCellsInPlace(false);
       }
     });
   }
@@ -183,6 +189,7 @@ export class TerminalController {
         this.wsManager.lastCoreMsgAt,
         this.wsManager.lastRhMsgAt,
         now,
+        m.latestMetrics,
       );
 
       const cache = this.rowDomCache.get(symbol);
@@ -198,9 +205,16 @@ export class TerminalController {
       }
     }
 
+    this.updateLeaderSummary();
+  }
+
+  private updateLeaderSummary(): void {
     let topRow: MarketMetrics | null = null;
     let bestCost = Infinity;
     const nowTime = performance.now();
+    const isSortedByCostAsc =
+      this.state.sortColumn === "costUsd" && this.state.sortDirection === "asc";
+
     for (const sym of this.state.displayedSymbolsOrder) {
       const m = this.state.markets.get(sym);
       const r = m?.latestMetrics;
@@ -217,6 +231,10 @@ export class TerminalController {
         if (rankMetric < bestCost) {
           bestCost = rankMetric;
           topRow = r;
+        }
+        if (isSortedByCostAsc) {
+          // In standard cost sort, the first eligible candidate is always the optimal leader
+          break;
         }
       }
     }
@@ -289,7 +307,8 @@ export class TerminalController {
   }
 
   public rerank(): void {
-    const rows: MarketMetrics[] = [];
+    this.scratchRows.length = 0;
+    const rows = this.scratchRows;
     const now = performance.now();
 
     for (const m of this.state.markets.values()) {
@@ -312,6 +331,7 @@ export class TerminalController {
           this.wsManager.lastCoreMsgAt,
           this.wsManager.lastRhMsgAt,
           now,
+          m.latestMetrics,
         );
         this.dirtySymbols.delete(m.symbol);
       }
@@ -334,8 +354,7 @@ export class TerminalController {
         return (a.totalVolume24h - b.totalVolume24h) * dir;
       if (this.state.sortColumn === "totalOiUsd") return (a.totalOiUsd - b.totalOiUsd) * dir;
       if (this.state.sortColumn === "status") {
-        const rank = { READY: 1, SLIPPAGE: 2, "LOW LIQ": 3, STALE: 4 };
-        return ((rank[a.status] || 9) - (rank[b.status] || 9)) * dir;
+        return ((STATUS_RANK[a.status] || 9) - (STATUS_RANK[b.status] || 9)) * dir;
       }
       const rankA = a.status === "READY" ? 0 : a.status === "SLIPPAGE" ? 1 : 2;
       const rankB = b.status === "READY" ? 0 : b.status === "SLIPPAGE" ? 1 : 2;
@@ -351,21 +370,11 @@ export class TerminalController {
       return (valA - valB) * dir;
     });
 
-    const newOrder = rows.map((r) => r.symbol);
-
-    // Check: did the order change relative to previous rerank?
-    let isOrderUnchanged = this.state.displayedSymbolsOrder.length === newOrder.length;
-
-    if (isOrderUnchanged) {
-      for (let i = 0; i < newOrder.length; i++) {
-        if (this.state.displayedSymbolsOrder[i] !== newOrder[i]) {
-          isOrderUnchanged = false;
-          break;
-        }
-      }
+    this.scratchOrder.length = 0;
+    for (let i = 0; i < rows.length; i++) {
+      this.scratchOrder.push(rows[i]!.symbol);
     }
-
-    this.state.displayedSymbolsOrder = newOrder;
+    this.state.displayedSymbolsOrder = this.scratchOrder;
 
     const tableBody = document.getElementById("tableBody");
     if (!tableBody) {
@@ -376,6 +385,7 @@ export class TerminalController {
     if (emptyRow) emptyRow.remove();
 
     if (rows.length === 0) {
+      this.activeTrRows.length = 0;
       const hasAnySnapshots =
         Array.from(this.state.coreBooks.values()).some((b) => b.isSnapshotReceived) &&
         Array.from(this.state.rhBooks.values()).some((b) => b.isSnapshotReceived);
@@ -406,32 +416,57 @@ export class TerminalController {
       return;
     }
 
-    // If order has not changed — skip DOM mutations entirely!
-    if (isOrderUnchanged && this.hasInitialRenderHappened) {
-      this.updateCellsInPlace(true);
-      this.state.rerankTimerRemaining = this.state.rerankIntervalSec;
-      this.resetHysteresisTimerCallback?.();
-      return;
+    // 3. Positional DOM reconciliation with JS array tracking (zero DOM collection traversal)
+    if (this.activeTrRows.length === 0 && tableBody.children.length > 0) {
+      this.activeTrRows = Array.from(tableBody.children) as HTMLElement[];
     }
 
-    // 3. If order changed — update via DocumentFragment in a single batch operation:
-    const fragment = document.createDocumentFragment();
-    for (const r of rows) {
+    let domIndex = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]!;
       let cache = this.rowDomCache.get(r.symbol);
       if (!cache) {
         cache = createRowElement(r, (sym) => this.toggleExpand(sym));
         this.rowDomCache.set(r.symbol, cache);
       }
       cache.chevronEl?.classList.toggle("rotate-180", this.state.expandedSymbol === r.symbol);
-      fragment.appendChild(cache.tr);
+
+      const targetTr = cache.tr;
+      const currentTr = this.activeTrRows[domIndex];
+      if (currentTr !== targetTr) {
+        tableBody.insertBefore(targetTr, currentTr || null);
+        const existingIdx = this.activeTrRows.indexOf(targetTr);
+        if (existingIdx !== -1) {
+          this.activeTrRows.splice(existingIdx, 1);
+        }
+        this.activeTrRows.splice(domIndex, 0, targetTr);
+      }
+      domIndex++;
+
+      applyRowMetricsToDom(cache, r);
 
       if (this.state.expandedSymbol === r.symbol && this.detailRowDom) {
-        fragment.appendChild(this.detailRowDom);
+        const detailTr = this.activeTrRows[domIndex];
+        if (detailTr !== this.detailRowDom) {
+          tableBody.insertBefore(this.detailRowDom, detailTr || null);
+          const existingIdx = this.activeTrRows.indexOf(this.detailRowDom);
+          if (existingIdx !== -1) {
+            this.activeTrRows.splice(existingIdx, 1);
+          }
+          this.activeTrRows.splice(domIndex, 0, this.detailRowDom);
+        }
+        domIndex++;
+        updateDetailRow(r, this.state.targetSizeUsd, this.detailRowDom);
       }
     }
-    tableBody.replaceChildren(fragment);
 
-    this.updateCellsInPlace(true);
+    // Clean up trailing rows (e.g. if filtered out)
+    while (this.activeTrRows.length > domIndex) {
+      const tr = this.activeTrRows.pop();
+      tr?.remove();
+    }
+
+    this.updateLeaderSummary();
     this.hasInitialRenderHappened = true;
     this.state.rerankTimerRemaining = this.state.rerankIntervalSec;
     this.resetHysteresisTimerCallback?.();
@@ -442,7 +477,11 @@ export class TerminalController {
       const prevCache = this.rowDomCache.get(this.state.expandedSymbol);
       prevCache?.chevronEl?.classList.remove("rotate-180");
       this.state.expandedSymbol = null;
-      if (this.detailRowDom) this.detailRowDom.remove();
+      if (this.detailRowDom) {
+        const idx = this.activeTrRows.indexOf(this.detailRowDom);
+        if (idx !== -1) this.activeTrRows.splice(idx, 1);
+        this.detailRowDom.remove();
+      }
       this.detailRowDom = null;
     } else {
       if (this.state.expandedSymbol) {
@@ -452,7 +491,11 @@ export class TerminalController {
       const m = this.state.markets.get(symbol);
       if (!m) return;
       this.state.expandedSymbol = symbol;
-      if (this.detailRowDom) this.detailRowDom.remove();
+      if (this.detailRowDom) {
+        const idx = this.activeTrRows.indexOf(this.detailRowDom);
+        if (idx !== -1) this.activeTrRows.splice(idx, 1);
+        this.detailRowDom.remove();
+      }
 
       const r =
         m.latestMetrics ||
@@ -463,6 +506,12 @@ export class TerminalController {
       const cache = this.rowDomCache.get(symbol);
       if (cache?.tr) {
         cache.tr.after(this.detailRowDom);
+        const trIdx = this.activeTrRows.indexOf(cache.tr);
+        if (trIdx !== -1) {
+          this.activeTrRows.splice(trIdx + 1, 0, this.detailRowDom);
+        } else {
+          this.activeTrRows.push(this.detailRowDom);
+        }
         cache.chevronEl?.classList.add("rotate-180");
       }
     }
@@ -606,7 +655,7 @@ export class TerminalController {
       if (remainingSec <= 0) {
         targetExpiry = performance.now() + this.state.rerankIntervalSec * 1000;
         this.state.rerankTimerRemaining = this.state.rerankIntervalSec;
-        this.rerank();
+        requestAnimationFrame(() => this.rerank());
       }
     }, 200);
   }
@@ -688,6 +737,11 @@ export class TerminalController {
       this.state.sortColumn = "costUsd";
       this.state.sortDirection = "asc";
       this.updateSortHeaderUi();
+    }
+
+    // Mark all markets dirty so rerank recalculates metrics for the new size
+    for (const sym of this.state.markets.keys()) {
+      this.dirtySymbols.add(sym);
     }
   }
 

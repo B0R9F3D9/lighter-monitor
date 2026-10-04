@@ -113,116 +113,192 @@ export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): vo
 
   // 1.5. Target / Optimal Size ($)
   if (cache.sizeEl) {
-    setTextIfChanged(
-      cache.sizeEl,
-      row.effectiveTargetUsd > 0 ? formatMoney(row.effectiveTargetUsd) : "—",
-    );
-    if (row.isDynamic) {
-      setClassIfChanged(cache.sizeEl, "tabular-nums font-bold text-terminal-accent text-xs");
-      if (cache.sizeEl.title !== "Dynamically optimized size from live order book") {
-        cache.sizeEl.title = "Dynamically optimized size from live order book";
-      }
-    } else {
-      setClassIfChanged(cache.sizeEl, "tabular-nums font-medium text-white text-xs");
-      const title = `Fixed target size: ${formatMoney(row.effectiveTargetUsd)}`;
-      if (cache.sizeEl.title !== title) {
-        cache.sizeEl.title = title;
+    const sizeChanged =
+      cache.lastTargetUsd === undefined ||
+      cache.lastTargetUsd !== row.effectiveTargetUsd ||
+      cache.lastIsDynamic !== row.isDynamic;
+    if (sizeChanged) {
+      cache.lastTargetUsd = row.effectiveTargetUsd;
+      cache.lastIsDynamic = row.isDynamic;
+      setTextIfChanged(
+        cache.sizeEl,
+        row.effectiveTargetUsd > 0 ? formatMoney(row.effectiveTargetUsd) : "—",
+      );
+      if (row.isDynamic) {
+        setClassIfChanged(cache.sizeEl, "tabular-nums font-bold text-terminal-accent text-xs");
+        if (cache.sizeEl.title !== "Dynamically optimized size from live order book") {
+          cache.sizeEl.title = "Dynamically optimized size from live order book";
+        }
+      } else {
+        setClassIfChanged(cache.sizeEl, "tabular-nums font-medium text-white text-xs");
+        const title = `Fixed target size: ${formatMoney(row.effectiveTargetUsd)}`;
+        if (cache.sizeEl.title !== title) {
+          cache.sizeEl.title = title;
+        }
       }
     }
   }
 
   // 2. Round-Trip Loss ($)
-  if (row.isStale) {
-    setTextIfChanged(cache.rtLossEl, "—");
-    setClassIfChanged(
-      cache.rtLossEl,
-      "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs",
-    );
-  } else if (!row.allFilled) {
-    setTextIfChanged(cache.rtLossEl, "N/A (< liq)");
-    setClassIfChanged(
-      cache.rtLossEl,
-      "rt-loss-val font-semibold text-terminal-coral tabular-nums text-xs",
-    );
-  } else {
-    setTextIfChanged(cache.rtLossEl, formatMoney(row.costUsd));
-    if (row.costUsd <= 3.0) {
-      setClassIfChanged(
-        cache.rtLossEl,
-        "rt-loss-val font-bold text-terminal-emerald tabular-nums text-xs",
-      );
-    } else if (row.costUsd <= 7.0) {
-      setClassIfChanged(
-        cache.rtLossEl,
-        "rt-loss-val font-semibold text-terminal-primary tabular-nums text-xs",
-      );
-    } else {
-      setClassIfChanged(
-        cache.rtLossEl,
-        "rt-loss-val font-medium text-terminal-secondary tabular-nums text-xs",
-      );
+  if (cache.rtLossEl) {
+    const costTier = row.isStale
+      ? -2
+      : !row.allFilled
+      ? -1
+      : row.costUsd <= 3.0
+      ? 0
+      : row.costUsd <= 7.0
+      ? 1
+      : 2;
+    const costChanged =
+      cache.lastCostUsd === undefined ||
+      Math.abs(cache.lastCostUsd - row.costUsd) >= 0.005 ||
+      cache.lastCostTier !== costTier;
+    if (costChanged) {
+      cache.lastCostUsd = row.costUsd;
+      cache.lastCostTier = costTier;
+      if (row.isStale) {
+        setTextIfChanged(cache.rtLossEl, "—");
+        setClassIfChanged(
+          cache.rtLossEl,
+          "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs",
+        );
+      } else if (!row.allFilled) {
+        setTextIfChanged(cache.rtLossEl, "N/A (< liq)");
+        setClassIfChanged(
+          cache.rtLossEl,
+          "rt-loss-val font-semibold text-terminal-coral tabular-nums text-xs",
+        );
+      } else {
+        setTextIfChanged(cache.rtLossEl, formatMoney(row.costUsd));
+        if (costTier === 0) {
+          setClassIfChanged(
+            cache.rtLossEl,
+            "rt-loss-val font-bold text-terminal-emerald tabular-nums text-xs",
+          );
+        } else if (costTier === 1) {
+          setClassIfChanged(
+            cache.rtLossEl,
+            "rt-loss-val font-semibold text-terminal-primary tabular-nums text-xs",
+          );
+        } else {
+          setClassIfChanged(
+            cache.rtLossEl,
+            "rt-loss-val font-medium text-terminal-secondary tabular-nums text-xs",
+          );
+        }
+      }
     }
   }
 
   // 3. Point Cost ($/pt)
-  if (row.isStale) {
-    setTextIfChanged(cache.ptCostEl, "—");
-    setClassIfChanged(
-      cache.ptCostEl,
-      "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
-    );
-  } else if (!row.allFilled) {
-    setTextIfChanged(cache.ptCostEl, "N/A");
-    setClassIfChanged(
-      cache.ptCostEl,
-      "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
-    );
-  } else {
-    setTextIfChanged(cache.ptCostEl, `$${row.pointCostUsd.toFixed(2)}/pt`);
-    if (row.pointCostUsd < 1.5) {
-      setClassIfChanged(
-        cache.ptCostEl,
-        "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-bold text-terminal-emerald tabular-nums text-xs whitespace-nowrap",
-      );
-    } else if (row.pointCostUsd <= 3.0) {
-      setClassIfChanged(
-        cache.ptCostEl,
-        "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-amber tabular-nums text-xs whitespace-nowrap",
-      );
-    } else {
-      setClassIfChanged(
-        cache.ptCostEl,
-        "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-coral tabular-nums text-xs whitespace-nowrap",
-      );
+  if (cache.ptCostEl) {
+    const ptTier = row.isStale
+      ? -2
+      : !row.allFilled
+      ? -1
+      : row.pointCostUsd < 1.5
+      ? 0
+      : row.pointCostUsd <= 3.0
+      ? 1
+      : 2;
+    const ptChanged =
+      cache.lastPointCostUsd === undefined ||
+      Math.abs(cache.lastPointCostUsd - row.pointCostUsd) >= 0.005 ||
+      cache.lastPointCostTier !== ptTier;
+    if (ptChanged) {
+      cache.lastPointCostUsd = row.pointCostUsd;
+      cache.lastPointCostTier = ptTier;
+      if (row.isStale) {
+        setTextIfChanged(cache.ptCostEl, "—");
+        setClassIfChanged(
+          cache.ptCostEl,
+          "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
+        );
+      } else if (!row.allFilled) {
+        setTextIfChanged(cache.ptCostEl, "N/A");
+        setClassIfChanged(
+          cache.ptCostEl,
+          "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
+        );
+      } else {
+        setTextIfChanged(cache.ptCostEl, `$${row.pointCostUsd.toFixed(2)}/pt`);
+        if (ptTier === 0) {
+          setClassIfChanged(
+            cache.ptCostEl,
+            "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-bold text-terminal-emerald tabular-nums text-xs whitespace-nowrap",
+          );
+        } else if (ptTier === 1) {
+          setClassIfChanged(
+            cache.ptCostEl,
+            "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-amber tabular-nums text-xs whitespace-nowrap",
+          );
+        } else {
+          setClassIfChanged(
+            cache.ptCostEl,
+            "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-coral tabular-nums text-xs whitespace-nowrap",
+          );
+        }
+      }
     }
   }
 
   // 4. Turnover Drag in bps
-  if (row.isStale) {
-    setTextIfChanged(cache.turnoverDragEl, "—");
-  } else if (!row.allFilled) {
-    setTextIfChanged(cache.turnoverDragEl, "N/A");
-  } else {
-    setTextIfChanged(cache.turnoverDragEl, formatBps(row.vwapTotalDragBps));
+  if (cache.turnoverDragEl) {
+    const dragTier = row.isStale ? -2 : !row.allFilled ? -1 : 0;
+    const dragChanged =
+      cache.lastDragBps === undefined ||
+      Math.abs(cache.lastDragBps - row.vwapTotalDragBps) >= 0.05 ||
+      cache.lastDragTier !== dragTier;
+    if (dragChanged) {
+      cache.lastDragBps = row.vwapTotalDragBps;
+      cache.lastDragTier = dragTier;
+      if (row.isStale) {
+        setTextIfChanged(cache.turnoverDragEl, "—");
+      } else if (!row.allFilled) {
+        setTextIfChanged(cache.turnoverDragEl, "N/A");
+      } else {
+        setTextIfChanged(cache.turnoverDragEl, formatBps(row.vwapTotalDragBps));
+      }
+    }
   }
 
   // 5. Mid Price & Inter-Exchange Basis (Delta Mid)
-  setTextIfChanged(cache.midPriceEl, row.midPrice > 0 ? formatPrice(row.midPrice) : "—");
+  if (cache.midPriceEl) {
+    const midThreshold = row.midPrice >= 1 ? 0.005 : 0.0001;
+    if (
+      cache.lastMidPrice === undefined ||
+      Math.abs(cache.lastMidPrice - row.midPrice) >= midThreshold
+    ) {
+      cache.lastMidPrice = row.midPrice;
+      setTextIfChanged(cache.midPriceEl, row.midPrice > 0 ? formatPrice(row.midPrice) : "—");
+    }
+  }
   if (cache.deltaMidEl) {
-    setTextIfChanged(
-      cache.deltaMidEl,
-      row.midPrice > 0 ? `Δ ${formatPrice(Math.abs(row.deltaMidUsd))}` : "—",
-    );
-    if (Math.abs(row.deltaMidBps) > 6.0) {
-      setClassIfChanged(
+    const deltaThreshold = row.midPrice >= 1 ? 0.005 : 0.0001;
+    const deltaMidChanged =
+      cache.lastDeltaMidUsd === undefined ||
+      Math.abs(cache.lastDeltaMidUsd - row.deltaMidUsd) >= deltaThreshold ||
+      cache.lastDeltaMidBps === undefined ||
+      Math.abs(row.deltaMidBps) > 6.0 !== Math.abs(cache.lastDeltaMidBps) > 6.0;
+    if (deltaMidChanged) {
+      cache.lastDeltaMidUsd = row.deltaMidUsd;
+      cache.lastDeltaMidBps = row.deltaMidBps;
+      setTextIfChanged(
         cache.deltaMidEl,
-        "delta-mid-val text-[10px] text-terminal-amber font-semibold tabular-nums",
+        row.midPrice > 0 ? `Δ ${formatPrice(Math.abs(row.deltaMidUsd))}` : "—",
       );
-    } else {
-      setClassIfChanged(
-        cache.deltaMidEl,
-        "delta-mid-val text-[10px] text-terminal-muted tabular-nums",
-      );
+      if (Math.abs(row.deltaMidBps) > 6.0) {
+        setClassIfChanged(
+          cache.deltaMidEl,
+          "delta-mid-val text-[10px] text-terminal-amber font-semibold tabular-nums",
+        );
+      } else {
+        setClassIfChanged(
+          cache.deltaMidEl,
+          "delta-mid-val text-[10px] text-terminal-muted tabular-nums",
+        );
+      }
     }
   }
 
@@ -387,16 +463,125 @@ export function createDetailRowElement(
   return detailTr;
 }
 
-function setElementText(
-  id: string,
-  text: string,
-  root: HTMLElement | Document = document,
-): void {
-  const el =
-    root instanceof Document
-      ? root.getElementById(id)
-      : (root.querySelector(`#${id}`) as HTMLElement | null);
-  if (el && el.textContent !== text) el.textContent = text;
+interface DetailRowDomCache {
+  dtlSymbol: HTMLElement | null;
+  dtlLev: HTMLElement | null;
+  dtlLevVenues: HTMLElement | null;
+  dtlSize: HTMLElement | null;
+  dtlBasis: HTMLElement | null;
+  dtlEntry: HTMLElement | null;
+  dtlEntryDrag: HTMLElement | null;
+  dtlExit: HTMLElement | null;
+  dtlExitDrag: HTMLElement | null;
+  dtlL1Top: HTMLElement | null;
+  dtlL1Fill: HTMLElement | null;
+  dtlL1Slip: HTMLElement | null;
+  dtlL1Swept: HTMLElement | null;
+  dtlL1Depth: HTMLElement | null;
+  dtlL2Top: HTMLElement | null;
+  dtlL2Fill: HTMLElement | null;
+  dtlL2Slip: HTMLElement | null;
+  dtlL2Swept: HTMLElement | null;
+  dtlL2Depth: HTMLElement | null;
+  dtlL3Top: HTMLElement | null;
+  dtlL3Fill: HTMLElement | null;
+  dtlL3Slip: HTMLElement | null;
+  dtlL3Swept: HTMLElement | null;
+  dtlL3Depth: HTMLElement | null;
+  dtlL4Top: HTMLElement | null;
+  dtlL4Fill: HTMLElement | null;
+  dtlL4Slip: HTMLElement | null;
+  dtlL4Swept: HTMLElement | null;
+  dtlL4Depth: HTMLElement | null;
+  dtlFntMid: HTMLElement | null;
+  dtlFntEntryCost: HTMLElement | null;
+  dtlFntDrag: HTMLElement | null;
+  dtlFntRtLoss: HTMLElement | null;
+  dtlFntPtCost: HTMLElement | null;
+}
+
+const detailRowCacheMap = new WeakMap<HTMLElement, DetailRowDomCache>();
+
+function getDetailRowCache(root: HTMLElement | Document): DetailRowDomCache {
+  if (root instanceof HTMLElement) {
+    let cache = detailRowCacheMap.get(root);
+    if (!cache) {
+      cache = {
+        dtlSymbol: root.querySelector("#dtlSymbol"),
+        dtlLev: root.querySelector("#dtlLev"),
+        dtlLevVenues: root.querySelector("#dtlLevVenues"),
+        dtlSize: root.querySelector("#dtlSize"),
+        dtlBasis: root.querySelector("#dtlBasis"),
+        dtlEntry: root.querySelector("#dtlEntry"),
+        dtlEntryDrag: root.querySelector("#dtlEntryDrag"),
+        dtlExit: root.querySelector("#dtlExit"),
+        dtlExitDrag: root.querySelector("#dtlExitDrag"),
+        dtlL1Top: root.querySelector("#dtlL1Top"),
+        dtlL1Fill: root.querySelector("#dtlL1Fill"),
+        dtlL1Slip: root.querySelector("#dtlL1Slip"),
+        dtlL1Swept: root.querySelector("#dtlL1Swept"),
+        dtlL1Depth: root.querySelector("#dtlL1Depth"),
+        dtlL2Top: root.querySelector("#dtlL2Top"),
+        dtlL2Fill: root.querySelector("#dtlL2Fill"),
+        dtlL2Slip: root.querySelector("#dtlL2Slip"),
+        dtlL2Swept: root.querySelector("#dtlL2Swept"),
+        dtlL2Depth: root.querySelector("#dtlL2Depth"),
+        dtlL3Top: root.querySelector("#dtlL3Top"),
+        dtlL3Fill: root.querySelector("#dtlL3Fill"),
+        dtlL3Slip: root.querySelector("#dtlL3Slip"),
+        dtlL3Swept: root.querySelector("#dtlL3Swept"),
+        dtlL3Depth: root.querySelector("#dtlL3Depth"),
+        dtlL4Top: root.querySelector("#dtlL4Top"),
+        dtlL4Fill: root.querySelector("#dtlL4Fill"),
+        dtlL4Slip: root.querySelector("#dtlL4Slip"),
+        dtlL4Swept: root.querySelector("#dtlL4Swept"),
+        dtlL4Depth: root.querySelector("#dtlL4Depth"),
+        dtlFntMid: root.querySelector("#dtlFntMid"),
+        dtlFntEntryCost: root.querySelector("#dtlFntEntryCost"),
+        dtlFntDrag: root.querySelector("#dtlFntDrag"),
+        dtlFntRtLoss: root.querySelector("#dtlFntRtLoss"),
+        dtlFntPtCost: root.querySelector("#dtlFntPtCost"),
+      };
+      detailRowCacheMap.set(root, cache);
+    }
+    return cache;
+  }
+  return {
+    dtlSymbol: root.getElementById("dtlSymbol"),
+    dtlLev: root.getElementById("dtlLev"),
+    dtlLevVenues: root.getElementById("dtlLevVenues"),
+    dtlSize: root.getElementById("dtlSize"),
+    dtlBasis: root.getElementById("dtlBasis"),
+    dtlEntry: root.getElementById("dtlEntry"),
+    dtlEntryDrag: root.getElementById("dtlEntryDrag"),
+    dtlExit: root.getElementById("dtlExit"),
+    dtlExitDrag: root.getElementById("dtlExitDrag"),
+    dtlL1Top: root.getElementById("dtlL1Top"),
+    dtlL1Fill: root.getElementById("dtlL1Fill"),
+    dtlL1Slip: root.getElementById("dtlL1Slip"),
+    dtlL1Swept: root.getElementById("dtlL1Swept"),
+    dtlL1Depth: root.getElementById("dtlL1Depth"),
+    dtlL2Top: root.getElementById("dtlL2Top"),
+    dtlL2Fill: root.getElementById("dtlL2Fill"),
+    dtlL2Slip: root.getElementById("dtlL2Slip"),
+    dtlL2Swept: root.getElementById("dtlL2Swept"),
+    dtlL2Depth: root.getElementById("dtlL2Depth"),
+    dtlL3Top: root.getElementById("dtlL3Top"),
+    dtlL3Fill: root.getElementById("dtlL3Fill"),
+    dtlL3Slip: root.getElementById("dtlL3Slip"),
+    dtlL3Swept: root.getElementById("dtlL3Swept"),
+    dtlL3Depth: root.getElementById("dtlL3Depth"),
+    dtlL4Top: root.getElementById("dtlL4Top"),
+    dtlL4Fill: root.getElementById("dtlL4Fill"),
+    dtlL4Slip: root.getElementById("dtlL4Slip"),
+    dtlL4Swept: root.getElementById("dtlL4Swept"),
+    dtlL4Depth: root.getElementById("dtlL4Depth"),
+    dtlFntMid: root.getElementById("dtlFntMid"),
+    dtlFntEntryCost: root.getElementById("dtlFntEntryCost"),
+    dtlFntDrag: root.getElementById("dtlFntDrag"),
+    dtlFntRtLoss: root.getElementById("dtlFntRtLoss"),
+    dtlFntPtCost: root.getElementById("dtlFntPtCost"),
+  };
 }
 
 export function updateDetailRow(
@@ -405,87 +590,82 @@ export function updateDetailRow(
   root: HTMLElement | Document = document,
 ): void {
   const l = r.legs;
+  const c = getDetailRowCache(root);
 
   // Header info
-  setElementText("dtlSymbol", r.symbol, root);
-  setElementText("dtlLev", `[Min Lev: ${r.leverage}]`, root);
-  setElementText("dtlLevVenues", `(RH: ${r.rhLeverage} • Core: ${r.coreLeverage})`, root);
-  setElementText(
-    "dtlSize",
+  setTextIfChanged(c.dtlSymbol, r.symbol);
+  setTextIfChanged(c.dtlLev, `[Min Lev: ${r.leverage}]`);
+  setTextIfChanged(c.dtlLevVenues, `(RH: ${r.rhLeverage} • Core: ${r.coreLeverage})`);
+  setTextIfChanged(
+    c.dtlSize,
     `Size: ${formatMoney(r.effectiveTargetUsd || targetSizeUsd)}${
       r.isDynamic ? (r.dynamicMode === "min_burn" ? " (Min Burn Opt)" : " (Max Vol Opt)") : ""
     }`,
-    root,
   );
 
-  const basisEl =
-    root instanceof Document
-      ? root.getElementById("dtlBasis")
-      : (root.querySelector("#dtlBasis") as HTMLElement | null);
-  if (basisEl) {
-    basisEl.textContent = formatDeltaMid(r.deltaMidUsd, r.deltaMidBps);
-    basisEl.className =
+  if (c.dtlBasis) {
+    setTextIfChanged(c.dtlBasis, formatDeltaMid(r.deltaMidUsd, r.deltaMidBps));
+    setClassIfChanged(
+      c.dtlBasis,
       Math.abs(r.deltaMidBps) > 6
         ? "text-terminal-amber font-bold tabular-nums"
-        : "text-white font-bold tabular-nums";
+        : "text-white font-bold tabular-nums",
+    );
   }
 
-  setElementText("dtlEntry", formatMoney(r.entryLossUsd), root);
-  setElementText("dtlEntryDrag", `(${formatBps(r.entryDragBps, true)})`, root);
-  setElementText("dtlExit", formatMoney(r.exitLossUsd), root);
-  setElementText("dtlExitDrag", `(${formatBps(r.exitDragBps, true)})`, root);
+  setTextIfChanged(c.dtlEntry, formatMoney(r.entryLossUsd));
+  setTextIfChanged(c.dtlEntryDrag, `(${formatBps(r.entryDragBps, true)})`);
+  setTextIfChanged(c.dtlExit, formatMoney(r.exitLossUsd));
+  setTextIfChanged(c.dtlExitDrag, `(${formatBps(r.exitDragBps, true)})`);
 
   // Leg 1: RH LONG
-  setElementText("dtlL1Top", formatPrice(l.rhBestAsk), root);
-  setElementText("dtlL1Fill", formatPrice(l.entryRh.avgPrice), root);
-  setElementText("dtlL1Slip", formatBps(l.entryRh.slippageBps, true), root);
-  setElementText("dtlL1Swept", String(l.entryRh.levelsSwept), root);
-  setElementText("dtlL1Depth", formatMoney(l.entryRh.totalAvailableUsd), root);
+  setTextIfChanged(c.dtlL1Top, formatPrice(l.rhBestAsk));
+  setTextIfChanged(c.dtlL1Fill, formatPrice(l.entryRh.avgPrice));
+  setTextIfChanged(c.dtlL1Slip, formatBps(l.entryRh.slippageBps, true));
+  setTextIfChanged(c.dtlL1Swept, String(l.entryRh.levelsSwept));
+  setTextIfChanged(c.dtlL1Depth, formatMoney(l.entryRh.totalAvailableUsd));
 
   // Leg 2: CORE SHORT
-  setElementText("dtlL2Top", formatPrice(l.coreBestBid), root);
-  setElementText("dtlL2Fill", formatPrice(l.entryCore.avgPrice), root);
-  setElementText("dtlL2Slip", formatBps(l.entryCore.slippageBps, true), root);
-  setElementText("dtlL2Swept", String(l.entryCore.levelsSwept), root);
-  setElementText("dtlL2Depth", formatMoney(l.entryCore.totalAvailableUsd), root);
+  setTextIfChanged(c.dtlL2Top, formatPrice(l.coreBestBid));
+  setTextIfChanged(c.dtlL2Fill, formatPrice(l.entryCore.avgPrice));
+  setTextIfChanged(c.dtlL2Slip, formatBps(l.entryCore.slippageBps, true));
+  setTextIfChanged(c.dtlL2Swept, String(l.entryCore.levelsSwept));
+  setTextIfChanged(c.dtlL2Depth, formatMoney(l.entryCore.totalAvailableUsd));
 
   // Leg 3: CLOSE RH
-  setElementText("dtlL3Top", formatPrice(l.rhBestBid), root);
-  setElementText("dtlL3Fill", formatPrice(l.exitRh.avgPrice), root);
-  setElementText("dtlL3Slip", formatBps(l.exitRh.slippageBps, true), root);
-  setElementText("dtlL3Swept", String(l.exitRh.levelsSwept), root);
-  setElementText("dtlL3Depth", formatMoney(l.exitRh.totalAvailableUsd), root);
+  setTextIfChanged(c.dtlL3Top, formatPrice(l.rhBestBid));
+  setTextIfChanged(c.dtlL3Fill, formatPrice(l.exitRh.avgPrice));
+  setTextIfChanged(c.dtlL3Slip, formatBps(l.exitRh.slippageBps, true));
+  setTextIfChanged(c.dtlL3Swept, String(l.exitRh.levelsSwept));
+  setTextIfChanged(c.dtlL3Depth, formatMoney(l.exitRh.totalAvailableUsd));
 
   // Leg 4: CLOSE CORE
-  setElementText("dtlL4Top", formatPrice(l.coreBestAsk), root);
-  setElementText("dtlL4Fill", formatPrice(l.exitCore.avgPrice), root);
-  setElementText("dtlL4Slip", formatBps(l.exitCore.slippageBps, true), root);
-  setElementText("dtlL4Swept", String(l.exitCore.levelsSwept), root);
-  setElementText("dtlL4Depth", formatMoney(l.exitCore.totalAvailableUsd), root);
+  setTextIfChanged(c.dtlL4Top, formatPrice(l.coreBestAsk));
+  setTextIfChanged(c.dtlL4Fill, formatPrice(l.exitCore.avgPrice));
+  setTextIfChanged(c.dtlL4Slip, formatBps(l.exitCore.slippageBps, true));
+  setTextIfChanged(c.dtlL4Swept, String(l.exitCore.levelsSwept));
+  setTextIfChanged(c.dtlL4Depth, formatMoney(l.exitCore.totalAvailableUsd));
 
   // Footnote summary
-  setElementText("dtlFntMid", formatPrice(r.midPrice), root);
+  setTextIfChanged(c.dtlFntMid, formatPrice(r.midPrice));
 
-  const fntEntryCost =
-    root instanceof Document
-      ? root.getElementById("dtlFntEntryCost")
-      : (root.querySelector("#dtlFntEntryCost") as HTMLElement | null);
-  if (fntEntryCost) {
-    fntEntryCost.textContent = formatMoney(r.entryLossUsd);
-    fntEntryCost.className = r.entryLossUsd <= 0 ? "text-terminal-emerald" : "text-white";
+  if (c.dtlFntEntryCost) {
+    setTextIfChanged(c.dtlFntEntryCost, formatMoney(r.entryLossUsd));
+    setClassIfChanged(
+      c.dtlFntEntryCost,
+      r.entryLossUsd <= 0 ? "text-terminal-emerald" : "text-white",
+    );
   }
 
-  setElementText("dtlFntDrag", formatBps(r.vwapTotalDragBps), root);
-  setElementText("dtlFntRtLoss", formatMoney(r.costUsd), root);
+  setTextIfChanged(c.dtlFntDrag, formatBps(r.vwapTotalDragBps));
+  setTextIfChanged(c.dtlFntRtLoss, formatMoney(r.costUsd));
 
-  const fntPtCost =
-    root instanceof Document
-      ? root.getElementById("dtlFntPtCost")
-      : (root.querySelector("#dtlFntPtCost") as HTMLElement | null);
-  if (fntPtCost) {
-    fntPtCost.textContent = `$${r.pointCostUsd.toFixed(2)} / pt`;
-    fntPtCost.className =
-      r.pointCostUsd < 1.5 ? "text-terminal-emerald font-bold" : "text-terminal-amber font-bold";
+  if (c.dtlFntPtCost) {
+    setTextIfChanged(c.dtlFntPtCost, `$${r.pointCostUsd.toFixed(2)} / pt`);
+    setClassIfChanged(
+      c.dtlFntPtCost,
+      r.pointCostUsd < 1.5 ? "text-terminal-emerald font-bold" : "text-terminal-amber font-bold",
+    );
   }
 }
 
@@ -503,6 +683,11 @@ interface ExecutiveSummaryDomElements {
 }
 
 let cachedSummaryElements: ExecutiveSummaryDomElements | null = null;
+let lastSummarySymbol: string | null = null;
+let lastSummaryCost = -999999;
+let lastSummaryTarget = -999999;
+let lastSummaryPtCost = -999999;
+let lastSummaryDynamicMode: string | boolean = "";
 
 function getSummaryElements(): ExecutiveSummaryDomElements {
   if (!cachedSummaryElements) {
@@ -530,6 +715,13 @@ export function updateExecutiveSummary(
   const isDynamic = typeof dynamicMode === "boolean" ? dynamicMode : dynamicMode !== "none";
 
   if (!r) {
+    if (lastSummarySymbol === null) return;
+    lastSummarySymbol = null;
+    lastSummaryCost = -999999;
+    lastSummaryTarget = -999999;
+    lastSummaryPtCost = -999999;
+    lastSummaryDynamicMode = dynamicMode;
+
     setTextIfChanged(els.topSymbol, "--");
     setTextIfChanged(els.topLeverage, "--");
     setTextIfChanged(els.topSizeLabel, isDynamic ? "OPT SIZE:" : "SIZE:");
@@ -545,6 +737,23 @@ export function updateExecutiveSummary(
     }
     return;
   }
+
+  // Dirty check: skip if leader and key metrics are unchanged
+  if (
+    r.symbol === lastSummarySymbol &&
+    Math.abs(r.costUsd - lastSummaryCost) < 0.005 &&
+    r.effectiveTargetUsd === lastSummaryTarget &&
+    Math.abs(r.pointCostUsd - lastSummaryPtCost) < 0.005 &&
+    dynamicMode === lastSummaryDynamicMode
+  ) {
+    return;
+  }
+
+  lastSummarySymbol = r.symbol;
+  lastSummaryCost = r.costUsd;
+  lastSummaryTarget = r.effectiveTargetUsd;
+  lastSummaryPtCost = r.pointCostUsd;
+  lastSummaryDynamicMode = dynamicMode;
 
   setTextIfChanged(els.topSymbol, r.symbol);
   setTextIfChanged(els.topLeverage, r.leverage);
@@ -573,3 +782,4 @@ export function updateExecutiveSummary(
     }
   }
 }
+

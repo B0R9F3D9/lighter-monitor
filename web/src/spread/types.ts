@@ -4,10 +4,30 @@ export interface OrderBookLevel {
   totalUsd: number;
 }
 
+export interface FlatOrderBookSide {
+  readonly isAsk: boolean;
+  readonly capacity: number;
+  count: number;
+  totalDepthUsd: number;
+  totalDepthBase: number;
+  readonly prices: Float64Array;
+  readonly sizes: Float64Array;
+  readonly totalUsds: Float64Array;
+  clear(): void;
+  remove(price: number): boolean;
+  set(price: number, size: number): void;
+  find(price: number): number;
+  has(price: number): boolean;
+  get(price: number): number | undefined;
+  delete(price: number): boolean;
+  readonly size: number;
+  recalibrateDepth(): void;
+}
+
 export interface OrderBook {
   marketId: number;
-  asks: Map<number, number>;
-  bids: Map<number, number>;
+  asks: FlatOrderBookSide | Map<number, number>;
+  bids: FlatOrderBookSide | Map<number, number>;
   isSnapshotReceived: boolean;
   lastUpdatedTs: number;
   offset: number;
@@ -142,4 +162,15 @@ export interface RowDomCache {
   verdictText: string;
   lastVol?: number;
   lastOi?: number;
+  lastTargetUsd?: number;
+  lastIsDynamic?: boolean;
+  lastCostUsd?: number;
+  lastCostTier?: number;
+  lastPointCostUsd?: number;
+  lastPointCostTier?: number;
+  lastDragBps?: number;
+  lastDragTier?: number;
+  lastMidPrice?: number;
+  lastDeltaMidUsd?: number;
+  lastDeltaMidBps?: number;
 }
