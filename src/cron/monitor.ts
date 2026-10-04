@@ -48,7 +48,7 @@ export function isPositionRiskIncreasing(
 }
 
 // Кандидат на отправку алерта
-export interface AlertCandidate {
+interface AlertCandidate {
   item: ActivePositionWatchItem;
   currentPrice: number;
   baseline: number;
@@ -58,7 +58,7 @@ export interface AlertCandidate {
 }
 
 // Пакетное выполнение D1 стейтментов чанками до 100 штук
-export async function executeD1BatchInChunks(
+async function executeD1BatchInChunks(
   db: D1Database,
   stmts: D1PreparedStatement[],
   chunkSize: number = 100,

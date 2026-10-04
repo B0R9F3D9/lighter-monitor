@@ -476,6 +476,5 @@ export {
   formatMarketPrice,
   getTokenIcon,
   getTokenImageUrl,
-  OFFICIAL_TOKEN_LOGOS,
   registerTokenLogos,
 } from "../shared";

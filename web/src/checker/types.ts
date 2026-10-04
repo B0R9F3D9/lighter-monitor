@@ -67,34 +67,6 @@ export interface StitchedTradesResult {
   fileNames: string[];
 }
 
-export interface TradesApiResponse {
-  code: number;
-  message?: string;
-  next_cursor?: string;
-  trades?: LighterTrade[];
-}
-
-export interface FetchTradesOptions {
-  network: CheckerNetwork;
-  accountIndex: number;
-  authToken?: string;
-  sortBy?: "timestamp" | "block_height" | "trade_id";
-  sortDir?: "desc" | "asc";
-  limit?: number;
-  marketType?: "all" | "spot" | "perp";
-  marketId?: number;
-  cursor?: string;
-}
-
-export interface FetchProgress {
-  page: number;
-  tradesCount: number;
-  latestTimestamp?: number;
-  cursor?: string;
-  bytesReceived: number;
-  elapsedMs: number;
-}
-
 export interface CheckerSummaryMetrics {
   totalTrades: number;
   totalVolumeUsd: number;
@@ -130,6 +102,8 @@ export interface ParsedTradeView {
   txHash: string;
   txHashShort: string;
   fillsCount?: number;
+  tradeIdNum?: number;
+  searchIndex?: string;
 }
 
 export interface ExportPayload {
@@ -157,8 +131,6 @@ export interface ExportPayload {
   };
   trades: LighterTrade[];
 }
-
-export type HedgeMatchStatus = "HEDGED" | "PARTIAL" | "UNHEDGED";
 
 export interface HedgePair {
   id: string;
@@ -202,6 +174,7 @@ export interface HedgePair {
   pnlBps: number; // (netPnlUsd / notionalUsd) * 10000
   timeDeltaSec: number; // (coreTimestampMs - rhTimestampMs) / 1000
   status: "HEDGED" | "PARTIAL";
+  searchIndex?: string;
 }
 
 export interface UnhedgedTrade {
@@ -221,6 +194,7 @@ export interface UnhedgedTrade {
   timeFormatted: string;
   txHash: string;
   fillsCount?: number;
+  searchIndex?: string;
 }
 
 export interface SelectedHedgeMetrics {

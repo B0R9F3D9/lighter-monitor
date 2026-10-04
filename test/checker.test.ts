@@ -155,4 +155,93 @@ describe("Checker: API & Calculations", () => {
     expect(decodeURIComponent(href)).toContain("/trades");
     expect(decodeURIComponent(href)).toContain("ROW_CAP");
   });
+
+  it("parseTradeForView precomputes searchIndex and tradeIdNum for instant filtering and sorting", () => {
+    const marketMap = new Map<number, string>([[1, "ETH-PERP"]]);
+    const parsed = parseTradeForView(mockTrades[0], 12345, marketMap);
+
+    expect(parsed.tradeIdNum).toBe(101);
+    expect(parsed.searchIndex).toBeDefined();
+    expect(parsed.searchIndex).toContain("eth-perp");
+    expect(parsed.searchIndex).toContain("buy");
+    expect(parsed.searchIndex).toContain("taker");
+    expect(parsed.searchIndex).toContain("101");
+    expect(parsed.searchIndex).toContain("0xabc123");
+  });
+
+  it("sortTradesChronologicalDesc correctly sorts unsorted trades and preserves already sorted trades in O(N)", async () => {
+    const { sortTradesChronologicalDesc } = await import("../web/src/checker/api");
+    const t1 = { ...mockTrades[0], timestamp: 1000, trade_id: 1, trade_id_str: "1" };
+    const t2 = { ...mockTrades[0], timestamp: 2000, trade_id: 2, trade_id_str: "2" };
+    const t3 = { ...mockTrades[0], timestamp: 3000, trade_id: 3, trade_id_str: "3" };
+
+    const unsorted = [t1, t3, t2];
+    const sorted = sortTradesChronologicalDesc(unsorted);
+    expect(sorted.map((t) => t.trade_id)).toEqual([3, 2, 1]);
+
+    // Already sorted array passes O(N) fast path
+    const alreadySorted = [...sorted];
+    const reSorted = sortTradesChronologicalDesc(alreadySorted);
+    expect(reSorted).toEqual(sorted);
+  });
+
+  it("matchHedgeTrades executes large dataset (5,000 trades) in milliseconds via O(N+M) sliding window", async () => {
+    const { matchHedgeTrades } = await import("../web/src/checker/hedge");
+    const rhTrades: any[] = [];
+    const coreTrades: any[] = [];
+
+    const baseTime = 1700000000000;
+    for (let i = 0; i < 2500; i++) {
+      rhTrades.push({
+        raw: { trade_id: i * 2 + 1, transaction_time: (baseTime + i * 100) * 1000 },
+        tradeId: `rh-${i}`,
+        tradeIdNum: i * 2 + 1,
+        timeFormatted: "10:00:00",
+        timestampMs: baseTime + i * 100,
+        marketSymbol: "BTC",
+        marketId: 1,
+        marketKind: "perps",
+        type: "trade",
+        side: "BUY",
+        role: "TAKER",
+        price: 50000 + (i % 10),
+        size: 1.0,
+        usdValue: 50000,
+        realizedPnl: 0,
+        feeUsd: 5.0,
+        txHash: "0x1",
+        txHashShort: "0x1",
+      });
+
+      coreTrades.push({
+        raw: { trade_id: i * 2 + 2, transaction_time: (baseTime + i * 100 + 50) * 1000 },
+        tradeId: `core-${i}`,
+        tradeIdNum: i * 2 + 2,
+        timeFormatted: "10:00:00",
+        timestampMs: baseTime + i * 100 + 50,
+        marketSymbol: "BTC",
+        marketId: 1,
+        marketKind: "perps",
+        type: "trade",
+        side: "SELL",
+        role: "MAKER",
+        price: 50001 + (i % 10),
+        size: 1.0,
+        usdValue: 50001,
+        realizedPnl: 0,
+        feeUsd: 2.0,
+        txHash: "0x2",
+        txHashShort: "0x2",
+      });
+    }
+
+    const tStart = performance.now();
+    const result = matchHedgeTrades(rhTrades, coreTrades, 1, 2, 600, false);
+    const elapsed = performance.now() - tStart;
+
+    expect(result.pairs.length).toBe(2500);
+    expect(result.unhedged.length).toBe(0);
+    // 5,000 trades matched in under 150ms thanks to O(N+M) sliding window (instead of seconds)
+    expect(elapsed).toBeLessThan(150);
+  });
 });

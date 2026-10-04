@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/knip@5/overview/configuration-schema.json",
+  "entry": [
+    "scripts/*.ts",
+    "load-tests/*.ts",
+    "test/**/*.ts",
+    "web/src/hub/main.ts",
+    "web/src/spread/main.ts",
+    "web/src/analytics/main.ts",
+    "web/src/checker/main.ts",
+    "web/src/hedge/main.ts",
+    "web/src/checker/bookmarklet_script.js"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "web/src/**/*.ts",
+    "test/**/*.ts",
+    "scripts/**/*.ts",
+    "load-tests/**/*.ts"
+  ],
+  "ignoreDependencies": [
+    "postcss",
+    "tailwindcss"
+  ]
+}

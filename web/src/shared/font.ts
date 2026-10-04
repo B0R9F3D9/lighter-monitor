@@ -48,7 +48,7 @@ export function getSavedFont(): AvailableFont {
 /**
  * Dynamically loads font stylesheet from Google Fonts if not already loaded and not bundled/primary
  */
-export function loadFontStylesheet(fontName: string): void {
+function loadFontStylesheet(fontName: string): void {
   if (
     typeof document === "undefined" ||
     typeof document.createElement !== "function" ||

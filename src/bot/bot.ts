@@ -112,7 +112,7 @@ export function getMainKeyboard(env?: Env, userId?: number, username?: string): 
   return kb.resized().persistent();
 }
 
-export async function renderAdminDashboard(env: Env): Promise<string> {
+async function renderAdminDashboard(env: Env): Promise<string> {
   const stats = await getSystemStats(env.DB);
   const tokenBreakdown =
     stats.topTokens.length > 0

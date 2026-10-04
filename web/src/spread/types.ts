@@ -44,7 +44,7 @@ export interface MarketInfo {
   latestMetrics: MarketMetrics | null;
 }
 
-export interface ExecutionLegs {
+interface ExecutionLegs {
   entryRh: SimFillResult;
   entryCore: SimFillResult;
   exitRh: SimFillResult;
@@ -98,7 +98,7 @@ export interface MarketMetrics {
   computedAt?: number;
 }
 
-export interface EmaEntry {
+interface EmaEntry {
   cost: number;
   lastTs: number;
 }

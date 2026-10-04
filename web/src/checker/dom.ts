@@ -8,7 +8,7 @@ import type {
   UnhedgedTrade,
 } from "./types";
 
-export function formatSmartSize(size: number): string {
+function formatSmartSize(size: number): string {
   if (size === 0 || isNaN(size)) return "0.0";
   if (size >= 100) return size.toFixed(1);
   if (size >= 1) return size.toFixed(3);
@@ -105,22 +105,7 @@ export function updateExecutiveMetrics(
   }
 }
 
-export function updateProgressBar(
-  progressEl: HTMLElement | null,
-  textEl: HTMLElement | null,
-  percentage: number,
-  text: string,
-): void {
-  if (progressEl) {
-    const clamped = Math.max(0, Math.min(100, percentage));
-    progressEl.style.width = `${clamped}%`;
-  }
-  if (textEl) {
-    textEl.textContent = text;
-  }
-}
-
-export function createTradeRow(item: ParsedTradeView, index: number): HTMLTableRowElement {
+function createTradeRow(item: ParsedTradeView, index: number): HTMLTableRowElement {
   const tr = document.createElement("tr");
   tr.className = "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text";
 
@@ -208,7 +193,7 @@ export function renderTradesTable(
   container.appendChild(frag);
 }
 
-export function createHedgeRow(
+function createHedgeRow(
   pair: HedgePair,
   index: number,
   isSelected = false,
@@ -301,7 +286,7 @@ export function createHedgeRow(
   return tr;
 }
 
-export function createUnhedgedRow(
+function createUnhedgedRow(
   trade: UnhedgedTrade,
   index: number,
   isSelected = false,

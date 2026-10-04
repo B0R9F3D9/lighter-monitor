@@ -6,7 +6,7 @@
 
 declare const APP_VERSION: string | undefined;
 
-export interface VersionResponse {
+interface VersionResponse {
   version: string;
   spreadHash?: string;
   analyticsHash?: string;

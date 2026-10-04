@@ -14,6 +14,19 @@
         "varsIgnorePattern": "^_"
       }
     ],
+    "no-unused-expressions": "error",
+    "no-unused-labels": "error",
+    "no-unused-private-class-members": "error",
+    "no-unreachable": "error",
+    "no-constant-condition": "warn",
+    "typescript/no-useless-empty-export": "error",
+    "import/no-duplicates": "error",
+    "import/no-self-import": "error",
+    "unicorn/no-useless-spread": "warn",
+    "unicorn/no-useless-fallback-in-spread": "warn",
+    "unicorn/no-useless-length-check": "warn",
+    "unicorn/no-unnecessary-await": "warn",
+    "unicorn/consistent-function-scoping": "warn",
     "no-await-in-loop": "off",
     "typescript/no-explicit-any": "off"
   },

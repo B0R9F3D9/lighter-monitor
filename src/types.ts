@@ -17,15 +17,6 @@ export interface TrackedAccountKey {
   accountIndex: number;
 }
 
-export interface UserTrackedAccountRow {
-  id: number;
-  telegram_id: number;
-  network: LighterNetwork;
-  account_index: number;
-  alias: string | null;
-  created_at: number;
-}
-
 export interface LighterPosition {
   market_id: number;
   symbol: string;
@@ -46,12 +37,6 @@ export interface LighterAccount {
   total_asset_value: string;
   available_balance: string;
   positions: LighterPosition[];
-}
-
-export interface LighterApiResponse {
-  code: number;
-  total: number;
-  accounts: LighterAccount[];
 }
 
 export type AlertTier = "CRITICAL_2" | "DANGER_5" | "WARN_10" | "LIQUIDATED" | "SAFE";
@@ -137,7 +122,7 @@ export interface PriceStepAlertParams {
   distancePercent: number | null;
 }
 
-export interface CronExecutionMetrics {
+interface CronExecutionMetrics {
   event: string;
   duration_ms: number;
   subrequests_used: number;
@@ -150,7 +135,7 @@ export interface CronExecutionMetrics {
   timestamp: number;
 }
 
-export interface CronErrorMetrics {
+interface CronErrorMetrics {
   event: string;
   error: string;
   stack?: string;

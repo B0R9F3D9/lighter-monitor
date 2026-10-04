@@ -70,7 +70,7 @@ export function updateBookFromWs(
 }
 
 export const ASC_COMP = (a: number, b: number): number => a - b;
-export const DESC_COMP = (a: number, b: number): number => b - a;
+const DESC_COMP = (a: number, b: number): number => b - a;
 
 export function getSortedLevels(
   bookOrMap: OrderBook | Map<number, number>,

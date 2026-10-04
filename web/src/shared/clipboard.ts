@@ -38,7 +38,7 @@ export function copyToClipboard(
   }
 }
 
-export function fallbackCopy(text: string): boolean {
+function fallbackCopy(text: string): boolean {
   const ta = document.createElement("textarea");
   ta.value = text;
   ta.style.position = "fixed";

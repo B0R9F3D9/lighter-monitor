@@ -19,9 +19,9 @@ export const CRYPTO_SYMBOLS: ReadonlySet<string> = new Set([
   "ANSEM",
 ]);
 
-export const COMMODITY_SYMBOLS: ReadonlySet<string> = new Set(["XAU", "XAG", "USO", "SLV"]);
+const COMMODITY_SYMBOLS: ReadonlySet<string> = new Set(["XAU", "XAG", "USO", "SLV"]);
 
-export const INDEX_ETF_SYMBOLS: ReadonlySet<string> = new Set([
+const INDEX_ETF_SYMBOLS: ReadonlySet<string> = new Set([
   "SPY",
   "QQQ",
   "SOXL",
@@ -71,7 +71,7 @@ export function formatMarketPrice(p: number | undefined | null): string {
   return p.toFixed(4);
 }
 
-export const OFFICIAL_TOKEN_LOGOS: Record<string, string> = {
+const OFFICIAL_TOKEN_LOGOS: Record<string, string> = {
   AAPL: "https://assets.lighter.xyz/fe/token/aapl.png",
   AI: "https://assets.lighter.xyz/fe/token/ai.png",
   AMD: "https://assets.lighter.xyz/fe/token/amd.png",

@@ -17,6 +17,8 @@
     "typecheck": "bun scripts/build_web.ts && tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
+    "lint:deadcode": "knip",
+    "knip": "knip",
     "format": "oxfmt --write",
     "format:check": "oxfmt --check"
   },
@@ -28,6 +30,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/bun": "latest",
     "html-minifier-terser": "^7.2.0",
+    "knip": "^6.39.0",
     "lightweight-charts": "^5.2.1",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",

@@ -37,6 +37,8 @@ export class CheckerController {
   private marketMap: Map<number, string> = new Map();
   private activeTab: "table" | "json" = "table";
   private searchQuery = "";
+  private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private jsonViewerDirty = true;
 
   // Bookmarklet DOM Elements
   private bookmarkletLink: HTMLAnchorElement | null = null;
@@ -348,10 +350,15 @@ export class CheckerController {
     this.tabTableBtn?.addEventListener("click", () => this.switchTab("table"));
     this.tabJsonBtn?.addEventListener("click", () => this.switchTab("json"));
 
-    // Filter
+    // Filter with 150ms debounce to prevent UI freezes on typing
     this.searchFilterInput?.addEventListener("input", (e) => {
       this.searchQuery = (e.target as HTMLInputElement).value.toLowerCase().trim();
-      this.applyFilter();
+      if (this.filterDebounceTimer) {
+        clearTimeout(this.filterDebounceTimer);
+      }
+      this.filterDebounceTimer = setTimeout(() => {
+        this.applyFilter();
+      }, 150);
     });
   }
 
@@ -537,7 +544,12 @@ export class CheckerController {
 
     this.updateExecutiveSummary();
     this.applyFilter();
-    this.updateJsonViewer();
+
+    // Mark JSON viewer as needing update without building/rendering giant JSON on table tab
+    this.jsonViewerDirty = true;
+    if (this.activeTab === "json") {
+      this.updateJsonViewer();
+    }
 
     const hasData = this.rawTrades.length > 0;
     if (this.downloadBtn) this.downloadBtn.disabled = !hasData;
@@ -560,13 +572,14 @@ export class CheckerController {
       this.filteredTrades = this.parsedTrades;
     } else {
       const q = this.searchQuery;
-      this.filteredTrades = this.parsedTrades.filter(
-        (t) =>
-          t.marketSymbol.toLowerCase().includes(q) ||
-          t.side.toLowerCase().includes(q) ||
-          t.role.toLowerCase().includes(q) ||
-          t.tradeId.includes(q) ||
-          t.txHash.toLowerCase().includes(q),
+      this.filteredTrades = this.parsedTrades.filter((t) =>
+        t.searchIndex
+          ? t.searchIndex.includes(q)
+          : t.marketSymbol.toLowerCase().includes(q) ||
+            t.side.toLowerCase().includes(q) ||
+            t.role.toLowerCase().includes(q) ||
+            t.tradeId.toLowerCase().includes(q) ||
+            t.txHash.toLowerCase().includes(q),
       );
     }
 
@@ -588,17 +601,44 @@ export class CheckerController {
     if (!this.jsonPre) return;
     if (this.rawTrades.length === 0) {
       this.jsonPre.textContent = "// Raw JSON payload will appear here after importing trades...";
+      this.jsonViewerDirty = false;
       return;
     }
 
-    const payload = prepareExportPayload(
-      this.rawTrades,
-      this.network,
-      this.resolvedAccountIndex ?? 0,
-      this.resolvedL1Address || undefined,
-    );
+    const acc = this.resolvedAccountIndex ?? 0;
+    const accQuery = this.soloAccountIndices.length > 0 ? this.soloAccountIndices : acc;
 
-    this.jsonPre.textContent = JSON.stringify(payload, null, 2);
+    // For large datasets (> 50 trades), render a truncated preview to prevent browser DOM lock and OOM freezes
+    const PREVIEW_LIMIT = 50;
+    if (this.rawTrades.length > PREVIEW_LIMIT) {
+      const previewTrades = this.rawTrades.slice(0, PREVIEW_LIMIT);
+      const previewPayload = prepareExportPayload(
+        previewTrades,
+        this.network,
+        accQuery,
+        this.resolvedL1Address || undefined,
+        true,
+        this.rawTrades.length,
+      );
+      this.jsonPre.textContent = JSON.stringify(
+        {
+          _notice: `Showing preview of first ${PREVIEW_LIMIT} of ${this.rawTrades.length.toLocaleString()} trades to keep UI fast. Click "Download JSON" or "Copy JSON" for full payload.`,
+          ...previewPayload,
+        },
+        null,
+        2,
+      );
+    } else {
+      const payload = prepareExportPayload(
+        this.rawTrades,
+        this.network,
+        accQuery,
+        this.resolvedL1Address || undefined,
+      );
+      this.jsonPre.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    this.jsonViewerDirty = false;
   }
 
   private switchTab(tab: "table" | "json"): void {
@@ -619,6 +659,10 @@ export class CheckerController {
 
       if (this.jsonContainer) this.jsonContainer.classList.remove("hidden");
       if (this.tableContainer) this.tableContainer.classList.add("hidden");
+
+      if (this.jsonViewerDirty) {
+        this.updateJsonViewer();
+      }
     }
   }
 
@@ -654,7 +698,8 @@ export class CheckerController {
       accQuery,
       this.resolvedL1Address || undefined,
     );
-    const jsonStr = JSON.stringify(payload, null, 2);
+    const isLarge = this.rawTrades.length > 5000;
+    const jsonStr = isLarge ? JSON.stringify(payload) : JSON.stringify(payload, null, 2);
 
     copyToClipboard(jsonStr, this.copyBtn, "Copy JSON");
   }
@@ -670,6 +715,10 @@ export class CheckerController {
     this.soloAccountIndices = [];
     this.resolvedL1Address = null;
     this.searchQuery = "";
+    if (this.filterDebounceTimer) {
+      clearTimeout(this.filterDebounceTimer);
+      this.filterDebounceTimer = null;
+    }
 
     if (this.fileInput) this.fileInput.value = "";
     if (this.searchFilterInput) this.searchFilterInput.value = "";

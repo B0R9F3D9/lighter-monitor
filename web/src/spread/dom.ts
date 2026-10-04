@@ -68,13 +68,13 @@ export function createRowElement(
   };
 }
 
-export function setTextIfChanged(el: HTMLElement | null, text: string): void {
+function setTextIfChanged(el: HTMLElement | null, text: string): void {
   if (el && el.textContent !== text) {
     el.textContent = text;
   }
 }
 
-export function setClassIfChanged(el: HTMLElement | null, className: string): void {
+function setClassIfChanged(el: HTMLElement | null, className: string): void {
   if (el && el.className !== className) {
     el.className = className;
   }

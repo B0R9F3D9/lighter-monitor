@@ -53,6 +53,7 @@ export class HedgeController {
   private hedgeMetrics: HedgeSummaryMetrics | null = null;
   private hedgeFilterTab: "all" | "unhedged" = "all";
   private hedgeSearchQuery = "";
+  private hedgeFilterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private rhMarketMap: Map<number, string> = getStaticMarketMap("rh");
   private coreMarketMap: Map<number, string> = getStaticMarketMap("mainnet");
 
@@ -411,10 +412,15 @@ export class HedgeController {
     this.btnClearHedgeAll?.addEventListener("click", () => this.clearHedge());
     this.btnHedgeExportCsv?.addEventListener("click", () => this.downloadHedgeCsv());
 
-    // Search and filters
+    // Search and filters with 150ms debounce
     this.inputHedgeSearch?.addEventListener("input", (e) => {
       this.hedgeSearchQuery = (e.target as HTMLInputElement).value.trim().toLowerCase();
-      this.applyHedgeFilter();
+      if (this.hedgeFilterDebounceTimer) {
+        clearTimeout(this.hedgeFilterDebounceTimer);
+      }
+      this.hedgeFilterDebounceTimer = setTimeout(() => {
+        this.applyHedgeFilter();
+      }, 150);
     });
 
     this.tabBtnHedgeAll?.addEventListener("click", () => this.switchHedgeFilterTab("all"));
@@ -778,21 +784,23 @@ export class HedgeController {
       this.filteredHedgePairs = this.hedgePairs;
       this.filteredUnhedgedTrades = this.unhedgedTrades;
     } else {
-      this.filteredHedgePairs = this.hedgePairs.filter(
-        (p) =>
-          p.marketSymbol.toLowerCase().includes(q) ||
-          p.rhSide.toLowerCase().includes(q) ||
-          p.coreSide.toLowerCase().includes(q) ||
-          p.rhTradeId.includes(q) ||
-          p.coreTradeId.includes(q),
+      this.filteredHedgePairs = this.hedgePairs.filter((p) =>
+        p.searchIndex
+          ? p.searchIndex.includes(q)
+          : p.marketSymbol.toLowerCase().includes(q) ||
+            p.rhSide.toLowerCase().includes(q) ||
+            p.coreSide.toLowerCase().includes(q) ||
+            p.rhTradeId.includes(q) ||
+            p.coreTradeId.includes(q),
       );
 
-      this.filteredUnhedgedTrades = this.unhedgedTrades.filter(
-        (u) =>
-          u.marketSymbol.toLowerCase().includes(q) ||
-          u.side.toLowerCase().includes(q) ||
-          u.network.toLowerCase().includes(q) ||
-          u.tradeId.includes(q),
+      this.filteredUnhedgedTrades = this.unhedgedTrades.filter((u) =>
+        u.searchIndex
+          ? u.searchIndex.includes(q)
+          : u.marketSymbol.toLowerCase().includes(q) ||
+            u.side.toLowerCase().includes(q) ||
+            u.network.toLowerCase().includes(q) ||
+            u.tradeId.includes(q),
       );
     }
 

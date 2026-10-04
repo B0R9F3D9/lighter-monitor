@@ -4,20 +4,17 @@ import type {
   CheckerNetwork,
   CheckerSummaryMetrics,
   ExportPayload,
-  FetchProgress,
-  FetchTradesOptions,
   ImportedTradesResult,
   LighterTrade,
   ParsedTradeView,
   StitchedTradesResult,
-  TradesApiResponse,
 } from "./types";
 
-export function getBaseApiUrl(network: CheckerNetwork): string {
+function getBaseApiUrl(network: CheckerNetwork): string {
   return network === "rh" ? CONFIG.RH_API_URL : CONFIG.CORE_API_URL;
 }
 
-export function getNetworkDisplayName(network: CheckerNetwork): string {
+function getNetworkDisplayName(network: CheckerNetwork): string {
   return network === "rh" ? "Robinhood Chain (RH)" : "Lighter Mainnet (Core)";
 }
 
@@ -30,7 +27,7 @@ export function normalizeTimestampMs(ts: number): number {
   return ts < 1e11 ? ts * 1000 : ts;
 }
 
-export const STATIC_MARKET_MAP: Record<CheckerNetwork, Record<number, string>> = {
+const STATIC_MARKET_MAP: Record<CheckerNetwork, Record<number, string>> = {
   rh: {
     0: "ETH",
     1: "BTC",
@@ -221,138 +218,6 @@ export async function resolveAccountIndex(
 }
 
 /**
- * Fetches a single page of trades from /api/v1/trades
- */
-export async function fetchTradesPage(
-  options: FetchTradesOptions,
-  signal?: AbortSignal,
-): Promise<TradesApiResponse> {
-  const baseUrl = getBaseApiUrl(options.network);
-  const url = new URL(`${baseUrl}/trades`);
-
-  url.searchParams.set("account_index", String(options.accountIndex));
-  url.searchParams.set("sort_by", options.sortBy || "timestamp");
-  url.searchParams.set("sort_dir", options.sortDir || "desc");
-  url.searchParams.set("limit", String(options.limit || 100));
-
-  if (options.cursor) {
-    url.searchParams.set("cursor", options.cursor);
-  }
-  if (options.marketType && options.marketType !== "all") {
-    url.searchParams.set("market_type", options.marketType);
-  }
-  if (options.marketId !== undefined && options.marketId !== 255) {
-    url.searchParams.set("market_id", String(options.marketId));
-  }
-
-  const trimmedAuth = options.authToken?.trim();
-  if (trimmedAuth) {
-    url.searchParams.set("auth", trimmedAuth);
-  }
-
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-  };
-  if (trimmedAuth) {
-    headers["Authorization"] = trimmedAuth;
-  }
-
-  const res = await fetch(url.toString(), { headers, signal });
-  const rawText = await res.text();
-
-  let data: TradesApiResponse;
-  try {
-    data = JSON.parse(rawText);
-  } catch {
-    throw new Error(
-      `Server returned non-JSON response (HTTP ${res.status}): ${rawText.slice(0, 120)}`,
-    );
-  }
-
-  if (!res.ok || (data.code !== 200 && data.code !== undefined && data.code !== 0)) {
-    // Specific informative messages for common lighter codes
-    if (data.code === 20001 || data.message?.includes("auth")) {
-      throw new Error(
-        `[Auth Required] ${data.message || "Authorization token is missing or invalid for Robinhood Chain. Please provide an Auth Token above."}`,
-      );
-    }
-    throw new Error(data.message || `API Error (code ${data.code || res.status})`);
-  }
-
-  return data;
-}
-
-/**
- * Fetches all trade history with pagination and progress reporting.
- */
-export async function fetchAllTrades(
-  options: FetchTradesOptions,
-  onProgress?: (progress: FetchProgress) => void,
-  signal?: AbortSignal,
-): Promise<LighterTrade[]> {
-  const allTrades: LighterTrade[] = [];
-  const seenTradeIds = new Set<string>();
-  let cursor: string | undefined = undefined;
-  let page = 0;
-  let totalBytes = 0;
-  const startTime = Date.now();
-
-  while (true) {
-    if (signal?.aborted) break;
-    page++;
-    const res = await fetchTradesPage({ ...options, cursor }, signal);
-    const trades = res.trades || [];
-
-    if (trades.length === 0) {
-      break;
-    }
-
-    let newTradesInPage = 0;
-    for (const t of trades) {
-      const idKey = t.trade_id_str || String(t.trade_id);
-      if (!seenTradeIds.has(idKey)) {
-        seenTradeIds.add(idKey);
-        allTrades.push(t);
-        newTradesInPage++;
-      }
-    }
-
-    const payloadApproxSize = JSON.stringify(trades).length;
-    totalBytes += payloadApproxSize;
-
-    const latestTs = trades.length > 0 ? normalizeTimestampMs(trades[0].timestamp) : undefined;
-
-    if (onProgress) {
-      onProgress({
-        page,
-        tradesCount: allTrades.length,
-        latestTimestamp: latestTs,
-        cursor: res.next_cursor,
-        bytesReceived: totalBytes,
-        elapsedMs: Date.now() - startTime,
-      });
-    }
-
-    // Termination conditions
-    if (!res.next_cursor || res.next_cursor.trim() === "" || newTradesInPage === 0) {
-      break;
-    }
-
-    if (res.next_cursor === cursor) {
-      // Loop protection if cursor didn't advance
-      break;
-    }
-
-    cursor = res.next_cursor;
-
-    // Small delay between chunks to respect rate limits
-    await new Promise((r) => setTimeout(r, 100));
-  }
-
-  return allTrades;
-}
-
-/**
  * Safely parses exchange fees to USD amount.
  * Handles quote base units (USDC 6 decimals: > 1000 => raw / 1e6),
  * basis points (<= 1000 => (raw / 10000) * usdValue),
@@ -377,7 +242,7 @@ export function parseFeeUsd(rawFee: number | undefined | null, usdValue = 0): nu
 /**
  * Normalizes an account query (single number, array, or Set) into a Set of numbers.
  */
-export function toAccountSet(query?: AccountQuery | null): Set<number> {
+function toAccountSet(query?: AccountQuery | null): Set<number> {
   const set = new Set<number>();
   if (query == null) return set;
   if (query instanceof Set) {
@@ -486,23 +351,64 @@ export function detectUserAccounts(trades: LighterTrade[]): number[] {
   return detected.length > 0 ? detected : [top.acc];
 }
 
+interface TradeSortKey {
+  ts: number;
+  micro: number;
+  id: number;
+}
+
+const tradeSortKeyMap = new WeakMap<LighterTrade, TradeSortKey>();
+
+function getTradeSortKey(t: LighterTrade): TradeSortKey {
+  let key = tradeSortKeyMap.get(t);
+  if (!key) {
+    key = {
+      ts: normalizeTimestampMs(t.timestamp),
+      micro: t.transaction_time ?? 0,
+      id: Number(t.trade_id_str || t.trade_id) || 0,
+    };
+    tradeSortKeyMap.set(t, key);
+  }
+  return key;
+}
+
 /**
  * Sorts trades chronologically descending (most recent first) with microsecond and trade_id tie-breakers.
  */
 export function sortTradesChronologicalDesc(trades: LighterTrade[]): LighterTrade[] {
+  if (trades.length <= 1) return trades;
+
+  // Fast path: verify if already sorted descending in O(N)
+  let isSorted = true;
+  for (let i = 1; i < trades.length; i++) {
+    const prevKey = getTradeSortKey(trades[i - 1]);
+    const currKey = getTradeSortKey(trades[i]);
+
+    if (prevKey.ts < currKey.ts) {
+      isSorted = false;
+      break;
+    }
+    if (prevKey.ts === currKey.ts) {
+      if (prevKey.micro < currKey.micro) {
+        isSorted = false;
+        break;
+      }
+      if (prevKey.micro === currKey.micro && prevKey.id < currKey.id) {
+        isSorted = false;
+        break;
+      }
+    }
+  }
+
+  if (isSorted) return trades;
+
   // oxlint-disable-next-line unicorn/no-array-sort
   return trades.sort((a, b) => {
-    const aTs = normalizeTimestampMs(a.timestamp);
-    const bTs = normalizeTimestampMs(b.timestamp);
-    if (aTs !== bTs) return bTs - aTs;
-
-    const aMicro = a.transaction_time ?? 0;
-    const bMicro = b.transaction_time ?? 0;
-    if (aMicro !== bMicro) return bMicro - aMicro;
-
-    const aId = Number(a.trade_id_str || a.trade_id) || 0;
-    const bId = Number(b.trade_id_str || b.trade_id) || 0;
-    return bId - aId;
+    const aKey = getTradeSortKey(a);
+    const bKey = getTradeSortKey(b);
+    if (aKey.ts !== bKey.ts) return bKey.ts - aKey.ts;
+    if (aKey.micro !== bKey.micro) return bKey.micro - aKey.micro;
+    return bKey.id - aKey.id;
   });
 }
 
@@ -510,6 +416,37 @@ export function sortTradesChronologicalDesc(trades: LighterTrade[]): LighterTrad
  * Sorts parsed trade views chronologically descending (most recent first).
  */
 export function sortParsedTradesChronologicalDesc(trades: ParsedTradeView[]): ParsedTradeView[] {
+  if (trades.length <= 1) return trades;
+
+  // Fast path: verify if already sorted descending in O(N)
+  let isSorted = true;
+  for (let i = 1; i < trades.length; i++) {
+    const prev = trades[i - 1];
+    const curr = trades[i];
+    if (prev.timestampMs < curr.timestampMs) {
+      isSorted = false;
+      break;
+    }
+    if (prev.timestampMs === curr.timestampMs) {
+      const prevMicro = prev.raw?.transaction_time ?? 0;
+      const currMicro = curr.raw?.transaction_time ?? 0;
+      if (prevMicro < currMicro) {
+        isSorted = false;
+        break;
+      }
+      if (prevMicro === currMicro) {
+        const prevId = prev.tradeIdNum ?? (Number(prev.tradeId) || 0);
+        const currId = curr.tradeIdNum ?? (Number(curr.tradeId) || 0);
+        if (prevId < currId) {
+          isSorted = false;
+          break;
+        }
+      }
+    }
+  }
+
+  if (isSorted) return trades;
+
   // oxlint-disable-next-line unicorn/no-array-sort
   return trades.sort((a, b) => {
     if (b.timestampMs !== a.timestampMs) return b.timestampMs - a.timestampMs;
@@ -518,8 +455,8 @@ export function sortParsedTradesChronologicalDesc(trades: ParsedTradeView[]): Pa
     const bMicro = b.raw?.transaction_time ?? 0;
     if (aMicro !== bMicro) return bMicro - aMicro;
 
-    const aId = Number(a.tradeId) || 0;
-    const bId = Number(b.tradeId) || 0;
+    const aId = a.tradeIdNum ?? (Number(a.tradeId) || 0);
+    const bId = b.tradeIdNum ?? (Number(b.tradeId) || 0);
     return bId - aId;
   });
 }
@@ -698,9 +635,14 @@ export function parseTradeForView(
       ? `${txHash.slice(0, 6)}...${txHash.slice(-4)}`
       : txHash;
 
+  const tradeId = trade.trade_id_str || String(trade.trade_id);
+  const tradeIdNum = Number(trade.trade_id_str || trade.trade_id) || 0;
+  const searchIndex = `${symbol} ${side} ${role} ${tradeId} ${txHash}`.toLowerCase();
+
   return {
     raw: trade,
-    tradeId: trade.trade_id_str || String(trade.trade_id),
+    tradeId,
+    tradeIdNum,
     userAccountId,
     timeFormatted,
     timestampMs,
@@ -717,6 +659,7 @@ export function parseTradeForView(
     feeUsd,
     txHash,
     txHashShort,
+    searchIndex,
   };
 }
 
@@ -887,7 +830,11 @@ export function prepareExportPayload(
  * Triggers a file download of an object as pretty-printed JSON.
  */
 export function downloadJsonFile(data: unknown, filename: string): void {
-  const jsonStr = JSON.stringify(data, null, 2);
+  const isLarge =
+    data && typeof data === "object" && "trades" in data && Array.isArray((data as any).trades)
+      ? (data as any).trades.length > 5000
+      : false;
+  const jsonStr = isLarge ? JSON.stringify(data) : JSON.stringify(data, null, 2);
   const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

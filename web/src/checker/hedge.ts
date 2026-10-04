@@ -11,6 +11,9 @@ interface WorkingTrade {
   trade: ParsedTradeView;
   network: "RH" | "CORE";
   remainingSize: number;
+  timestampMs: number;
+  microTime: number;
+  tradeIdNum: number;
 }
 
 /**
@@ -23,7 +26,7 @@ interface WorkingTrade {
  * Lighter increments transaction_time per execution match, which previously prevented raw API fills
  * from collapsing together into (X fills).
  */
-export function getTradeOrderAggregationKey(trade: ParsedTradeView): string {
+function getTradeOrderAggregationKey(trade: ParsedTradeView): string {
   const raw = trade.raw as any;
 
   if (raw) {
@@ -145,11 +148,22 @@ export function aggregateTradesByOrder(trades: ParsedTradeView[]): ParsedTradeVi
       txHash: leadTrade.txHash,
       txHashShort: leadTrade.txHashShort,
       fillsCount: group.length,
+      tradeIdNum: leadTrade.tradeIdNum ?? (Number(leadTrade.tradeId) || 0),
+      searchIndex: `${leadTrade.marketSymbol} ${leadTrade.side} ${leadTrade.role} ${combinedTradeId} ${leadTrade.txHash}`.toLowerCase(),
     });
   }
 
   return aggregated;
 }
+
+const toWorkingTrade = (t: ParsedTradeView, network: "RH" | "CORE"): WorkingTrade => ({
+  trade: t,
+  network,
+  remainingSize: t.size,
+  timestampMs: t.timestampMs,
+  microTime: t.raw?.transaction_time ?? 0,
+  tradeIdNum: t.tradeIdNum ?? (Number(t.raw?.trade_id || t.tradeId) || 0),
+});
 
 /**
  * Matches trades executed on Robinhood (RH) with hedging trades executed on Core (Mainnet).
@@ -206,18 +220,9 @@ export function matchHedgeTrades(
   const actualRhTrades = aggregateFills ? aggregateTradesByOrder(rhTrades) : rhTrades;
   const actualCoreTrades = aggregateFills ? aggregateTradesByOrder(coreTrades) : coreTrades;
 
-  // Clone with working mutable remaining sizes
-  const rhWorking: WorkingTrade[] = actualRhTrades.map((t) => ({
-    trade: t,
-    network: "RH",
-    remainingSize: t.size,
-  }));
-
-  const coreWorking: WorkingTrade[] = actualCoreTrades.map((t) => ({
-    trade: t,
-    network: "CORE",
-    remainingSize: t.size,
-  }));
+  // Clone with working mutable remaining sizes and precomputed numeric sort keys
+  const rhWorking: WorkingTrade[] = actualRhTrades.map((t) => toWorkingTrade(t, "RH"));
+  const coreWorking: WorkingTrade[] = actualCoreTrades.map((t) => toWorkingTrade(t, "CORE"));
 
   // Group by market symbol
   const rhByMarket = new Map<string, WorkingTrade[]>();
@@ -243,44 +248,71 @@ export function matchHedgeTrades(
   const EPSILON = 1e-6;
 
   const sortTradesChronological = (a: WorkingTrade, b: WorkingTrade): number => {
-    if (a.trade.timestampMs !== b.trade.timestampMs) {
-      return a.trade.timestampMs - b.trade.timestampMs;
+    if (a.timestampMs !== b.timestampMs) {
+      return a.timestampMs - b.timestampMs;
     }
     // Secondary tie-breaker by transaction_time (microseconds)
-    const aMicro = a.trade.raw.transaction_time ?? 0;
-    const bMicro = b.trade.raw.transaction_time ?? 0;
-    if (aMicro !== bMicro) return aMicro - bMicro;
-
+    if (a.microTime !== b.microTime) {
+      return a.microTime - b.microTime;
+    }
     // Tertiary tie-breaker by trade_id
-    const aId = Number(a.trade.raw.trade_id || a.trade.tradeId) || 0;
-    const bId = Number(b.trade.raw.trade_id || b.trade.tradeId) || 0;
-    return aId - bId;
+    return a.tradeIdNum - b.tradeIdNum;
   };
 
   for (const market of allMarkets) {
     const marketRh = (rhByMarket.get(market) || []).toSorted(sortTradesChronological);
     const marketCore = (coreByMarket.get(market) || []).toSorted(sortTradesChronological);
 
+    // Split Core trades by side for direct O(N + M) sliding window matching without scanning mismatched sides
+    const coreBuys: WorkingTrade[] = [];
+    const coreSells: WorkingTrade[] = [];
+    for (const c of marketCore) {
+      if (c.trade.side === "BUY") {
+        coreBuys.push(c);
+      } else {
+        coreSells.push(c);
+      }
+    }
+
+    let coreBuyIndex = 0; // Candidates for RH SELL
+    let coreSellIndex = 0; // Candidates for RH BUY
+
     for (const rhItem of marketRh) {
       if (rhItem.remainingSize <= EPSILON) continue;
 
+      const isRhBuy = rhItem.trade.side === "BUY";
+      const candidates = isRhBuy ? coreSells : coreBuys;
+      let candIdx = isRhBuy ? coreSellIndex : coreBuyIndex;
+
       // Find eligible Core candidates with opposite side in sequential FIFO chronological order within maxDeltaMs
       while (rhItem.remainingSize > EPSILON) {
-        let bestCandidate: WorkingTrade | null = null;
-
-        for (const candidate of marketCore) {
-          if (candidate.remainingSize <= EPSILON) continue;
-          if (candidate.trade.side === rhItem.trade.side) continue; // Must be opposite side
-
-          const timeDiff = Math.abs(candidate.trade.timestampMs - rhItem.trade.timestampMs);
-          if (timeDiff <= maxDeltaMs) {
-            bestCandidate = candidate;
-            break; // FIFO: take the earliest chronological candidate
+        // Fast-forward past exhausted candidates or candidates that occurred prior to (rhItem - maxDeltaMs).
+        // Since marketRh is sorted chronologically ascending, any candidate earlier than (rhItem.timestampMs - maxDeltaMs)
+        // is permanently expired for all current and future RH trades.
+        while (candIdx < candidates.length) {
+          const cand = candidates[candIdx];
+          if (cand.remainingSize <= EPSILON) {
+            candIdx++;
+            continue;
           }
+          if (cand.timestampMs < rhItem.timestampMs - maxDeltaMs) {
+            candIdx++;
+            continue;
+          }
+          break;
         }
 
-        // If no matching core candidate found within window, stop and leave remainder as unhedged
-        if (!bestCandidate) {
+        if (candIdx >= candidates.length) {
+          // No more candidates in this queue
+          break;
+        }
+
+        const bestCandidate = candidates[candIdx];
+
+        // If earliest available candidate is beyond maxDeltaMs in the future,
+        // no subsequent candidate will be within window either (sorted chronologically).
+        // Note: do NOT increment candIdx because future RH trades may match this candidate!
+        if (bestCandidate.timestampMs > rhItem.timestampMs + maxDeltaMs) {
           break;
         }
 
@@ -289,13 +321,15 @@ export function matchHedgeTrades(
         if (rhItem.remainingSize < EPSILON) rhItem.remainingSize = 0;
 
         bestCandidate.remainingSize = Math.max(0, bestCandidate.remainingSize - matchedSize);
-        if (bestCandidate.remainingSize < EPSILON) bestCandidate.remainingSize = 0;
+        if (bestCandidate.remainingSize < EPSILON) {
+          bestCandidate.remainingSize = 0;
+          candIdx++; // advance pointer past fully exhausted candidate
+        }
 
         // Pricing calculations:
         // Whichever leg was BUY paid buyPrice; whichever leg was SELL received sellPrice.
-        const rhIsBuy = rhItem.trade.side === "BUY";
-        const buyPrice = rhIsBuy ? rhItem.trade.price : bestCandidate.trade.price;
-        const sellPrice = rhIsBuy ? bestCandidate.trade.price : rhItem.trade.price;
+        const buyPrice = isRhBuy ? rhItem.trade.price : bestCandidate.trade.price;
+        const sellPrice = isRhBuy ? bestCandidate.trade.price : rhItem.trade.price;
 
         const priceDelta = sellPrice - buyPrice; // Positive if sold higher than bought (profit); negative if loss
         const pricePnlUsd = priceDelta * matchedSize;
@@ -319,6 +353,9 @@ export function matchHedgeTrades(
         const isPartial =
           matchedSize < rhItem.trade.size - EPSILON ||
           matchedSize < bestCandidate.trade.size - EPSILON;
+
+        const pairSearchIndex =
+          `${market} ${rhItem.trade.side} ${bestCandidate.trade.side} ${rhItem.trade.tradeId} ${bestCandidate.trade.tradeId}`.toLowerCase();
 
         pairs.push({
           id: `pair-${rhItem.trade.tradeId}-${bestCandidate.trade.tradeId}-${pairCounter++}`,
@@ -356,7 +393,14 @@ export function matchHedgeTrades(
           pnlBps,
           timeDeltaSec,
           status: isPartial ? "PARTIAL" : "HEDGED",
+          searchIndex: pairSearchIndex,
         });
+      }
+
+      if (isRhBuy) {
+        coreSellIndex = candIdx;
+      } else {
+        coreBuyIndex = candIdx;
       }
     }
 
@@ -383,6 +427,7 @@ export function matchHedgeTrades(
           timeFormatted: rhItem.trade.timeFormatted,
           txHash: rhItem.trade.txHash,
           fillsCount: rhItem.trade.fillsCount ?? 1,
+          searchIndex: `${market} ${rhItem.trade.side} RH ${rhItem.trade.tradeId}`.toLowerCase(),
         });
       }
     }
@@ -409,6 +454,7 @@ export function matchHedgeTrades(
           timeFormatted: coreItem.trade.timeFormatted,
           txHash: coreItem.trade.txHash,
           fillsCount: coreItem.trade.fillsCount ?? 1,
+          searchIndex: `${market} ${coreItem.trade.side} CORE ${coreItem.trade.tradeId}`.toLowerCase(),
         });
       }
     }
@@ -437,7 +483,7 @@ export function matchHedgeTrades(
   return { pairs, unhedged, metrics };
 }
 
-export function calculateHedgeMetrics(
+function calculateHedgeMetrics(
   pairs: HedgePair[],
   unhedged: UnhedgedTrade[],
   rhAccountIndex: number | null,
