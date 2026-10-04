@@ -31,6 +31,7 @@
 
   // Safety ceiling: prevent runaway pagination and browser tab memory overflow (OOM)
   const ROW_CAP = 150000;
+  const PAGE_LIMIT = 100;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   let detectedAuth = "";
@@ -259,8 +260,10 @@
 
   let isRunning = false;
   let isCancelled = false;
+  let isClosed = false;
 
   closeBtn.addEventListener("click", function () {
+    isClosed = true;
     isCancelled = true;
     hud.remove();
     window.__LIGHTER_EXPORTER_ACTIVE__ = false;
@@ -315,15 +318,25 @@
   // Initial async resolution
   refreshCredentials();
 
+  function getWafToken() {
+    try {
+      if (document.cookie && document.cookie.includes("aws-waf-token=")) {
+        const m = document.cookie.match(/aws-waf-token=([^;]+)/);
+        return m && m[1] ? m[1] : "";
+      }
+    } catch {}
+    return "";
+  }
+
   // 4. Fetch with Exponential Backoff Retry and 429 Rate Limit cooldown
   async function fetchWithRetry(url, options) {
     for (let attempt = 0; ; attempt++) {
-      if (isCancelled) throw new Error("Export cancelled by user");
+      if (isCancelled || isClosed) throw new Error("Export cancelled by user");
       let res;
       try {
         res = await fetch(url, options);
       } catch (err) {
-        if (attempt < 3 && !isCancelled) {
+        if (attempt < 3 && !isCancelled && !isClosed) {
           statusDiv.style.color = "#d29922";
           statusDiv.textContent =
             "Network glitch, retrying in " + ((attempt + 1) * 0.8).toFixed(1) + "s...";
@@ -345,6 +358,17 @@
           "s...";
         await sleep(1500 * (attempt + 1));
         continue;
+      }
+
+      if (res.status === 403 && attempt < 2 && !isCancelled) {
+        const freshWaf = getWafToken();
+        if (freshWaf && freshWaf !== (options.headers && options.headers["x-aws-waf-token"])) {
+          if (options.headers) options.headers["x-aws-waf-token"] = freshWaf;
+          statusDiv.style.color = "#d29922";
+          statusDiv.textContent = "WAF token refreshed, retrying...";
+          await sleep(600);
+          continue;
+        }
       }
 
       if (res.status === 401 || res.status === 403) {
@@ -370,11 +394,15 @@
     }
   }
 
-  // 5. Slimming / Payload Trimming: keep only fields required by checker
+  // 5. Slimming / Payload Trimming: keep only fields required by checker (monomorphic shape for V8)
   function slimTrade(t) {
-    const res = {
-      trade_id: t.trade_id,
-      trade_id_str: t.trade_id_str || String(t.trade_id),
+    const tid = t.trade_id;
+    const askId = t.ask_id;
+    const bidId = t.bid_id;
+
+    return {
+      trade_id: tid,
+      trade_id_str: t.trade_id_str || (tid != null ? "" + tid : ""),
       tx_hash: t.tx_hash || "",
       type: t.type || "trade",
       market_id: t.market_id,
@@ -384,26 +412,21 @@
       usd_amount: t.usd_amount,
       ask_account_id: t.ask_account_id,
       bid_account_id: t.bid_account_id,
-      is_maker_ask: Boolean(t.is_maker_ask),
+      is_maker_ask: !!t.is_maker_ask,
       block_height: t.block_height,
       timestamp: t.timestamp,
       taker_fee: t.taker_fee ?? 0,
       maker_fee: t.maker_fee ?? 0,
+      ask_id: askId ?? 0,
+      ask_id_str: t.ask_id_str || (askId != null ? "" + askId : ""),
+      bid_id: bidId ?? 0,
+      bid_id_str: t.bid_id_str || (bidId != null ? "" + bidId : ""),
+      ask_client_id: t.ask_client_id ?? 0,
+      bid_client_id: t.bid_client_id ?? 0,
+      transaction_time: t.transaction_time ?? 0,
+      ask_account_pnl: t.ask_account_pnl ?? null,
+      bid_account_pnl: t.bid_account_pnl ?? null,
     };
-    if (t.ask_id !== undefined) res.ask_id = t.ask_id;
-    if (t.ask_id_str !== undefined) res.ask_id_str = t.ask_id_str;
-    if (t.bid_id !== undefined) res.bid_id = t.bid_id;
-    if (t.bid_id_str !== undefined) res.bid_id_str = t.bid_id_str;
-    if (t.ask_client_id !== undefined) res.ask_client_id = t.ask_client_id;
-    if (t.bid_client_id !== undefined) res.bid_client_id = t.bid_client_id;
-    if (t.transaction_time !== undefined) res.transaction_time = t.transaction_time;
-    if (t.ask_account_pnl !== undefined && t.ask_account_pnl !== null) {
-      res.ask_account_pnl = t.ask_account_pnl;
-    }
-    if (t.bid_account_pnl !== undefined && t.bid_account_pnl !== null) {
-      res.bid_account_pnl = t.bid_account_pnl;
-    }
-    return res;
   }
 
   startBtn.addEventListener("click", async function () {
@@ -428,93 +451,164 @@
     statusDiv.style.color = "#58a6ff";
     statusDiv.textContent = "Connecting to " + apiBase + "...";
 
-    const allTrades = [];
+    // 1. Precomputed URL bases without cursor to eliminate repeated concatenations in loop
+    const urlBase =
+      apiBase +
+      "/trades?market_type=all&account_index=" +
+      encodeURIComponent(acc) +
+      "&sort_by=timestamp&sort_dir=desc&ask_filter=-1&role=all&type=all&limit=" +
+      PAGE_LIMIT +
+      "&aggregate=false";
+    const urlWithCursorBase = urlBase + "&cursor=";
+
+    // 2. Preallocated reusable request headers & options (zero GC churn per page)
+    const reqHeaders = {
+      Accept: "application/json",
+      Authorization: auth,
+      PreferAuthServer: "true",
+    };
+    const wafToken = getWafToken();
+    if (wafToken) {
+      reqHeaders["x-aws-waf-token"] = wafToken;
+    }
+    const fetchOptions = { headers: reqHeaders, credentials: "omit" };
+
+    // 3. Chunked streaming to Blob: index 0 reserved for JSON metadata header
+    const tradeChunks = [""];
     const seenIds = new Set();
+    let totalTradesCount = 0;
     let cursor = "";
     let page = 0;
     const startTime = Date.now();
+    let lastUiUpdate = 0;
+    let hasMoreAfterCap = false;
+
+    // 4. Prefetch Pipeline: launch page 1 immediately
+    let currentFetchPromise = fetchWithRetry(urlBase, fetchOptions).catch((err) => {
+      if (isCancelled || isClosed || totalTradesCount >= ROW_CAP) return null;
+      throw err;
+    });
 
     try {
-      while (!isCancelled && allTrades.length < ROW_CAP) {
+      while (!isCancelled && !isClosed && currentFetchPromise && totalTradesCount < ROW_CAP) {
         page++;
-        let url =
-          apiBase +
-          "/trades?market_type=all&account_index=" +
-          encodeURIComponent(acc) +
-          "&sort_by=timestamp&sort_dir=desc&ask_filter=-1&role=all&type=all&limit=100&aggregate=false";
-        if (cursor) url += "&cursor=" + encodeURIComponent(cursor);
 
-        const headers = {
-          Accept: "application/json",
-          Authorization: auth,
-          PreferAuthServer: "true",
-        };
-        // Forward AWS WAF token cookie if present
-        if (document.cookie && document.cookie.includes("aws-waf-token=")) {
-          const m = document.cookie.match(/aws-waf-token=([^;]+)/);
-          if (m && m[1]) headers["x-aws-waf-token"] = m[1];
-        }
+        // Await in-flight network response
+        const res = await currentFetchPromise;
+        if (!res || isCancelled || isClosed) break;
 
-        statusDiv.textContent =
-          "Fetching page " + page + " (" + allTrades.length.toLocaleString() + " trades so far)...";
-        progressBar.style.width = Math.min(95, 5 + page * 12) + "%";
-
-        const res = await fetchWithRetry(url, { headers, credentials: "omit" });
         const data = await res.json();
         if (data.code !== 200 && data.code !== undefined && data.code !== 0) {
           throw new Error(data.message || "API Error code: " + data.code);
         }
 
         const trades = data.trades || [];
-        if (trades.length === 0) break;
-
-        let newInPage = 0;
-        for (let i = 0; i < trades.length; i++) {
-          const t = trades[i];
-          const idKey = t.trade_id_str || String(t.trade_id);
-          if (!seenIds.has(idKey)) {
-            seenIds.add(idKey);
-            allTrades.push(slimTrade(t));
-            newInPage++;
-            if (allTrades.length >= ROW_CAP) break;
-          }
-        }
-
-        if (!data.next_cursor || data.next_cursor === cursor || newInPage === 0) {
+        if (trades.length === 0) {
+          currentFetchPromise = null;
           break;
         }
 
-        cursor = data.next_cursor;
+        // Overlapped Network I/O: immediately fire next request while CPU processes current page
+        const nextCursor = data.next_cursor;
+        if (
+          nextCursor &&
+          nextCursor !== cursor &&
+          !isCancelled &&
+          !isClosed &&
+          totalTradesCount + trades.length < ROW_CAP
+        ) {
+          cursor = nextCursor;
+          currentFetchPromise = fetchWithRetry(
+            urlWithCursorBase + encodeURIComponent(nextCursor),
+            fetchOptions,
+          ).catch((err) => {
+            if (isCancelled || isClosed || totalTradesCount >= ROW_CAP) return null;
+            throw err;
+          });
+        } else {
+          if (nextCursor && nextCursor !== cursor) {
+            hasMoreAfterCap = true;
+          }
+          currentFetchPromise = null;
+        }
+
+        // Process current 100-item page while next response flies over network
+        const pageSlimmed = [];
+        for (let i = 0; i < trades.length; i++) {
+          const t = trades[i];
+          const id = +t.trade_id;
+          if (!seenIds.has(id)) {
+            seenIds.add(id);
+            pageSlimmed.push(slimTrade(t));
+            if (totalTradesCount + pageSlimmed.length >= ROW_CAP) {
+              if (nextCursor || cursor) hasMoreAfterCap = true;
+              break;
+            }
+          }
+        }
+
+        if (pageSlimmed.length > 0) {
+          // Zero-copy array parts: push comma separately to avoid 15KB string allocation
+          const chunkStr = JSON.stringify(pageSlimmed).slice(1, -1);
+          if (totalTradesCount > 0) {
+            tradeChunks.push(",");
+          }
+          tradeChunks.push(chunkStr);
+          totalTradesCount += pageSlimmed.length;
+        }
+
+        // UI Throttling: limit DOM layout/style recalculation to ~4 times/sec
+        const now = Date.now();
+        if (now - lastUiUpdate > 250) {
+          lastUiUpdate = now;
+          const estProgress = Math.min(92, 5 + Math.round((1 - Math.exp(-page / 40)) * 87));
+          progressBar.style.width = estProgress + "%";
+          statusDiv.textContent =
+            "Fetching page " + page + " (" + totalTradesCount.toLocaleString() + " trades)...";
+        }
+      }
+
+      // Immediately release Set memory before finalizing export
+      seenIds.clear();
+
+      if (isClosed) {
+        tradeChunks.length = 0;
+        return;
       }
 
       progressBar.style.width = "100%";
       const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-      const isTruncated = allTrades.length >= ROW_CAP && Boolean(cursor);
+      const isTruncated = totalTradesCount >= ROW_CAP && (hasMoreAfterCap || Boolean(cursor));
 
-      if (allTrades.length === 0) {
+      if (totalTradesCount === 0) {
+        tradeChunks.length = 0;
         statusDiv.style.color = "#d29922";
         statusDiv.textContent = "No trades found for Account #" + acc + ".";
       } else {
-        // Build export payload with metadata, truncation status, and slimmed rows
-        const exportPayload = {
-          version: "1.0",
-          exported_at: new Date().toISOString(),
-          exported_at_unix: Date.now(),
-          network: defaultNetwork,
-          network_name: isRh ? "Robinhood Chain (RH)" : "Lighter Mainnet (Core)",
-          account_index: Number(acc),
-          total_trades: allTrades.length,
-          truncated: isTruncated,
-          row_cap: ROW_CAP,
-          trades: allTrades,
-        };
+        // Zero-copy Blob assembly: header placed at index 0 without running massive JSON.stringify
+        const headerJson =
+          JSON.stringify({
+            version: "1.0",
+            exported_at: new Date().toISOString(),
+            exported_at_unix: Date.now(),
+            network: defaultNetwork,
+            network_name: isRh ? "Robinhood Chain (RH)" : "Lighter Mainnet (Core)",
+            account_index: Number(acc),
+            total_trades: totalTradesCount,
+            truncated: isTruncated,
+            row_cap: ROW_CAP,
+          }).slice(0, -1) + ',"trades":[';
 
-        // Trigger file download (compact format for large files > 5000 rows to prevent high memory usage)
-        const isLarge = exportPayload.total_trades > 5000;
-        const jsonStr = isLarge
-          ? JSON.stringify(exportPayload)
-          : JSON.stringify(exportPayload, null, 2);
-        const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+        tradeChunks[0] = headerJson;
+        tradeChunks.push("]}");
+
+        const blob = new Blob(tradeChunks, {
+          type: "application/json;charset=utf-8",
+        });
+
+        // Release references to chunk strings immediately
+        tradeChunks.length = 0;
+
         const dlUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
         const dateStr = new Date().toISOString().slice(0, 10);
@@ -523,7 +617,7 @@
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(dlUrl);
+        setTimeout(() => URL.revokeObjectURL(dlUrl), 15000);
 
         if (isTruncated) {
           statusDiv.style.color = "#d29922";
@@ -536,22 +630,28 @@
         } else {
           statusDiv.style.color = "#2ea043";
           statusDiv.textContent =
-            allTrades.length.toLocaleString() +
+            totalTradesCount.toLocaleString() +
             " trades exported (" +
             durationSec +
             "s). File downloaded.";
         }
       }
     } catch (err) {
-      console.error("[Lighter Exporter]", err);
-      statusDiv.style.color = "#f85149";
-      statusDiv.textContent = "Error: " + (err.message || String(err));
+      if (!isClosed) {
+        console.error("[Lighter Exporter]", err);
+        statusDiv.style.color = "#f85149";
+        statusDiv.textContent = "Error: " + (err.message || String(err));
+      }
     } finally {
       isRunning = false;
-      startBtn.disabled = false;
-      startBtn.style.opacity = "1";
-      startBtn.textContent = "Export Again";
-      stopBtn.style.display = "none";
+      seenIds.clear();
+      tradeChunks.length = 0;
+      if (!isClosed) {
+        startBtn.disabled = false;
+        startBtn.style.opacity = "1";
+        startBtn.textContent = "Export Again";
+        stopBtn.style.display = "none";
+      }
     }
   });
 })();
