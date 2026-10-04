@@ -141,6 +141,16 @@ describe("Checker: API & Calculations", () => {
     expect(parsed.rowCap).toBe(150000);
   });
 
+  it("parseImportedTradesJson cleanly handles UTF-8 BOM prefix without errors", async () => {
+    const { parseImportedTradesJson } = await import("../web/src/checker/api");
+    const payload = prepareExportPayload(mockTrades, "rh", 12345);
+    const jsonWithBom = "\uFEFF" + JSON.stringify(payload);
+
+    const parsed = parseImportedTradesJson(jsonWithBom);
+    expect(parsed.trades.length).toBe(2);
+    expect(parsed.network).toBe("rh");
+  });
+
   it("getBookmarkletHref returns valid URL-encoded javascript:... string with resilient features", async () => {
     const { getBookmarkletHref, BOOKMARKLET_RAW_CODE } =
       await import("../web/src/checker/bookmarklet");

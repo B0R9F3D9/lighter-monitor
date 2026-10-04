@@ -4,16 +4,12 @@ import { cleanupLegacyStorage } from "../web/src/analytics/cleanup";
 describe("cleanupLegacyStorage", () => {
   let mockLocalStorage: Record<string, string>;
   let deleteDbCalls: string[];
-  let reqHandlers: {
-    onsuccess?: () => void;
-    onerror?: () => void;
-    onblocked?: () => void;
-  };
+  let listeners: Record<string, (() => void)[]>;
 
   beforeEach(() => {
     mockLocalStorage = {};
     deleteDbCalls = [];
-    reqHandlers = {};
+    listeners = {};
 
     (globalThis as any).window = {};
     (globalThis as any).localStorage = {
@@ -26,11 +22,12 @@ describe("cleanupLegacyStorage", () => {
     (globalThis as any).indexedDB = {
       deleteDatabase: (name: string) => {
         deleteDbCalls.push(name);
-        const req: any = {};
-        setTimeout(() => {
-          if (req.onsuccess) req.onsuccess();
-        }, 0);
-        reqHandlers = req;
+        const req: any = {
+          addEventListener: (event: string, fn: () => void) => {
+            if (!listeners[event]) listeners[event] = [];
+            listeners[event].push(fn);
+          },
+        };
         return req;
       },
     };
@@ -39,10 +36,10 @@ describe("cleanupLegacyStorage", () => {
   it("should request deletion of LighterSpreadAnalyticsDB when not yet cleaned", () => {
     cleanupLegacyStorage();
     expect(deleteDbCalls).toEqual(["LighterSpreadAnalyticsDB"]);
-    expect(typeof reqHandlers.onsuccess).toBe("function");
+    expect(listeners.success?.length).toBe(1);
 
-    // Trigger onsuccess callback
-    reqHandlers.onsuccess!();
+    // Trigger success callback
+    listeners.success![0]!();
     expect(mockLocalStorage["lighter_legacy_idb_cleaned_v1"]).toBe("1");
   });
 
@@ -52,12 +49,12 @@ describe("cleanupLegacyStorage", () => {
     expect(deleteDbCalls.length).toBe(0);
   });
 
-  it("should mark done even if deletion throws an onerror event", () => {
+  it("should mark done even if deletion throws an error event", () => {
     cleanupLegacyStorage();
     expect(deleteDbCalls.length).toBe(1);
-    expect(typeof reqHandlers.onerror).toBe("function");
+    expect(listeners.error?.length).toBe(1);
 
-    reqHandlers.onerror!();
+    listeners.error![0]!();
     expect(mockLocalStorage["lighter_legacy_idb_cleaned_v1"]).toBe("1");
   });
 

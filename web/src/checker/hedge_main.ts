@@ -1,6 +1,6 @@
 // eslint-disable-next-line import/no-unassigned-import
 import "../style.css";
-import { HedgeController } from "./controller";
+import { HedgeController } from "./hedge_controller";
 import { initFontSelector, initVersionChecker, initMobileNav } from "../shared";
 
 function initApp(): void {

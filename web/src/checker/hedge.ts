@@ -703,63 +703,30 @@ export function exportHedgeReportToCsv(pairs: HedgePair[], unhedged: UnhedgedTra
   const rows: string[] = [headers.join(",")];
 
   for (const p of pairs) {
+    const rhFills = p.rhFillsCount ?? 1;
+    const coreFills = p.coreFillsCount ?? 1;
     rows.push(
-      [
-        p.id,
-        p.rhTimeFormatted,
-        p.coreTimeFormatted,
-        p.marketSymbol,
-        p.rhSide,
-        p.coreSide,
-        p.matchedSize.toFixed(4),
-        p.rhPrice.toFixed(4),
-        p.corePrice.toFixed(4),
-        (p.rhFillsCount ?? 1).toString(),
-        (p.coreFillsCount ?? 1).toString(),
-        p.priceDelta.toFixed(4),
-        p.notionalUsd.toFixed(2),
-        p.pricePnlUsd.toFixed(4),
-        p.rhFeeUsd.toFixed(4),
-        p.coreFeeUsd.toFixed(4),
-        p.totalFeesUsd.toFixed(4),
-        p.netPnlUsd.toFixed(4),
-        p.pnlBps.toFixed(2),
-        p.timeDeltaSec.toFixed(2),
-        p.status,
-        p.rhTradeId,
-        p.coreTradeId,
-      ].join(","),
+      `${p.id},${p.rhTimeFormatted},${p.coreTimeFormatted},${p.marketSymbol},${p.rhSide},${p.coreSide},${p.matchedSize.toFixed(4)},${p.rhPrice.toFixed(4)},${p.corePrice.toFixed(4)},${rhFills},${coreFills},${p.priceDelta.toFixed(4)},${p.notionalUsd.toFixed(2)},${p.pricePnlUsd.toFixed(4)},${p.rhFeeUsd.toFixed(4)},${p.coreFeeUsd.toFixed(4)},${p.totalFeesUsd.toFixed(4)},${p.netPnlUsd.toFixed(4)},${p.pnlBps.toFixed(2)},${p.timeDeltaSec.toFixed(2)},${p.status},${p.rhTradeId},${p.coreTradeId}`,
     );
   }
 
   for (const u of unhedged) {
     const isRh = u.network === "RH";
+    const rhTime = isRh ? u.timeFormatted : "--";
+    const coreTime = !isRh ? u.timeFormatted : "--";
+    const rhSide = isRh ? u.side : "--";
+    const coreSide = !isRh ? u.side : "--";
+    const rhPrice = isRh ? u.price.toFixed(4) : "--";
+    const corePrice = !isRh ? u.price.toFixed(4) : "--";
+    const rhFills = isRh ? (u.fillsCount ?? 1).toString() : "--";
+    const coreFills = !isRh ? (u.fillsCount ?? 1).toString() : "--";
+    const rhFee = isRh ? u.feeUsd.toFixed(4) : "0.0000";
+    const coreFee = !isRh ? u.feeUsd.toFixed(4) : "0.0000";
+    const totalFee = u.feeUsd.toFixed(4);
+    const rhTradeId = isRh ? u.tradeId : "--";
+    const coreTradeId = !isRh ? u.tradeId : "--";
     rows.push(
-      [
-        `unhedged-${u.network}-${u.tradeId}`,
-        isRh ? u.timeFormatted : "--",
-        !isRh ? u.timeFormatted : "--",
-        u.marketSymbol,
-        isRh ? u.side : "--",
-        !isRh ? u.side : "--",
-        u.unhedgedSize.toFixed(4),
-        isRh ? u.price.toFixed(4) : "--",
-        !isRh ? u.price.toFixed(4) : "--",
-        isRh ? (u.fillsCount ?? 1).toString() : "--",
-        !isRh ? (u.fillsCount ?? 1).toString() : "--",
-        "--",
-        u.usdValue.toFixed(2),
-        "--",
-        isRh ? u.feeUsd.toFixed(4) : "0.0000",
-        !isRh ? u.feeUsd.toFixed(4) : "0.0000",
-        u.feeUsd.toFixed(4),
-        "--",
-        "--",
-        "--",
-        `UNHEDGED (${u.network})`,
-        isRh ? u.tradeId : "--",
-        !isRh ? u.tradeId : "--",
-      ].join(","),
+      `unhedged-${u.network}-${u.tradeId},${rhTime},${coreTime},${u.marketSymbol},${rhSide},${coreSide},${u.unhedgedSize.toFixed(4)},${rhPrice},${corePrice},${rhFills},${coreFills},--,${u.usdValue.toFixed(2)},--,${rhFee},${coreFee},${totalFee},--,--,--,UNHEDGED (${u.network}),${rhTradeId},${coreTradeId}`,
     );
   }
 

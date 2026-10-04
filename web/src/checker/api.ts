@@ -871,7 +871,7 @@ export function downloadTextFile(
  */
 export function parseImportedTradesJson(rawText: string, fileName?: string): ImportedTradesResult {
   let parsed: any;
-  const cleanText = rawText.trim().replace(/^\uFEFF/, "");
+  const cleanText = rawText.charCodeAt(0) === 0xfeff ? rawText.slice(1) : rawText;
   try {
     parsed = JSON.parse(cleanText);
   } catch (err: any) {

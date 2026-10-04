@@ -39,6 +39,7 @@ export class CheckerController {
   private searchQuery = "";
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private jsonViewerDirty = true;
+  private uploadSessionId = 0;
 
   // Bookmarklet DOM Elements
   private bookmarkletLink: HTMLAnchorElement | null = null;
@@ -377,11 +378,16 @@ export class CheckerController {
         navigator.clipboard &&
         typeof navigator.clipboard.readText === "function"
       ) {
+        const sessionId = ++this.uploadSessionId;
         const text = await navigator.clipboard.readText();
+        if (sessionId !== this.uploadSessionId) return;
+
         const trimmed = text?.trim();
         if (trimmed && (trimmed.startsWith("{") || trimmed.startsWith("["))) {
           try {
             const parsed = parseImportedTradesJson(trimmed, "clipboard.json");
+            if (sessionId !== this.uploadSessionId) return;
+
             this.soloBatches = [...this.soloBatches, parsed];
             this.applySoloBatches();
             this.showStatusSuccess(`Pasted and added ${parsed.trades.length} trades!`);
@@ -417,6 +423,7 @@ export class CheckerController {
       return;
     }
 
+    this.uploadSessionId++;
     try {
       const parsed = parseImportedTradesJson(rawText, "pasted-response.json");
       this.soloBatches = [...this.soloBatches, parsed];
@@ -428,6 +435,8 @@ export class CheckerController {
   }
 
   public async handleFileUploads(files: File[], append = false): Promise<void> {
+    const sessionId = ++this.uploadSessionId;
+
     if (!append) {
       this.soloBatches = [];
     }
@@ -450,20 +459,30 @@ export class CheckerController {
 
       try {
         const text = await file.text();
-        if (!text.trim()) {
+        if (sessionId !== this.uploadSessionId) return;
+
+        if (!/\S/.test(text)) {
           this.showStatusError(`Skipped "${file.name}": file is empty.`);
           continue;
         }
 
+        this.showStatusSuccess(`Parsing "${file.name}"...`);
         await new Promise((r) => setTimeout(r, 0));
+        if (sessionId !== this.uploadSessionId) return;
+
         const result = parseImportedTradesJson(text, file.name);
+        if (sessionId !== this.uploadSessionId) return;
+
         newBatches.push(result);
       } catch (err: any) {
-        console.error("JSON Import Error:", err);
-        this.showStatusError(`Error reading "${file.name}": ${err.message || String(err)}`);
+        if (sessionId === this.uploadSessionId) {
+          console.error("JSON Import Error:", err);
+          this.showStatusError(`Error reading "${file.name}": ${err.message || String(err)}`);
+        }
       }
     }
 
+    if (sessionId !== this.uploadSessionId) return;
     if (newBatches.length === 0) return;
 
     this.soloBatches = [...this.soloBatches, ...newBatches];
@@ -705,6 +724,7 @@ export class CheckerController {
   }
 
   public clearAll(): void {
+    this.uploadSessionId++;
     this.soloBatches = [];
     this.soloStitched = null;
     this.rawTrades = [];

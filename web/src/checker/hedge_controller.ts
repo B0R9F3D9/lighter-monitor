@@ -7,8 +7,8 @@ import {
   sortParsedTradesChronologicalDesc,
   sortTradesChronologicalDesc,
   stitchTradeBatches,
-} from "../checker/api";
-import { getBookmarkletHref } from "../checker/bookmarklet";
+} from "./api";
+import { getBookmarkletHref } from "./bookmarklet";
 import {
   formatDisplayFileName,
   type HedgeMetricElements,
@@ -16,13 +16,13 @@ import {
   renderHedgeTable,
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
-} from "../checker/dom";
+} from "./dom";
 import {
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
   exportHedgeReportToCsv,
   matchHedgeTrades,
-} from "../checker/hedge";
+} from "./hedge";
 import type {
   HedgePair,
   HedgeSummaryMetrics,
@@ -30,7 +30,7 @@ import type {
   LighterTrade,
   ParsedTradeView,
   UnhedgedTrade,
-} from "../checker/types";
+} from "./types";
 
 export class HedgeController {
   // Hedge mode state
@@ -48,6 +48,8 @@ export class HedgeController {
   private coreFileName = "";
   private hedgePairs: HedgePair[] = [];
   private unhedgedTrades: UnhedgedTrade[] = [];
+  private hedgePairsMap = new Map<string, HedgePair>();
+  private unhedgedTradesMap = new Map<string, UnhedgedTrade>();
   private filteredHedgePairs: HedgePair[] = [];
   private filteredUnhedgedTrades: UnhedgedTrade[] = [];
   private hedgeMetrics: HedgeSummaryMetrics | null = null;
@@ -56,6 +58,7 @@ export class HedgeController {
   private hedgeFilterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private rhMarketMap: Map<number, string> = getStaticMarketMap("rh");
   private coreMarketMap: Map<number, string> = getStaticMarketMap("mainnet");
+  private uploadSessionId = 0;
 
   // Bookmarklet DOM Elements
   private hedgeBookmarkletLink: HTMLAnchorElement | null = null;
@@ -529,6 +532,7 @@ export class HedgeController {
       return;
     }
 
+    this.uploadSessionId++;
     try {
       const parsed = parseImportedTradesJson(rawText, "pasted-response.json");
       const chosenTarget = this.selectPasteTarget?.value || "auto";
@@ -558,12 +562,17 @@ export class HedgeController {
   private async pasteFromClipboard(slot: "rh" | "core"): Promise<void> {
     try {
       if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+        const sessionId = ++this.uploadSessionId;
         const text = await navigator.clipboard.readText();
-        if (text && text.trim()) {
+        if (sessionId !== this.uploadSessionId) return;
+
+        if (text && /\S/.test(text)) {
           const parsed = parseImportedTradesJson(
             text,
             `Clipboard-${slot.toUpperCase()}-${Date.now().toString().slice(-4)}.json`,
           );
+          if (sessionId !== this.uploadSessionId) return;
+
           if (slot === "rh") {
             this.rhBatches = [...this.rhBatches, parsed];
           } else {
@@ -585,6 +594,8 @@ export class HedgeController {
   }
 
   private async handleHedgeFiles(files: FileList, defaultSlot: "rh" | "core"): Promise<void> {
+    const sessionId = ++this.uploadSessionId;
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const fileNameLower = file.name.toLowerCase();
@@ -603,14 +614,20 @@ export class HedgeController {
 
       try {
         const text = await file.text();
-        if (!text.trim()) {
+        if (sessionId !== this.uploadSessionId) return;
+
+        if (!/\S/.test(text)) {
           this.showStatusError(`Skipped "${file.name}": file is empty.`);
           continue;
         }
 
-        // Yield to event loop to keep UI responsive with large files
+        this.showStatusSuccess(`Parsing "${file.name}"...`);
+        // Yield to event loop to keep UI responsive with large files and allow browser to paint status
         await new Promise((r) => setTimeout(r, 0));
+        if (sessionId !== this.uploadSessionId) return;
+
         const parsed = parseImportedTradesJson(text, file.name);
+        if (sessionId !== this.uploadSessionId) return;
 
         // Smart network routing
         let targetSlot = defaultSlot;
@@ -630,10 +647,13 @@ export class HedgeController {
           this.coreBatches = [...this.coreBatches, parsed];
         }
       } catch (err: any) {
-        this.showStatusError(`Error reading "${file.name}": ${err.message || String(err)}`);
+        if (sessionId === this.uploadSessionId) {
+          this.showStatusError(`Error reading "${file.name}": ${err.message || String(err)}`);
+        }
       }
     }
 
+    if (sessionId !== this.uploadSessionId) return;
     this.applyHedgeBatches();
   }
 
@@ -769,6 +789,16 @@ export class HedgeController {
     this.unhedgedTrades = result.unhedged;
     this.hedgeMetrics = result.metrics;
 
+    this.hedgePairsMap.clear();
+    for (const p of this.hedgePairs) {
+      this.hedgePairsMap.set(p.id, p);
+    }
+    this.unhedgedTradesMap.clear();
+    for (const u of this.unhedgedTrades) {
+      const id = u.id || `unhedged-${u.network}-${u.tradeId}`;
+      this.unhedgedTradesMap.set(id, u);
+    }
+
     this.updateHedgeExecutiveSummary();
     this.applyHedgeFilter();
   }
@@ -896,10 +926,18 @@ export class HedgeController {
     let unhedgedToExport = this.unhedgedTrades;
 
     if (this.selectedHedgeRowIds.size > 0) {
-      pairsToExport = this.hedgePairs.filter((p) => this.selectedHedgeRowIds.has(p.id));
-      unhedgedToExport = this.unhedgedTrades.filter((u) =>
-        this.selectedHedgeRowIds.has(u.id || `unhedged-${u.network}-${u.tradeId}`),
-      );
+      const selPairs: HedgePair[] = [];
+      const selUnhedged: UnhedgedTrade[] = [];
+      for (const id of this.selectedHedgeRowIds) {
+        const p = this.hedgePairsMap.get(id);
+        if (p) selPairs.push(p);
+        else {
+          const u = this.unhedgedTradesMap.get(id);
+          if (u) selUnhedged.push(u);
+        }
+      }
+      pairsToExport = selPairs;
+      unhedgedToExport = selUnhedged;
     }
 
     const csvContent = exportHedgeReportToCsv(pairsToExport, unhedgedToExport);
@@ -918,6 +956,7 @@ export class HedgeController {
   }
 
   public clearHedgeSlot(slot: "rh" | "core"): void {
+    this.uploadSessionId++;
     if (slot === "rh") {
       this.rhBatches = [];
       this.rhRawTrades = [];
@@ -966,6 +1005,8 @@ export class HedgeController {
 
     this.hedgePairs = [];
     this.unhedgedTrades = [];
+    this.hedgePairsMap.clear();
+    this.unhedgedTradesMap.clear();
     this.filteredHedgePairs = [];
     this.filteredUnhedgedTrades = [];
     this.hedgeMetrics = null;
@@ -985,6 +1026,7 @@ export class HedgeController {
   }
 
   public clearHedge(): void {
+    this.uploadSessionId++;
     this.clearHedgeSlot("rh");
     this.clearHedgeSlot("core");
   }
@@ -1106,10 +1148,18 @@ export class HedgeController {
   }
 
   private onHedgeSelectionChanged(): void {
-    const selectedPairs = this.hedgePairs.filter((p) => this.selectedHedgeRowIds.has(p.id));
-    const selectedUnhedged = this.unhedgedTrades.filter((u) =>
-      this.selectedHedgeRowIds.has(u.id || `unhedged-${u.network}-${u.tradeId}`),
-    );
+    const selectedPairs: HedgePair[] = [];
+    const selectedUnhedged: UnhedgedTrade[] = [];
+
+    for (const id of this.selectedHedgeRowIds) {
+      const p = this.hedgePairsMap.get(id);
+      if (p) {
+        selectedPairs.push(p);
+      } else {
+        const u = this.unhedgedTradesMap.get(id);
+        if (u) selectedUnhedged.push(u);
+      }
+    }
 
     const metrics = calculateSelectedHedgeMetrics(selectedPairs, selectedUnhedged);
     updateHedgeSelectionMetrics(metrics, this.hedgeSelectionMetricElements);

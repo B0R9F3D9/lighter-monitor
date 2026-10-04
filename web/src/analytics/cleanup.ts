@@ -20,8 +20,8 @@ export function cleanupLegacyStorage(): void {
       }
     };
 
-    req.onsuccess = markDone;
-    req.onerror = markDone;
+    req.addEventListener("success", markDone);
+    req.addEventListener("error", markDone);
   } catch {
     // Gracefully ignore in restricted / private environments
   }
