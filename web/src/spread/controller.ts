@@ -823,7 +823,9 @@ export class TerminalController {
         if ([0, 3, 5, 10].includes(sec)) {
           this.state.rerankIntervalSec = sec;
           this.state.rerankTimerRemaining = sec;
-          const rerankSelector = document.getElementById("rerankSelector") as HTMLSelectElement | null;
+          const rerankSelector = document.getElementById(
+            "rerankSelector",
+          ) as HTMLSelectElement | null;
           const mobileRerankSelector = document.getElementById(
             "mobileRerankSelector",
           ) as HTMLSelectElement | null;

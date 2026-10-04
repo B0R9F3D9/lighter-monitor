@@ -32,44 +32,110 @@ function getOrCreateHeatmapTooltip(): HTMLElement {
   return sharedHeatmapTooltip;
 }
 
+interface HeatmapCellState {
+  bucket: HourlyBucketStats;
+  isCurrent: boolean;
+  onHourClick?: (hour: number) => void;
+}
+
+const cellStateMap = new WeakMap<HTMLElement, HeatmapCellState>();
+
 export function renderHourlyHeatmap(
   container: HTMLElement,
   buckets: HourlyBucketStats[],
   currentHourLocal: number,
   onHourClick?: (hour: number) => void,
 ): void {
-  container.innerHTML = "";
+  const firstChild = container.children?.[0] as HTMLElement | undefined;
+  const isExisting =
+    firstChild &&
+    firstChild.className === "heatmap-ribbon" &&
+    firstChild.children?.length === buckets.length;
 
   const tooltip = getOrCreateHeatmapTooltip();
+  let grid: HTMLElement;
 
-  const grid = document.createElement("div");
-  grid.className = "heatmap-ribbon";
+  if (isExisting) {
+    grid = firstChild;
+  } else {
+    container.innerHTML = "";
+    grid = document.createElement("div");
+    grid.className = "heatmap-ribbon";
 
-  grid.addEventListener("mouseleave", () => {
-    tooltip.style.opacity = "0";
-    tooltip.style.display = "none";
-  });
-
-  container.addEventListener(
-    "scroll",
-    () => {
+    grid.addEventListener("mouseleave", () => {
       tooltip.style.opacity = "0";
       tooltip.style.display = "none";
-    },
-    { passive: true },
-  );
+    });
 
-  for (const b of buckets) {
+    container.addEventListener(
+      "scroll",
+      () => {
+        tooltip.style.opacity = "0";
+        tooltip.style.display = "none";
+      },
+      { passive: true },
+    );
+  }
+
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i]!;
     const isCurrent = b.hour === currentHourLocal;
-    const cell = document.createElement("div");
-    cell.className = `relative flex flex-col items-center justify-center h-[46px] px-0.5 rounded border cursor-pointer transition select-none ${
-      isCurrent ? "ring-1 ring-terminal-accent" : ""
-    }`;
+    let cell: HTMLElement;
 
-    // Color interpolation:
-    // score 0.0 -> bg-terminal-emeraldMuted border-terminal-emerald/40 text-terminal-emerald
-    // score 0.5 -> bg-terminal-surface border-terminal-border text-terminal-secondary
-    // score 1.0 -> bg-terminal-coralMuted border-terminal-coral/40 text-terminal-coral
+    if (isExisting) {
+      cell = grid.children[i] as HTMLElement;
+    } else {
+      cell = document.createElement("div");
+
+      cell.addEventListener("mouseenter", () => {
+        const state = cellStateMap.get(cell);
+        if (!state) return;
+        const { bucket, isCurrent: cur } = state;
+        const sign = bucket.avgBasisUsd > 0 ? "+" : "";
+        const nextHour = String((bucket.hour + 1) % 24).padStart(2, "0");
+        tooltip.innerHTML = `
+          <div class="font-bold text-white mb-0.5">${bucket.label}:00 - ${nextHour}:00 ${cur ? "(Current)" : ""}</div>
+          <div class="flex justify-between gap-3"><span>Avg Basis:</span> <span class="text-white font-bold tabular-nums">${sign}$${bucket.avgBasisUsd.toFixed(3)} (${sign}${bucket.avgBasisBps.toFixed(1)} bps)</span></div>
+          <div class="flex justify-between gap-3"><span>Range:</span> <span class="tabular-nums">$${bucket.minBasisUsd.toFixed(2)} .. $${bucket.maxBasisUsd.toFixed(2)}</span></div>
+          <div class="flex justify-between gap-3 text-terminal-muted"><span>Samples:</span> <span class="tabular-nums">${bucket.sampleCount}</span></div>
+        `;
+        tooltip.style.display = "block";
+        tooltip.style.opacity = "1";
+
+        const cellRect = cell.getBoundingClientRect();
+        const tipRect = tooltip.getBoundingClientRect();
+        const padding = 10;
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+
+        let left = cellRect.left + (cellRect.width - tipRect.width) / 2;
+        left = Math.max(padding, Math.min(viewportWidth - tipRect.width - padding, left));
+
+        let top = cellRect.top - tipRect.height - 6;
+        if (top < padding) {
+          top = cellRect.bottom + 6;
+        }
+
+        tooltip.style.left = `${Math.round(left)}px`;
+        tooltip.style.top = `${Math.round(top)}px`;
+      });
+
+      cell.addEventListener("mouseleave", () => {
+        tooltip.style.opacity = "0";
+        tooltip.style.display = "none";
+      });
+
+      cell.addEventListener("click", () => {
+        const state = cellStateMap.get(cell);
+        if (state?.onHourClick) {
+          state.onHourClick(state.bucket.hour);
+        }
+      });
+
+      grid.appendChild(cell);
+    }
+
+    cellStateMap.set(cell, { bucket: b, isCurrent, onHourClick });
+
     let bgClass = "bg-terminal-surface";
     let borderClass = "border-terminal-border";
     let textClass = "text-terminal-secondary";
@@ -98,60 +164,22 @@ export function renderHourlyHeatmap(
       textClass = "text-terminal-muted";
     }
 
-    cell.className += ` ${bgClass} ${borderClass}`;
+    const ringClass = isCurrent ? "ring-1 ring-terminal-accent" : "";
+    cell.className = `relative flex flex-col items-center justify-center h-[46px] px-0.5 rounded border cursor-pointer transition select-none ${ringClass} ${bgClass} ${borderClass}`;
 
     const sign = b.avgBasisUsd > 0 ? "+" : "";
     const basisLabel = b.sampleCount > 0 ? `${sign}$${b.avgBasisUsd.toFixed(2)}` : "—";
-    const nextHour = String((b.hour + 1) % 24).padStart(2, "0");
 
     cell.innerHTML = `
       <div class="text-[10px] font-bold ${textClass} tabular-nums">${b.label}</div>
       <div class="text-[9px] font-mono ${textClass} tabular-nums mt-0.5 truncate w-full text-center">${basisLabel}</div>
       ${isCurrent ? '<span class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-terminal-accent"></span>' : ""}
     `;
-
-    cell.addEventListener("mouseenter", () => {
-      tooltip.innerHTML = `
-        <div class="font-bold text-white mb-0.5">${b.label}:00 - ${nextHour}:00 ${isCurrent ? "(Current)" : ""}</div>
-        <div class="flex justify-between gap-3"><span>Avg Basis:</span> <span class="text-white font-bold tabular-nums">${sign}$${b.avgBasisUsd.toFixed(3)} (${sign}${b.avgBasisBps.toFixed(1)} bps)</span></div>
-        <div class="flex justify-between gap-3"><span>Range:</span> <span class="tabular-nums">$${b.minBasisUsd.toFixed(2)} .. $${b.maxBasisUsd.toFixed(2)}</span></div>
-        <div class="flex justify-between gap-3 text-terminal-muted"><span>Samples:</span> <span class="tabular-nums">${b.sampleCount}</span></div>
-      `;
-      tooltip.style.display = "block";
-      tooltip.style.opacity = "1";
-
-      const cellRect = cell.getBoundingClientRect();
-      const tipRect = tooltip.getBoundingClientRect();
-      const padding = 10;
-      const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-
-      // Horizontally center over the cell, then clamp within viewport boundaries
-      let left = cellRect.left + (cellRect.width - tipRect.width) / 2;
-      left = Math.max(padding, Math.min(viewportWidth - tipRect.width - padding, left));
-
-      // Position above cell with 6px spacing; flip below cell if close to top edge
-      let top = cellRect.top - tipRect.height - 6;
-      if (top < padding) {
-        top = cellRect.bottom + 6;
-      }
-
-      tooltip.style.left = `${Math.round(left)}px`;
-      tooltip.style.top = `${Math.round(top)}px`;
-    });
-
-    cell.addEventListener("mouseleave", () => {
-      tooltip.style.opacity = "0";
-      tooltip.style.display = "none";
-    });
-
-    if (onHourClick) {
-      cell.addEventListener("click", () => onHourClick(b.hour));
-    }
-
-    grid.appendChild(cell);
   }
 
-  container.appendChild(grid);
+  if (!isExisting) {
+    container.appendChild(grid);
+  }
 
   if (
     typeof requestAnimationFrame === "function" &&

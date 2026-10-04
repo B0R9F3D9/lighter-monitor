@@ -21,13 +21,7 @@ export const CRYPTO_SYMBOLS: ReadonlySet<string> = new Set([
 
 const COMMODITY_SYMBOLS: ReadonlySet<string> = new Set(["XAU", "XAG", "USO", "SLV"]);
 
-const INDEX_ETF_SYMBOLS: ReadonlySet<string> = new Set([
-  "SPY",
-  "QQQ",
-  "SOXL",
-  "SPCX",
-  "SGOV",
-]);
+const INDEX_ETF_SYMBOLS: ReadonlySet<string> = new Set(["SPY", "QQQ", "SOXL", "SPCX", "SGOV"]);
 
 export const NON_EQUITY_SYMBOLS: ReadonlySet<string> = new Set([
   ...CRYPTO_SYMBOLS,

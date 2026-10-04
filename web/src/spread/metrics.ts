@@ -27,10 +27,30 @@ const BASE_SIZE_GRID: readonly number[] = [
 ];
 
 // Pre-allocated reusable structures for zero-allocation simulation during optimization
-const staticSimEntryRh: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
-const staticSimEntryCore: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
-const staticSimExitRh: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
-const staticSimExitCore: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+const staticSimEntryRh: FastSimResult = {
+  isComplete: false,
+  totalCostUsd: 0,
+  levelsSwept: 0,
+  avgPrice: 0,
+};
+const staticSimEntryCore: FastSimResult = {
+  isComplete: false,
+  totalCostUsd: 0,
+  levelsSwept: 0,
+  avgPrice: 0,
+};
+const staticSimExitRh: FastSimResult = {
+  isComplete: false,
+  totalCostUsd: 0,
+  levelsSwept: 0,
+  avgPrice: 0,
+};
+const staticSimExitCore: FastSimResult = {
+  isComplete: false,
+  totalCostUsd: 0,
+  levelsSwept: 0,
+  avgPrice: 0,
+};
 const scratchCandidates: number[] = [];
 
 function getSideDepth(side: OrderBookLevel[] | FlatOrderBookSide): number {
@@ -281,25 +301,36 @@ export function calculateMarketMetrics(
 ): MarketMetrics | null {
   if (!rhBook?.isSnapshotReceived || !coreBook?.isSnapshotReceived) return null;
 
-  const rhAsks: FlatOrderBookSide = ("prices" in rhBook.asks)
-    ? (rhBook.asks as FlatOrderBookSide)
-    : ((rhBook.asks = new FlatOrderBookSide(true, (rhBook.asks as unknown as Map<number, number>).entries())) as FlatOrderBookSide);
-  const rhBids: FlatOrderBookSide = ("prices" in rhBook.bids)
-    ? (rhBook.bids as FlatOrderBookSide)
-    : ((rhBook.bids = new FlatOrderBookSide(false, (rhBook.bids as unknown as Map<number, number>).entries())) as FlatOrderBookSide);
-  const coreAsks: FlatOrderBookSide = ("prices" in coreBook.asks)
-    ? (coreBook.asks as FlatOrderBookSide)
-    : ((coreBook.asks = new FlatOrderBookSide(true, (coreBook.asks as unknown as Map<number, number>).entries())) as FlatOrderBookSide);
-  const coreBids: FlatOrderBookSide = ("prices" in coreBook.bids)
-    ? (coreBook.bids as FlatOrderBookSide)
-    : ((coreBook.bids = new FlatOrderBookSide(false, (coreBook.bids as unknown as Map<number, number>).entries())) as FlatOrderBookSide);
+  const rhAsks: FlatOrderBookSide =
+    "prices" in rhBook.asks
+      ? (rhBook.asks as FlatOrderBookSide)
+      : ((rhBook.asks = new FlatOrderBookSide(
+          true,
+          (rhBook.asks as unknown as Map<number, number>).entries(),
+        )) as FlatOrderBookSide);
+  const rhBids: FlatOrderBookSide =
+    "prices" in rhBook.bids
+      ? (rhBook.bids as FlatOrderBookSide)
+      : ((rhBook.bids = new FlatOrderBookSide(
+          false,
+          (rhBook.bids as unknown as Map<number, number>).entries(),
+        )) as FlatOrderBookSide);
+  const coreAsks: FlatOrderBookSide =
+    "prices" in coreBook.asks
+      ? (coreBook.asks as FlatOrderBookSide)
+      : ((coreBook.asks = new FlatOrderBookSide(
+          true,
+          (coreBook.asks as unknown as Map<number, number>).entries(),
+        )) as FlatOrderBookSide);
+  const coreBids: FlatOrderBookSide =
+    "prices" in coreBook.bids
+      ? (coreBook.bids as FlatOrderBookSide)
+      : ((coreBook.bids = new FlatOrderBookSide(
+          false,
+          (coreBook.bids as unknown as Map<number, number>).entries(),
+        )) as FlatOrderBookSide);
 
-  if (
-    rhAsks.count === 0 ||
-    rhBids.count === 0 ||
-    coreAsks.count === 0 ||
-    coreBids.count === 0
-  ) {
+  if (rhAsks.count === 0 || rhBids.count === 0 || coreAsks.count === 0 || coreBids.count === 0) {
     return null;
   }
 

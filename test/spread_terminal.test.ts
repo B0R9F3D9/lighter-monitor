@@ -605,7 +605,12 @@ describe("Spread Terminal: High-Throughput & Zero-Allocation Hot Path", () => {
       asks.set(100 + i * 0.5, 2.0 + i * 0.1);
     }
 
-    const fastRes: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+    const fastRes: FastSimResult = {
+      isComplete: false,
+      totalCostUsd: 0,
+      levelsSwept: 0,
+      avgPrice: 0,
+    };
     const complete = fastSimFillInto(fastRes, asks, 10.0);
 
     expect(complete).toBe(true);
@@ -644,7 +649,12 @@ describe("Spread Terminal: High-Throughput & Zero-Allocation Hot Path", () => {
       bids.set(99.9 - i * 0.1, 5 + i * 0.5);
     }
 
-    const fastRes: FastSimResult = { isComplete: false, totalCostUsd: 0, levelsSwept: 0, avgPrice: 0 };
+    const fastRes: FastSimResult = {
+      isComplete: false,
+      totalCostUsd: 0,
+      levelsSwept: 0,
+      avgPrice: 0,
+    };
     const fillRes: SimFillResult = {
       isComplete: false,
       avgPrice: 0,

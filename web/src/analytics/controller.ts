@@ -15,21 +15,45 @@ import {
   splitIntervalsIntoApiChunks,
 } from "./math";
 import { renderHourlyHeatmap } from "./heatmap";
-import { ticksStorage } from "./storage";
 import type {
   AnalyticsMarketPair,
   AnalyticsVenue,
   BasisPoint,
   DateFilterConfig,
-  LiveSpreadTick,
   QuantStats,
   RawCandle,
   TimeframeId,
 } from "./types";
-import { CONFIG, CRYPTO_SYMBOLS, formatMoney, initFontSelector, WebSocketManager } from "../shared";
+import { CONFIG, CRYPTO_SYMBOLS, formatMoney, initFontSelector } from "../shared";
 
 export type SortField = "volume" | "oi" | "change" | "price" | "symbol";
 export type SortDirection = "asc" | "desc";
+
+const SHORT_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function formatLegendDate(timestampMs: number): string {
+  const d = new Date(timestampMs);
+  const mon = SHORT_MONTHS[d.getMonth()]!;
+  const day = d.getDate();
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const hh = h < 10 ? `0${h}` : `${h}`;
+  const mm = m < 10 ? `0${m}` : `${m}`;
+  return `${mon} ${day}, ${hh}:${mm}`;
+}
 
 export class AnalyticsController {
   private pairs: AnalyticsMarketPair[] = [];
@@ -65,10 +89,14 @@ export class AnalyticsController {
   private pendingRange: { fromSec: number; toSec: number } | null = null;
   private lastRequestedRange: { fromSec: number; toSec: number; resolution: string } | null = null;
 
-  private wsManager: WebSocketManager | null = null;
-  private lastLiveTickTs = 0;
-  private liveRhBook = { bestAsk: 0, bestBid: 0, mid: 0 };
-  private liveCoreBook = { bestAsk: 0, bestBid: 0, mid: 0 };
+  private currentRequestId = 0;
+  private legendElements: {
+    rhVal: HTMLElement | null;
+    coreVal: HTMLElement | null;
+    basisVal: HTMLElement | null;
+    bpsVal: HTMLElement | null;
+    timeVal: HTMLElement | null;
+  } | null = null;
 
   public async init(): Promise<void> {
     this.restoreSettings();
@@ -76,7 +104,6 @@ export class AnalyticsController {
     await this.loadPairs();
     this.initCharts();
     await this.loadData();
-    this.initWebSocket();
   }
 
   private restoreSettings(): void {
@@ -217,9 +244,14 @@ export class AnalyticsController {
 
     this.setLoading(true);
     const tf = TIMEFRAMES[this.activeTimeframe];
+    const reqId = ++this.currentRequestId;
+    const currentSymbol = pair.symbol;
 
     try {
       const { points, stats, bands } = await fetchHistoricalBasis(pair, tf);
+      if (reqId !== this.currentRequestId || this.activeSymbol !== currentSymbol) {
+        return;
+      }
       this.activePoints = points;
       this.activeStats = stats;
 
@@ -232,9 +264,13 @@ export class AnalyticsController {
       this.updateTopMarketStats(pair);
       this.updateLegend(points[points.length - 1] || null);
     } catch (err) {
-      console.error("Failed to fetch historical basis:", err);
+      if (reqId === this.currentRequestId) {
+        console.error("Failed to fetch historical basis:", err);
+      }
     } finally {
-      this.setLoading(false);
+      if (reqId === this.currentRequestId) {
+        this.setLoading(false);
+      }
     }
   }
 
@@ -281,6 +317,8 @@ export class AnalyticsController {
     this.isFetchingRange = true;
     this.lastRequestedRange = { fromSec, toSec, resolution };
     this.setRangeLoading(true);
+    const reqId = ++this.currentRequestId;
+    const currentSymbol = pair.symbol;
 
     try {
       const bufferSec = Math.floor(spanSec * 0.25);
@@ -308,6 +346,10 @@ export class AnalyticsController {
         ),
       ]);
 
+      if (reqId !== this.currentRequestId || this.activeSymbol !== currentSymbol) {
+        return;
+      }
+
       const points = alignCandlesToBasisPoints(rhCandles, coreCandles);
       if (points.length >= 2) {
         const stats = calculateQuantStats(points);
@@ -326,7 +368,9 @@ export class AnalyticsController {
         this.clearActiveTimeframeButtons();
       }
     } catch (err) {
-      console.warn("Failed to fetch viewport historical candles:", err);
+      if (reqId === this.currentRequestId) {
+        console.warn("Failed to fetch viewport historical candles:", err);
+      }
     } finally {
       this.isFetchingRange = false;
       this.setRangeLoading(false);
@@ -439,19 +483,25 @@ export class AnalyticsController {
   }
 
   private updateLegend(point: BasisPoint | null): void {
-    const rhVal = document.getElementById("legendRhPrice");
-    const coreVal = document.getElementById("legendCorePrice");
-    const basisVal = document.getElementById("legendBasisUsd");
-    const bpsVal = document.getElementById("legendBasisBps");
-    const timeVal = document.getElementById("legendTimestamp");
+    if (!this.legendElements) {
+      this.legendElements = {
+        rhVal: document.getElementById("legendRhPrice"),
+        coreVal: document.getElementById("legendCorePrice"),
+        basisVal: document.getElementById("legendBasisUsd"),
+        bpsVal: document.getElementById("legendBasisBps"),
+        timeVal: document.getElementById("legendTimestamp"),
+      };
+    }
 
     if (!point) {
       if (this.activePoints.length > 0) {
-        point = this.activePoints[this.activePoints.length - 1];
+        point = this.activePoints[this.activePoints.length - 1]!;
       } else {
         return;
       }
     }
+
+    const { rhVal, coreVal, basisVal, bpsVal, timeVal } = this.legendElements;
 
     if (rhVal) rhVal.textContent = `$${point.rhPrice.toFixed(2)}`;
     if (coreVal) coreVal.textContent = `$${point.corePrice.toFixed(2)}`;
@@ -459,29 +509,28 @@ export class AnalyticsController {
     const sign = point.basisUsd > 0 ? "+" : "";
     if (basisVal) {
       basisVal.textContent = `${sign}$${point.basisUsd.toFixed(3)}`;
-      basisVal.className =
+      const targetClass =
         point.basisUsd <= 0
           ? "font-bold tabular-nums text-terminal-emerald"
           : "font-bold tabular-nums text-terminal-accent";
+      if (basisVal.className !== targetClass) {
+        basisVal.className = targetClass;
+      }
     }
 
     if (bpsVal) {
       bpsVal.textContent = `${sign}${point.basisBps.toFixed(2)} bps`;
-      bpsVal.className =
+      const targetClass =
         point.basisBps <= 0
           ? "font-bold tabular-nums text-terminal-emerald"
           : "font-bold tabular-nums text-terminal-accent";
+      if (bpsVal.className !== targetClass) {
+        bpsVal.className = targetClass;
+      }
     }
 
     if (timeVal) {
-      const d = new Date(point.timestampMs);
-      timeVal.textContent = d.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
+      timeVal.textContent = formatLegendDate(point.timestampMs);
     }
   }
 
@@ -907,6 +956,12 @@ export class AnalyticsController {
 
   public selectSymbol(symbol: string): void {
     if (this.activeSymbol === symbol) return;
+    this.currentRequestId++;
+    if (this.rangeDebounceTimer) {
+      clearTimeout(this.rangeDebounceTimer);
+      this.rangeDebounceTimer = null;
+    }
+    this.pendingRange = null;
     this.activeSymbol = symbol;
     this.saveSettings();
     this.addToRecents(symbol);
@@ -914,7 +969,6 @@ export class AnalyticsController {
     const pair = this.pairs.find((p) => p.symbol === symbol);
     if (pair) this.updateTopMarketStats(pair);
     this.loadData();
-    this.switchWsSubscription();
   }
 
   public setTimeframe(tf: TimeframeId): void {
@@ -1445,6 +1499,8 @@ export class AnalyticsController {
     }
 
     this.setLoading(true);
+    const reqId = ++this.currentRequestId;
+    const currentSymbol = pair.symbol;
 
     try {
       const nowSec = Math.floor(Date.now() / 1000);
@@ -1498,6 +1554,10 @@ export class AnalyticsController {
         }),
       );
 
+      if (reqId !== this.currentRequestId || this.activeSymbol !== currentSymbol) {
+        return;
+      }
+
       const rawRh: RawCandle[] = [];
       const rawCore: RawCandle[] = [];
       for (const res of chunkResults) {
@@ -1541,9 +1601,13 @@ export class AnalyticsController {
       this.updateDateFilterUI();
       this.closeDateFilterModal();
     } catch (err) {
-      console.error("Failed to apply date filter:", err);
+      if (reqId === this.currentRequestId) {
+        console.error("Failed to apply date filter:", err);
+      }
     } finally {
-      this.setLoading(false);
+      if (reqId === this.currentRequestId) {
+        this.setLoading(false);
+      }
     }
   }
 
@@ -1856,76 +1920,5 @@ export class AnalyticsController {
         this.closeDateFilterModal();
       }
     });
-  }
-
-  private initWebSocket(): void {
-    this.wsManager = new WebSocketManager({
-      onCoreOpen: () => this.switchWsSubscription(),
-      onRhOpen: () => this.switchWsSubscription(),
-      onCoreBookUpdate: (marketId, data) => {
-        const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
-        if (!pair || marketId !== pair.coreMarketId) return;
-
-        if (data.bids?.length) this.liveCoreBook.bestBid = parseFloat(String(data.bids[0].price));
-        if (data.asks?.length) this.liveCoreBook.bestAsk = parseFloat(String(data.asks[0].price));
-        if (this.liveCoreBook.bestBid > 0 && this.liveCoreBook.bestAsk > 0) {
-          this.liveCoreBook.mid = (this.liveCoreBook.bestBid + this.liveCoreBook.bestAsk) / 2;
-        }
-        this.checkRecordLiveTick(pair);
-      },
-      onRhBookUpdate: (marketId, data) => {
-        const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
-        if (!pair || marketId !== pair.rhMarketId) return;
-
-        if (data.bids?.length) this.liveRhBook.bestBid = parseFloat(String(data.bids[0].price));
-        if (data.asks?.length) this.liveRhBook.bestAsk = parseFloat(String(data.asks[0].price));
-        if (this.liveRhBook.bestBid > 0 && this.liveRhBook.bestAsk > 0) {
-          this.liveRhBook.mid = (this.liveRhBook.bestBid + this.liveRhBook.bestAsk) / 2;
-        }
-        this.checkRecordLiveTick(pair);
-      },
-    });
-
-    this.wsManager.connectAll();
-  }
-
-  private switchWsSubscription(): void {
-    if (!this.wsManager) return;
-    const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
-    if (!pair) return;
-
-    this.wsManager.subscribeCore(pair.coreMarketId);
-    this.wsManager.subscribeRh(pair.rhMarketId);
-  }
-
-  private checkRecordLiveTick(pair: AnalyticsMarketPair): void {
-    const now = Date.now();
-    // Record at most once every 5 seconds to throttle writes
-    if (now - this.lastLiveTickTs < 5000) return;
-    if (this.liveRhBook.mid <= 0 || this.liveCoreBook.mid <= 0) return;
-
-    this.lastLiveTickTs = now;
-    const basisMid = this.liveRhBook.mid - this.liveCoreBook.mid;
-    const entryDrag = this.liveRhBook.bestAsk - this.liveCoreBook.bestBid;
-    const exitDrag = this.liveCoreBook.bestAsk - this.liveRhBook.bestBid;
-    const mid = (this.liveRhBook.mid + this.liveCoreBook.mid) / 2;
-
-    const tick: LiveSpreadTick = {
-      symbol: pair.symbol,
-      timestampMs: now,
-      rhAsk: this.liveRhBook.bestAsk,
-      rhBid: this.liveRhBook.bestBid,
-      coreAsk: this.liveCoreBook.bestAsk,
-      coreBid: this.liveCoreBook.bestBid,
-      rhMid: this.liveRhBook.mid,
-      coreMid: this.liveCoreBook.mid,
-      basisMidUsd: basisMid,
-      entryDragUsd: entryDrag,
-      exitDragUsd: exitDrag,
-      entryDragBps: mid > 0 ? (entryDrag / mid) * 10000 : 0,
-      exitDragBps: mid > 0 ? (exitDrag / mid) * 10000 : 0,
-    };
-
-    ticksStorage.saveTick(tick);
   }
 }

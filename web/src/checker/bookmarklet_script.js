@@ -511,7 +511,9 @@
 
         // Trigger file download (compact format for large files > 5000 rows to prevent high memory usage)
         const isLarge = exportPayload.total_trades > 5000;
-        const jsonStr = isLarge ? JSON.stringify(exportPayload) : JSON.stringify(exportPayload, null, 2);
+        const jsonStr = isLarge
+          ? JSON.stringify(exportPayload)
+          : JSON.stringify(exportPayload, null, 2);
         const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
         const dlUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");

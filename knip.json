@@ -18,8 +18,5 @@
     "scripts/**/*.ts",
     "load-tests/**/*.ts"
   ],
-  "ignoreDependencies": [
-    "postcss",
-    "tailwindcss"
-  ]
+  "ignoreDependencies": ["postcss", "tailwindcss"]
 }

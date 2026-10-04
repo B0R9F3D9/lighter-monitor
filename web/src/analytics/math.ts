@@ -1,5 +1,42 @@
 import type { BasisPoint, HourlyBucketStats, QuantStats, RawCandle, SignalVerdict } from "./types";
 
+function findClosestTimestamp(
+  target: number,
+  sortedTimes: number[],
+  maxDiff: number,
+): number | null {
+  let low = 0;
+  let high = sortedTimes.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >>> 1;
+    const t = sortedTimes[mid]!;
+    if (t === target) return t;
+    if (t < target) low = mid + 1;
+    else high = mid - 1;
+  }
+
+  let bestT: number | null = null;
+  let bestDiff = maxDiff + 1;
+
+  if (low < sortedTimes.length) {
+    const diff = Math.abs(sortedTimes[low]! - target);
+    if (diff <= maxDiff && diff < bestDiff) {
+      bestDiff = diff;
+      bestT = sortedTimes[low]!;
+    }
+  }
+
+  if (high >= 0) {
+    const diff = Math.abs(sortedTimes[high]! - target);
+    if (diff <= maxDiff && diff < bestDiff) {
+      bestDiff = diff;
+      bestT = sortedTimes[high]!;
+    }
+  }
+
+  return bestT;
+}
+
 /**
  * Aligns candlestick arrays from Robinhood and Core by timestamp
  * and calculates price difference (Basis) for each aligned interval.
@@ -12,24 +49,24 @@ export function alignCandlesToBasisPoints(
 
   // Index core candles by millisecond timestamp
   const coreMap = new Map<number, RawCandle>();
-  for (const c of coreCandles) {
+  const coreTimestamps: number[] = [];
+  for (let i = 0; i < coreCandles.length; i++) {
+    const c = coreCandles[i]!;
     coreMap.set(c.t, c);
+    coreTimestamps.push(c.t);
   }
+  coreTimestamps.sort((a, b) => a - b);
 
   const results: BasisPoint[] = [];
 
   for (const rh of rhCandles) {
     let core = coreMap.get(rh.t);
 
-    // Fallback: If not exact, find the closest core candle within a reasonable tolerance (e.g. 5 minutes)
+    // Fallback: Binary search for the closest core candle within tolerance (O(log M))
     if (!core) {
-      let closestDiff = Infinity;
-      for (const [t, c] of coreMap) {
-        const diff = Math.abs(t - rh.t);
-        if (diff < closestDiff && diff <= 300_000) {
-          closestDiff = diff;
-          core = c;
-        }
+      const closestT = findClosestTimestamp(rh.t, coreTimestamps, 300_000);
+      if (closestT != null) {
+        core = coreMap.get(closestT);
       }
     }
 
@@ -148,22 +185,29 @@ export function calculateRollingBands(
   upper: number;
   lower: number;
 }> {
+  const len = points.length;
   const result: Array<{ timeSec: number; sma: number; upper: number; lower: number }> = [];
 
-  for (let i = 0; i < points.length; i++) {
-    const start = Math.max(0, i - period + 1);
-    const windowSlice = points.slice(start, i + 1);
-    const windowValues = windowSlice.map((p) => p.basisUsd);
+  for (let i = 0; i < len; i++) {
+    const start = i >= period ? i - period + 1 : 0;
+    const count = i - start + 1;
 
-    const sum = windowValues.reduce((a, b) => a + b, 0);
-    const sma = sum / windowValues.length;
+    let sum = 0;
+    for (let j = start; j <= i; j++) {
+      sum += points[j]!.basisUsd;
+    }
+    const sma = sum / count;
 
-    const variance =
-      windowValues.reduce((acc, v) => acc + Math.pow(v - sma, 2), 0) / windowValues.length;
+    let sumDiffSq = 0;
+    for (let j = start; j <= i; j++) {
+      const diff = points[j]!.basisUsd - sma;
+      sumDiffSq += diff * diff;
+    }
+    const variance = sumDiffSq / count;
     const stdDev = Math.sqrt(variance);
 
     result.push({
-      timeSec: points[i].timeSec,
+      timeSec: points[i]!.timeSec,
       sma,
       upper: sma + 2 * stdDev,
       lower: sma - 2 * stdDev,
@@ -472,9 +516,4 @@ export function dedupeAndSortCandles(candles: RawCandle[]): RawCandle[] {
   return Array.from(map.values()).toSorted((a, b) => a.t - b.t);
 }
 
-export {
-  formatMarketPrice,
-  getTokenIcon,
-  getTokenImageUrl,
-  registerTokenLogos,
-} from "../shared";
+export { formatMarketPrice, getTokenIcon, getTokenImageUrl, registerTokenLogos } from "../shared";

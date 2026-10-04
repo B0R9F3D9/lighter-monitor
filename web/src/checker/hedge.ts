@@ -149,7 +149,8 @@ export function aggregateTradesByOrder(trades: ParsedTradeView[]): ParsedTradeVi
       txHashShort: leadTrade.txHashShort,
       fillsCount: group.length,
       tradeIdNum: leadTrade.tradeIdNum ?? (Number(leadTrade.tradeId) || 0),
-      searchIndex: `${leadTrade.marketSymbol} ${leadTrade.side} ${leadTrade.role} ${combinedTradeId} ${leadTrade.txHash}`.toLowerCase(),
+      searchIndex:
+        `${leadTrade.marketSymbol} ${leadTrade.side} ${leadTrade.role} ${combinedTradeId} ${leadTrade.txHash}`.toLowerCase(),
     });
   }
 
@@ -454,7 +455,8 @@ export function matchHedgeTrades(
           timeFormatted: coreItem.trade.timeFormatted,
           txHash: coreItem.trade.txHash,
           fillsCount: coreItem.trade.fillsCount ?? 1,
-          searchIndex: `${market} ${coreItem.trade.side} CORE ${coreItem.trade.tradeId}`.toLowerCase(),
+          searchIndex:
+            `${market} ${coreItem.trade.side} CORE ${coreItem.trade.tradeId}`.toLowerCase(),
         });
       }
     }

@@ -126,8 +126,8 @@ export class FlatOrderBookSide implements IFlatOrderBookSide {
       const newUsd = price * size;
       this.sizes[idx] = size;
       this.totalUsds[idx] = newUsd;
-      this.totalDepthUsd += (newUsd - oldUsd);
-      this.totalDepthBase += (size - oldBase);
+      this.totalDepthUsd += newUsd - oldUsd;
+      this.totalDepthBase += size - oldBase;
       if (this.totalDepthUsd < 0) this.totalDepthUsd = 0;
       if (this.totalDepthBase < 0) this.totalDepthBase = 0;
       return;
@@ -189,12 +189,14 @@ export function updateBookFromWs(
   isSnapshot = false,
   offset = 0,
 ): void {
-  const asks: FlatOrderBookSide = ("prices" in book.asks)
-    ? (book.asks as FlatOrderBookSide)
-    : (book.asks = new FlatOrderBookSide(true, (book.asks as Map<number, number>).entries()));
-  const bids: FlatOrderBookSide = ("prices" in book.bids)
-    ? (book.bids as FlatOrderBookSide)
-    : (book.bids = new FlatOrderBookSide(false, (book.bids as Map<number, number>).entries()));
+  const asks: FlatOrderBookSide =
+    "prices" in book.asks
+      ? (book.asks as FlatOrderBookSide)
+      : (book.asks = new FlatOrderBookSide(true, (book.asks as Map<number, number>).entries()));
+  const bids: FlatOrderBookSide =
+    "prices" in book.bids
+      ? (book.bids as FlatOrderBookSide)
+      : (book.bids = new FlatOrderBookSide(false, (book.bids as Map<number, number>).entries()));
 
   if (isSnapshot) {
     asks.clear();

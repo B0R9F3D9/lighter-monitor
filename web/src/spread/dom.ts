@@ -144,12 +144,12 @@ export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): vo
     const costTier = row.isStale
       ? -2
       : !row.allFilled
-      ? -1
-      : row.costUsd <= 3.0
-      ? 0
-      : row.costUsd <= 7.0
-      ? 1
-      : 2;
+        ? -1
+        : row.costUsd <= 3.0
+          ? 0
+          : row.costUsd <= 7.0
+            ? 1
+            : 2;
     const costChanged =
       cache.lastCostUsd === undefined ||
       Math.abs(cache.lastCostUsd - row.costUsd) >= 0.005 ||
@@ -196,12 +196,12 @@ export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): vo
     const ptTier = row.isStale
       ? -2
       : !row.allFilled
-      ? -1
-      : row.pointCostUsd < 1.5
-      ? 0
-      : row.pointCostUsd <= 3.0
-      ? 1
-      : 2;
+        ? -1
+        : row.pointCostUsd < 1.5
+          ? 0
+          : row.pointCostUsd <= 3.0
+            ? 1
+            : 2;
     const ptChanged =
       cache.lastPointCostUsd === undefined ||
       Math.abs(cache.lastPointCostUsd - row.pointCostUsd) >= 0.005 ||
@@ -782,4 +782,3 @@ export function updateExecutiveSummary(
     }
   }
 }
-

@@ -91,22 +91,6 @@ export interface AnalyticsMarketPair {
   fundingRate1h: number;
 }
 
-export interface LiveSpreadTick {
-  symbol: string;
-  timestampMs: number;
-  rhAsk: number;
-  rhBid: number;
-  coreAsk: number;
-  coreBid: number;
-  rhMid: number;
-  coreMid: number;
-  basisMidUsd: number;
-  entryDragUsd: number; // rhAsk - coreBid
-  exitDragUsd: number; // coreAsk - rhBid
-  entryDragBps: number;
-  exitDragBps: number;
-}
-
 export interface DateFilterConfig {
   isActive: boolean;
   fromDate: string; // "YYYY-MM-DD"

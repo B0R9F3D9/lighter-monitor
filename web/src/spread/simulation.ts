@@ -252,4 +252,3 @@ export function fastSimFillInto(
   out.avgPrice = avgPrice;
   return isComplete;
 }
-

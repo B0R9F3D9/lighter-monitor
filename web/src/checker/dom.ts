@@ -193,11 +193,7 @@ export function renderTradesTable(
   container.appendChild(frag);
 }
 
-function createHedgeRow(
-  pair: HedgePair,
-  index: number,
-  isSelected = false,
-): HTMLTableRowElement {
+function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTMLTableRowElement {
   const tr = document.createElement("tr");
   const baseClass =
     "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text cursor-pointer";
