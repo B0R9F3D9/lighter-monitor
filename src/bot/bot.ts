@@ -98,8 +98,14 @@ export function getStatsKeyboard(): InlineKeyboard {
 export function getMainKeyboard(env?: Env, userId?: number, username?: string): Keyboard {
   const activeEnv = env || currentEnv;
   const isAdmin = activeEnv ? isUserAdmin(activeEnv, userId, username) : false;
-  const kb = new Keyboard()
-    .text("📊 Мои сделки")
+  const kb = new Keyboard();
+
+  const webAppUrl = activeEnv?.WEBAPP_URL?.trim().replace(/\/$/, "");
+  if (webAppUrl && webAppUrl.startsWith("https://")) {
+    kb.webApp("🚀 Web App", webAppUrl).row();
+  }
+
+  kb.text("📊 Мои сделки")
     .text("💼 Мои кошельки")
     .row()
     .text("➕ Добавить кошелек")
@@ -257,7 +263,12 @@ export function getBot(env: Env): Bot {
         `Бот в реальном времени мониторит ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
         `рассчитывает риски ликвидации и присылает сигналы при импульсах цены.\n\n` +
         `Подключите ваш первый кошелек для мониторинга:`;
-      const kb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
+      const kb = new InlineKeyboard();
+      const webAppUrl = (currentEnv?.WEBAPP_URL || env.WEBAPP_URL)?.trim().replace(/\/$/, "");
+      if (webAppUrl && webAppUrl.startsWith("https://")) {
+        kb.webApp("🚀 Открыть Web App", webAppUrl).row();
+      }
+      kb.text("➕ Подключить аккаунт", "wizard_start_add");
       await ctx.reply(welcomeText, { parse_mode: "HTML", reply_markup: getMainKb(ctx) });
       return ctx.reply("Нажмите кнопку ниже, чтобы начать:", { reply_markup: kb });
     }

@@ -9,6 +9,7 @@ export interface Env {
   LIGHTER_API_KEY?: string;
   LIGHTER_API_KEY_MAINNET?: string;
   LIGHTER_API_KEY_RH?: string;
+  WEBAPP_URL?: string;
   ASSETS?: Fetcher;
 }
 

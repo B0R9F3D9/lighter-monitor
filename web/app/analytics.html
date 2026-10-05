@@ -43,6 +43,16 @@
         }
       } catch {}
     </script>
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+      try {
+        if (window.Telegram?.WebApp) {
+          window.Telegram.WebApp.ready();
+          window.Telegram.WebApp.expand();
+        }
+      } catch {}
+    </script>
   </head>
   <body
     class="bg-terminal-bg text-terminal-primary antialiased min-h-screen flex flex-col font-mono text-xs selection:bg-terminal-accent/30 selection:text-white overflow-x-hidden"

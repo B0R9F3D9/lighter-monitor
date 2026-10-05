@@ -113,7 +113,7 @@ export default {
       });
     }
 
-    // Telegram Bot API command registration (setMyCommands)
+    // Telegram Bot API command registration (setMyCommands) and Menu Button
     if (url.pathname === "/setup-commands") {
       if (!env.TELEGRAM_BOT_TOKEN) {
         return new Response(
@@ -123,6 +123,9 @@ export default {
             headers: { "Content-Type": "application/json" },
           },
         );
+      }
+      if (!env.WEBAPP_URL && url.protocol === "https:") {
+        env.WEBAPP_URL = url.origin;
       }
       const bot = getBot(env);
       await bot.api.setMyCommands([
@@ -138,8 +141,28 @@ export default {
         { command: "remove_mainnet", description: "➖ Удалить аккаунт Lighter Mainnet" },
         { command: "start", description: "🚀 Главное меню" },
       ]);
+
+      let menuButtonConfigured = false;
+      const webAppUrl = (env.WEBAPP_URL || (url.protocol === "https:" ? url.origin : ""))
+        .trim()
+        .replace(/\/$/, "");
+      if (webAppUrl && webAppUrl.startsWith("https://")) {
+        await bot.api.setChatMenuButton({
+          menu_button: {
+            type: "web_app",
+            text: "🚀 Web App",
+            web_app: { url: webAppUrl },
+          },
+        });
+        menuButtonConfigured = true;
+      }
+
       return new Response(
-        JSON.stringify({ ok: true, message: "Commands registered successfully in Telegram" }),
+        JSON.stringify({
+          ok: true,
+          message: "Commands and Menu Button registered successfully in Telegram",
+          webAppUrl: menuButtonConfigured ? webAppUrl : null,
+        }),
         {
           headers: { "Content-Type": "application/json" },
         },
@@ -164,6 +187,10 @@ export default {
 
       if (!env.TELEGRAM_BOT_TOKEN) {
         return new Response("Bot token not configured", { status: 503 });
+      }
+
+      if (!env.WEBAPP_URL && url.protocol === "https:") {
+        env.WEBAPP_URL = url.origin;
       }
 
       const bot = getBot(env);
