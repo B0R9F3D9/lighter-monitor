@@ -98,18 +98,17 @@ export function getStatsKeyboard(): InlineKeyboard {
 export function getMainKeyboard(env?: Env, userId?: number, username?: string): Keyboard {
   const activeEnv = env || currentEnv;
   const isAdmin = activeEnv ? isUserAdmin(activeEnv, userId, username) : false;
-  const kb = new Keyboard();
-
-  const webAppUrl = activeEnv?.WEBAPP_URL?.trim().replace(/\/$/, "");
-  if (webAppUrl && webAppUrl.startsWith("https://")) {
-    kb.webApp("🚀 Web App", webAppUrl).row();
-  }
-
-  kb.text("📊 Мои сделки")
+  const kb = new Keyboard()
+    .text("📊 Мои сделки")
     .text("💼 Мои кошельки")
     .row()
     .text("➕ Добавить кошелек")
     .text("⚙️ Настройки");
+
+  const webAppUrl = activeEnv?.WEBAPP_URL?.trim().replace(/\/$/, "");
+  if (webAppUrl && webAppUrl.startsWith("https://")) {
+    kb.row().webApp("🚀 Web App", webAppUrl);
+  }
 
   if (isAdmin) {
     kb.row().text("📈 Админ статистика");

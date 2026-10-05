@@ -159,6 +159,28 @@ describe("Wizard State & Settings Logic", () => {
       expect(kb.keyboard[2][0].text).toBe("📈 Админ статистика");
     });
 
+    it("returns 3-row keyboard with wide web app button at bottom for normal user with WEBAPP_URL", () => {
+      const env = { ...mockEnv("999888777"), WEBAPP_URL: "https://example.com" };
+      const kb = getMainKeyboard(env, 12345, "normal_user");
+      expect(kb.keyboard.length).toBe(3);
+      expect(kb.keyboard[2].length).toBe(1);
+      expect(kb.keyboard[2][0].text).toBe("🚀 Web App");
+      expect(kb.keyboard[2][0].web_app?.url).toBe("https://example.com");
+    });
+
+    it("places wide web app button before admin button for admin user", () => {
+      const env = { ...mockEnv("999888777"), WEBAPP_URL: "https://example.com" };
+      const kb = getMainKeyboard(env, 999888777, "admin");
+      expect(kb.keyboard.length).toBe(4);
+      // Row 2 is Web App (wide)
+      expect(kb.keyboard[2].length).toBe(1);
+      expect(kb.keyboard[2][0].text).toBe("🚀 Web App");
+      expect(kb.keyboard[2][0].web_app?.url).toBe("https://example.com");
+      // Row 3 is Admin stats (last)
+      expect(kb.keyboard[3].length).toBe(1);
+      expect(kb.keyboard[3][0].text).toBe("📈 Админ статистика");
+    });
+
     it("creates stats inline keyboard with refresh button", () => {
       const kb = getStatsKeyboard();
       const json = JSON.stringify(kb);
