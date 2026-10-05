@@ -160,10 +160,15 @@ describe("Checker: API & Calculations", () => {
     expect(BOOKMARKLET_RAW_CODE).toContain("ROW_CAP");
     expect(BOOKMARKLET_RAW_CODE).toContain("fetchWithRetry");
     expect(BOOKMARKLET_RAW_CODE).toContain("slimTrade");
+    expect(BOOKMARKLET_RAW_CODE).toContain("lte-last100-btn");
+    expect(BOOKMARKLET_RAW_CODE).toContain("Export Last 100");
+    expect(BOOKMARKLET_RAW_CODE).toContain("runExport");
     const href = getBookmarkletHref();
     expect(href.startsWith("javascript:")).toBe(true);
     expect(decodeURIComponent(href)).toContain("/trades");
     expect(decodeURIComponent(href)).toContain("ROW_CAP");
+    expect(decodeURIComponent(href)).toContain("Export Last 100");
+    expect(decodeURIComponent(href)).toContain("lte-last100-btn");
   });
 
   it("parseTradeForView precomputes searchIndex and tradeIdNum for instant filtering and sorting", () => {

@@ -238,10 +238,13 @@
     </div>
 
     <div style="display:flex;gap:6px;">
-      <button id="lte-start-btn" style="flex:1;background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 12px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s;opacity:0.6;" disabled>
+      <button id="lte-start-btn" style="flex:1;background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 8px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s,opacity 0.15s;opacity:0.6;white-space:nowrap;text-align:center;" disabled title="Export complete trade history (up to 150,000)">
         Initializing...
       </button>
-      <button id="lte-stop-btn" style="display:none;background:#da3633;color:#fff;border:0;border-radius:4px;padding:6px 12px;font-weight:600;font-size:11px;cursor:pointer;">
+      <button id="lte-last100-btn" style="flex:1;background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 8px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s,opacity 0.15s;opacity:0.6;white-space:nowrap;text-align:center;" disabled title="Export only the last 100 trades">
+        Export Last 100
+      </button>
+      <button id="lte-stop-btn" style="display:none;flex:1;background:#da3633;color:#fff;border:0;border-radius:4px;padding:6px 12px;font-weight:600;font-size:11px;cursor:pointer;text-align:center;">
         Stop
       </button>
     </div>
@@ -250,6 +253,7 @@
   document.body.appendChild(hud);
 
   const startBtn = hud.querySelector("#lte-start-btn");
+  const last100Btn = hud.querySelector("#lte-last100-btn");
   const stopBtn = hud.querySelector("#lte-stop-btn");
   const closeBtn = hud.querySelector("#lte-close-btn");
   const statusDiv = hud.querySelector("#lte-status");
@@ -257,6 +261,26 @@
   const progressBar = hud.querySelector("#lte-progress-bar");
   const accountValSpan = hud.querySelector("#lte-account-val");
   const authBadgeSpan = hud.querySelector("#lte-auth-badge");
+
+  const addBtnHover = (btn, normalBg) => {
+    btn.addEventListener("mouseenter", () => {
+      if (!btn.disabled && !isRunning) btn.style.background = "#2ea043";
+    });
+    btn.addEventListener("mouseleave", () => {
+      if (!btn.disabled && !isRunning) {
+        btn.style.background = btn === startBtn && !detectedAuth ? "#d29922" : normalBg;
+      }
+    });
+  };
+  addBtnHover(startBtn, "#238636");
+  addBtnHover(last100Btn, "#238636");
+
+  stopBtn.addEventListener("mouseenter", () => {
+    stopBtn.style.background = "#b62324";
+  });
+  stopBtn.addEventListener("mouseleave", () => {
+    stopBtn.style.background = "#da3633";
+  });
 
   let isRunning = false;
   let isCancelled = false;
@@ -294,10 +318,14 @@
       authBadgeSpan.style.color = "#2ea043";
       statusDiv.style.color = "#8b949e";
       statusDiv.textContent = "Ready to export trades for Account #" + detectedAccount;
-      startBtn.textContent = "Export Trade History";
+      startBtn.textContent = "Export All";
       startBtn.style.background = "#238636";
       startBtn.style.opacity = "1";
       startBtn.disabled = false;
+      last100Btn.textContent = "Export Last 100";
+      last100Btn.style.background = "#238636";
+      last100Btn.style.opacity = "1";
+      last100Btn.disabled = false;
     } else {
       authBadgeSpan.textContent = "● Key Missing";
       authBadgeSpan.style.color = "#f85149";
@@ -312,6 +340,10 @@
       startBtn.style.background = "#d29922";
       startBtn.style.opacity = "1";
       startBtn.disabled = false;
+      last100Btn.textContent = "Export Last 100";
+      last100Btn.style.background = "#238636";
+      last100Btn.style.opacity = "0.5";
+      last100Btn.disabled = true;
     }
   }
 
@@ -429,7 +461,7 @@
     };
   }
 
-  startBtn.addEventListener("click", async function () {
+  async function runExport(targetCap) {
     if (isRunning) return;
 
     if (!detectedAccount || !detectedAuth) {
@@ -438,18 +470,21 @@
       if (!detectedAccount || !detectedAuth) return;
     }
 
+    const isLimit100 = targetCap === 100;
     const acc = detectedAccount;
     const auth = detectedAuth;
 
     isRunning = true;
     isCancelled = false;
-    startBtn.disabled = true;
-    startBtn.style.opacity = "0.6";
+    startBtn.style.display = "none";
+    last100Btn.style.display = "none";
     stopBtn.style.display = "block";
     progressWrap.style.display = "block";
-    progressBar.style.width = "5%";
+    progressBar.style.width = isLimit100 ? "25%" : "5%";
     statusDiv.style.color = "#58a6ff";
-    statusDiv.textContent = "Connecting to " + apiBase + "...";
+    statusDiv.textContent = isLimit100
+      ? "Fetching last 100 trades..."
+      : "Connecting to " + apiBase + "...";
 
     // 1. Precomputed URL bases without cursor to eliminate repeated concatenations in loop
     const urlBase =
@@ -485,12 +520,12 @@
 
     // 4. Prefetch Pipeline: launch page 1 immediately
     let currentFetchPromise = fetchWithRetry(urlBase, fetchOptions).catch((err) => {
-      if (isCancelled || isClosed || totalTradesCount >= ROW_CAP) return null;
+      if (isCancelled || isClosed || totalTradesCount >= targetCap) return null;
       throw err;
     });
 
     try {
-      while (!isCancelled && !isClosed && currentFetchPromise && totalTradesCount < ROW_CAP) {
+      while (!isCancelled && !isClosed && currentFetchPromise && totalTradesCount < targetCap) {
         page++;
 
         // Await in-flight network response
@@ -515,14 +550,14 @@
           nextCursor !== cursor &&
           !isCancelled &&
           !isClosed &&
-          totalTradesCount + trades.length < ROW_CAP
+          totalTradesCount + trades.length < targetCap
         ) {
           cursor = nextCursor;
           currentFetchPromise = fetchWithRetry(
             urlWithCursorBase + encodeURIComponent(nextCursor),
             fetchOptions,
           ).catch((err) => {
-            if (isCancelled || isClosed || totalTradesCount >= ROW_CAP) return null;
+            if (isCancelled || isClosed || totalTradesCount >= targetCap) return null;
             throw err;
           });
         } else {
@@ -540,7 +575,7 @@
           if (!seenIds.has(id)) {
             seenIds.add(id);
             pageSlimmed.push(slimTrade(t));
-            if (totalTradesCount + pageSlimmed.length >= ROW_CAP) {
+            if (totalTradesCount + pageSlimmed.length >= targetCap) {
               if (nextCursor || cursor) hasMoreAfterCap = true;
               break;
             }
@@ -561,10 +596,13 @@
         const now = Date.now();
         if (now - lastUiUpdate > 250) {
           lastUiUpdate = now;
-          const estProgress = Math.min(92, 5 + Math.round((1 - Math.exp(-page / 40)) * 87));
+          const estProgress = isLimit100
+            ? Math.min(95, Math.round((totalTradesCount / 100) * 90))
+            : Math.min(92, 5 + Math.round((1 - Math.exp(-page / 40)) * 87));
           progressBar.style.width = estProgress + "%";
-          statusDiv.textContent =
-            "Fetching page " + page + " (" + totalTradesCount.toLocaleString() + " trades)...";
+          statusDiv.textContent = isLimit100
+            ? "Fetched " + totalTradesCount + "/100 trades..."
+            : "Fetching page " + page + " (" + totalTradesCount.toLocaleString() + " trades)...";
         }
       }
 
@@ -578,12 +616,14 @@
 
       progressBar.style.width = "100%";
       const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-      const isTruncated = totalTradesCount >= ROW_CAP && (hasMoreAfterCap || Boolean(cursor));
+      const isTruncated = totalTradesCount >= targetCap && (hasMoreAfterCap || Boolean(cursor));
 
       if (totalTradesCount === 0) {
         tradeChunks.length = 0;
         statusDiv.style.color = "#d29922";
-        statusDiv.textContent = "No trades found for Account #" + acc + ".";
+        statusDiv.textContent = isCancelled
+          ? "Export cancelled."
+          : "No trades found for Account #" + acc + ".";
       } else {
         // Zero-copy Blob assembly: header placed at index 0 without running massive JSON.stringify
         const headerJson =
@@ -596,7 +636,7 @@
             account_index: Number(acc),
             total_trades: totalTradesCount,
             truncated: isTruncated,
-            row_cap: ROW_CAP,
+            row_cap: targetCap,
           }).slice(0, -1) + ',"trades":[';
 
         tradeChunks[0] = headerJson;
@@ -613,13 +653,22 @@
         const a = document.createElement("a");
         const dateStr = new Date().toISOString().slice(0, 10);
         a.href = dlUrl;
-        a.download = "lighter-trades-" + defaultNetwork + "-acc" + acc + "-" + dateStr + ".json";
+        const fileSuffix = isLimit100 ? "-last100-" : "-";
+        a.download =
+          "lighter-trades-" + defaultNetwork + "-acc" + acc + fileSuffix + dateStr + ".json";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(dlUrl), 15000);
 
-        if (isTruncated) {
+        if (isLimit100) {
+          statusDiv.style.color = "#2ea043";
+          statusDiv.textContent =
+            totalTradesCount.toLocaleString() +
+            " recent trades exported (" +
+            durationSec +
+            "s). File downloaded.";
+        } else if (isTruncated) {
           statusDiv.style.color = "#d29922";
           statusDiv.textContent =
             "Capped at " +
@@ -644,14 +693,42 @@
       }
     } finally {
       isRunning = false;
+      isCancelled = false;
       seenIds.clear();
       tradeChunks.length = 0;
       if (!isClosed) {
+        startBtn.style.display = "";
+        last100Btn.style.display = "";
         startBtn.disabled = false;
         startBtn.style.opacity = "1";
-        startBtn.textContent = "Export Again";
+        startBtn.textContent = "Export All";
+        startBtn.style.background = "#238636";
+        last100Btn.disabled = false;
+        last100Btn.style.opacity = "1";
+        last100Btn.textContent = "Export Last 100";
+        last100Btn.style.background = "#238636";
         stopBtn.style.display = "none";
       }
     }
+  }
+
+  startBtn.addEventListener("click", async function () {
+    if (isRunning) return;
+    if (!detectedAccount || !detectedAuth) {
+      statusDiv.textContent = "Re-scanning session credentials...";
+      await refreshCredentials();
+      if (!detectedAccount || !detectedAuth) return;
+    }
+    await runExport(ROW_CAP);
+  });
+
+  last100Btn.addEventListener("click", async function () {
+    if (isRunning) return;
+    if (!detectedAccount || !detectedAuth) {
+      statusDiv.textContent = "Re-scanning session credentials...";
+      await refreshCredentials();
+      if (!detectedAccount || !detectedAuth) return;
+    }
+    await runExport(100);
   });
 })();
