@@ -1,4 +1,4 @@
-import { formatMoney, formatPrice } from "../shared/formatters";
+import { formatFee, formatMoney, formatPrice } from "../shared/formatters";
 import type {
   CheckerSummaryMetrics,
   HedgePair,
@@ -87,7 +87,7 @@ export function updateExecutiveMetrics(
   }
 
   if (elements.totalFees) {
-    elements.totalFees.textContent = formatMoney(metrics.totalFeesUsd);
+    elements.totalFees.textContent = formatFee(metrics.totalFeesUsd);
   }
 
   if (elements.dateRange) {
@@ -145,7 +145,7 @@ function createTradeRow(item: ParsedTradeView, index: number): HTMLTableRowEleme
     <td class="py-1.5 px-2 text-right ${sideColorClass} tabular-nums">${formatSmartSize(item.size)}</td>
     <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatMoney(item.usdValue)}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap">${pnlHtml}</td>
-    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${item.feeUsd > 0 ? formatMoney(item.feeUsd) : "$0.00"}</td>
+    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${formatFee(item.feeUsd)}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap text-[11px] font-mono">${txLink}</td>
   `;
 
@@ -272,7 +272,7 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
     <td class="py-1.5 px-2 text-right whitespace-nowrap">${priceDeltaHtml}</td>
     <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatMoney(pair.notionalUsd)}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap">${slippageHtml}</td>
-    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${pair.totalFeesUsd > 0 ? formatMoney(pair.totalFeesUsd) : "$0.00"}</td>
+    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${formatFee(pair.totalFeesUsd)}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap">${netPnlHtml}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap text-[11px]">${bpsHtml}</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted text-[11px] tabular-nums">${timeDeltaStr}</td>
@@ -332,7 +332,7 @@ function createUnhedgedRow(
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
     <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatMoney(trade.usdValue)}</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
-    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${trade.feeUsd > 0 ? formatMoney(trade.feeUsd) : "$0.00"}</td>
+    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${formatFee(trade.feeUsd)}</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted font-bold">--</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
@@ -491,7 +491,7 @@ export function updateHedgeExecutiveMetrics(
   }
 
   if (elements.fees) {
-    elements.fees.textContent = formatMoney(metrics.totalFeesUsd);
+    elements.fees.textContent = formatFee(metrics.totalFeesUsd);
   }
 
   if (elements.unhedgedCount) {
@@ -623,7 +623,7 @@ export function updateHedgeSelectionMetrics(
   }
 
   if (elements.fees) {
-    elements.fees.textContent = formatMoney(metrics.totalFeesUsd);
+    elements.fees.textContent = formatFee(metrics.totalFeesUsd);
   }
 
   if (elements.unhedgedCount) {

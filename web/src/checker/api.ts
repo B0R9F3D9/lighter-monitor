@@ -219,24 +219,23 @@ export async function resolveAccountIndex(
 
 /**
  * Safely parses exchange fees to USD amount.
- * Handles quote base units (USDC 6 decimals: > 1000 => raw / 1e6),
- * basis points (<= 1000 => (raw / 10000) * usdValue),
- * and standard floating-point USD fees.
+ * In Lighter API, trade maker_fee and taker_fee are integer rates scaled by 1,000,000 (1e6):
+ * 120 = 1.2 bps (0.012%), 28 = 0.28 bps (0.0028%), 500 = 5 bps (0.05%), 10000 = 100 bps (1%).
+ * Floating-point values (e.g. from mock trades) are treated as pre-computed USD fees.
  */
 export function parseFeeUsd(rawFee: number | undefined | null, usdValue = 0): number {
   if (rawFee === undefined || rawFee === null || isNaN(rawFee) || rawFee <= 0) {
     return 0;
   }
-  // Floating point values are already denominated in USD
+  // Floating point values are already denominated in USD (e.g. mock trades in tests)
   if (!Number.isInteger(rawFee)) {
     return rawFee;
   }
-  // In Lighter zk-rollup, atomic quote token units have 6 decimals (1 USDC = 1,000,000 units)
-  if (rawFee > 1000) {
-    return rawFee / 1_000_000;
+  if (!usdValue || isNaN(usdValue) || usdValue <= 0) {
+    return 0;
   }
-  // If integer <= 1000, it represents basis points (e.g. 5 bps = 0.05%)
-  return (rawFee / 10000) * usdValue;
+  // In Lighter zk-rollup API, fee rates are represented in parts per million (1e6)
+  return (rawFee / 1_000_000) * usdValue;
 }
 
 /**

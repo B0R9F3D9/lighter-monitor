@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { getStaticMarketMap, parseFeeUsd } from "../web/src/checker/api";
+import { getStaticMarketMap, parseFeeUsd, parseTradeForView } from "../web/src/checker/api";
 import { formatDisplayFileName } from "../web/src/checker/dom";
 import {
   aggregateTradesByOrder,
@@ -356,12 +356,81 @@ describe("Hedge Matching Engine", () => {
     // Float USD fee
     expect(parseFeeUsd(0.25)).toBe(0.25);
 
-    // Atomic quote units (> 1000, 6 decimals USDC)
-    expect(parseFeeUsd(500000)).toBeCloseTo(0.5, 6);
-    expect(parseFeeUsd(1000000)).toBeCloseTo(1.0, 6);
+    // Lighter API fee rates: scaled by 1,000,000 (1e6)
+    // 120 = 1.2 bps (0.012%) -> on $1,000 volume: $0.12 fee
+    expect(parseFeeUsd(120, 1000)).toBeCloseTo(0.12, 6);
+    // 500 = 5 bps (0.05%) -> on $1,000 volume: $0.50 fee
+    expect(parseFeeUsd(500, 1000)).toBeCloseTo(0.5, 6);
+    // 28 = 0.28 bps (0.0028%) -> on $10,000 volume: $0.28 fee
+    expect(parseFeeUsd(28, 10000)).toBeCloseTo(0.28, 6);
+    // 10000 = 100 bps (1%) -> on $1,000 volume: $10.00 fee
+    expect(parseFeeUsd(10000, 1000)).toBeCloseTo(10.0, 6);
 
-    // Basis points (<= 1000, e.g. 5 bps on $1000 volume)
-    expect(parseFeeUsd(5, 1000)).toBeCloseTo(0.5, 6);
+    // If usdValue is 0 or omitted, rate returns 0
+    expect(parseFeeUsd(120, 0)).toBe(0);
+    expect(parseFeeUsd(120)).toBe(0);
+  });
+
+  it("calculates exact fees and hedge metrics for real Premium Account trades (maker_fee=120)", () => {
+    // NVDA BUY on RH: size 10, price 242.20, usd 2422.00, maker_fee 120 (1.2 bps)
+    const rhTrade = parseTradeForView(
+      {
+        trade_id: 1358456054,
+        market_id: 15,
+        price: "242.20",
+        size: "10.0000",
+        usd_amount: "2422.00",
+        bid_account_id: 31704,
+        ask_account_id: 6468,
+        is_maker_ask: false, // user bid is maker
+        timestamp: 1791299950111,
+        maker_fee: 120,
+        taker_fee: 0,
+      } as any,
+      31704,
+      new Map([[15, "NVDA"]]),
+    );
+
+    // Expected fee: (120 / 1e6) * 2422.00 = 0.29064 USD (~0.29 USD, NOT 29.06 USD!)
+    expect(rhTrade.feeUsd).toBeCloseTo(0.29064, 5);
+
+    // NVDA SELL on Core: size 10, price 241.95, usd 2419.50, maker_fee 0 (0 bps)
+    const coreTrade = parseTradeForView(
+      {
+        trade_id: 33483838306,
+        market_id: 110,
+        price: "241.95",
+        size: "10.0000",
+        usd_amount: "2419.50",
+        ask_account_id: 749329,
+        bid_account_id: 12345,
+        is_maker_ask: true, // user ask is maker
+        timestamp: 1791299952000,
+        maker_fee: 0,
+        taker_fee: 0,
+      } as any,
+      749329,
+      new Map([[110, "NVDA"]]),
+    );
+
+    expect(coreTrade.feeUsd).toBe(0);
+
+    const match = matchHedgeTrades([rhTrade], [coreTrade], 31704, 749329, 600, true);
+    expect(match.pairs).toHaveLength(1);
+    const p = match.pairs[0];
+    expect(p.rhFeeUsd).toBeCloseTo(0.29064, 5);
+    expect(p.coreFeeUsd).toBe(0);
+    expect(p.totalFeesUsd).toBeCloseTo(0.29064, 5);
+
+    // Price PnL: sell (241.95) - buy (242.20) = -0.25 * 10 = -2.50 USD
+    expect(p.pricePnlUsd).toBeCloseTo(-2.50, 4);
+
+    // Net PnL: -2.50 - 0.29064 = -2.79064 USD (NOT -31.56 USD!)
+    expect(p.netPnlUsd).toBeCloseTo(-2.79064, 4);
+
+    // Hedge PnL (bps): notional = 10 * 242.075 = 2420.75 USD
+    // pnlBps: (-2.79064 / 2420.75) * 10000 = -11.53 bps (NOT -130.36 bps!)
+    expect(p.pnlBps).toBeCloseTo(-11.53, 1);
   });
 
   it("aggregates concurrent orderbook fills with exact VWAP pricing", () => {

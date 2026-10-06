@@ -8,6 +8,12 @@ export function formatMoney(num: number | undefined | null): string {
   return sign + "$" + abs.toFixed(2);
 }
 
+export function formatFee(fee: number | undefined | null): string {
+  if (fee === undefined || fee === null || isNaN(fee) || fee <= 0) return "$0.00";
+  if (fee < 0.01) return "$" + fee.toFixed(4);
+  return formatMoney(fee);
+}
+
 export function formatPrice(p: number | undefined | null): string {
   if (p === undefined || p === null || isNaN(p)) return "$0.00";
   if (Math.abs(p) < 0.00005) return "$0.00";
