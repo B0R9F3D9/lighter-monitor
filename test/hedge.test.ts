@@ -3,11 +3,17 @@ import { getStaticMarketMap, parseFeeUsd, parseTradeForView } from "../web/src/c
 import { formatDisplayFileName } from "../web/src/checker/dom";
 import {
   aggregateTradesByOrder,
+  calculateHedgeMetrics,
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
   exportHedgeReportToCsv,
   matchHedgeTrades,
 } from "../web/src/checker/hedge";
+import {
+  createPresetDateFilter,
+  findPresetById,
+  isTradeInDateRange,
+} from "../web/src/checker/date_filter";
 import type { ParsedTradeView } from "../web/src/checker/types";
 
 function mockTrade(overrides: Partial<ParsedTradeView>): ParsedTradeView {
@@ -423,7 +429,7 @@ describe("Hedge Matching Engine", () => {
     expect(p.totalFeesUsd).toBeCloseTo(0.29064, 5);
 
     // Price PnL: sell (241.95) - buy (242.20) = -0.25 * 10 = -2.50 USD
-    expect(p.pricePnlUsd).toBeCloseTo(-2.50, 4);
+    expect(p.pricePnlUsd).toBeCloseTo(-2.5, 4);
 
     // Net PnL: -2.50 - 0.29064 = -2.79064 USD (NOT -31.56 USD!)
     expect(p.netPnlUsd).toBeCloseTo(-2.79064, 4);
@@ -1001,6 +1007,179 @@ describe("Hedge Matching Engine", () => {
       const snapshot = new Set(["p1", "p2"]);
       const res = computeRangeSelection(visibleIds, "p1", "unknown_row", snapshot, true);
       expect(Array.from(res.newSelectedIds)).toEqual(["p1", "p2"]);
+    });
+  });
+
+  describe("Date Filtering & Robinhood Promo Weeks Integration", () => {
+    it("filters matched hedge pairs by Robinhood Campaign week preset and recomputes summary metrics", () => {
+      // Week 1: 2026-08-10 00:00:00 UTC to 2026-08-20 00:00:00 UTC
+      const week1Timestamp = Date.UTC(2026, 7, 15, 12, 0, 0); // Aug 15, 2026
+      // Week 2: 2026-08-20 00:00:00 UTC to 2026-08-27 00:00:00 UTC
+      const week2Timestamp = Date.UTC(2026, 7, 22, 14, 0, 0); // Aug 22, 2026
+      // Week 8: 2026-10-01 00:00:00 UTC to 2026-10-08 00:00:00 UTC
+      const week8Timestamp = Date.UTC(2026, 9, 3, 10, 0, 0); // Oct 3, 2026
+
+      const rhTrade1 = mockTrade({
+        tradeId: "rh-w1",
+        side: "BUY",
+        price: 200,
+        size: 10,
+        feeUsd: 1,
+        timestampMs: week1Timestamp,
+        marketSymbol: "ETH",
+      });
+      const coreTrade1 = mockTrade({
+        tradeId: "core-w1",
+        side: "SELL",
+        price: 201,
+        size: 10,
+        feeUsd: 1,
+        timestampMs: week1Timestamp + 500,
+        marketSymbol: "ETH",
+      });
+
+      const rhTrade2 = mockTrade({
+        tradeId: "rh-w2",
+        side: "SELL",
+        price: 300,
+        size: 5,
+        feeUsd: 1.5,
+        timestampMs: week2Timestamp,
+        marketSymbol: "BTC",
+      });
+      const coreTrade2 = mockTrade({
+        tradeId: "core-w2",
+        side: "BUY",
+        price: 298,
+        size: 5,
+        feeUsd: 1.5,
+        timestampMs: week2Timestamp + 300,
+        marketSymbol: "BTC",
+      });
+
+      const rhTrade8 = mockTrade({
+        tradeId: "rh-w8",
+        side: "BUY",
+        price: 150,
+        size: 20,
+        feeUsd: 2,
+        timestampMs: week8Timestamp,
+        marketSymbol: "SOL",
+      });
+      const coreTrade8 = mockTrade({
+        tradeId: "core-w8",
+        side: "SELL",
+        price: 150.5,
+        size: 20,
+        feeUsd: 2,
+        timestampMs: week8Timestamp + 1000,
+        marketSymbol: "SOL",
+      });
+
+      // Match all 3 pairs globally
+      const matched = matchHedgeTrades(
+        [rhTrade1, rhTrade2, rhTrade8],
+        [coreTrade1, coreTrade2, coreTrade8],
+        31704,
+        749329,
+      );
+
+      expect(matched.pairs).toHaveLength(3);
+      expect(matched.unhedged).toHaveLength(0);
+
+      // Total All-Time metrics
+      const allMetrics = matched.metrics;
+      expect(allMetrics.totalPairs).toBe(3);
+      // Volume: 10*200.5 + 5*299 + 20*150.25 = 2005 + 1495 + 3005 = 6505
+      expect(allMetrics.totalHedgedVolumeUsd).toBe(6505);
+
+      // Now filter by Week 1 preset
+      const week1Preset = findPresetById("week-1");
+      expect(week1Preset).toBeDefined();
+      const week1Filter = createPresetDateFilter(week1Preset!);
+
+      const w1Pairs = matched.pairs.filter((p) => isTradeInDateRange(p.rhTimestampMs, week1Filter));
+      const w1Unhedged = matched.unhedged.filter((u) =>
+        isTradeInDateRange(u.timestampMs, week1Filter),
+      );
+
+      expect(w1Pairs).toHaveLength(1);
+      expect(w1Pairs[0].rhTradeId).toBe("rh-w1");
+
+      const w1Metrics = calculateHedgeMetrics(w1Pairs, w1Unhedged, 31704, 749329, 1, 1);
+      expect(w1Metrics.totalPairs).toBe(1);
+      expect(w1Metrics.totalHedgedVolumeUsd).toBe(2005);
+      // Sell 201 - Buy 200 = +1 * 10 = +10 price PnL - 2 fees = +8 net PnL
+      expect(w1Metrics.totalNetPnlUsd).toBe(8);
+
+      // Now filter by Week 8 (the active week as of Oct 2026)
+      const week8Preset = findPresetById("week-8");
+      expect(week8Preset).toBeDefined();
+      const week8Filter = createPresetDateFilter(week8Preset!);
+
+      const w8Pairs = matched.pairs.filter((p) => isTradeInDateRange(p.rhTimestampMs, week8Filter));
+      expect(w8Pairs).toHaveLength(1);
+      expect(w8Pairs[0].rhTradeId).toBe("rh-w8");
+
+      const w8Metrics = calculateHedgeMetrics(w8Pairs, [], 31704, 749329, 1, 1);
+      expect(w8Metrics.totalPairs).toBe(1);
+      expect(w8Metrics.totalHedgedVolumeUsd).toBe(3005);
+    });
+
+    it("respects exact Thursday 00:00:00.000 UTC snapshot boundary across week transitions", () => {
+      // Snapshot 1 boundary: Thursday, Aug 20, 2026 00:00:00.000 UTC
+      const boundaryMs = Date.UTC(2026, 7, 20, 0, 0, 0);
+      const justBeforeBoundary = boundaryMs - 1; // 23:59:59.999 UTC Aug 19 -> Week 1
+      const exactlyAtBoundary = boundaryMs; // 00:00:00.000 UTC Aug 20 -> Week 2
+
+      const week1Filter = createPresetDateFilter(findPresetById("week-1")!);
+      const week2Filter = createPresetDateFilter(findPresetById("week-2")!);
+
+      expect(isTradeInDateRange(justBeforeBoundary, week1Filter)).toBe(true);
+      expect(isTradeInDateRange(justBeforeBoundary, week2Filter)).toBe(false);
+
+      expect(isTradeInDateRange(exactlyAtBoundary, week1Filter)).toBe(false);
+      expect(isTradeInDateRange(exactlyAtBoundary, week2Filter)).toBe(true);
+    });
+
+    it("prevents cross-boundary trades from producing false unhedged records when matched globally", () => {
+      // RH fills 2 seconds before snapshot; Core hedge executes 2 seconds after snapshot
+      const rhTimestamp = Date.UTC(2026, 7, 20, 0, 0, 0) - 2000; // Aug 19, 23:59:58 UTC (Week 1)
+      const coreTimestamp = Date.UTC(2026, 7, 20, 0, 0, 0) + 2000; // Aug 20, 00:00:02 UTC (Week 2)
+
+      const rhTrade = mockTrade({
+        tradeId: "rh-cross",
+        side: "BUY",
+        price: 100,
+        size: 1,
+        timestampMs: rhTimestamp,
+      });
+      const coreTrade = mockTrade({
+        tradeId: "core-cross",
+        side: "SELL",
+        price: 100,
+        size: 1,
+        timestampMs: coreTimestamp,
+      });
+
+      // Global match successfully pairs them together
+      const result = matchHedgeTrades([rhTrade], [coreTrade], 31704, 749329, 600);
+      expect(result.pairs).toHaveLength(1);
+      expect(result.unhedged).toHaveLength(0);
+
+      // Filtering by Week 1 (RH leg timestamp) captures the matched pair
+      const week1Filter = createPresetDateFilter(findPresetById("week-1")!);
+      const w1Pairs = result.pairs.filter((p) => isTradeInDateRange(p.rhTimestampMs, week1Filter));
+      expect(w1Pairs).toHaveLength(1);
+
+      // Filtering by Week 2 shows 0 pairs for that week and NO false unhedged records
+      const week2Filter = createPresetDateFilter(findPresetById("week-2")!);
+      const w2Pairs = result.pairs.filter((p) => isTradeInDateRange(p.rhTimestampMs, week2Filter));
+      expect(w2Pairs).toHaveLength(0);
+      const w2Unhedged = result.unhedged.filter((u) =>
+        isTradeInDateRange(u.timestampMs, week2Filter),
+      );
+      expect(w2Unhedged).toHaveLength(0);
     });
   });
 });

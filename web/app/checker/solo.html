@@ -579,7 +579,7 @@
         <div class="bg-terminal-surface border border-terminal-border rounded overflow-hidden">
           <!-- Subheader & Tabs Navigation -->
           <div
-            class="border-b border-terminal-border px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono bg-terminal-surface/60"
+            class="border-b border-terminal-border px-3 py-2 flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs font-mono bg-terminal-surface/60"
           >
             <!-- Left: Tab Switchers -->
             <div class="flex flex-wrap items-center gap-2">
@@ -602,17 +602,95 @@
                 </button>
               </div>
 
-              <span id="tradeCountNotice" class="text-[11px] text-terminal-muted ml-2"></span>
+              <span id="tradeCountNotice" class="text-[11px] text-terminal-muted ml-1"></span>
             </div>
 
-            <!-- Right: In-table Filter -->
-            <div class="flex items-center gap-2 w-full sm:w-auto">
-              <div class="relative w-full sm:w-auto">
+            <!-- Right: In-table Filters (Date Range + ? + Search) -->
+            <div
+              class="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full md:w-auto md:justify-end"
+            >
+              <!-- Preset Select + ? modal button -->
+              <div class="flex items-center gap-1">
+                <div class="relative inline-flex items-center">
+                  <select
+                    id="selectDatePreset"
+                    class="w-36 h-6 appearance-none bg-terminal-bg border border-terminal-border hover:border-terminal-muted rounded pl-2 pr-6 text-xs text-white font-mono cursor-pointer focus:outline-none focus:border-terminal-accent transition truncate"
+                    title="Filter trades by date"
+                  >
+                    <!-- Populated dynamically via date_filter.ts -->
+                  </select>
+                  <svg
+                    class="pointer-events-none absolute right-1.5 h-3.5 w-3.5 text-terminal-muted shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </div>
+
+                <button
+                  type="button"
+                  id="btnOpenPromoModal"
+                  class="h-6 w-6 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-terminal-muted hover:text-white transition cursor-pointer text-xs flex items-center justify-center font-bold shrink-0 select-none leading-none"
+                  title="Campaign weeks schedule"
+                >
+                  ?
+                </button>
+              </div>
+
+              <!-- Custom Date Range Inputs -->
+              <div id="customDateRangeContainer" class="hidden flex items-center gap-1 text-xs">
+                <input
+                  type="date"
+                  id="inputCustomDateFrom"
+                  class="h-6 bg-terminal-bg border border-terminal-border rounded px-1.5 text-white font-mono text-xs focus:outline-none focus:border-terminal-accent"
+                  title="From Date (UTC)"
+                />
+                <span class="text-terminal-muted">→</span>
+                <input
+                  type="date"
+                  id="inputCustomDateTo"
+                  class="h-6 bg-terminal-bg border border-terminal-border rounded px-1.5 text-white font-mono text-xs focus:outline-none focus:border-terminal-accent"
+                  title="To Date (UTC)"
+                />
+                <button
+                  type="button"
+                  id="btnApplyCustomDate"
+                  class="h-6 px-2 rounded bg-terminal-accent/20 border border-terminal-accent/40 hover:bg-terminal-accent/30 text-terminal-accent hover:text-white transition cursor-pointer text-xs font-semibold flex items-center justify-center"
+                >
+                  Apply
+                </button>
+              </div>
+
+              <!-- Active Filter Badge -->
+              <div
+                id="activeDateBadge"
+                class="hidden flex items-center gap-1 px-1.5 h-6 rounded bg-terminal-accent/15 border border-terminal-accent/40 text-terminal-accent text-xs font-medium"
+              >
+                <span id="activeDateBadgeText">Week 8</span>
+                <button
+                  type="button"
+                  id="btnClearDateFilter"
+                  class="hover:text-white cursor-pointer ml-0.5 leading-none"
+                  title="Reset date filter to All Time"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <!-- Search Filter Input -->
+              <div class="relative flex-1 sm:flex-initial">
                 <input
                   type="text"
                   id="inputSearchFilter"
-                  placeholder="Filter (symbol, BUY, SELL, hash...)"
-                  class="w-full sm:w-64 px-2 py-0.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-[11px] focus:outline-none focus:border-terminal-accent placeholder:text-terminal-muted/60"
+                  placeholder="Filter (symbol, BUY, SELL...)"
+                  class="h-6 w-full sm:w-52 md:w-56 px-2 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-xs focus:outline-none focus:border-terminal-accent placeholder:text-terminal-muted/60"
                 />
               </div>
             </div>
@@ -894,6 +972,74 @@
               class="px-3 py-1 rounded bg-terminal-emerald/20 border border-terminal-emerald/50 hover:bg-terminal-emerald/30 text-terminal-emerald hover:text-white font-bold cursor-pointer"
             >
               Import & Stitch
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 20-WEEK ROBINHOOD POINTS CAMPAIGN MODAL -->
+    <div
+      id="promoModal"
+      class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-xs select-none"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="promoModalTitle"
+    >
+      <div
+        class="bg-terminal-surface border border-terminal-border rounded-lg max-w-2xl w-full p-4 space-y-3 font-mono text-xs shadow-2xl flex flex-col max-h-[85vh]"
+      >
+        <div class="flex items-center justify-between border-b border-terminal-border pb-2.5">
+          <div>
+            <h3 id="promoModalTitle" class="text-xs font-bold text-white uppercase tracking-wider">
+              Robinhood Campaign Weeks
+            </h3>
+            <p class="text-[10px] text-terminal-muted">
+              Weekly snapshots: Every Thursday 00:00 UTC
+            </p>
+          </div>
+          <button
+            id="btnClosePromoModal"
+            type="button"
+            class="text-terminal-muted hover:text-white cursor-pointer px-1 py-0.5 select-none"
+            title="Close modal (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Scrollable 20-Week Grid -->
+        <div class="flex-1 overflow-y-auto space-y-2 pr-1 no-scrollbar">
+          <div id="promoWeeksGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <!-- Dynamic 20 week cards injected with 1-click select -->
+          </div>
+        </div>
+
+        <div
+          class="border-t border-terminal-borderSubtle pt-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-terminal-muted"
+        >
+          <a
+            href="https://docs.lighter.xyz/points-program/lighter-on-robinhood-chain-points"
+            target="_blank"
+            rel="noreferrer"
+            class="text-terminal-accent hover:underline"
+          >
+            Official Docs
+          </a>
+          <div class="flex items-center gap-2">
+            <button
+              id="btnPromoSelectAll"
+              type="button"
+              class="px-2.5 py-1 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white cursor-pointer"
+            >
+              All Time
+            </button>
+            <button
+              id="btnDismissPromoModal"
+              type="button"
+              class="px-3 py-1 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-muted text-white cursor-pointer"
+            >
+              Close
             </button>
           </div>
         </div>

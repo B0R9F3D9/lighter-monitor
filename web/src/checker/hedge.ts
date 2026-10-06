@@ -485,7 +485,7 @@ export function matchHedgeTrades(
   return { pairs, unhedged, metrics };
 }
 
-function calculateHedgeMetrics(
+export function calculateHedgeMetrics(
   pairs: HedgePair[],
   unhedged: UnhedgedTrade[],
   rhAccountIndex: number | null,

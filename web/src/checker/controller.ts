@@ -4,6 +4,7 @@ import {
   downloadJsonFile,
   fetchMarketMap,
   getStaticMarketMap,
+  normalizeTimestampMs,
   parseImportedTradesJson,
   parseTradeForView,
   prepareExportPayload,
@@ -12,6 +13,16 @@ import {
   stitchTradeBatches,
 } from "./api";
 import { getBookmarkletHref } from "./bookmarklet";
+import {
+  type ActiveDateFilter,
+  createPresetDateFilter,
+  findPresetById,
+  formatDateRangeFilterLabel,
+  isTradeInDateRange,
+  parseCustomDateRange,
+  populatePresetSelect,
+  renderPromoWeeksGrid,
+} from "./date_filter";
 import { formatDisplayFileName, renderTradesTable, updateExecutiveMetrics } from "./dom";
 import type {
   CheckerNetwork,
@@ -30,6 +41,7 @@ export class CheckerController {
   private soloBatches: ImportedTradesResult[] = [];
   private soloStitched: StitchedTradesResult | null = null;
   private resolvedL1Address: string | null = null;
+  private allRawTrades: LighterTrade[] = [];
   private rawTrades: LighterTrade[] = [];
   private parsedTrades: ParsedTradeView[] = [];
   private filteredTrades: ParsedTradeView[] = [];
@@ -40,6 +52,7 @@ export class CheckerController {
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private jsonViewerDirty = true;
   private uploadSessionId = 0;
+  private activeDateFilter: ActiveDateFilter | null = null;
 
   // Bookmarklet DOM Elements
   private bookmarkletLink: HTMLAnchorElement | null = null;
@@ -112,11 +125,34 @@ export class CheckerController {
   private btnDismissPasteModal: HTMLButtonElement | null = null;
   private btnSubmitPasteJson: HTMLButtonElement | null = null;
 
+  // Date Filter & Promo Modal Elements
+  private selectDatePreset: HTMLSelectElement | null = null;
+  private customDateRangeContainer: HTMLElement | null = null;
+  private inputCustomDateFrom: HTMLInputElement | null = null;
+  private inputCustomDateTo: HTMLInputElement | null = null;
+  private btnApplyCustomDate: HTMLButtonElement | null = null;
+  private activeDateBadge: HTMLElement | null = null;
+  private activeDateBadgeText: HTMLElement | null = null;
+  private btnClearDateFilter: HTMLButtonElement | null = null;
+  private btnOpenPromoModal: HTMLButtonElement | null = null;
+  private promoModal: HTMLElement | null = null;
+  private btnClosePromoModal: HTMLButtonElement | null = null;
+  private btnDismissPromoModal: HTMLButtonElement | null = null;
+  private btnPromoSelectAll: HTMLButtonElement | null = null;
+  private promoWeeksGrid: HTMLElement | null = null;
+
   public init(): void {
     this.cacheDomElements();
+    this.initDateFilterSection();
     this.initBookmarkletSection();
     this.bindEvents();
     this.loadMarketDefinitions();
+  }
+
+  private initDateFilterSection(): void {
+    if (this.selectDatePreset) {
+      populatePresetSelect(this.selectDatePreset, this.activeDateFilter?.presetId || "all");
+    }
   }
 
   private async loadMarketDefinitions(): Promise<void> {
@@ -194,6 +230,22 @@ export class CheckerController {
     this.btnDismissPasteModal = document.querySelector("#btnDismissPasteModal");
     this.btnSubmitPasteJson = document.querySelector("#btnSubmitPasteJson");
     this.textareaPasteJson = document.querySelector("#textareaPasteJson");
+
+    // Date Filter & Promo Modal Elements
+    this.selectDatePreset = document.querySelector("#selectDatePreset");
+    this.customDateRangeContainer = document.querySelector("#customDateRangeContainer");
+    this.inputCustomDateFrom = document.querySelector("#inputCustomDateFrom");
+    this.inputCustomDateTo = document.querySelector("#inputCustomDateTo");
+    this.btnApplyCustomDate = document.querySelector("#btnApplyCustomDate");
+    this.activeDateBadge = document.querySelector("#activeDateBadge");
+    this.activeDateBadgeText = document.querySelector("#activeDateBadgeText");
+    this.btnClearDateFilter = document.querySelector("#btnClearDateFilter");
+    this.btnOpenPromoModal = document.querySelector("#btnOpenPromoModal");
+    this.promoModal = document.querySelector("#promoModal");
+    this.btnClosePromoModal = document.querySelector("#btnClosePromoModal");
+    this.btnDismissPromoModal = document.querySelector("#btnDismissPromoModal");
+    this.btnPromoSelectAll = document.querySelector("#btnPromoSelectAll");
+    this.promoWeeksGrid = document.querySelector("#promoWeeksGrid");
   }
 
   private handleBookmarkletClick(e: MouseEvent): void {
@@ -257,7 +309,71 @@ export class CheckerController {
       if (e.key === "Escape") {
         if (!this.exportModal?.classList.contains("hidden")) this.closeExportModal();
         if (!this.pasteModal?.classList.contains("hidden")) this.closePasteModal();
+        if (!this.promoModal?.classList.contains("hidden")) this.closePromoModal();
       }
+    });
+
+    // Date filter presets
+    this.selectDatePreset?.addEventListener("change", () => {
+      const val = this.selectDatePreset?.value || "all";
+      if (val === "custom") {
+        this.customDateRangeContainer?.classList.remove("hidden");
+        this.inputCustomDateFrom?.focus();
+        return;
+      }
+      this.customDateRangeContainer?.classList.add("hidden");
+      if (val === "all") {
+        this.activeDateFilter = null;
+      } else {
+        const preset = findPresetById(val);
+        if (preset) {
+          this.activeDateFilter = createPresetDateFilter(preset);
+          if (preset.startDateFormatted && this.inputCustomDateFrom) {
+            this.inputCustomDateFrom.value = preset.startDateFormatted;
+          }
+          if (preset.endDateFormatted && this.inputCustomDateTo) {
+            this.inputCustomDateTo.value = preset.endDateFormatted;
+          }
+        }
+      }
+      this.recalculateAndRender();
+    });
+
+    // Custom Date Range Apply
+    this.btnApplyCustomDate?.addEventListener("click", () => {
+      const from = this.inputCustomDateFrom?.value;
+      const to = this.inputCustomDateTo?.value;
+      if (!from && !to) {
+        this.activeDateFilter = null;
+        if (this.selectDatePreset) this.selectDatePreset.value = "all";
+      } else {
+        this.activeDateFilter = parseCustomDateRange(from, to);
+      }
+      this.recalculateAndRender();
+    });
+
+    // Clear Date Filter
+    this.btnClearDateFilter?.addEventListener("click", () => {
+      this.activeDateFilter = null;
+      if (this.selectDatePreset) this.selectDatePreset.value = "all";
+      if (this.inputCustomDateFrom) this.inputCustomDateFrom.value = "";
+      if (this.inputCustomDateTo) this.inputCustomDateTo.value = "";
+      this.customDateRangeContainer?.classList.add("hidden");
+      this.recalculateAndRender();
+    });
+
+    // 20-Weeks Promo Modal Controls
+    this.btnOpenPromoModal?.addEventListener("click", () => this.openPromoModal());
+    this.btnClosePromoModal?.addEventListener("click", () => this.closePromoModal());
+    this.btnDismissPromoModal?.addEventListener("click", () => this.closePromoModal());
+    this.promoModal?.addEventListener("click", (e) => {
+      if (e.target === this.promoModal) this.closePromoModal();
+    });
+    this.btnPromoSelectAll?.addEventListener("click", () => {
+      this.activeDateFilter = null;
+      if (this.selectDatePreset) this.selectDatePreset.value = "all";
+      this.closePromoModal();
+      this.recalculateAndRender();
     });
 
     // File browse / upload buttons
@@ -497,7 +613,8 @@ export class CheckerController {
 
     const stitched = stitchTradeBatches(this.soloBatches);
     this.soloStitched = stitched;
-    this.rawTrades = sortTradesChronologicalDesc(stitched.trades);
+    this.allRawTrades = sortTradesChronologicalDesc(stitched.trades);
+    this.rawTrades = this.allRawTrades;
     this.soloAccountIndices = stitched.accountIndices;
     this.resolvedAccountIndex =
       stitched.accountIndices.length > 0 ? stitched.accountIndices[0] : null;
@@ -518,7 +635,7 @@ export class CheckerController {
         this.loadedFileName.textContent = formatDisplayFileName(rawName, 32);
         this.loadedFileName.title = rawName;
       } else {
-        this.loadedFileName.textContent = `${this.soloBatches.length} files stitched (${this.rawTrades.length.toLocaleString()} trades)`;
+        this.loadedFileName.textContent = `${this.soloBatches.length} files stitched (${this.allRawTrades.length.toLocaleString()} trades)`;
         this.loadedFileName.title = this.soloBatches.map((b) => b.fileName || "file").join(", ");
       }
     }
@@ -546,11 +663,19 @@ export class CheckerController {
         ? `Account(s) ${this.soloAccountIndices.map((a) => `#${a}`).join(", ")}`
         : "Trades";
     this.showStatusSuccess(
-      `Stitched ${this.rawTrades.length.toLocaleString()} deduplicated trades across ${this.soloBatches.length} file(s) (${accBadge}).`,
+      `Stitched ${this.allRawTrades.length.toLocaleString()} deduplicated trades across ${this.soloBatches.length} file(s) (${accBadge}).`,
     );
   }
 
   private recalculateAndRender(): void {
+    if (this.activeDateFilter) {
+      this.rawTrades = this.allRawTrades.filter((t) =>
+        isTradeInDateRange(normalizeTimestampMs(t.timestamp), this.activeDateFilter),
+      );
+    } else {
+      this.rawTrades = this.allRawTrades;
+    }
+
     sortTradesChronologicalDesc(this.rawTrades);
     const accQuery =
       this.soloAccountIndices.length > 0
@@ -563,6 +688,7 @@ export class CheckerController {
 
     this.updateExecutiveSummary();
     this.applyFilter();
+    this.updateDateFilterUi();
 
     // Mark JSON viewer as needing update without building/rendering giant JSON on table tab
     this.jsonViewerDirty = true;
@@ -574,6 +700,53 @@ export class CheckerController {
     if (this.downloadBtn) this.downloadBtn.disabled = !hasData;
     if (this.copyBtn) this.copyBtn.disabled = !hasData;
     if (this.clearBtn) this.clearBtn.disabled = !hasData;
+  }
+
+  public openPromoModal(): void {
+    if (this.promoWeeksGrid) {
+      renderPromoWeeksGrid(
+        this.promoWeeksGrid,
+        (preset) => {
+          this.activeDateFilter = createPresetDateFilter(preset);
+          if (this.selectDatePreset) this.selectDatePreset.value = preset.id;
+          if (preset.startDateFormatted && this.inputCustomDateFrom) {
+            this.inputCustomDateFrom.value = preset.startDateFormatted;
+          }
+          if (preset.endDateFormatted && this.inputCustomDateTo) {
+            this.inputCustomDateTo.value = preset.endDateFormatted;
+          }
+          this.closePromoModal();
+          this.recalculateAndRender();
+        },
+        this.activeDateFilter?.presetId,
+      );
+    }
+    this.promoModal?.classList.remove("hidden");
+  }
+
+  public closePromoModal(): void {
+    this.promoModal?.classList.add("hidden");
+  }
+
+  private updateDateFilterUi(): void {
+    if (this.selectDatePreset) {
+      this.selectDatePreset.value = this.activeDateFilter?.presetId || "all";
+    }
+
+    if (this.activeDateFilter && this.activeDateFilter.presetId !== "all") {
+      this.activeDateBadge?.classList.remove("hidden");
+      if (this.activeDateBadgeText) {
+        this.activeDateBadgeText.textContent = formatDateRangeFilterLabel(this.activeDateFilter);
+      }
+    } else {
+      this.activeDateBadge?.classList.add("hidden");
+    }
+
+    if (this.activeDateFilter?.isCustom) {
+      this.customDateRangeContainer?.classList.remove("hidden");
+    } else if (this.selectDatePreset?.value !== "custom") {
+      this.customDateRangeContainer?.classList.add("hidden");
+    }
   }
 
   private updateExecutiveSummary(): void {
@@ -607,8 +780,16 @@ export class CheckerController {
     }
 
     if (this.tradeCountNotice) {
-      if (this.searchQuery && this.parsedTrades.length > 0) {
-        this.tradeCountNotice.textContent = `Showing ${this.filteredTrades.length} of ${this.parsedTrades.length} trades`;
+      const parts: string[] = [];
+      if (this.activeDateFilter && this.activeDateFilter.presetId !== "all") {
+        parts.push(formatDateRangeFilterLabel(this.activeDateFilter));
+      }
+      if (this.searchQuery) {
+        parts.push(`matching "${this.searchQuery}"`);
+      }
+
+      if (parts.length > 0) {
+        this.tradeCountNotice.textContent = `Showing ${this.filteredTrades.length} of ${this.allRawTrades.length} trades (${parts.join(", ")})`;
         this.tradeCountNotice.className = "text-[11px] text-terminal-accent font-medium";
       } else {
         this.tradeCountNotice.textContent = "";
@@ -727,6 +908,7 @@ export class CheckerController {
     this.uploadSessionId++;
     this.soloBatches = [];
     this.soloStitched = null;
+    this.allRawTrades = [];
     this.rawTrades = [];
     this.parsedTrades = [];
     this.filteredTrades = [];
@@ -735,6 +917,11 @@ export class CheckerController {
     this.soloAccountIndices = [];
     this.resolvedL1Address = null;
     this.searchQuery = "";
+    this.activeDateFilter = null;
+    if (this.selectDatePreset) this.selectDatePreset.value = "all";
+    if (this.inputCustomDateFrom) this.inputCustomDateFrom.value = "";
+    if (this.inputCustomDateTo) this.inputCustomDateTo.value = "";
+    this.updateDateFilterUi();
     if (this.filterDebounceTimer) {
       clearTimeout(this.filterDebounceTimer);
       this.filterDebounceTimer = null;

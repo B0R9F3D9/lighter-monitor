@@ -2,6 +2,7 @@ import { copyToClipboard } from "../shared/clipboard";
 import {
   downloadTextFile,
   getStaticMarketMap,
+  normalizeTimestampMs,
   parseImportedTradesJson,
   parseTradeForView,
   sortParsedTradesChronologicalDesc,
@@ -9,6 +10,16 @@ import {
   stitchTradeBatches,
 } from "./api";
 import { getBookmarkletHref } from "./bookmarklet";
+import {
+  type ActiveDateFilter,
+  createPresetDateFilter,
+  findPresetById,
+  formatDateRangeFilterLabel,
+  isTradeInDateRange,
+  parseCustomDateRange,
+  populatePresetSelect,
+  renderPromoWeeksGrid,
+} from "./date_filter";
 import {
   formatDisplayFileName,
   type HedgeMetricElements,
@@ -18,6 +29,7 @@ import {
   updateHedgeSelectionMetrics,
 } from "./dom";
 import {
+  calculateHedgeMetrics,
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
   exportHedgeReportToCsv,
@@ -162,10 +174,39 @@ export class HedgeController {
   private btnDismissPasteModal: HTMLElement | null = null;
   private btnSubmitPasteJson: HTMLElement | null = null;
 
+  // Date Filter & Promo Modal Elements
+  private activeHedgeDateFilter: ActiveDateFilter | null = null;
+  private allHedgePairs: HedgePair[] = [];
+  private allUnhedgedTrades: UnhedgedTrade[] = [];
+  private selectHedgeDatePreset: HTMLSelectElement | null = null;
+  private customHedgeDateContainer: HTMLElement | null = null;
+  private inputCustomHedgeDateFrom: HTMLInputElement | null = null;
+  private inputCustomHedgeDateTo: HTMLInputElement | null = null;
+  private btnApplyCustomHedgeDate: HTMLButtonElement | null = null;
+  private activeHedgeDateBadge: HTMLElement | null = null;
+  private activeHedgeDateBadgeText: HTMLElement | null = null;
+  private btnClearHedgeDateFilter: HTMLButtonElement | null = null;
+  private btnOpenHedgePromoModal: HTMLButtonElement | null = null;
+  private hedgePromoModal: HTMLElement | null = null;
+  private btnCloseHedgePromoModal: HTMLButtonElement | null = null;
+  private btnDismissHedgePromoModal: HTMLButtonElement | null = null;
+  private btnHedgePromoSelectAll: HTMLButtonElement | null = null;
+  private hedgePromoWeeksGrid: HTMLElement | null = null;
+
   public init(): void {
     this.cacheDomElements();
+    this.initDateFilterSection();
     this.initBookmarkletSection();
     this.bindEvents();
+  }
+
+  private initDateFilterSection(): void {
+    if (this.selectHedgeDatePreset) {
+      populatePresetSelect(
+        this.selectHedgeDatePreset,
+        this.activeHedgeDateFilter?.presetId || "all",
+      );
+    }
   }
 
   private cacheDomElements(): void {
@@ -295,6 +336,40 @@ export class HedgeController {
     this.btnClosePasteModal = document.getElementById("btnClosePasteModal");
     this.btnDismissPasteModal = document.getElementById("btnDismissPasteModal");
     this.btnSubmitPasteJson = document.getElementById("btnSubmitPasteJson");
+
+    // Date Filter & Promo Modal Elements
+    this.selectHedgeDatePreset = document.getElementById(
+      "selectHedgeDatePreset",
+    ) as HTMLSelectElement | null;
+    this.customHedgeDateContainer = document.getElementById("customHedgeDateContainer");
+    this.inputCustomHedgeDateFrom = document.getElementById(
+      "inputCustomHedgeDateFrom",
+    ) as HTMLInputElement | null;
+    this.inputCustomHedgeDateTo = document.getElementById(
+      "inputCustomHedgeDateTo",
+    ) as HTMLInputElement | null;
+    this.btnApplyCustomHedgeDate = document.getElementById(
+      "btnApplyCustomHedgeDate",
+    ) as HTMLButtonElement | null;
+    this.activeHedgeDateBadge = document.getElementById("activeHedgeDateBadge");
+    this.activeHedgeDateBadgeText = document.getElementById("activeHedgeDateBadgeText");
+    this.btnClearHedgeDateFilter = document.getElementById(
+      "btnClearHedgeDateFilter",
+    ) as HTMLButtonElement | null;
+    this.btnOpenHedgePromoModal = document.getElementById(
+      "btnOpenHedgePromoModal",
+    ) as HTMLButtonElement | null;
+    this.hedgePromoModal = document.getElementById("hedgePromoModal");
+    this.btnCloseHedgePromoModal = document.getElementById(
+      "btnCloseHedgePromoModal",
+    ) as HTMLButtonElement | null;
+    this.btnDismissHedgePromoModal = document.getElementById(
+      "btnDismissHedgePromoModal",
+    ) as HTMLButtonElement | null;
+    this.btnHedgePromoSelectAll = document.getElementById(
+      "btnHedgePromoSelectAll",
+    ) as HTMLButtonElement | null;
+    this.hedgePromoWeeksGrid = document.getElementById("hedgePromoWeeksGrid");
   }
 
   private handleBookmarkletClick(e: MouseEvent): void {
@@ -451,11 +526,66 @@ export class HedgeController {
       this.onHedgeSelectionChanged();
     });
 
+    // Date Preset Select
+    this.selectHedgeDatePreset?.addEventListener("change", (e) => {
+      const presetId = (e.target as HTMLSelectElement).value;
+      if (presetId === "custom") {
+        this.customHedgeDateContainer?.classList.remove("hidden");
+        return;
+      }
+      this.customHedgeDateContainer?.classList.add("hidden");
+      const preset = findPresetById(presetId);
+      if (preset) {
+        this.activeHedgeDateFilter = createPresetDateFilter(preset);
+      } else {
+        this.activeHedgeDateFilter = null;
+      }
+      this.applyHedgeDateFilter();
+    });
+
+    // Custom Date Range Apply
+    this.btnApplyCustomHedgeDate?.addEventListener("click", () => {
+      const from = this.inputCustomHedgeDateFrom?.value;
+      const to = this.inputCustomHedgeDateTo?.value;
+      if (!from && !to) {
+        this.activeHedgeDateFilter = null;
+        if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
+      } else {
+        this.activeHedgeDateFilter = parseCustomDateRange(from, to);
+      }
+      this.applyHedgeDateFilter();
+    });
+
+    // Clear Date Filter
+    this.btnClearHedgeDateFilter?.addEventListener("click", () => {
+      this.activeHedgeDateFilter = null;
+      if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
+      if (this.inputCustomHedgeDateFrom) this.inputCustomHedgeDateFrom.value = "";
+      if (this.inputCustomHedgeDateTo) this.inputCustomHedgeDateTo.value = "";
+      this.customHedgeDateContainer?.classList.add("hidden");
+      this.applyHedgeDateFilter();
+    });
+
+    // 20-Weeks Promo Modal Controls
+    this.btnOpenHedgePromoModal?.addEventListener("click", () => this.openHedgePromoModal());
+    this.btnCloseHedgePromoModal?.addEventListener("click", () => this.closeHedgePromoModal());
+    this.btnDismissHedgePromoModal?.addEventListener("click", () => this.closeHedgePromoModal());
+    this.hedgePromoModal?.addEventListener("click", (e) => {
+      if (e.target === this.hedgePromoModal) this.closeHedgePromoModal();
+    });
+    this.btnHedgePromoSelectAll?.addEventListener("click", () => {
+      this.activeHedgeDateFilter = null;
+      if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
+      this.closeHedgePromoModal();
+      this.applyHedgeDateFilter();
+    });
+
     // Keyboard hotkeys
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (!this.exportModal?.classList.contains("hidden")) this.closeExportModal();
         if (!this.pasteModal?.classList.contains("hidden")) this.closePasteModal();
+        if (!this.hedgePromoModal?.classList.contains("hidden")) this.closeHedgePromoModal();
         if (this.selectedHedgeRowIds.size > 0) {
           this.selectedHedgeRowIds.clear();
           this.lastClickedHedgeRowId = null;
@@ -746,7 +876,7 @@ export class HedgeController {
           ? this.coreAccountIndices.map((a) => `#${a}`).join(", ")
           : `${this.coreAccountIndex ?? "--"}`;
       this.showStatusSuccess(
-        `Hedge audit ready: matched ${this.hedgePairs.length} pairs between RH (${rhAccStr}) and Core (${coreAccStr}).`,
+        `Hedge audit ready: matched ${this.allHedgePairs.length} pairs between RH (${rhAccStr}) and Core (${coreAccStr}).`,
       );
     } else if (this.rhRawTrades.length > 0) {
       this.showStatusSuccess(
@@ -789,9 +919,73 @@ export class HedgeController {
       this.coreAccountIndices,
     );
 
-    this.hedgePairs = result.pairs;
-    this.unhedgedTrades = result.unhedged;
-    this.hedgeMetrics = result.metrics;
+    this.allHedgePairs = result.pairs;
+    this.allUnhedgedTrades = result.unhedged;
+
+    this.applyHedgeDateFilter();
+  }
+
+  public openHedgePromoModal(): void {
+    if (this.hedgePromoWeeksGrid) {
+      renderPromoWeeksGrid(
+        this.hedgePromoWeeksGrid,
+        (preset) => {
+          this.activeHedgeDateFilter = createPresetDateFilter(preset);
+          if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = preset.id;
+          if (preset.startDateFormatted && this.inputCustomHedgeDateFrom) {
+            this.inputCustomHedgeDateFrom.value = preset.startDateFormatted;
+          }
+          if (preset.endDateFormatted && this.inputCustomHedgeDateTo) {
+            this.inputCustomHedgeDateTo.value = preset.endDateFormatted;
+          }
+          this.closeHedgePromoModal();
+          this.applyHedgeDateFilter();
+        },
+        this.activeHedgeDateFilter?.presetId,
+      );
+    }
+    this.hedgePromoModal?.classList.remove("hidden");
+  }
+
+  public closeHedgePromoModal(): void {
+    this.hedgePromoModal?.classList.add("hidden");
+  }
+
+  private updateHedgeDateFilterUi(): void {
+    if (this.selectHedgeDatePreset) {
+      this.selectHedgeDatePreset.value = this.activeHedgeDateFilter?.presetId || "all";
+    }
+
+    if (this.activeHedgeDateFilter && this.activeHedgeDateFilter.presetId !== "all") {
+      this.activeHedgeDateBadge?.classList.remove("hidden");
+      if (this.activeHedgeDateBadgeText) {
+        this.activeHedgeDateBadgeText.textContent = formatDateRangeFilterLabel(
+          this.activeHedgeDateFilter,
+        );
+      }
+    } else {
+      this.activeHedgeDateBadge?.classList.add("hidden");
+    }
+
+    if (this.activeHedgeDateFilter?.isCustom) {
+      this.customHedgeDateContainer?.classList.remove("hidden");
+    } else if (this.selectHedgeDatePreset?.value !== "custom") {
+      this.customHedgeDateContainer?.classList.add("hidden");
+    }
+  }
+
+  private applyHedgeDateFilter(): void {
+    if (this.activeHedgeDateFilter) {
+      this.hedgePairs = this.allHedgePairs.filter((p) =>
+        isTradeInDateRange(p.rhTimestampMs, this.activeHedgeDateFilter),
+      );
+      this.unhedgedTrades = this.allUnhedgedTrades.filter((u) =>
+        isTradeInDateRange(u.timestampMs, this.activeHedgeDateFilter),
+      );
+    } else {
+      this.hedgePairs = this.allHedgePairs;
+      this.unhedgedTrades = this.allUnhedgedTrades;
+    }
 
     this.hedgePairsMap.clear();
     for (const p of this.hedgePairs) {
@@ -803,8 +997,48 @@ export class HedgeController {
       this.unhedgedTradesMap.set(id, u);
     }
 
+    if (this.selectedHedgeRowIds.size > 0) {
+      for (const id of Array.from(this.selectedHedgeRowIds)) {
+        if (!this.hedgePairsMap.has(id) && !this.unhedgedTradesMap.has(id)) {
+          this.selectedHedgeRowIds.delete(id);
+        }
+      }
+      this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
+    }
+
+    const rhAccQuery =
+      this.rhAccountIndices.length > 0 ? this.rhAccountIndices[0] : (this.rhAccountIndex ?? null);
+    const coreAccQuery =
+      this.coreAccountIndices.length > 0
+        ? this.coreAccountIndices[0]
+        : (this.coreAccountIndex ?? null);
+
+    const rhTradesCount = this.activeHedgeDateFilter
+      ? this.rhRawTrades.filter((t) =>
+          isTradeInDateRange(normalizeTimestampMs(t.timestamp), this.activeHedgeDateFilter),
+        ).length
+      : this.rhRawTrades.length;
+    const coreTradesCount = this.activeHedgeDateFilter
+      ? this.coreRawTrades.filter((t) =>
+          isTradeInDateRange(normalizeTimestampMs(t.timestamp), this.activeHedgeDateFilter),
+        ).length
+      : this.coreRawTrades.length;
+
+    this.hedgeMetrics = calculateHedgeMetrics(
+      this.hedgePairs,
+      this.unhedgedTrades,
+      rhAccQuery,
+      coreAccQuery,
+      rhTradesCount,
+      coreTradesCount,
+      this.rhAccountIndices,
+      this.coreAccountIndices,
+    );
+
     this.updateHedgeExecutiveSummary();
     this.applyHedgeFilter();
+    this.updateHedgeDateFilterUi();
+    this.onHedgeSelectionChanged();
   }
 
   private updateHedgeExecutiveSummary(): void {
@@ -858,6 +1092,11 @@ export class HedgeController {
 
       if (q && total > 0) {
         this.hedgeCountNotice.textContent = `Showing ${count} of ${total} records`;
+        this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium";
+      } else if (this.activeHedgeDateFilter && this.activeHedgeDateFilter.presetId !== "all") {
+        const allTotal =
+          (showPairs ? this.allHedgePairs.length : 0) + this.allUnhedgedTrades.length;
+        this.hedgeCountNotice.textContent = `Showing ${total} of ${allTotal} in range`;
         this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium";
       } else if (total > 0) {
         this.hedgeCountNotice.textContent = `${this.hedgePairs.length} pairs hedged`;
@@ -947,6 +1186,10 @@ export class HedgeController {
     const csvContent = exportHedgeReportToCsv(pairsToExport, unhedgedToExport);
     const dateStr = new Date().toISOString().slice(0, 10);
     const selSuffix = this.selectedHedgeRowIds.size > 0 ? "-selected" : "";
+    const dateRangeSuffix =
+      this.activeHedgeDateFilter && this.activeHedgeDateFilter.presetId !== "all"
+        ? `-${this.activeHedgeDateFilter.presetId}`
+        : "";
     const rhAccStr =
       this.rhAccountIndices.length > 0
         ? this.rhAccountIndices.join("-")
@@ -955,7 +1198,7 @@ export class HedgeController {
       this.coreAccountIndices.length > 0
         ? this.coreAccountIndices.join("-")
         : (this.coreAccountIndex ?? "0");
-    const filename = `lighter-hedge-audit-rh${rhAccStr}-core${coreAccStr}${selSuffix}-${dateStr}.csv`;
+    const filename = `lighter-hedge-audit-rh${rhAccStr}-core${coreAccStr}${dateRangeSuffix}${selSuffix}-${dateStr}.csv`;
     downloadTextFile(csvContent, filename, "text/csv;charset=utf-8");
   }
 
@@ -1007,6 +1250,8 @@ export class HedgeController {
       }
     }
 
+    this.allHedgePairs = [];
+    this.allUnhedgedTrades = [];
     this.hedgePairs = [];
     this.unhedgedTrades = [];
     this.hedgePairsMap.clear();
@@ -1027,10 +1272,16 @@ export class HedgeController {
 
     this.updateHedgeExecutiveSummary();
     this.applyHedgeFilter();
+    this.updateHedgeDateFilterUi();
   }
 
   public clearHedge(): void {
     this.uploadSessionId++;
+    this.activeHedgeDateFilter = null;
+    if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
+    if (this.inputCustomHedgeDateFrom) this.inputCustomHedgeDateFrom.value = "";
+    if (this.inputCustomHedgeDateTo) this.inputCustomHedgeDateTo.value = "";
+    this.customHedgeDateContainer?.classList.add("hidden");
     this.clearHedgeSlot("rh");
     this.clearHedgeSlot("core");
   }
