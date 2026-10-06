@@ -110,8 +110,28 @@
             </nav>
           </div>
 
-          <!-- Desktop Font Selector (Hidden on mobile & medium < lg) -->
+          <!-- Desktop Controls & Mode Switcher (Hidden on mobile & medium < lg) -->
           <div class="hidden lg:flex items-center gap-2.5 text-xs font-mono">
+            <!-- Mode Switcher (Solo / Hedge) -->
+            <div
+              class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-xs font-mono"
+            >
+              <a
+                id="modeBtnSolo"
+                href="/checker/solo"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition select-none no-underline bg-transparent"
+              >
+                Solo
+              </a>
+              <a
+                id="modeBtnHedge"
+                href="/checker/hedge"
+                class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-bold transition select-none no-underline border border-terminal-border shadow-xs"
+              >
+                Hedge
+              </a>
+            </div>
+
             <div
               class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
             >
@@ -207,9 +227,32 @@
           </div>
         </div>
 
+        <!-- Mode Section (Solo / Hedge) -->
+        <div class="space-y-1">
+          <div
+            class="text-[10px] uppercase font-mono tracking-wider text-terminal-muted px-1 py-0.5 font-semibold"
+          >
+            Mode
+          </div>
+          <div class="grid grid-cols-2 gap-1.5 font-mono text-xs">
+            <a
+              href="/checker/solo"
+              class="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              Solo
+            </a>
+            <a
+              href="/checker/hedge"
+              class="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-terminal-border bg-terminal-surface text-white font-bold transition no-underline text-center shadow-xs"
+            >
+              Hedge
+            </a>
+          </div>
+        </div>
+
         <!-- Typography / Font Picker Section -->
         <div
-          class="border-t md:border-t-0 border-terminal-border/70 pt-2.5 md:pt-0 flex items-center justify-between text-xs font-mono"
+          class="border-t border-terminal-border/70 pt-2.5 flex items-center justify-between text-xs font-mono"
         >
           <span class="text-terminal-muted text-[11px]">Interface Font:</span>
           <div
@@ -236,39 +279,6 @@
 
     <!-- MAIN VIEWPORT -->
     <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 space-y-2.5">
-      <!-- 0. MODE SWITCHER -->
-      <div
-        class="flex flex-wrap items-center justify-between border-b border-terminal-borderSubtle pb-2 gap-2"
-      >
-        <div class="flex flex-wrap items-center gap-2 sm:gap-2.5">
-          <span
-            class="text-terminal-muted text-[11px] font-mono uppercase tracking-wider font-semibold"
-            >Mode:</span
-          >
-          <div
-            class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px] sm:text-xs font-mono"
-          >
-            <a
-              id="modeBtnSolo"
-              href="/checker/solo"
-              class="px-2.5 sm:px-3 py-0.5 rounded text-terminal-muted hover:text-white transition select-none no-underline bg-transparent"
-            >
-              Solo Account
-            </a>
-            <a
-              id="modeBtnHedge"
-              href="/checker/hedge"
-              class="px-2.5 sm:px-3 py-0.5 rounded bg-terminal-surface text-white font-bold transition select-none no-underline border border-terminal-border shadow-xs"
-            >
-              Hedge Checker (RH vs Core)
-            </a>
-          </div>
-        </div>
-
-        <div class="text-[11px] font-mono text-terminal-muted hidden sm:block">
-          <span id="modeDescription">Cross-exchange trade matching (RH vs Core)</span>
-        </div>
-      </div>
       <!-- SHARED STATUS NOTIFICATION CARD -->
       <div
         id="statusCard"

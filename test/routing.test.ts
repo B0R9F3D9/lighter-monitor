@@ -71,7 +71,7 @@ describe("Worker HTTP Routing", () => {
     expect(res.headers.get("Content-Type")).toContain("text/html");
     const html = await res.text();
     expect(html).toContain("Checker | Lighter");
-    expect(html).toContain("Solo Account");
+    expect(html).toContain("modeBtnSolo");
   });
 
   it("serves solo trade history checker HTML on GET /checker/solo/", async () => {
@@ -88,7 +88,7 @@ describe("Worker HTTP Routing", () => {
     expect(res.headers.get("Content-Type")).toContain("text/html");
     const html = await res.text();
     expect(html).toContain("Checker | Lighter");
-    expect(html).toContain("Hedge Checker");
+    expect(html).toContain("modeBtnHedge");
   });
 
   it("serves hedge matcher HTML on GET /checker/hedge/", async () => {
