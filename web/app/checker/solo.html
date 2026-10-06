@@ -315,7 +315,7 @@
             <span id="leadAccountBadge" class="text-white font-bold text-sm tracking-tight"
               >--</span
             >
-            <span id="leadNetworkBadge" class="text-terminal-muted text-[11px]">--</span>
+            <span id="leadNetworkBadge" class="text-terminal-muted text-[11px]"></span>
           </div>
 
           <!-- Inline metrics -->
@@ -342,12 +342,6 @@
               <span class="text-terminal-muted mr-1.5">TOTAL FEES:</span>
               <span id="leadTotalFees" class="font-bold text-terminal-secondary tabular-nums"
                 >$0.00</span
-              >
-            </div>
-            <div class="hidden md:block">
-              <span class="text-terminal-muted mr-1.5">DATE RANGE:</span>
-              <span id="leadDateRange" class="font-bold text-terminal-primary tabular-nums"
-                >--</span
               >
             </div>
           </div>
@@ -449,23 +443,6 @@
                   Import Trades
                 </h2>
               </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <button
-                  id="btnPasteJsonSolo"
-                  type="button"
-                  class="text-[11px] text-terminal-muted hover:text-white hover:underline cursor-pointer"
-                  title="Paste raw JSON response directly"
-                >
-                  Paste JSON
-                </button>
-                <button
-                  id="btnBrowseFileEmpty"
-                  type="button"
-                  class="text-[11px] text-terminal-accent hover:underline cursor-pointer"
-                >
-                  Browse files
-                </button>
-              </div>
             </div>
 
             <div
@@ -529,7 +506,7 @@
             <button
               id="btnAddFilesSolo"
               type="button"
-              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
               title="Add more trade JSON files to merge with existing data"
             >
               + Add Files
@@ -537,18 +514,10 @@
             <button
               id="btnPasteJsonLoadedSolo"
               type="button"
-              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
               title="Paste another raw JSON response"
             >
-              + Paste
-            </button>
-            <button
-              id="btnReupload"
-              type="button"
-              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
-              title="Replace dataset with new files"
-            >
-              Re-upload
+              + Paste JSON
             </button>
             <button
               id="btnDownloadJson"
@@ -556,15 +525,7 @@
               class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
               title="Download trades as JSON"
             >
-              Export JSON
-            </button>
-            <button
-              id="btnCopyJson"
-              type="button"
-              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
-              title="Copy JSON to clipboard"
-            >
-              Copy
+              Export
             </button>
             <button
               id="btnClearTrades"

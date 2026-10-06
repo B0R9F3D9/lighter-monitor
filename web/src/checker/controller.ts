@@ -93,7 +93,6 @@ export class CheckerController {
   private loadedFileName: HTMLElement | null = null;
   private loadedFileDetails: HTMLElement | null = null;
   private loadedFileNetwork: HTMLElement | null = null;
-  private reuploadBtn: HTMLButtonElement | null = null;
   private btnAddFilesSolo: HTMLButtonElement | null = null;
   private btnPasteJsonSolo: HTMLButtonElement | null = null;
   private btnPasteJsonLoadedSolo: HTMLButtonElement | null = null;
@@ -109,7 +108,6 @@ export class CheckerController {
   private tableContainer: HTMLElement | null = null;
   private jsonContainer: HTMLElement | null = null;
   private downloadBtn: HTMLButtonElement | null = null;
-  private copyBtn: HTMLButtonElement | null = null;
   private clearBtn: HTMLButtonElement | null = null;
 
   // Table Body & Viewer
@@ -201,7 +199,6 @@ export class CheckerController {
     this.loadedFileName = document.querySelector("#loadedFileName");
     this.loadedFileDetails = document.querySelector("#loadedFileDetails");
     this.loadedFileNetwork = document.querySelector("#loadedFileNetwork");
-    this.reuploadBtn = document.querySelector("#btnReupload");
     this.btnAddFilesSolo = document.querySelector("#btnAddFilesSolo");
     this.btnPasteJsonSolo = document.querySelector("#btnPasteJsonSolo");
     this.btnPasteJsonLoadedSolo = document.querySelector("#btnPasteJsonLoadedSolo");
@@ -211,7 +208,6 @@ export class CheckerController {
     this.dropzone = document.querySelector("#jsonDropzone");
     this.fileInput = document.querySelector("#jsonFileInput");
     this.downloadBtn = document.querySelector("#btnDownloadJson");
-    this.copyBtn = document.querySelector("#btnCopyJson");
     this.clearBtn = document.querySelector("#btnClearTrades");
 
     // Solo Table & Results
@@ -382,12 +378,6 @@ export class CheckerController {
       this.fileInput?.click();
     });
 
-    this.reuploadBtn?.addEventListener("click", () => {
-      this.soloBatches = [];
-      if (this.fileInput) this.fileInput.value = "";
-      this.fileInput?.click();
-    });
-
     this.btnAddFilesSolo?.addEventListener("click", () => {
       if (this.fileInput) this.fileInput.value = "";
       this.fileInput?.click();
@@ -460,7 +450,6 @@ export class CheckerController {
 
     // Action buttons
     this.downloadBtn?.addEventListener("click", () => this.downloadJson());
-    this.copyBtn?.addEventListener("click", () => this.copyJson());
     this.clearBtn?.addEventListener("click", () => this.clearAll());
 
     // Tabs
@@ -702,7 +691,6 @@ export class CheckerController {
 
     const hasData = this.rawTrades.length > 0;
     if (this.downloadBtn) this.downloadBtn.disabled = !hasData;
-    if (this.copyBtn) this.copyBtn.disabled = !hasData;
     if (this.clearBtn) this.clearBtn.disabled = !hasData;
   }
 
@@ -826,7 +814,7 @@ export class CheckerController {
       );
       this.jsonPre.textContent = JSON.stringify(
         {
-          _notice: `Showing preview of first ${PREVIEW_LIMIT} of ${this.rawTrades.length.toLocaleString()} trades to keep UI fast. Click "Download JSON" or "Copy JSON" for full payload.`,
+          _notice: `Showing preview of first ${PREVIEW_LIMIT} of ${this.rawTrades.length.toLocaleString()} trades to keep UI fast. Click "Export" for full payload.`,
           ...previewPayload,
         },
         null,
@@ -891,23 +879,6 @@ export class CheckerController {
     downloadJsonFile(payload, filename);
   }
 
-  public copyJson(): void {
-    if (this.rawTrades.length === 0 || !this.copyBtn) return;
-
-    const acc = this.resolvedAccountIndex ?? 0;
-    const accQuery = this.soloAccountIndices.length > 0 ? this.soloAccountIndices : acc;
-    const payload = prepareExportPayload(
-      this.rawTrades,
-      this.network,
-      accQuery,
-      this.resolvedL1Address || undefined,
-    );
-    const isLarge = this.rawTrades.length > 5000;
-    const jsonStr = isLarge ? JSON.stringify(payload) : JSON.stringify(payload, null, 2);
-
-    copyToClipboard(jsonStr, this.copyBtn, "Copy JSON");
-  }
-
   public clearAll(): void {
     this.uploadSessionId++;
     this.soloBatches = [];
@@ -948,7 +919,6 @@ export class CheckerController {
     this.updateJsonViewer();
 
     if (this.downloadBtn) this.downloadBtn.disabled = true;
-    if (this.copyBtn) this.copyBtn.disabled = true;
     if (this.clearBtn) this.clearBtn.disabled = true;
 
     this.showStatusSuccess("Trade data cleared.");

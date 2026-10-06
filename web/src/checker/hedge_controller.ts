@@ -753,7 +753,7 @@ export class HedgeController {
           }
           this.applyHedgeBatches();
           this.showStatusSuccess(
-            `Added ${parsed.trades.length} trades to ${slot === "rh" ? "Robinhood" : "Lighter Core"} from clipboard.`,
+            `Added ${parsed.trades.length} trades to ${slot === "rh" ? "RH" : "Core"} from clipboard.`,
           );
           return;
         }

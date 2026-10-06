@@ -56,7 +56,7 @@ export function updateExecutiveMetrics(
     }
   }
   if (elements.networkBadge) {
-    elements.networkBadge.textContent = network ? network.toUpperCase() : "--";
+    elements.networkBadge.textContent = network ? network.toUpperCase() : "";
     const isRh = network?.toLowerCase() === "rh";
     const isCore = network?.toLowerCase() === "mainnet" || network?.toLowerCase() === "core";
     if (isRh) {
