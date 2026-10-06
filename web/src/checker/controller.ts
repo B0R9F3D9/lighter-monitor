@@ -651,6 +651,10 @@ export class CheckerController {
 
     if (this.loadedFileNetwork) {
       this.loadedFileNetwork.textContent = this.network.toUpperCase();
+      const isRh = this.network.toLowerCase() === "rh";
+      this.loadedFileNetwork.className = isRh
+        ? "text-terminal-emerald text-[11px] font-semibold uppercase shrink-0"
+        : "text-terminal-accent text-[11px] font-semibold uppercase shrink-0";
     }
 
     this.emptyStatePanel?.classList.add("hidden");
@@ -931,7 +935,10 @@ export class CheckerController {
     if (this.searchFilterInput) this.searchFilterInput.value = "";
     if (this.loadedFileName) this.loadedFileName.textContent = "--";
     if (this.loadedFileDetails) this.loadedFileDetails.textContent = "";
-    if (this.loadedFileNetwork) this.loadedFileNetwork.textContent = "--";
+    if (this.loadedFileNetwork) {
+      this.loadedFileNetwork.textContent = "--";
+      this.loadedFileNetwork.className = "text-terminal-muted text-[11px] uppercase shrink-0";
+    }
 
     this.loadedToolbar?.classList.add("hidden");
     this.emptyStatePanel?.classList.remove("hidden");

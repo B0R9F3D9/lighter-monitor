@@ -243,3 +243,14 @@ export interface HedgeMatchingResult {
   unhedged: UnhedgedTrade[];
   metrics: HedgeSummaryMetrics;
 }
+
+export interface IndividualAccountMetrics {
+  accountIndex: number | null;
+  accountIndices?: number[];
+  network: "RH" | "CORE";
+  tradesCount: number;
+  totalVolumeUsd: number;
+  realizedPnlUsd: number;
+  totalFeesUsd: number;
+  unhedgedCount: number;
+}

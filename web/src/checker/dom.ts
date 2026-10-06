@@ -3,6 +3,7 @@ import type {
   CheckerSummaryMetrics,
   HedgePair,
   HedgeSummaryMetrics,
+  IndividualAccountMetrics,
   ParsedTradeView,
   SelectedHedgeMetrics,
   UnhedgedTrade,
@@ -44,9 +45,27 @@ export function updateExecutiveMetrics(
       elements.accountBadge.textContent =
         accountIndex !== null && accountIndex !== undefined ? `#${accountIndex}` : "--";
     }
+    const isRh = network?.toLowerCase() === "rh";
+    const isCore = network?.toLowerCase() === "mainnet" || network?.toLowerCase() === "core";
+    if (isRh) {
+      elements.accountBadge.className = "text-terminal-emerald font-bold text-sm tracking-tight";
+    } else if (isCore) {
+      elements.accountBadge.className = "text-terminal-accent font-bold text-sm tracking-tight";
+    } else {
+      elements.accountBadge.className = "text-white font-bold text-sm tracking-tight";
+    }
   }
   if (elements.networkBadge) {
     elements.networkBadge.textContent = network ? network.toUpperCase() : "--";
+    const isRh = network?.toLowerCase() === "rh";
+    const isCore = network?.toLowerCase() === "mainnet" || network?.toLowerCase() === "core";
+    if (isRh) {
+      elements.networkBadge.className = "text-terminal-emerald text-[11px] font-semibold";
+    } else if (isCore) {
+      elements.networkBadge.className = "text-terminal-accent text-[11px] font-semibold";
+    } else {
+      elements.networkBadge.className = "text-terminal-muted text-[11px]";
+    }
   }
 
   if (!metrics || metrics.totalTrades === 0) {
@@ -416,7 +435,9 @@ export function updateHedgeExecutiveMetrics(
   elements: HedgeMetricElements,
 ): void {
   if (!metrics || (metrics.totalPairs === 0 && metrics.totalUnhedgedTrades === 0)) {
-    if (elements.accountsBadge) elements.accountsBadge.textContent = "RH vs CORE";
+    if (elements.accountsBadge) {
+      elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald">RH</span> <span class="text-terminal-muted font-normal">vs</span> <span class="text-terminal-accent">CORE</span>`;
+    }
     if (elements.pairsCount) elements.pairsCount.textContent = "0";
     if (elements.hedgedVolume) elements.hedgedVolume.textContent = "$0.00";
     if (elements.netPnl) {
@@ -443,7 +464,7 @@ export function updateHedgeExecutiveMetrics(
         ? `#${metrics.coreAccountIndex}`
         : "CORE";
   if (elements.accountsBadge) {
-    elements.accountsBadge.textContent = `${rhAcc} vs ${coreAcc}`;
+    elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald font-bold">${rhAcc}</span> <span class="text-terminal-muted font-normal">vs</span> <span class="text-terminal-accent font-bold">${coreAcc}</span>`;
   }
 
   if (elements.pairsCount) {
@@ -500,6 +521,94 @@ export function updateHedgeExecutiveMetrics(
       metrics.totalUnhedgedTrades > 0
         ? "font-bold text-terminal-coral tabular-nums"
         : "font-bold text-terminal-secondary tabular-nums";
+  }
+}
+
+export interface IndividualAccountMetricElements {
+  accountBadge: HTMLElement | null;
+  tradesCount: HTMLElement | null;
+  volume: HTMLElement | null;
+  realizedPnl: HTMLElement | null;
+  fees: HTMLElement | null;
+  unhedgedCount: HTMLElement | null;
+}
+
+export function updateIndividualAccountMetrics(
+  metrics: IndividualAccountMetrics | null,
+  elements: IndividualAccountMetricElements,
+): void {
+  const isRh = metrics?.network === "RH";
+  const activeColor = isRh ? "text-terminal-emerald" : "text-terminal-accent";
+
+  if (!metrics || metrics.tradesCount === 0) {
+    if (elements.accountBadge) {
+      if (metrics?.accountIndices && metrics.accountIndices.length > 1) {
+        elements.accountBadge.textContent = metrics.accountIndices.map((a) => `#${a}`).join(", ");
+        elements.accountBadge.className = `font-bold text-sm tracking-tight ${activeColor}`;
+      } else if (metrics?.accountIndex) {
+        elements.accountBadge.textContent = `#${metrics.accountIndex}`;
+        elements.accountBadge.className = `font-bold text-sm tracking-tight ${activeColor}`;
+      } else {
+        elements.accountBadge.textContent = "--";
+        elements.accountBadge.className = "font-bold text-sm tracking-tight text-terminal-muted";
+      }
+    }
+    if (elements.tradesCount) elements.tradesCount.textContent = "0";
+    if (elements.volume) elements.volume.textContent = "$0.00";
+    if (elements.realizedPnl) {
+      elements.realizedPnl.textContent = "$0.00";
+      elements.realizedPnl.className = "font-bold text-terminal-muted tabular-nums";
+    }
+    if (elements.fees) elements.fees.textContent = "$0.00";
+    if (elements.unhedgedCount) {
+      elements.unhedgedCount.textContent = "0";
+      elements.unhedgedCount.className = "font-bold text-terminal-muted tabular-nums";
+    }
+    return;
+  }
+
+  if (elements.accountBadge) {
+    if (metrics.accountIndices && metrics.accountIndices.length > 1) {
+      elements.accountBadge.textContent = metrics.accountIndices.map((a) => `#${a}`).join(", ");
+    } else if (metrics.accountIndex) {
+      elements.accountBadge.textContent = `#${metrics.accountIndex}`;
+    } else {
+      elements.accountBadge.textContent = "--";
+    }
+    elements.accountBadge.className = `font-bold text-sm tracking-tight ${activeColor}`;
+  }
+
+  if (elements.tradesCount) {
+    elements.tradesCount.textContent = metrics.tradesCount.toLocaleString();
+  }
+
+  if (elements.volume) {
+    elements.volume.textContent = formatMoney(metrics.totalVolumeUsd);
+  }
+
+  if (elements.realizedPnl) {
+    const pnl = metrics.realizedPnlUsd;
+    const sign = pnl > 0.0001 ? "+" : "";
+    elements.realizedPnl.textContent = `${sign}${formatMoney(pnl)}`;
+    if (pnl > 0.001) {
+      elements.realizedPnl.className = "font-bold text-terminal-emerald tabular-nums";
+    } else if (pnl < -0.001) {
+      elements.realizedPnl.className = "font-bold text-terminal-coral tabular-nums";
+    } else {
+      elements.realizedPnl.className = "font-bold text-terminal-muted tabular-nums";
+    }
+  }
+
+  if (elements.fees) {
+    elements.fees.textContent = formatFee(metrics.totalFeesUsd);
+  }
+
+  if (elements.unhedgedCount) {
+    elements.unhedgedCount.textContent = metrics.unhedgedCount.toLocaleString();
+    elements.unhedgedCount.className =
+      metrics.unhedgedCount > 0
+        ? "font-bold text-terminal-coral tabular-nums"
+        : "font-bold text-terminal-muted tabular-nums";
   }
 }
 

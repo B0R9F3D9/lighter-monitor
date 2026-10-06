@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { getStaticMarketMap, parseFeeUsd, parseTradeForView } from "../web/src/checker/api";
-import { formatDisplayFileName } from "../web/src/checker/dom";
+import { formatDisplayFileName, updateIndividualAccountMetrics } from "../web/src/checker/dom";
 import {
   aggregateTradesByOrder,
   calculateHedgeMetrics,
@@ -36,6 +36,17 @@ function mockTrade(overrides: Partial<ParsedTradeView>): ParsedTradeView {
     txHash: "0x123",
     txHashShort: "0x123",
     ...overrides,
+  };
+}
+
+function createMockIndividualElements() {
+  return {
+    accountBadge: { textContent: "", className: "" } as HTMLElement,
+    tradesCount: { textContent: "" } as HTMLElement,
+    volume: { textContent: "" } as HTMLElement,
+    realizedPnl: { textContent: "", className: "" } as HTMLElement,
+    fees: { textContent: "" } as HTMLElement,
+    unhedgedCount: { textContent: "", className: "" } as HTMLElement,
   };
 }
 
@@ -1180,6 +1191,72 @@ describe("Hedge Matching Engine", () => {
         isTradeInDateRange(u.timestampMs, week2Filter),
       );
       expect(w2Unhedged).toHaveLength(0);
+    });
+  });
+
+  describe("Individual Account Metrics Cards (RH & CORE)", () => {
+    it("resets elements to placeholders when metrics is null or 0 trades", () => {
+      const els = createMockIndividualElements();
+      updateIndividualAccountMetrics(null, els);
+
+      expect(els.accountBadge.textContent).toBe("--");
+      expect(els.tradesCount.textContent).toBe("0");
+      expect(els.volume.textContent).toBe("$0.00");
+      expect(els.realizedPnl.textContent).toBe("$0.00");
+      expect(els.fees.textContent).toBe("$0.00");
+      expect(els.unhedgedCount.textContent).toBe("0");
+    });
+
+    it("renders formatted metrics accurately for a populated account", () => {
+      const els = createMockIndividualElements();
+      updateIndividualAccountMetrics(
+        {
+          accountIndex: 31704,
+          network: "RH",
+          tradesCount: 42,
+          totalVolumeUsd: 125000.5,
+          realizedPnlUsd: 145.2,
+          totalFeesUsd: 8.45,
+          unhedgedCount: 3,
+        },
+        els,
+      );
+
+      expect(els.accountBadge.textContent).toBe("#31704");
+      expect(els.accountBadge.className).toContain("text-terminal-emerald");
+      expect(els.tradesCount.textContent).toBe("42");
+      expect(els.volume.textContent).toBe("$125.0K");
+      expect(els.realizedPnl.textContent).toBe("+$145.20");
+      expect(els.realizedPnl.className).toContain("text-terminal-emerald");
+      expect(els.fees.textContent).toBe("$8.45");
+      expect(els.unhedgedCount.textContent).toBe("3");
+      expect(els.unhedgedCount.className).toContain("text-terminal-coral");
+    });
+
+    it("handles multiple accounts and negative PnL gracefully", () => {
+      const els = createMockIndividualElements();
+      updateIndividualAccountMetrics(
+        {
+          accountIndex: 749329,
+          accountIndices: [749329, 749330],
+          network: "CORE",
+          tradesCount: 15,
+          totalVolumeUsd: 54000.0,
+          realizedPnlUsd: -34.5,
+          totalFeesUsd: 2.1,
+          unhedgedCount: 0,
+        },
+        els,
+      );
+
+      expect(els.accountBadge.textContent).toBe("#749329, #749330");
+      expect(els.accountBadge.className).toContain("text-terminal-accent");
+      expect(els.tradesCount.textContent).toBe("15");
+      expect(els.realizedPnl.textContent).toBe("-$34.50");
+      expect(els.realizedPnl.className).toContain("text-terminal-coral");
+      expect(els.fees.textContent).toBe("$2.10");
+      expect(els.unhedgedCount.textContent).toBe("0");
+      expect(els.unhedgedCount.className).toContain("text-terminal-muted");
     });
   });
 });

@@ -302,8 +302,8 @@
         >
           <div class="flex items-center gap-2 shrink-0">
             <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Hedge:</span>
-            <span id="leadHedgeAccountsBadge" class="text-white font-bold text-sm tracking-tight"
-              >RH vs CORE</span
+            <span id="leadHedgeAccountsBadge" class="font-bold text-sm tracking-tight"
+              ><span class="text-terminal-emerald">RH</span> <span class="text-terminal-muted font-normal">vs</span> <span class="text-terminal-accent">CORE</span></span
             >
           </div>
 
@@ -317,7 +317,7 @@
             </div>
             <div>
               <span class="text-terminal-muted mr-1.5">HEDGED VOL:</span>
-              <span id="leadHedgeVolume" class="font-bold text-terminal-accent tabular-nums"
+              <span id="leadHedgeVolume" class="font-bold text-white tabular-nums"
                 >$0.00</span
               >
             </div>
@@ -351,7 +351,106 @@
           </div>
         </div>
 
-        <!-- 1B. HEDGE SELECTED ROWS SUMMARY STRIP -->
+        <!-- 1B. INDIVIDUAL ACCOUNT CARDS (RH & CORE) -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-2">
+          <!-- Robinhood (RH) Account Card -->
+          <div
+            id="rhAccountCard"
+            class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs font-mono"
+          >
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="text-terminal-muted text-[11px] uppercase tracking-wider"
+                >Robinhood:</span
+              >
+              <span id="leadRhAccountBadge" class="text-terminal-emerald font-bold text-sm tracking-tight"
+                >--</span
+              >
+            </div>
+
+            <!-- Inline metrics -->
+            <div
+              class="flex items-center gap-3.5 sm:gap-4 overflow-x-auto text-[11px] no-scrollbar w-full sm:w-auto pb-0.5 sm:pb-0"
+            >
+              <div>
+                <span class="text-terminal-muted mr-1.5">TRADES:</span>
+                <span id="leadRhTradesCount" class="font-bold text-white tabular-nums">0</span>
+              </div>
+              <div>
+                <span class="text-terminal-muted mr-1.5">VOL:</span>
+                <span id="leadRhVolume" class="font-bold text-white tabular-nums"
+                  >$0.00</span
+                >
+              </div>
+              <div>
+                <span class="text-terminal-muted mr-1.5">PNL:</span>
+                <span id="leadRhRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
+                  >$0.00</span
+                >
+              </div>
+              <div>
+                <span class="text-terminal-muted mr-1.5">FEES:</span>
+                <span id="leadRhFees" class="font-bold text-terminal-secondary tabular-nums"
+                  >$0.00</span
+                >
+              </div>
+              <div class="hidden sm:block">
+                <span class="text-terminal-muted mr-1.5">UNHEDGED:</span>
+                <span id="leadRhUnhedgedCount" class="font-bold text-terminal-muted tabular-nums"
+                  >0</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <!-- Lighter Core (Mainnet) Account Card -->
+          <div
+            id="coreAccountCard"
+            class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs font-mono"
+          >
+            <div class="flex items-center gap-2 shrink-0">
+              <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Core:</span>
+              <span id="leadCoreAccountBadge" class="text-terminal-accent font-bold text-sm tracking-tight"
+                >--</span
+              >
+            </div>
+
+            <!-- Inline metrics -->
+            <div
+              class="flex items-center gap-3.5 sm:gap-4 overflow-x-auto text-[11px] no-scrollbar w-full sm:w-auto pb-0.5 sm:pb-0"
+            >
+              <div>
+                <span class="text-terminal-muted mr-1.5">TRADES:</span>
+                <span id="leadCoreTradesCount" class="font-bold text-white tabular-nums">0</span>
+              </div>
+              <div>
+                <span class="text-terminal-muted mr-1.5">VOL:</span>
+                <span id="leadCoreVolume" class="font-bold text-white tabular-nums"
+                  >$0.00</span
+                >
+              </div>
+              <div>
+                <span class="text-terminal-muted mr-1.5">PNL:</span>
+                <span id="leadCoreRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
+                  >$0.00</span
+                >
+              </div>
+              <div>
+                <span class="text-terminal-muted mr-1.5">FEES:</span>
+                <span id="leadCoreFees" class="font-bold text-terminal-secondary tabular-nums"
+                  >$0.00</span
+                >
+              </div>
+              <div class="hidden sm:block">
+                <span class="text-terminal-muted mr-1.5">UNHEDGED:</span>
+                <span id="leadCoreUnhedgedCount" class="font-bold text-terminal-muted tabular-nums"
+                  >0</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1C. HEDGE SELECTED ROWS SUMMARY STRIP -->
         <div
           id="hedgeSelectionCard"
           class="hidden bg-terminal-surface border border-terminal-border rounded px-2.5 sm:px-3 py-1.5 sm:py-2 flex items-center justify-between gap-3 sm:gap-4 text-xs font-mono transition-all"
@@ -385,7 +484,7 @@
             </div>
             <div>
               <span class="text-terminal-muted mr-1">VOL:</span>
-              <span id="selectedVolume" class="font-bold text-terminal-accent tabular-nums"
+              <span id="selectedVolume" class="font-bold text-white tabular-nums"
                 >$0.00</span
               >
             </div>
@@ -537,7 +636,7 @@
               <!-- Dropzone 1: RH -->
               <div
                 id="dropzoneRh"
-                class="border border-dashed border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg/30 hover:bg-terminal-bg/50 rounded p-2.5 flex-1 flex flex-col justify-between text-xs font-mono transition-colors cursor-pointer min-w-0 w-full overflow-hidden"
+                class="border border-dashed border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg/30 hover:bg-terminal-bg/50 rounded p-2.5 flex-1 flex flex-col justify-between text-xs font-mono transition-colors cursor-pointer min-w-0 w-full overflow-hidden"
               >
                 <div
                   class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full"
@@ -578,20 +677,20 @@
                     id="statusRhFile"
                     class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center"
                   >
-                    Drop <code class="text-terminal-accent">rh-*.json</code> or raw API
+                    Drop <code class="text-terminal-emerald">rh-*.json</code> or raw API
                   </div>
                   <div class="flex items-center gap-1.5">
                     <button
                       id="btnBrowseRhFile"
                       type="button"
-                      class="px-2.5 py-1 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-accent text-terminal-primary hover:text-white transition cursor-pointer text-xs font-semibold"
+                      class="px-2.5 py-1 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-emerald text-terminal-primary hover:text-white transition cursor-pointer text-xs font-semibold"
                     >
                       Select Files
                     </button>
                     <button
                       id="btnPasteRhBox"
                       type="button"
-                      class="px-2.5 py-1 rounded bg-terminal-accent/15 border border-terminal-accent/40 hover:bg-terminal-accent/25 hover:border-terminal-accent text-terminal-accent hover:text-white transition cursor-pointer text-xs font-semibold"
+                      class="px-2.5 py-1 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white transition cursor-pointer text-xs font-semibold"
                       title="Paste JSON from clipboard into Robinhood slot"
                     >
                       Paste JSON
@@ -603,7 +702,7 @@
               <!-- Dropzone 2: Core -->
               <div
                 id="dropzoneCore"
-                class="border border-dashed border-terminal-border hover:border-terminal-emerald/60 bg-terminal-bg/30 hover:bg-terminal-bg/50 rounded p-2.5 flex-1 flex flex-col justify-between text-xs font-mono transition-colors cursor-pointer min-w-0 w-full overflow-hidden"
+                class="border border-dashed border-terminal-border hover:border-terminal-accent/60 bg-terminal-bg/30 hover:bg-terminal-bg/50 rounded p-2.5 flex-1 flex flex-col justify-between text-xs font-mono transition-colors cursor-pointer min-w-0 w-full overflow-hidden"
               >
                 <div
                   class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full"
@@ -644,20 +743,20 @@
                     id="statusCoreFile"
                     class="text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center"
                   >
-                    Drop <code class="text-terminal-emerald">mainnet-*.json</code> or raw API
+                    Drop <code class="text-terminal-accent">mainnet-*.json</code> or raw API
                   </div>
                   <div class="flex items-center gap-1.5">
                     <button
                       id="btnBrowseCoreFile"
                       type="button"
-                      class="px-2.5 py-1 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-emerald text-terminal-primary hover:text-white transition cursor-pointer text-xs font-semibold"
+                      class="px-2.5 py-1 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-accent text-terminal-primary hover:text-white transition cursor-pointer text-xs font-semibold"
                     >
                       Select Files
                     </button>
                     <button
                       id="btnPasteCoreBox"
                       type="button"
-                      class="px-2.5 py-1 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white transition cursor-pointer text-xs font-semibold"
+                      class="px-2.5 py-1 rounded bg-terminal-accent/15 border border-terminal-accent/40 hover:bg-terminal-accent/25 hover:border-terminal-accent text-terminal-accent hover:text-white transition cursor-pointer text-xs font-semibold"
                       title="Paste JSON from clipboard into Core slot"
                     >
                       Paste JSON
@@ -675,14 +774,14 @@
           class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs font-mono min-w-0"
         >
           <div class="flex items-center gap-2 flex-wrap min-w-0">
-            <span class="text-terminal-muted shrink-0">RH:</span>
+            <span class="text-terminal-emerald font-semibold shrink-0">RH:</span>
             <span
               id="loadedRhFileName"
               class="text-white font-semibold truncate max-w-36 sm:max-w-56"
               >--</span
             >
             <span class="text-terminal-border shrink-0">|</span>
-            <span class="text-terminal-muted shrink-0">Core:</span>
+            <span class="text-terminal-accent font-semibold shrink-0">Core:</span>
             <span
               id="loadedCoreFileName"
               class="text-white font-semibold truncate max-w-36 sm:max-w-56"
@@ -694,7 +793,7 @@
             <button
               id="btnAddRhFileLoaded"
               type="button"
-              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-emerald text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
               title="Add more files to Robinhood window"
             >
               + Add RH
@@ -702,7 +801,7 @@
             <button
               id="btnPasteRhLoaded"
               type="button"
-              class="px-2 py-0.5 rounded bg-terminal-accent/15 border border-terminal-accent/40 hover:bg-terminal-accent/25 hover:border-terminal-accent text-terminal-accent hover:text-white transition cursor-pointer text-xs font-semibold"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-emerald text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
               title="Paste another JSON response directly into Robinhood (RH)"
             >
               + Paste RH
@@ -710,7 +809,7 @@
             <button
               id="btnAddCoreFileLoaded"
               type="button"
-              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-emerald text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
               title="Add more files to Core window"
             >
               + Add Core
@@ -718,7 +817,7 @@
             <button
               id="btnPasteCoreLoaded"
               type="button"
-              class="px-2 py-0.5 rounded bg-terminal-emerald/15 border border-terminal-emerald/40 hover:bg-terminal-emerald/25 hover:border-terminal-emerald text-terminal-emerald hover:text-white transition cursor-pointer text-xs font-semibold"
+              class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs"
               title="Paste another JSON response directly into Lighter Core"
             >
               + Paste Core

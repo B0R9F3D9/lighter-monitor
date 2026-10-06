@@ -24,9 +24,11 @@ import {
   formatDisplayFileName,
   type HedgeMetricElements,
   type HedgeSelectionMetricElements,
+  type IndividualAccountMetricElements,
   renderHedgeTable,
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
+  updateIndividualAccountMetrics,
 } from "./dom";
 import {
   calculateHedgeMetrics,
@@ -39,6 +41,7 @@ import type {
   HedgePair,
   HedgeSummaryMetrics,
   ImportedTradesResult,
+  IndividualAccountMetrics,
   LighterTrade,
   ParsedTradeView,
   UnhedgedTrade,
@@ -118,6 +121,24 @@ export class HedgeController {
     netPnl: null,
     pnlBps: null,
     slippage: null,
+    fees: null,
+    unhedgedCount: null,
+  };
+
+  // Individual Account Metrics Elements
+  private rhMetricElements: IndividualAccountMetricElements = {
+    accountBadge: null,
+    tradesCount: null,
+    volume: null,
+    realizedPnl: null,
+    fees: null,
+    unhedgedCount: null,
+  };
+  private coreMetricElements: IndividualAccountMetricElements = {
+    accountBadge: null,
+    tradesCount: null,
+    volume: null,
+    realizedPnl: null,
     fees: null,
     unhedgedCount: null,
   };
@@ -266,6 +287,24 @@ export class HedgeController {
       slippage: document.getElementById("leadHedgeSlippage"),
       fees: document.getElementById("leadHedgeFees"),
       unhedgedCount: document.getElementById("leadHedgeUnhedgedCount"),
+    };
+
+    this.rhMetricElements = {
+      accountBadge: document.getElementById("leadRhAccountBadge"),
+      tradesCount: document.getElementById("leadRhTradesCount"),
+      volume: document.getElementById("leadRhVolume"),
+      realizedPnl: document.getElementById("leadRhRealizedPnl"),
+      fees: document.getElementById("leadRhFees"),
+      unhedgedCount: document.getElementById("leadRhUnhedgedCount"),
+    };
+
+    this.coreMetricElements = {
+      accountBadge: document.getElementById("leadCoreAccountBadge"),
+      tradesCount: document.getElementById("leadCoreTradesCount"),
+      volume: document.getElementById("leadCoreVolume"),
+      realizedPnl: document.getElementById("leadCoreRealizedPnl"),
+      fees: document.getElementById("leadCoreFees"),
+      unhedgedCount: document.getElementById("leadCoreUnhedgedCount"),
     };
 
     this.hedgeEmptyStatePanel = document.getElementById("hedgeEmptyStatePanel");
@@ -816,6 +855,8 @@ export class HedgeController {
           this.rhAccountIndices.length > 0
             ? `Account(s) ${this.rhAccountIndices.map((a) => `#${a}`).join(", ")}`
             : `Account #${this.rhAccountIndex ?? "--"}`;
+        this.labelRhAccount.className =
+          "text-[10px] text-terminal-emerald font-semibold truncate max-w-28 sm:max-w-36";
       }
       if (this.btnClearRh) this.btnClearRh.classList.remove("hidden");
       if (this.btnBrowseRhFile) {
@@ -851,6 +892,8 @@ export class HedgeController {
           this.coreAccountIndices.length > 0
             ? `Account(s) ${this.coreAccountIndices.map((a) => `#${a}`).join(", ")}`
             : `Account #${this.coreAccountIndex ?? "--"}`;
+        this.labelCoreAccount.className =
+          "text-[10px] text-terminal-accent font-semibold truncate max-w-28 sm:max-w-36";
       }
       if (this.btnClearCore) this.btnClearCore.classList.remove("hidden");
       if (this.btnBrowseCoreFile) {
@@ -1043,6 +1086,46 @@ export class HedgeController {
 
   private updateHedgeExecutiveSummary(): void {
     updateHedgeExecutiveMetrics(this.hedgeMetrics, this.hedgeMetricElements);
+
+    const rhMetrics = this.computeIndividualAccountMetrics("RH");
+    updateIndividualAccountMetrics(rhMetrics, this.rhMetricElements);
+
+    const coreMetrics = this.computeIndividualAccountMetrics("CORE");
+    updateIndividualAccountMetrics(coreMetrics, this.coreMetricElements);
+  }
+
+  private computeIndividualAccountMetrics(network: "RH" | "CORE"): IndividualAccountMetrics {
+    const isRh = network === "RH";
+    const trades = isRh ? this.rhParsedTrades : this.coreParsedTrades;
+    const accountIndex = isRh ? this.rhAccountIndex : this.coreAccountIndex;
+    const accountIndices = isRh ? this.rhAccountIndices : this.coreAccountIndices;
+
+    const filteredTrades = this.activeHedgeDateFilter
+      ? trades.filter((t) => isTradeInDateRange(t.timestampMs, this.activeHedgeDateFilter))
+      : trades;
+
+    let totalVolumeUsd = 0;
+    let realizedPnlUsd = 0;
+    let totalFeesUsd = 0;
+
+    for (const t of filteredTrades) {
+      totalVolumeUsd += t.usdValue;
+      realizedPnlUsd += t.realizedPnl;
+      totalFeesUsd += t.feeUsd;
+    }
+
+    const unhedgedCount = this.unhedgedTrades.filter((u) => u.network === network).length;
+
+    return {
+      accountIndex,
+      accountIndices: accountIndices.length > 0 ? accountIndices : undefined,
+      network,
+      tradesCount: filteredTrades.length,
+      totalVolumeUsd,
+      realizedPnlUsd,
+      totalFeesUsd,
+      unhedgedCount,
+    };
   }
 
   private applyHedgeFilter(): void {
@@ -1213,12 +1296,15 @@ export class HedgeController {
       this.rhFileName = "";
       if (this.statusRhFile) {
         this.statusRhFile.innerHTML =
-          'Drop <code class="text-terminal-accent">rh-*.json</code> or raw API';
+          'Drop <code class="text-terminal-emerald">rh-*.json</code> or raw API';
         this.statusRhFile.title = "";
         this.statusRhFile.className =
           "text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center";
       }
-      if (this.labelRhAccount) this.labelRhAccount.textContent = "No files loaded";
+      if (this.labelRhAccount) {
+        this.labelRhAccount.textContent = "No files loaded";
+        this.labelRhAccount.className = "text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36";
+      }
       if (this.btnClearRh) this.btnClearRh.classList.add("hidden");
       if (this.fileInputRh) this.fileInputRh.value = "";
       if (this.btnBrowseRhFile) this.btnBrowseRhFile.textContent = "Select Files";
@@ -1235,12 +1321,15 @@ export class HedgeController {
       this.coreFileName = "";
       if (this.statusCoreFile) {
         this.statusCoreFile.innerHTML =
-          'Drop <code class="text-terminal-emerald">mainnet-*.json</code> or raw API';
+          'Drop <code class="text-terminal-accent">mainnet-*.json</code> or raw API';
         this.statusCoreFile.title = "";
         this.statusCoreFile.className =
           "text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center";
       }
-      if (this.labelCoreAccount) this.labelCoreAccount.textContent = "No files loaded";
+      if (this.labelCoreAccount) {
+        this.labelCoreAccount.textContent = "No files loaded";
+        this.labelCoreAccount.className = "text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36";
+      }
       if (this.btnClearCore) this.btnClearCore.classList.add("hidden");
       if (this.fileInputCore) this.fileInputCore.value = "";
       if (this.btnBrowseCoreFile) this.btnBrowseCoreFile.textContent = "Select Files";
