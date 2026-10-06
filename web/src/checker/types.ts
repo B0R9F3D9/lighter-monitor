@@ -206,6 +206,13 @@ export interface SelectedHedgeMetrics {
   totalPricePnlUsd: number;
   totalFeesUsd: number;
   avgPnlBps: number;
+  totalMatchedSize: number;
+  weightedPriceDelta: number;
+  weightedPriceDeltaBps: number;
+  weightedBuyPrice: number;
+  weightedSellPrice: number;
+  isSingleMarket: boolean;
+  marketSymbol?: string;
 }
 
 export interface HedgeSummaryMetrics {

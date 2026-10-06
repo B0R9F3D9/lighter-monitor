@@ -510,6 +510,8 @@ export interface HedgeSelectionMetricElements {
   volume: HTMLElement | null;
   netPnl: HTMLElement | null;
   pnlBps: HTMLElement | null;
+  weightedDelta: HTMLElement | null;
+  weightedDeltaBps: HTMLElement | null;
   slippage: HTMLElement | null;
   fees: HTMLElement | null;
   unhedgedCount: HTMLElement | null;
@@ -541,6 +543,47 @@ export function updateHedgeSelectionMetrics(
 
   if (elements.volume) {
     elements.volume.textContent = formatMoney(metrics.totalVolumeUsd);
+  }
+
+  if (elements.weightedDelta) {
+    if (metrics.pairsCount === 0) {
+      elements.weightedDelta.textContent = "—";
+      elements.weightedDelta.className = "font-bold text-terminal-muted tabular-nums";
+      elements.weightedDelta.title = "No hedge pairs selected";
+    } else {
+      const delta = metrics.weightedPriceDelta;
+      const sign = delta > 0.0001 ? "+" : "";
+      elements.weightedDelta.textContent = `${sign}${formatPrice(delta)}`;
+      if (delta > 0.0001) {
+        elements.weightedDelta.className = "font-bold text-terminal-emerald tabular-nums";
+      } else if (delta < -0.0001) {
+        elements.weightedDelta.className = "font-bold text-terminal-coral tabular-nums";
+      } else {
+        elements.weightedDelta.className = "font-bold text-terminal-muted tabular-nums";
+      }
+
+      const marketLabel =
+        metrics.isSingleMarket && metrics.marketSymbol ? ` (${metrics.marketSymbol})` : "";
+      elements.weightedDelta.title = `Weighted Δ Price${marketLabel}: Sell avg ${formatPrice(metrics.weightedSellPrice)} - Buy avg ${formatPrice(metrics.weightedBuyPrice)} (Matched Size: ${metrics.totalMatchedSize.toLocaleString(undefined, { maximumFractionDigits: 4 })})`;
+    }
+  }
+
+  if (elements.weightedDeltaBps) {
+    if (metrics.pairsCount === 0) {
+      elements.weightedDeltaBps.textContent = "";
+      elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-1";
+    } else {
+      const bps = metrics.weightedPriceDeltaBps;
+      const sign = bps > 0.001 ? "+" : "";
+      elements.weightedDeltaBps.textContent = `(${sign}${bps.toFixed(2)} bps)`;
+      if (bps > 0.01) {
+        elements.weightedDeltaBps.className = "text-[10px] text-terminal-emerald tabular-nums ml-1";
+      } else if (bps < -0.01) {
+        elements.weightedDeltaBps.className = "text-[10px] text-terminal-coral tabular-nums ml-1";
+      } else {
+        elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-1";
+      }
+    }
   }
 
   if (elements.netPnl) {

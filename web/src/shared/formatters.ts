@@ -10,9 +10,12 @@ export function formatMoney(num: number | undefined | null): string {
 
 export function formatPrice(p: number | undefined | null): string {
   if (p === undefined || p === null || isNaN(p)) return "$0.00";
-  if (p < 1) return "$" + p.toFixed(4);
-  if (p < 10) return "$" + p.toFixed(3);
-  return "$" + p.toFixed(2);
+  if (Math.abs(p) < 0.00005) return "$0.00";
+  const sign = p < 0 ? "-" : "";
+  const abs = Math.abs(p);
+  if (abs < 1) return sign + "$" + abs.toFixed(4);
+  if (abs < 10) return sign + "$" + abs.toFixed(3);
+  return sign + "$" + abs.toFixed(2);
 }
 
 export function formatBps(b: number | undefined | null, withSign = false): string {

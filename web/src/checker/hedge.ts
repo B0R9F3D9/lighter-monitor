@@ -582,12 +582,25 @@ export function calculateSelectedHedgeMetrics(
   let totalNetPnlUsd = 0;
   let totalPricePnlUsd = 0;
   let totalFeesUsd = 0;
+  let totalMatchedSize = 0;
+  let totalBuyProduct = 0;
+  let totalSellProduct = 0;
+  let totalWeightedDeltaProduct = 0;
+
+  const marketsSet = new Set<string>();
 
   for (const p of selectedPairs) {
     totalHedgedVolumeUsd += p.notionalUsd;
     totalNetPnlUsd += p.netPnlUsd;
     totalPricePnlUsd += p.pricePnlUsd;
     totalFeesUsd += p.totalFeesUsd;
+    totalMatchedSize += p.matchedSize;
+    totalBuyProduct += p.buyPrice * p.matchedSize;
+    totalSellProduct += p.sellPrice * p.matchedSize;
+    totalWeightedDeltaProduct += p.priceDelta * p.matchedSize;
+    if (p.marketSymbol) {
+      marketsSet.add(p.marketSymbol.toUpperCase());
+    }
   }
 
   for (const u of selectedUnhedged) {
@@ -599,6 +612,16 @@ export function calculateSelectedHedgeMetrics(
   const totalVolumeUsd = totalHedgedVolumeUsd + unhedgedVolumeUsd;
   const avgPnlBps = totalVolumeUsd > 0 ? (totalNetPnlUsd / totalVolumeUsd) * 10000 : 0;
 
+  const weightedPriceDelta =
+    totalMatchedSize > 0 ? totalWeightedDeltaProduct / totalMatchedSize : 0;
+  const weightedPriceDeltaBps =
+    totalHedgedVolumeUsd > 0 ? (totalPricePnlUsd / totalHedgedVolumeUsd) * 10000 : 0;
+  const weightedBuyPrice = totalMatchedSize > 0 ? totalBuyProduct / totalMatchedSize : 0;
+  const weightedSellPrice = totalMatchedSize > 0 ? totalSellProduct / totalMatchedSize : 0;
+
+  const isSingleMarket = marketsSet.size === 1;
+  const marketSymbol = isSingleMarket ? Array.from(marketsSet)[0] : undefined;
+
   return {
     selectedCount: selectedPairs.length + selectedUnhedged.length,
     pairsCount: selectedPairs.length,
@@ -608,6 +631,13 @@ export function calculateSelectedHedgeMetrics(
     totalPricePnlUsd,
     totalFeesUsd,
     avgPnlBps,
+    totalMatchedSize,
+    weightedPriceDelta,
+    weightedPriceDeltaBps,
+    weightedBuyPrice,
+    weightedSellPrice,
+    isSingleMarket,
+    marketSymbol,
   };
 }
 

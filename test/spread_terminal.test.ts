@@ -37,6 +37,10 @@ describe("Spread Terminal: Formatters", () => {
     expect(formatPrice(0.0045)).toBe("$0.0045");
     expect(formatPrice(2.456)).toBe("$2.456");
     expect(formatPrice(125.5)).toBe("$125.50");
+    expect(formatPrice(-125.5)).toBe("-$125.50");
+    expect(formatPrice(-2.456)).toBe("-$2.456");
+    expect(formatPrice(-0.0045)).toBe("-$0.0045");
+    expect(formatPrice(0)).toBe("$0.00");
     expect(formatPrice(null)).toBe("$0.00");
   });
 

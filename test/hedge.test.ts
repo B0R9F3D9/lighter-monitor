@@ -512,6 +512,10 @@ describe("Hedge Matching Engine", () => {
     expect(emptyMetrics.totalVolumeUsd).toBe(0);
     expect(emptyMetrics.totalNetPnlUsd).toBe(0);
     expect(emptyMetrics.avgPnlBps).toBe(0);
+    expect(emptyMetrics.totalMatchedSize).toBe(0);
+    expect(emptyMetrics.weightedPriceDelta).toBe(0);
+    expect(emptyMetrics.weightedPriceDeltaBps).toBe(0);
+    expect(emptyMetrics.isSingleMarket).toBe(false);
 
     // Case 2: User selects all 6 hedges from open + close campaign
     const selectedAll = calculateSelectedHedgeMetrics(pairs, []);
@@ -527,6 +531,11 @@ describe("Hedge Matching Engine", () => {
     expect(selectedAll.totalNetPnlUsd).toBeCloseTo(-29.0, 4);
     // bps = (-29.0 / 60000) * 10000 = -4.8333 bps
     expect(selectedAll.avgPnlBps).toBeCloseTo(-4.8333, 4);
+    expect(selectedAll.totalMatchedSize).toBe(300);
+    expect(selectedAll.weightedPriceDelta).toBeCloseTo(-5.0 / 300, 5);
+    expect(selectedAll.weightedPriceDeltaBps).toBeCloseTo((-5.0 / 60000) * 10000, 4);
+    expect(selectedAll.isSingleMarket).toBe(true);
+    expect(selectedAll.marketSymbol).toBe("AAPL");
 
     // Case 3: User selects opening 3 trades only
     const selectedOpen = calculateSelectedHedgeMetrics(pairs.slice(0, 3), []);
@@ -534,6 +543,11 @@ describe("Hedge Matching Engine", () => {
     expect(selectedOpen.totalVolumeUsd).toBe(30000);
     // pricePnl = -2.5, fees = 12.0, netPnl = -14.5
     expect(selectedOpen.totalNetPnlUsd).toBeCloseTo(-14.5, 4);
+    expect(selectedOpen.totalMatchedSize).toBe(150);
+    expect(selectedOpen.weightedPriceDelta).toBeCloseTo(-2.5 / 150, 5);
+    expect(selectedOpen.weightedPriceDeltaBps).toBeCloseTo((-2.5 / 30000) * 10000, 4);
+    expect(selectedOpen.isSingleMarket).toBe(true);
+    expect(selectedOpen.marketSymbol).toBe("AAPL");
 
     // Case 4: Selection with unhedged trade
     const unhedgedItem = {
@@ -563,6 +577,214 @@ describe("Hedge Matching Engine", () => {
     expect(mixed.totalFeesUsd).toBeCloseTo(5.5, 4);
     // netPnl = -6.0 (pair net) - 1.5 (unhedged fee) = -7.5
     expect(mixed.totalNetPnlUsd).toBeCloseTo(-7.5, 4);
+    expect(mixed.totalMatchedSize).toBe(50);
+    expect(mixed.weightedPriceDelta).toBeCloseTo(-2.0 / 50, 5);
+  });
+
+  it("calculates accurate weighted price delta for entry and exit hedge campaigns", () => {
+    // Campaign: ETH positions
+    // User enters position via 3 hedge executions (Long RH, Short Core):
+    // Fill 1: size = 2.0 ETH, RH Buy = 2000, Core Sell = 2005 => delta = +5.00, pricePnl = +10.00
+    // Fill 2: size = 3.0 ETH, RH Buy = 2000, Core Sell = 2002 => delta = +2.00, pricePnl = +6.00
+    // Fill 3: size = 5.0 ETH, RH Buy = 2000, Core Sell = 2001 => delta = +1.00, pricePnl = +5.00
+    const entryHedges = [
+      {
+        id: "entry-1",
+        marketSymbol: "ETH",
+        matchedSize: 2.0,
+        rhTradeId: "rh-e1",
+        rhSide: "BUY" as const,
+        rhPrice: 2000,
+        rhSize: 2.0,
+        rhFeeUsd: 1.0,
+        rhTimestampMs: 1000,
+        rhTimeFormatted: "10:00:00",
+        rhTxHash: "0x1",
+        rhRole: "TAKER" as const,
+        coreTradeId: "core-e1",
+        coreSide: "SELL" as const,
+        corePrice: 2005,
+        coreSize: 2.0,
+        coreFeeUsd: 1.0,
+        coreTimestampMs: 1000,
+        coreTimeFormatted: "10:00:00",
+        coreTxHash: "0x2",
+        coreRole: "MAKER" as const,
+        buyPrice: 2000,
+        sellPrice: 2005,
+        priceDelta: 5.0,
+        pricePnlUsd: 10.0,
+        totalFeesUsd: 2.0,
+        netPnlUsd: 8.0,
+        notionalUsd: 2.0 * 2002.5,
+        pnlBps: (8.0 / (2.0 * 2002.5)) * 10000,
+        timeDeltaSec: 0,
+        status: "HEDGED" as const,
+      },
+      {
+        id: "entry-2",
+        marketSymbol: "ETH",
+        matchedSize: 3.0,
+        rhTradeId: "rh-e2",
+        rhSide: "BUY" as const,
+        rhPrice: 2000,
+        rhSize: 3.0,
+        rhFeeUsd: 1.5,
+        rhTimestampMs: 1001,
+        rhTimeFormatted: "10:00:01",
+        rhTxHash: "0x3",
+        rhRole: "TAKER" as const,
+        coreTradeId: "core-e2",
+        coreSide: "SELL" as const,
+        corePrice: 2002,
+        coreSize: 3.0,
+        coreFeeUsd: 1.5,
+        coreTimestampMs: 1001,
+        coreTimeFormatted: "10:00:01",
+        coreTxHash: "0x4",
+        coreRole: "MAKER" as const,
+        buyPrice: 2000,
+        sellPrice: 2002,
+        priceDelta: 2.0,
+        pricePnlUsd: 6.0,
+        totalFeesUsd: 3.0,
+        netPnlUsd: 3.0,
+        notionalUsd: 3.0 * 2001,
+        pnlBps: (3.0 / (3.0 * 2001)) * 10000,
+        timeDeltaSec: 0,
+        status: "HEDGED" as const,
+      },
+      {
+        id: "entry-3",
+        marketSymbol: "ETH",
+        matchedSize: 5.0,
+        rhTradeId: "rh-e3",
+        rhSide: "BUY" as const,
+        rhPrice: 2000,
+        rhSize: 5.0,
+        rhFeeUsd: 2.5,
+        rhTimestampMs: 1002,
+        rhTimeFormatted: "10:00:02",
+        rhTxHash: "0x5",
+        rhRole: "TAKER" as const,
+        coreTradeId: "core-e3",
+        coreSide: "SELL" as const,
+        corePrice: 2001,
+        coreSize: 5.0,
+        coreFeeUsd: 2.5,
+        coreTimestampMs: 1002,
+        coreTimeFormatted: "10:00:02",
+        coreTxHash: "0x6",
+        coreRole: "MAKER" as const,
+        buyPrice: 2000,
+        sellPrice: 2001,
+        priceDelta: 1.0,
+        pricePnlUsd: 5.0,
+        totalFeesUsd: 5.0,
+        netPnlUsd: 0.0,
+        notionalUsd: 5.0 * 2000.5,
+        pnlBps: 0,
+        timeDeltaSec: 0,
+        status: "HEDGED" as const,
+      },
+    ];
+
+    const entryMetrics = calculateSelectedHedgeMetrics(entryHedges, []);
+    expect(entryMetrics.pairsCount).toBe(3);
+    expect(entryMetrics.totalMatchedSize).toBe(10.0);
+    // Weighted delta = (2*5 + 3*2 + 5*1) / 10 = (10 + 6 + 5) / 10 = 21 / 10 = +2.10
+    expect(entryMetrics.weightedPriceDelta).toBeCloseTo(2.1, 5);
+    expect(entryMetrics.weightedBuyPrice).toBeCloseTo(2000.0, 5);
+    // Weighted sell price = (2*2005 + 3*2002 + 5*2001) / 10 = (4010 + 6006 + 10005) / 10 = 2002.1
+    expect(entryMetrics.weightedSellPrice).toBeCloseTo(2002.1, 5);
+    // Difference between sell and buy equals weightedPriceDelta
+    expect(entryMetrics.weightedSellPrice - entryMetrics.weightedBuyPrice).toBeCloseTo(2.1, 5);
+    expect(entryMetrics.isSingleMarket).toBe(true);
+    expect(entryMetrics.marketSymbol).toBe("ETH");
+
+    // User exits position via 2 hedge executions (Short RH, Long Core):
+    // Fill 4: size = 4.0 ETH, RH Sell = 2008, Core Buy = 2010 => delta = -2.00, pricePnl = -8.00
+    // Fill 5: size = 6.0 ETH, RH Sell = 2009, Core Buy = 2010 => delta = -1.00, pricePnl = -6.00
+    const exitHedges = [
+      {
+        id: "exit-1",
+        marketSymbol: "ETH",
+        matchedSize: 4.0,
+        rhTradeId: "rh-x1",
+        rhSide: "SELL" as const,
+        rhPrice: 2008,
+        rhSize: 4.0,
+        rhFeeUsd: 2.0,
+        rhTimestampMs: 2000,
+        rhTimeFormatted: "10:10:00",
+        rhTxHash: "0x7",
+        rhRole: "TAKER" as const,
+        coreTradeId: "core-x1",
+        coreSide: "BUY" as const,
+        corePrice: 2010,
+        coreSize: 4.0,
+        coreFeeUsd: 2.0,
+        coreTimestampMs: 2000,
+        coreTimeFormatted: "10:10:00",
+        coreTxHash: "0x8",
+        coreRole: "MAKER" as const,
+        buyPrice: 2010,
+        sellPrice: 2008,
+        priceDelta: -2.0,
+        pricePnlUsd: -8.0,
+        totalFeesUsd: 4.0,
+        netPnlUsd: -12.0,
+        notionalUsd: 4.0 * 2009,
+        pnlBps: (-12.0 / (4.0 * 2009)) * 10000,
+        timeDeltaSec: 0,
+        status: "HEDGED" as const,
+      },
+      {
+        id: "exit-2",
+        marketSymbol: "ETH",
+        matchedSize: 6.0,
+        rhTradeId: "rh-x2",
+        rhSide: "SELL" as const,
+        rhPrice: 2009,
+        rhSize: 6.0,
+        rhFeeUsd: 3.0,
+        rhTimestampMs: 2001,
+        rhTimeFormatted: "10:10:01",
+        rhTxHash: "0x9",
+        rhRole: "TAKER" as const,
+        coreTradeId: "core-x2",
+        coreSide: "BUY" as const,
+        corePrice: 2010,
+        coreSize: 6.0,
+        coreFeeUsd: 3.0,
+        coreTimestampMs: 2001,
+        coreTimeFormatted: "10:10:01",
+        coreTxHash: "0xa",
+        coreRole: "MAKER" as const,
+        buyPrice: 2010,
+        sellPrice: 2009,
+        priceDelta: -1.0,
+        pricePnlUsd: -6.0,
+        totalFeesUsd: 6.0,
+        netPnlUsd: -12.0,
+        notionalUsd: 6.0 * 2009.5,
+        pnlBps: (-12.0 / (6.0 * 2009.5)) * 10000,
+        timeDeltaSec: 0,
+        status: "HEDGED" as const,
+      },
+    ];
+
+    const exitMetrics = calculateSelectedHedgeMetrics(exitHedges, []);
+    expect(exitMetrics.pairsCount).toBe(2);
+    expect(exitMetrics.totalMatchedSize).toBe(10.0);
+    // Weighted delta = (4*(-2) + 6*(-1)) / 10 = (-8 + -6) / 10 = -14 / 10 = -1.40
+    expect(exitMetrics.weightedPriceDelta).toBeCloseTo(-1.4, 5);
+    expect(exitMetrics.weightedBuyPrice).toBeCloseTo(2010.0, 5);
+    // Weighted sell price = (4*2008 + 6*2009) / 10 = (8032 + 12054) / 10 = 2008.6
+    expect(exitMetrics.weightedSellPrice).toBeCloseTo(2008.6, 5);
+    expect(exitMetrics.weightedSellPrice - exitMetrics.weightedBuyPrice).toBeCloseTo(-1.4, 5);
+    expect(exitMetrics.isSingleMarket).toBe(true);
+    expect(exitMetrics.marketSymbol).toBe("ETH");
   });
 
   it("collapses raw API execution fills sharing the same order ID (ask_id / bid_id) even when transaction_time differs", () => {

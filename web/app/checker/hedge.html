@@ -354,42 +354,54 @@
         <!-- 1B. HEDGE SELECTED ROWS SUMMARY STRIP -->
         <div
           id="hedgeSelectionCard"
-          class="hidden bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex items-center justify-between gap-4 text-xs font-mono transition-all"
+          class="hidden bg-terminal-surface border border-terminal-border rounded px-2.5 sm:px-3 py-1.5 sm:py-2 flex items-center justify-between gap-3 sm:gap-4 text-xs font-mono transition-all"
         >
-          <div class="flex items-center gap-2 shrink-0">
-            <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Selected:</span>
+          <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <span class="text-terminal-muted text-[10px] sm:text-[11px] uppercase tracking-wider">Selected:</span>
             <span
               id="selectedCountBadge"
-              class="text-white font-bold text-sm tracking-tight tabular-nums"
+              class="text-white font-bold text-xs sm:text-sm tracking-tight tabular-nums"
               >0 rows</span
             >
             <button
               id="btnDeselectAllHedge"
               type="button"
-              class="ml-1 px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-[10px]"
+              class="ml-0.5 px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-[10px] leading-tight"
               title="Clear selection (Esc)"
             >
-              ✕ Deselect [Esc]
+              ✕ Deselect
             </button>
-            <span class="text-terminal-muted/60 text-[10px] hidden lg:inline ml-1"
-              >(Shift+Click rows to range select)</span
-            >
           </div>
 
           <!-- Inline metrics for selected rows -->
-          <div class="flex items-center gap-5 sm:gap-6 overflow-x-auto text-[11px] no-scrollbar">
+          <div class="flex items-center gap-3 sm:gap-4 lg:gap-5 overflow-x-auto text-[11px] no-scrollbar">
             <div>
-              <span class="text-terminal-muted mr-1.5">PAIRS:</span>
+              <span class="text-terminal-muted mr-1">PAIRS:</span>
               <span id="selectedPairsCount" class="font-bold text-white tabular-nums">0</span>
             </div>
             <div>
-              <span class="text-terminal-muted mr-1.5">HEDGED VOL:</span>
+              <span class="text-terminal-muted mr-1">VOL:</span>
               <span id="selectedVolume" class="font-bold text-terminal-accent tabular-nums"
                 >$0.00</span
               >
             </div>
             <div>
-              <span class="text-terminal-muted mr-1.5">NET PNL:</span>
+              <span
+                class="text-terminal-muted mr-1"
+                title="Volume-weighted average price delta (Σ(Δ Price × Size) / Σ Size)"
+                >AVG Δ:</span
+              >
+              <span id="selectedWeightedDelta" class="font-bold text-terminal-muted tabular-nums"
+                >$0.00</span
+              >
+              <span
+                id="selectedWeightedDeltaBps"
+                class="text-[10px] text-terminal-muted tabular-nums ml-1"
+                >(0.0 bps)</span
+              >
+            </div>
+            <div>
+              <span class="text-terminal-muted mr-1">NET PNL:</span>
               <span id="selectedNetPnl" class="font-bold text-terminal-muted tabular-nums"
                 >$0.00</span
               >
@@ -398,19 +410,19 @@
               >
             </div>
             <div class="hidden sm:block">
-              <span class="text-terminal-muted mr-1.5">SLIPPAGE PNL:</span>
+              <span class="text-terminal-muted mr-1">SLIPPAGE:</span>
               <span id="selectedSlippage" class="font-bold text-terminal-secondary tabular-nums"
                 >$0.00</span
               >
             </div>
             <div class="hidden sm:block">
-              <span class="text-terminal-muted mr-1.5">FEES:</span>
+              <span class="text-terminal-muted mr-1">FEES:</span>
               <span id="selectedFees" class="font-bold text-terminal-secondary tabular-nums"
                 >$0.00</span
               >
             </div>
             <div class="hidden md:block">
-              <span class="text-terminal-muted mr-1.5">UNHEDGED:</span>
+              <span class="text-terminal-muted mr-1">UNHEDGED:</span>
               <span id="selectedUnhedgedCount" class="font-bold text-terminal-coral tabular-nums"
                 >0</span
               >
