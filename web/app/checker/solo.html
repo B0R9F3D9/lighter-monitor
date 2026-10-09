@@ -336,6 +336,12 @@
                 >$0.00</span
               >
             </div>
+            <div>
+              <span class="text-terminal-muted mr-1.5">FUNDING:</span>
+              <span id="leadTotalFunding" class="font-bold text-terminal-muted tabular-nums"
+                >$0.00</span
+              >
+            </div>
             <div class="hidden sm:block">
               <span class="text-terminal-muted mr-1.5">TOTAL FEES:</span>
               <span id="leadTotalFees" class="font-bold text-terminal-secondary tabular-nums"
@@ -681,13 +687,19 @@
                   <th class="py-2 px-2 font-semibold text-right">Size</th>
                   <th class="py-2 px-2 font-semibold text-right">USD Value</th>
                   <th class="py-2 px-2 font-semibold text-right">Realized PnL</th>
+                  <th
+                    class="py-2 px-2 font-semibold text-right"
+                    title="Funding paid or received on perpetual positions (separate from trade realized PnL)"
+                  >
+                    Funding
+                  </th>
                   <th class="py-2 px-2 font-semibold text-right">Fee</th>
                   <th class="py-2 px-2 font-semibold text-right">Tx Hash</th>
                 </tr>
               </thead>
               <tbody id="tradesTableBody" class="divide-y divide-terminal-borderSubtle">
                 <tr>
-                  <td colspan="11" class="py-12 text-center text-terminal-muted">
+                  <td colspan="12" class="py-12 text-center text-terminal-muted">
                     <div class="flex flex-col items-center justify-center gap-1.5">
                       <span class="text-terminal-secondary font-medium">No trades loaded yet</span>
                       <span class="text-[11px] text-terminal-muted"

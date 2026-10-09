@@ -1,5 +1,6 @@
 import { CONFIG } from "../shared";
 import type {
+  AccountFundingSummary,
   AccountQuery,
   CheckerNetwork,
   CheckerSummaryMetrics,
@@ -7,6 +8,7 @@ import type {
   ImportedTradesResult,
   LighterTrade,
   ParsedTradeView,
+  PositionFundingRecord,
   StitchedTradesResult,
 } from "./types";
 
@@ -215,6 +217,241 @@ export async function resolveAccountIndex(
   }
 
   throw new Error("Invalid account format. Enter a numeric ID (e.g. 12345) or 0x address.");
+}
+
+/**
+ * Processes trades and hourly funding history by market, accumulating funding during position holding periods
+ * and writing funding amounts to closing trades proportionally to the closed position size relative to total position.
+ *
+ * If no funding history is provided (e.g. raw trading API files or files without funding history),
+ * sets fundingUsd to null for all trades so that DOM renderers display a dash ("—").
+ */
+export function processTradesFundingHistory(
+  trades: ParsedTradeView[],
+  fundingHistory?: PositionFundingRecord[],
+): {
+  trades: ParsedTradeView[];
+  totalFundingUsd: number | null;
+  hasFundingHistory: boolean;
+} {
+  if (!fundingHistory || fundingHistory.length === 0) {
+    for (const t of trades) {
+      if (t.fundingUsd === undefined) {
+        t.fundingUsd = null;
+      }
+      t.isClose = false;
+    }
+    return {
+      trades,
+      totalFundingUsd: null,
+      hasFundingHistory: false,
+    };
+  }
+
+  // Group trades and funding records by market identifier (marketId or marketSymbol)
+  const tradesByMarket = new Map<string, ParsedTradeView[]>();
+  for (const t of trades) {
+    const key = String(t.marketId || t.marketSymbol || "default");
+    let list = tradesByMarket.get(key);
+    if (!list) {
+      list = [];
+      tradesByMarket.set(key, list);
+    }
+    list.push(t);
+  }
+
+  const fundingsByMarket = new Map<string, PositionFundingRecord[]>();
+  for (const f of fundingHistory) {
+    const key = String(f.market_id || "default");
+    let list = fundingsByMarket.get(key);
+    if (!list) {
+      list = [];
+      fundingsByMarket.set(key, list);
+    }
+    list.push(f);
+  }
+
+  let totalFundingUsd = 0;
+
+  for (const [marketKey, mTrades] of tradesByMarket.entries()) {
+    // Sort trades chronologically ascending (earliest to latest) for accurate position lifecycle
+    mTrades.sort((a, b) => {
+      if (a.timestampMs !== b.timestampMs) return a.timestampMs - b.timestampMs;
+      const aMicro = a.raw?.transaction_time ?? 0;
+      const bMicro = b.raw?.transaction_time ?? 0;
+      if (aMicro !== bMicro) return aMicro - bMicro;
+      const aId = a.tradeIdNum ?? (Number(a.tradeId) || 0);
+      const bId = b.tradeIdNum ?? (Number(b.tradeId) || 0);
+      return aId - bId;
+    });
+
+    const mFundings = fundingsByMarket.get(marketKey) || [];
+    mFundings.sort((a, b) => normalizeTimestampMs(a.timestamp) - normalizeTimestampMs(b.timestamp));
+
+    let currentPosition = 0;
+    let accumulatedFunding = 0;
+    let fundIdx = 0;
+
+    for (const trade of mTrades) {
+      // Ingest all funding events up to this trade's timestamp
+      while (
+        fundIdx < mFundings.length &&
+        normalizeTimestampMs(mFundings[fundIdx].timestamp) <= trade.timestampMs
+      ) {
+        const f = mFundings[fundIdx];
+        const changeVal = parseFloat(String(f.change)) || 0;
+        accumulatedFunding += changeVal;
+
+        // If current position was flat and funding record indicates active position, initialize
+        if (currentPosition === 0 && f.position_size && f.position_side) {
+          const pSize = parseFloat(String(f.position_size)) || 0;
+          if (pSize > 0) {
+            currentPosition = f.position_side === "short" ? -pSize : pSize;
+          }
+        }
+        fundIdx++;
+      }
+
+      // Check if trade closes part or all of the current position
+      const tradeDelta = trade.side === "BUY" ? trade.size : -trade.size;
+
+      if (currentPosition > 0 && tradeDelta < 0) {
+        // Closing or reducing Long position (SELL)
+        const prevPos = currentPosition;
+        const closedSize = Math.min(trade.size, prevPos);
+        const fraction = prevPos > 0 ? closedSize / prevPos : 0;
+        const fundingForTrade = accumulatedFunding * fraction;
+
+        accumulatedFunding -= fundingForTrade;
+        trade.fundingUsd = fundingForTrade;
+        trade.isClose = true;
+        totalFundingUsd += fundingForTrade;
+        currentPosition += tradeDelta;
+      } else if (currentPosition < 0 && tradeDelta > 0) {
+        // Closing or reducing Short position (BUY)
+        const prevPos = Math.abs(currentPosition);
+        const closedSize = Math.min(trade.size, prevPos);
+        const fraction = prevPos > 0 ? closedSize / prevPos : 0;
+        const fundingForTrade = accumulatedFunding * fraction;
+
+        accumulatedFunding -= fundingForTrade;
+        trade.fundingUsd = fundingForTrade;
+        trade.isClose = true;
+        totalFundingUsd += fundingForTrade;
+        currentPosition += tradeDelta;
+      } else if (currentPosition === 0 && accumulatedFunding !== 0) {
+        // Trade occurs after funding was accumulated on a position opened before our trade window
+        trade.fundingUsd = accumulatedFunding;
+        trade.isClose = true;
+        totalFundingUsd += accumulatedFunding;
+        accumulatedFunding = 0;
+        currentPosition += tradeDelta;
+      } else {
+        // Opening a new position or scaling into existing position
+        trade.fundingUsd = null;
+        trade.isClose = false;
+        currentPosition += tradeDelta;
+      }
+    }
+  }
+
+  return {
+    trades,
+    totalFundingUsd,
+    hasFundingHistory: true,
+  };
+}
+
+/**
+ * Attributes account-level position funding across parsed trade views.
+ * If fundingSummary contains funding_history, uses exact position close attribution.
+ * Otherwise, if fundingSummary has non-zero position funding, attributes proportionally by volume as fallback.
+ */
+export function attributeFundingToTrades(
+  trades: ParsedTradeView[],
+  fundingSummary: AccountFundingSummary | any | null,
+): void {
+  if (!fundingSummary || trades.length === 0) return;
+
+  if (Array.isArray(fundingSummary.funding_history) && fundingSummary.funding_history.length > 0) {
+    processTradesFundingHistory(trades, fundingSummary.funding_history);
+    return;
+  }
+
+  const getFundingForMarket = (mId: number, symbol?: string): number => {
+    if (fundingSummary.byMarketId instanceof Map) {
+      if (fundingSummary.byMarketId.has(mId)) return fundingSummary.byMarketId.get(mId)!;
+    } else if (fundingSummary.byMarketId && typeof fundingSummary.byMarketId === "object") {
+      if (fundingSummary.byMarketId[mId] !== undefined)
+        return Number(fundingSummary.byMarketId[mId]) || 0;
+    }
+
+    if (symbol) {
+      const symUpper = symbol.toUpperCase();
+      if (fundingSummary.bySymbol instanceof Map) {
+        if (fundingSummary.bySymbol.has(symUpper)) return fundingSummary.bySymbol.get(symUpper)!;
+      } else if (fundingSummary.bySymbol && typeof fundingSummary.bySymbol === "object") {
+        if (fundingSummary.bySymbol[symUpper] !== undefined)
+          return Number(fundingSummary.bySymbol[symUpper]) || 0;
+      }
+
+      if (fundingSummary.byMarketUsd && typeof fundingSummary.byMarketUsd === "object") {
+        if (fundingSummary.byMarketUsd[symUpper] !== undefined)
+          return Number(fundingSummary.byMarketUsd[symUpper]) || 0;
+      }
+    }
+
+    return 0;
+  };
+
+  const byMarket = new Map<string, ParsedTradeView[]>();
+  for (const t of trades) {
+    const key = t.marketSymbol || String(t.marketId);
+    let list = byMarket.get(key);
+    if (!list) {
+      list = [];
+      byMarket.set(key, list);
+    }
+    list.push(t);
+  }
+
+  let attributedAny = false;
+  for (const marketTrades of byMarket.values()) {
+    const mId = marketTrades[0]?.marketId ?? 0;
+    const sym = marketTrades[0]?.marketSymbol;
+    const marketFunding = getFundingForMarket(mId, sym);
+
+    if (marketFunding !== 0) {
+      attributedAny = true;
+      const totalUsd = marketTrades.reduce((sum, t) => sum + (t.usdValue || 0), 0);
+      if (totalUsd > 0) {
+        for (const t of marketTrades) {
+          t.fundingUsd = (t.usdValue / totalUsd) * marketFunding;
+        }
+      } else {
+        const share = marketFunding / marketTrades.length;
+        for (const t of marketTrades) {
+          t.fundingUsd = share;
+        }
+      }
+    }
+  }
+
+  const overallTotal =
+    Number(fundingSummary.totalFundingPaidOut ?? fundingSummary.totalFundingUsd) || 0;
+  if (!attributedAny && overallTotal !== 0) {
+    const totalUsd = trades.reduce((sum, t) => sum + (t.usdValue || 0), 0);
+    if (totalUsd > 0) {
+      for (const t of trades) {
+        t.fundingUsd = (t.usdValue / totalUsd) * overallTotal;
+      }
+    } else {
+      const share = overallTotal / trades.length;
+      for (const t of trades) {
+        t.fundingUsd = share;
+      }
+    }
+  }
 }
 
 /**
@@ -486,6 +723,11 @@ export function stitchTradeBatches(
   let l1Address: string | undefined = undefined;
   let totalRawTradesCount = 0;
   let duplicateTradesCount = 0;
+  let totalFundingUsd = 0;
+  let hasFunding = false;
+  const fundingByMarketId = new Map<number, number>();
+  const fundingBySymbol = new Map<string, number>();
+  const fundingHistoryMap = new Map<string, PositionFundingRecord>();
   const fileNames: string[] = [];
 
   for (const batch of batches) {
@@ -504,6 +746,34 @@ export function stitchTradeBatches(
     if (batch.accountIndices) {
       for (const acc of batch.accountIndices) {
         if (acc != null && !isNaN(acc)) accountSet.add(acc);
+      }
+    }
+    const typedBatch = batch as Partial<ImportedTradesResult>;
+    if (typedBatch.totalFundingUsd != null) {
+      totalFundingUsd += typedBatch.totalFundingUsd;
+      hasFunding = true;
+    }
+    if (typedBatch.fundingByMarketId) {
+      for (const [mId, f] of typedBatch.fundingByMarketId.entries()) {
+        fundingByMarketId.set(mId, (fundingByMarketId.get(mId) || 0) + f);
+      }
+      hasFunding = true;
+    }
+    if (typedBatch.fundingBySymbol) {
+      for (const [sym, f] of typedBatch.fundingBySymbol.entries()) {
+        fundingBySymbol.set(sym, (fundingBySymbol.get(sym) || 0) + f);
+      }
+      hasFunding = true;
+    }
+
+    const bHist = (batch as any).funding_history;
+    if (Array.isArray(bHist) && bHist.length > 0) {
+      for (const f of bHist) {
+        const key =
+          f.funding_id != null ? `id_${f.funding_id}` : `${f.timestamp}_${f.market_id}_${f.change}`;
+        if (!fundingHistoryMap.has(key)) {
+          fundingHistoryMap.set(key, f);
+        }
       }
     }
 
@@ -536,6 +806,8 @@ export function stitchTradeBatches(
 
   const accountIndices = Array.from(accountSet);
   const primaryAccountIndex = accountIndices.length > 0 ? accountIndices[0] : null;
+  const fundingHistory =
+    fundingHistoryMap.size > 0 ? Array.from(fundingHistoryMap.values()) : undefined;
 
   return {
     trades: mergedTrades,
@@ -547,6 +819,11 @@ export function stitchTradeBatches(
     duplicateTradesCount,
     fileCount: batches.length,
     fileNames,
+    totalFundingUsd: hasFunding ? totalFundingUsd : undefined,
+    fundingByMarketId: fundingByMarketId.size > 0 ? fundingByMarketId : undefined,
+    fundingBySymbol: fundingBySymbol.size > 0 ? fundingBySymbol : undefined,
+    funding_history: fundingHistory,
+    hasFundingHistory: Boolean(fundingHistory && fundingHistory.length > 0),
   };
 }
 
@@ -638,6 +915,15 @@ export function parseTradeForView(
   const tradeIdNum = Number(trade.trade_id_str || trade.trade_id) || 0;
   const searchIndex = `${symbol} ${side} ${role} ${tradeId} ${txHash}`.toLowerCase();
 
+  let fundingUsd: number | null = null;
+  if (typeof trade.funding === "number") {
+    fundingUsd = trade.funding;
+  } else if (typeof trade.funding_fee === "number") {
+    fundingUsd = trade.funding_fee;
+  } else if (typeof (trade as any).fundingUsd === "number") {
+    fundingUsd = (trade as any).fundingUsd;
+  }
+
   return {
     raw: trade,
     tradeId,
@@ -656,6 +942,7 @@ export function parseTradeForView(
     usdValue,
     realizedPnl,
     feeUsd,
+    fundingUsd,
     txHash,
     txHashShort,
     searchIndex,
@@ -669,11 +956,14 @@ export function parseTradeForView(
 export function calculateTradeMetrics(
   trades: LighterTrade[],
   queriedAccounts: AccountQuery,
+  explicitFundingUsd?: number | null,
 ): CheckerSummaryMetrics {
   const userAccounts = toAccountSet(queriedAccounts);
   let totalVolumeUsd = 0;
   let totalRealizedPnl = 0;
   let totalFeesUsd = 0;
+  let totalFundingUsd: number | null = explicitFundingUsd !== undefined ? explicitFundingUsd : null;
+  let hasCalculatedFunding = explicitFundingUsd !== undefined && explicitFundingUsd !== null;
   let makerTradesCount = 0;
   let takerTradesCount = 0;
   let buyTradesCount = 0;
@@ -683,6 +973,23 @@ export function calculateTradeMetrics(
   const marketSet = new Set<number>();
 
   for (const t of trades) {
+    if (explicitFundingUsd === undefined) {
+      if (t.total_funding_paid_out != null && t.total_funding_paid_out !== "") {
+        totalFundingUsd =
+          (totalFundingUsd || 0) + (parseFloat(String(t.total_funding_paid_out)) || 0);
+        hasCalculatedFunding = true;
+      } else if (t.funding != null && String(t.funding) !== "") {
+        totalFundingUsd = (totalFundingUsd || 0) + (parseFloat(String(t.funding)) || 0);
+        hasCalculatedFunding = true;
+      } else if (t.funding_fee != null && String(t.funding_fee) !== "") {
+        totalFundingUsd = (totalFundingUsd || 0) + (parseFloat(String(t.funding_fee)) || 0);
+        hasCalculatedFunding = true;
+      } else if (typeof (t as any).fundingUsd === "number") {
+        totalFundingUsd = (totalFundingUsd || 0) + (t as any).fundingUsd;
+        hasCalculatedFunding = true;
+      }
+    }
+
     const bidId = Number(t.bid_account_id);
     const askId = Number(t.ask_account_id);
     const isUserBid = userAccounts.has(bidId);
@@ -758,6 +1065,8 @@ export function calculateTradeMetrics(
     totalVolumeUsd,
     totalRealizedPnl,
     totalFeesUsd,
+    totalFundingUsd,
+    hasFundingHistory: hasCalculatedFunding,
     makerTradesCount,
     takerTradesCount,
     buyTradesCount,
@@ -812,6 +1121,10 @@ export function prepareExportPayload(
       total_volume_usd: Number(metrics.totalVolumeUsd.toFixed(2)),
       total_realized_pnl_usd: Number(metrics.totalRealizedPnl.toFixed(4)),
       total_fees_usd: Number(metrics.totalFeesUsd.toFixed(4)),
+      total_funding_usd:
+        metrics.totalFundingUsd !== null && metrics.totalFundingUsd !== undefined
+          ? Number(metrics.totalFundingUsd.toFixed(4))
+          : null,
       buy_trades_count: metrics.buyTradesCount,
       sell_trades_count: metrics.sellTradesCount,
       maker_trades_count: metrics.makerTradesCount,
@@ -886,6 +1199,12 @@ export function parseImportedTradesJson(rawText: string, fileName?: string): Imp
   let isTruncated: boolean | undefined = undefined;
   let rowCap: number | undefined = undefined;
   let nextCursor: string | undefined = undefined;
+  let positions: any[] | undefined = undefined;
+  let totalFundingUsd: number | undefined = undefined;
+  const fundingByMarketId = new Map<number, number>();
+  const fundingBySymbol = new Map<string, number>();
+  let fundingHistory: PositionFundingRecord[] | undefined = undefined;
+  let hasFundingHistory = false;
 
   if (Array.isArray(parsed)) {
     trades = parsed;
@@ -918,6 +1237,44 @@ export function parseImportedTradesJson(rawText: string, fileName?: string): Imp
     }
     if (parsed.row_cap) {
       rowCap = Number(parsed.row_cap);
+    }
+
+    if (Array.isArray(parsed.positions)) {
+      const posList = parsed.positions;
+      positions = posList;
+      let sumPosFunding = 0;
+      for (const p of posList) {
+        const mId = Number(p.market_id);
+        const sym = String(p.symbol || "").toUpperCase();
+        const f =
+          p.total_funding_paid_out != null && p.total_funding_paid_out !== ""
+            ? parseFloat(p.total_funding_paid_out) || 0
+            : 0;
+        if (f !== 0) {
+          sumPosFunding += f;
+          if (!isNaN(mId)) fundingByMarketId.set(mId, f);
+          if (sym) fundingBySymbol.set(sym, f);
+        }
+      }
+      if (sumPosFunding !== 0) {
+        totalFundingUsd = sumPosFunding;
+      }
+    }
+
+    if (Array.isArray(parsed.funding_history) && parsed.funding_history.length > 0) {
+      fundingHistory = parsed.funding_history;
+      hasFundingHistory = true;
+    } else if (Array.isArray(parsed.position_fundings) && parsed.position_fundings.length > 0) {
+      fundingHistory = parsed.position_fundings;
+      hasFundingHistory = true;
+    }
+
+    if (parsed.total_funding_paid_out !== undefined) {
+      totalFundingUsd = parseFloat(parsed.total_funding_paid_out) || 0;
+    } else if (parsed.total_funding_usd !== undefined) {
+      totalFundingUsd = parseFloat(parsed.total_funding_usd) || 0;
+    } else if (parsed.summary?.total_funding_usd !== undefined) {
+      totalFundingUsd = parseFloat(parsed.summary.total_funding_usd) || 0;
     }
   }
 
@@ -976,5 +1333,11 @@ export function parseImportedTradesJson(rawText: string, fileName?: string): Imp
     rowCap,
     fileName,
     nextCursor,
+    positions,
+    totalFundingUsd,
+    fundingByMarketId: fundingByMarketId.size > 0 ? fundingByMarketId : undefined,
+    fundingBySymbol: fundingBySymbol.size > 0 ? fundingBySymbol : undefined,
+    funding_history: fundingHistory,
+    hasFundingHistory,
   };
 }

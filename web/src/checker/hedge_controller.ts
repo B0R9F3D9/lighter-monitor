@@ -5,6 +5,7 @@ import {
   normalizeTimestampMs,
   parseImportedTradesJson,
   parseTradeForView,
+  processTradesFundingHistory,
   sortParsedTradesChronologicalDesc,
   sortTradesChronologicalDesc,
   stitchTradeBatches,
@@ -44,6 +45,7 @@ import type {
   IndividualAccountMetrics,
   LighterTrade,
   ParsedTradeView,
+  StitchedTradesResult,
   UnhedgedTrade,
 } from "./types";
 
@@ -61,6 +63,8 @@ export class HedgeController {
   private coreAccountIndices: number[] = [];
   private rhFileName = "";
   private coreFileName = "";
+  private rhStitched: StitchedTradesResult | null = null;
+  private coreStitched: StitchedTradesResult | null = null;
   private hedgePairs: HedgePair[] = [];
   private unhedgedTrades: UnhedgedTrade[] = [];
   private hedgePairsMap = new Map<string, HedgePair>();
@@ -274,9 +278,10 @@ export class HedgeController {
       pairsCount: document.getElementById("leadHedgePairsCount"),
       hedgedVolume: document.getElementById("leadHedgeVolume"),
       netPnl: document.getElementById("leadHedgeNetPnl"),
-      pnlBps: document.getElementById("leadHedgePnlBps"),
+      pnlBps: null,
       slippage: document.getElementById("leadHedgeSlippage"),
       fees: document.getElementById("leadHedgeFees"),
+      funding: document.getElementById("leadHedgeFunding"),
       unhedgedCount: document.getElementById("leadHedgeUnhedgedCount"),
       avgOi: document.getElementById("leadHedgeAvgOi"),
     };
@@ -287,6 +292,7 @@ export class HedgeController {
       volume: document.getElementById("leadRhVolume"),
       realizedPnl: document.getElementById("leadRhRealizedPnl"),
       fees: document.getElementById("leadRhFees"),
+      funding: document.getElementById("leadRhFunding"),
       unhedgedCount: document.getElementById("leadRhUnhedgedCount"),
       avgOi: document.getElementById("leadRhAvgOi"),
       dailySummary: document.getElementById("leadRhDailySummary"),
@@ -298,6 +304,7 @@ export class HedgeController {
       volume: document.getElementById("leadCoreVolume"),
       realizedPnl: document.getElementById("leadCoreRealizedPnl"),
       fees: document.getElementById("leadCoreFees"),
+      funding: document.getElementById("leadCoreFunding"),
       unhedgedCount: document.getElementById("leadCoreUnhedgedCount"),
       avgOi: document.getElementById("leadCoreAvgOi"),
       dailySummary: document.getElementById("leadCoreDailySummary"),
@@ -356,6 +363,7 @@ export class HedgeController {
       weightedDelta: document.getElementById("selectedWeightedDelta"),
       weightedDeltaBps: document.getElementById("selectedWeightedDeltaBps"),
       slippage: document.getElementById("selectedSlippage"),
+      funding: document.getElementById("selectedFunding"),
       fees: document.getElementById("selectedFees"),
       unhedgedCount: document.getElementById("selectedUnhedgedCount"),
     };
@@ -785,6 +793,7 @@ export class HedgeController {
   private applyHedgeBatches(): void {
     if (this.rhBatches.length > 0) {
       const rhStitched = stitchTradeBatches(this.rhBatches);
+      this.rhStitched = rhStitched;
       this.rhRawTrades = sortTradesChronologicalDesc(rhStitched.trades);
       this.rhAccountIndices = rhStitched.accountIndices;
       this.rhAccountIndex =
@@ -822,6 +831,7 @@ export class HedgeController {
 
     if (this.coreBatches.length > 0) {
       const coreStitched = stitchTradeBatches(this.coreBatches);
+      this.coreStitched = coreStitched;
       this.coreRawTrades = sortTradesChronologicalDesc(coreStitched.trades);
       this.coreAccountIndices = coreStitched.accountIndices;
       this.coreAccountIndex =
@@ -899,6 +909,9 @@ export class HedgeController {
     this.coreParsedTrades = this.coreRawTrades.map((t) =>
       parseTradeForView(t, coreAccQuery, this.coreMarketMap),
     );
+
+    processTradesFundingHistory(this.rhParsedTrades, this.rhStitched?.funding_history);
+    processTradesFundingHistory(this.coreParsedTrades, this.coreStitched?.funding_history);
 
     sortParsedTradesChronologicalDesc(this.rhParsedTrades);
     sortParsedTradesChronologicalDesc(this.coreParsedTrades);
@@ -1027,11 +1040,17 @@ export class HedgeController {
     let totalVolumeUsd = 0;
     let realizedPnlUsd = 0;
     let totalFeesUsd = 0;
+    let totalFundingUsd: number | null = null;
+    let hasFunding = false;
 
     for (const t of filteredTrades) {
       totalVolumeUsd += t.usdValue;
       realizedPnlUsd += t.realizedPnl;
       totalFeesUsd += t.feeUsd;
+      if (t.fundingUsd !== null && t.fundingUsd !== undefined) {
+        totalFundingUsd = (totalFundingUsd ?? 0) + t.fundingUsd;
+        hasFunding = true;
+      }
     }
 
     const unhedgedCount = this.unhedgedTrades.filter((u) => u.network === network).length;
@@ -1046,6 +1065,7 @@ export class HedgeController {
       totalVolumeUsd,
       realizedPnlUsd,
       totalFeesUsd,
+      totalFundingUsd: hasFunding ? totalFundingUsd : null,
       unhedgedCount,
       avgOiUsd: oiResult.avgOiUsd,
       avgOiDetails: oiResult,
@@ -1219,6 +1239,7 @@ export class HedgeController {
       this.rhAccountIndex = null;
       this.rhAccountIndices = [];
       this.rhFileName = "";
+      this.rhStitched = null;
       if (this.statusRhFile) {
         this.statusRhFile.innerHTML =
           'Drop <code class="text-terminal-emerald">rh-*.json</code> or raw API';
@@ -1245,6 +1266,7 @@ export class HedgeController {
       this.coreAccountIndex = null;
       this.coreAccountIndices = [];
       this.coreFileName = "";
+      this.coreStitched = null;
       if (this.statusCoreFile) {
         this.statusCoreFile.innerHTML =
           'Drop <code class="text-terminal-accent">mainnet-*.json</code> or raw API';

@@ -343,13 +343,19 @@
               <span id="leadHedgeNetPnl" class="font-bold text-terminal-muted tabular-nums"
                 >$0.00</span
               >
-              <span id="leadHedgePnlBps" class="text-[10px] text-terminal-muted tabular-nums ml-1"
-                >(0.0 bps)</span
-              >
             </div>
             <div class="hidden sm:block">
               <span class="text-terminal-muted mr-1.5">SLIPPAGE PNL:</span>
               <span id="leadHedgeSlippage" class="font-bold text-terminal-secondary tabular-nums"
+                >$0.00</span
+              >
+            </div>
+            <div
+              class="hidden sm:block"
+              title="Combined net funding paid or received on perpetual positions across RH and Core"
+            >
+              <span class="text-terminal-muted mr-1.5">FUNDING:</span>
+              <span id="leadHedgeFunding" class="font-bold text-terminal-muted tabular-nums"
                 >$0.00</span
               >
             </div>
@@ -408,6 +414,12 @@
                 <div>
                   <span class="text-terminal-muted mr-1.5">PNL:</span>
                   <span id="leadRhRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
+                    >$0.00</span
+                  >
+                </div>
+                <div>
+                  <span class="text-terminal-muted mr-1.5">FUNDING:</span>
+                  <span id="leadRhFunding" class="font-bold text-terminal-muted tabular-nums"
                     >$0.00</span
                   >
                 </div>
@@ -471,6 +483,12 @@
                 <div>
                   <span class="text-terminal-muted mr-1.5">PNL:</span>
                   <span id="leadCoreRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
+                    >$0.00</span
+                  >
+                </div>
+                <div>
+                  <span class="text-terminal-muted mr-1.5">FUNDING:</span>
+                  <span id="leadCoreFunding" class="font-bold text-terminal-muted tabular-nums"
                     >$0.00</span
                   >
                 </div>
@@ -562,6 +580,12 @@
             <div class="hidden sm:block">
               <span class="text-terminal-muted mr-1">SLIPPAGE:</span>
               <span id="selectedSlippage" class="font-bold text-terminal-secondary tabular-nums"
+                >$0.00</span
+              >
+            </div>
+            <div class="hidden sm:block">
+              <span class="text-terminal-muted mr-1">FUNDING:</span>
+              <span id="selectedFunding" class="font-bold text-terminal-muted tabular-nums"
                 >$0.00</span
               >
             </div>
@@ -1045,6 +1069,12 @@
                   <th class="py-2 px-2 font-semibold text-right">Fees</th>
                   <th
                     class="py-2 px-2 font-semibold text-right"
+                    title="Net funding paid or received on perpetual positions (RH + Core)"
+                  >
+                    Funding
+                  </th>
+                  <th
+                    class="py-2 px-2 font-semibold text-right"
                     title="Net Hedge PnL (Gross Slippage PnL in parentheses)"
                   >
                     Hedge PnL
@@ -1055,7 +1085,7 @@
               </thead>
               <tbody id="hedgeTableBody" class="divide-y divide-terminal-borderSubtle">
                 <tr>
-                  <td colspan="12" class="py-12 text-center text-terminal-muted">
+                  <td colspan="13" class="py-12 text-center text-terminal-muted">
                     <div class="flex flex-col items-center justify-center gap-1.5">
                       <span class="text-terminal-secondary font-medium">No hedge pairs loaded</span>
                       <span class="text-[11px] text-terminal-muted">

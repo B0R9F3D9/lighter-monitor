@@ -8,6 +8,7 @@ import {
   parseImportedTradesJson,
   parseTradeForView,
   prepareExportPayload,
+  processTradesFundingHistory,
   sortParsedTradesChronologicalDesc,
   sortTradesChronologicalDesc,
   stitchTradeBatches,
@@ -83,6 +84,7 @@ export class CheckerController {
     tradesCount: null as HTMLElement | null,
     totalVolume: null as HTMLElement | null,
     realizedPnl: null as HTMLElement | null,
+    totalFunding: null as HTMLElement | null,
     totalFees: null as HTMLElement | null,
     dateRange: null as HTMLElement | null,
   };
@@ -189,6 +191,7 @@ export class CheckerController {
       tradesCount: document.querySelector("#leadTradesCount"),
       totalVolume: document.querySelector("#leadTotalVolume"),
       realizedPnl: document.querySelector("#leadRealizedPnl"),
+      totalFunding: document.querySelector("#leadTotalFunding"),
       totalFees: document.querySelector("#leadTotalFees"),
       dateRange: document.querySelector("#leadDateRange"),
     };
@@ -661,23 +664,40 @@ export class CheckerController {
   }
 
   private recalculateAndRender(): void {
-    if (this.activeDateFilter) {
-      this.rawTrades = this.allRawTrades.filter((t) =>
-        isTradeInDateRange(normalizeTimestampMs(t.timestamp), this.activeDateFilter),
-      );
-    } else {
-      this.rawTrades = this.allRawTrades;
-    }
-
-    sortTradesChronologicalDesc(this.rawTrades);
     const accQuery =
       this.soloAccountIndices.length > 0
         ? this.soloAccountIndices
         : (this.resolvedAccountIndex ?? 0);
 
-    this.parsedTrades = this.rawTrades.map((t) => parseTradeForView(t, accQuery, this.marketMap));
+    // Parse all raw trades and compute accurate position funding history across full lifecycle
+    const allParsed = this.allRawTrades.map((t) => parseTradeForView(t, accQuery, this.marketMap));
+    const fundingResult = processTradesFundingHistory(
+      allParsed,
+      this.soloStitched?.funding_history,
+    );
+
+    // Apply date filter if active
+    if (this.activeDateFilter) {
+      this.parsedTrades = allParsed.filter((t) =>
+        isTradeInDateRange(t.timestampMs, this.activeDateFilter),
+      );
+      this.rawTrades = this.allRawTrades.filter((t) =>
+        isTradeInDateRange(normalizeTimestampMs(t.timestamp), this.activeDateFilter),
+      );
+    } else {
+      this.parsedTrades = allParsed;
+      this.rawTrades = this.allRawTrades;
+    }
+
     sortParsedTradesChronologicalDesc(this.parsedTrades);
-    this.summaryMetrics = calculateTradeMetrics(this.rawTrades, accQuery);
+    sortTradesChronologicalDesc(this.rawTrades);
+
+    // Compute metrics with explicit funding sum for the active dataset
+    const filteredFundingUsd = fundingResult.hasFundingHistory
+      ? this.parsedTrades.reduce((sum, t) => sum + (t.fundingUsd ?? 0), 0)
+      : null;
+
+    this.summaryMetrics = calculateTradeMetrics(this.rawTrades, accQuery, filteredFundingUsd);
 
     this.updateExecutiveSummary();
     this.applyFilter();

@@ -16,10 +16,14 @@
     return;
   }
 
-  if (window.__LIGHTER_EXPORTER_ACTIVE__) {
-    alert("Lighter Trade Exporter is already running!");
-    return;
+  // 2. Clean up any existing instance or HUD element
+  const prevHud = document.getElementById("lighter-trade-exporter-hud");
+  if (prevHud) {
+    try {
+      prevHud.remove();
+    } catch {}
   }
+  delete window.__LIGHTER_EXPORTER_ACTIVE__;
   window.__LIGHTER_EXPORTER_ACTIVE__ = true;
 
   const isRh = host.includes("rh") || host.includes("robinhood");
@@ -217,7 +221,7 @@
   hud.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #1f2328;padding-bottom:8px;">
       <span style="font-size:11px;font-weight:700;letter-spacing:0.5px;color:#fff;text-transform:uppercase;">Lighter Trade Exporter</span>
-      <button id="lte-close-btn" style="background:transparent;border:0;color:#6e7681;cursor:pointer;font-size:14px;padding:0;margin-left:auto;line-height:1;">✕</button>
+      <button id="lte-close-btn" style="background:transparent;border:0;color:#6e7681;cursor:pointer;font-size:14px;padding:0;margin-left:auto;line-height:1;" title="Close and unload exporter (Esc)">✕</button>
     </div>
 
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0 6px 0;font-family:monospace;font-size:11px;">
@@ -285,13 +289,36 @@
   let isRunning = false;
   let isCancelled = false;
   let isClosed = false;
+  let abortController = new AbortController();
 
-  closeBtn.addEventListener("click", function () {
+  function destroyHud() {
     isClosed = true;
     isCancelled = true;
-    hud.remove();
+    try {
+      abortController.abort();
+    } catch {}
+    window.removeEventListener("keydown", onKeyDown);
+    try {
+      hud.remove();
+    } catch {}
+    const oldHud = document.getElementById("lighter-trade-exporter-hud");
+    if (oldHud) {
+      try {
+        oldHud.remove();
+      } catch {}
+    }
+    delete window.__LIGHTER_EXPORTER_ACTIVE__;
     window.__LIGHTER_EXPORTER_ACTIVE__ = false;
-  });
+  }
+
+  closeBtn.addEventListener("click", destroyHud);
+
+  function onKeyDown(e) {
+    if (e.key === "Escape" && !isClosed) {
+      destroyHud();
+    }
+  }
+  window.addEventListener("keydown", onKeyDown);
 
   stopBtn.addEventListener("click", function () {
     isCancelled = true;
@@ -366,8 +393,14 @@
       if (isCancelled || isClosed) throw new Error("Export cancelled by user");
       let res;
       try {
-        res = await fetch(url, options);
+        res = await fetch(url, {
+          ...options,
+          signal: abortController.signal,
+        });
       } catch (err) {
+        if (isCancelled || isClosed || err?.name === "AbortError") {
+          throw new Error("Export cancelled by user", { cause: err });
+        }
         if (attempt < 3 && !isCancelled && !isClosed) {
           statusDiv.style.color = "#d29922";
           statusDiv.textContent =
@@ -476,11 +509,12 @@
 
     isRunning = true;
     isCancelled = false;
+    abortController = new AbortController();
     startBtn.style.display = "none";
     last100Btn.style.display = "none";
     stopBtn.style.display = "block";
     progressWrap.style.display = "block";
-    progressBar.style.width = isLimit100 ? "25%" : "5%";
+    progressBar.style.width = isLimit100 ? "10%" : "4%";
     statusDiv.style.color = "#58a6ff";
     statusDiv.textContent = isLimit100
       ? "Fetching last 100 trades..."
@@ -506,7 +540,11 @@
     if (wafToken) {
       reqHeaders["x-aws-waf-token"] = wafToken;
     }
-    const fetchOptions = { headers: reqHeaders, credentials: "omit" };
+    const fetchOptions = {
+      headers: reqHeaders,
+      credentials: "omit",
+      signal: abortController.signal,
+    };
 
     // 3. Chunked streaming to Blob: index 0 reserved for JSON metadata header
     const tradeChunks = [""];
@@ -592,40 +630,134 @@
           totalTradesCount += pageSlimmed.length;
         }
 
-        // UI Throttling: limit DOM layout/style recalculation to ~4 times/sec
+        // UI Throttling: Phase 1 (Trades) occupies 0% -> 50% of total progress
         const now = Date.now();
-        if (now - lastUiUpdate > 250) {
+        if (now - lastUiUpdate > 200) {
           lastUiUpdate = now;
           const estProgress = isLimit100
-            ? Math.min(95, Math.round((totalTradesCount / 100) * 90))
-            : Math.min(92, 5 + Math.round((1 - Math.exp(-page / 40)) * 87));
+            ? Math.min(48, Math.round((totalTradesCount / 100) * 44) + 4)
+            : Math.min(48, 4 + Math.round((1 - Math.exp(-page / 6)) * 44));
           progressBar.style.width = estProgress + "%";
           statusDiv.textContent = isLimit100
-            ? "Fetched " + totalTradesCount + "/100 trades..."
-            : "Fetching page " + page + " (" + totalTradesCount.toLocaleString() + " trades)...";
+            ? "Fetching trades: " + totalTradesCount + "/100..."
+            : "Fetching trades: page " +
+              page +
+              " (" +
+              totalTradesCount.toLocaleString() +
+              " trades)...";
         }
       }
 
       // Immediately release Set memory before finalizing export
       seenIds.clear();
 
-      if (isClosed) {
+      if (isClosed || isCancelled) {
         tradeChunks.length = 0;
         return;
       }
 
-      progressBar.style.width = "100%";
-      const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-      const isTruncated = totalTradesCount >= targetCap && (hasMoreAfterCap || Boolean(cursor));
-
       if (totalTradesCount === 0) {
         tradeChunks.length = 0;
+        progressBar.style.width = "100%";
         statusDiv.style.color = "#d29922";
         statusDiv.textContent = isCancelled
           ? "Export cancelled."
           : "No trades found for Account #" + acc + ".";
       } else {
+        // Phase 1 finished at exactly 50%
+        progressBar.style.width = "50%";
+        statusDiv.style.color = "#8b949e";
+        statusDiv.textContent =
+          "Trades fetched (" +
+          totalTradesCount.toLocaleString() +
+          "). Fetching position funding history...";
+
+        // Fetch account positions and funding summary
+        let accountPositions = null;
+        let accountFunding = null;
+        try {
+          const accRes = await fetch(apiBase + "/account?by=index&value=" + acc, {
+            signal: abortController.signal,
+          });
+          if (accRes.ok) {
+            const accData = await accRes.json();
+            const accObj = accData?.account || accData?.sub_accounts?.[0] || accData;
+            if (accObj?.positions && Array.isArray(accObj.positions)) {
+              accountPositions = accObj.positions;
+              let totFund = 0;
+              const byMarket = {};
+              for (const p of accountPositions) {
+                const sym = String(p.symbol || p.market_symbol || p.market_id || "").toUpperCase();
+                const paid = Number(p.total_funding_paid_out) || 0;
+                totFund += paid;
+                if (sym) {
+                  byMarket[sym] = (byMarket[sym] || 0) + paid;
+                }
+              }
+              accountFunding = {
+                totalFundingUsd: totFund,
+                byMarketUsd: byMarket,
+                positions: accountPositions,
+              };
+            }
+          }
+        } catch {}
+
+        // Fetch hourly position funding history (requires auth)
+        // Phase 2 (Funding): advances smoothly from 50% up to 96%
+        const fundingRecords = [];
+        try {
+          let fundCursor = "";
+          let fundPage = 0;
+          const maxFundPages = 50; // up to 5,000 hourly funding records
+          while (fundPage < maxFundPages && !isCancelled && !isClosed) {
+            fundPage++;
+            const fundUrl =
+              apiBase +
+              "/positionFunding?account_index=" +
+              acc +
+              "&limit=100" +
+              (fundCursor ? "&cursor=" + encodeURIComponent(fundCursor) : "");
+            const fRes = await fetchWithRetry(fundUrl, fetchOptions).catch(() => null);
+            if (!fRes || !fRes.ok || isCancelled || isClosed) break;
+            const fData = await fRes.json().catch(() => null);
+            if (!fData || (fData.code !== 200 && fData.code !== 0 && fData.code !== undefined))
+              break;
+            const list = fData.position_fundings || fData.data || fData.funding_history || [];
+            if (!Array.isArray(list) || list.length === 0) break;
+            for (let i = 0; i < list.length; i++) {
+              fundingRecords.push(list[i]);
+            }
+
+            const fundProgress = Math.min(96, 50 + Math.round((1 - Math.exp(-fundPage / 6)) * 46));
+            progressBar.style.width = fundProgress + "%";
+            statusDiv.textContent =
+              "Fetching funding: page " +
+              fundPage +
+              " (" +
+              fundingRecords.length.toLocaleString() +
+              " records)...";
+
+            const nextCur = fData.next_cursor || fData.cursor;
+            if (!nextCur || nextCur === fundCursor) break;
+            fundCursor = nextCur;
+          }
+        } catch (e) {
+          if (!isCancelled && !isClosed) {
+            console.warn("[Lighter Exporter] positionFunding fetch error:", e);
+          }
+        }
+
+        if (isClosed || isCancelled) {
+          tradeChunks.length = 0;
+          return;
+        }
+
+        progressBar.style.width = "98%";
+        statusDiv.textContent = "Packaging JSON export file...";
+
         // Zero-copy Blob assembly: header placed at index 0 without running massive JSON.stringify
+        const isTruncated = totalTradesCount >= targetCap && (hasMoreAfterCap || Boolean(cursor));
         const headerJson =
           JSON.stringify({
             version: "1.0",
@@ -637,6 +769,9 @@
             total_trades: totalTradesCount,
             truncated: isTruncated,
             row_cap: targetCap,
+            positions: accountPositions || undefined,
+            funding: accountFunding || undefined,
+            funding_history: fundingRecords.length > 0 ? fundingRecords : undefined,
           }).slice(0, -1) + ',"trades":[';
 
         tradeChunks[0] = headerJson;
@@ -661,11 +796,20 @@
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(dlUrl), 15000);
 
+        progressBar.style.width = "100%";
+        const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
+        statusDiv.style.color = "#2ea043";
+
+        const fundCountStr =
+          fundingRecords.length > 0
+            ? " & " + fundingRecords.length.toLocaleString() + " funding records"
+            : "";
         if (isLimit100) {
-          statusDiv.style.color = "#2ea043";
           statusDiv.textContent =
             totalTradesCount.toLocaleString() +
-            " recent trades exported (" +
+            " recent trades" +
+            fundCountStr +
+            " exported (" +
             durationSec +
             "s). File downloaded.";
         } else if (isTruncated) {
@@ -677,10 +821,11 @@
             durationSec +
             "s). Earliest history truncated.";
         } else {
-          statusDiv.style.color = "#2ea043";
           statusDiv.textContent =
             totalTradesCount.toLocaleString() +
-            " trades exported (" +
+            " trades" +
+            fundCountStr +
+            " exported (" +
             durationSec +
             "s). File downloaded.";
         }

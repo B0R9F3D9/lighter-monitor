@@ -117,12 +117,18 @@ export function aggregateTradesByOrder(trades: ParsedTradeView[]): ParsedTradeVi
     let totalUsdValue = 0;
     let totalRealizedPnl = 0;
     let totalFeeUsd = 0;
+    let totalFundingUsd: number | null = null;
+    let hasGroupFunding = false;
 
     for (const fill of group) {
       totalSize += fill.size;
       totalUsdValue += fill.usdValue;
       totalRealizedPnl += fill.realizedPnl;
       totalFeeUsd += fill.feeUsd;
+      if (fill.fundingUsd !== null && fill.fundingUsd !== undefined) {
+        totalFundingUsd = (totalFundingUsd || 0) + fill.fundingUsd;
+        hasGroupFunding = true;
+      }
     }
 
     const vwapPrice = totalSize > 0 ? totalUsdValue / totalSize : leadTrade.price;
@@ -147,6 +153,7 @@ export function aggregateTradesByOrder(trades: ParsedTradeView[]): ParsedTradeVi
       usdValue: totalUsdValue,
       realizedPnl: totalRealizedPnl,
       feeUsd: totalFeeUsd,
+      fundingUsd: hasGroupFunding ? totalFundingUsd : null,
       txHash: leadTrade.txHash,
       txHashShort: leadTrade.txHashShort,
       fillsCount: group.length,
@@ -346,8 +353,27 @@ export function matchHedgeTrades(
             : 0;
         const totalFeesUsd = rhFeePro + coreFeePro;
 
-        // Net PnL in USD (positive = profit, negative = loss)
-        const netPnlUsd = pricePnlUsd - totalFeesUsd;
+        // Pro-rated funding based on matched size
+        const rhHasFunding =
+          rhItem.trade.fundingUsd !== null && rhItem.trade.fundingUsd !== undefined;
+        const coreHasFunding =
+          bestCandidate.trade.fundingUsd !== null && bestCandidate.trade.fundingUsd !== undefined;
+
+        const rhFundingPro =
+          rhHasFunding && rhItem.trade.size > 0
+            ? (rhItem.trade.fundingUsd! / rhItem.trade.size) * matchedSize
+            : null;
+        const coreFundingPro =
+          coreHasFunding && bestCandidate.trade.size > 0
+            ? (bestCandidate.trade.fundingUsd! / bestCandidate.trade.size) * matchedSize
+            : null;
+        const totalFundingUsd =
+          rhFundingPro !== null || coreFundingPro !== null
+            ? (rhFundingPro || 0) + (coreFundingPro || 0)
+            : null;
+
+        // Net PnL in USD (positive = profit, negative = loss): Slippage + Funding - Fees
+        const netPnlUsd = pricePnlUsd + (totalFundingUsd ?? 0) - totalFeesUsd;
 
         const notionalUsd = matchedSize * ((rhItem.trade.price + bestCandidate.trade.price) / 2);
         const pnlBps = notionalUsd > 0 ? (netPnlUsd / notionalUsd) * 10000 : 0;
@@ -370,6 +396,7 @@ export function matchHedgeTrades(
           rhPrice: rhItem.trade.price,
           rhSize: rhItem.trade.size,
           rhFeeUsd: rhFeePro,
+          rhFundingUsd: rhFundingPro,
           rhTimestampMs: rhItem.trade.timestampMs,
           rhTimeFormatted: rhItem.trade.timeFormatted,
           rhTxHash: rhItem.trade.txHash,
@@ -381,6 +408,7 @@ export function matchHedgeTrades(
           corePrice: bestCandidate.trade.price,
           coreSize: bestCandidate.trade.size,
           coreFeeUsd: coreFeePro,
+          coreFundingUsd: coreFundingPro,
           coreTimestampMs: bestCandidate.trade.timestampMs,
           coreTimeFormatted: bestCandidate.trade.timeFormatted,
           coreTxHash: bestCandidate.trade.txHash,
@@ -391,6 +419,7 @@ export function matchHedgeTrades(
           priceDelta,
           pricePnlUsd,
           totalFeesUsd,
+          totalFundingUsd,
           netPnlUsd,
           notionalUsd,
           pnlBps,
@@ -426,6 +455,12 @@ export function matchHedgeTrades(
             rhItem.trade.size > 0
               ? (rhItem.trade.feeUsd / rhItem.trade.size) * rhItem.remainingSize
               : 0,
+          fundingUsd:
+            rhItem.trade.fundingUsd !== null &&
+            rhItem.trade.fundingUsd !== undefined &&
+            rhItem.trade.size > 0
+              ? (rhItem.trade.fundingUsd / rhItem.trade.size) * rhItem.remainingSize
+              : null,
           timestampMs: rhItem.trade.timestampMs,
           timeFormatted: rhItem.trade.timeFormatted,
           txHash: rhItem.trade.txHash,
@@ -453,6 +488,12 @@ export function matchHedgeTrades(
             coreItem.trade.size > 0
               ? (coreItem.trade.feeUsd / coreItem.trade.size) * coreItem.remainingSize
               : 0,
+          fundingUsd:
+            coreItem.trade.fundingUsd !== null &&
+            coreItem.trade.fundingUsd !== undefined &&
+            coreItem.trade.size > 0
+              ? (coreItem.trade.fundingUsd / coreItem.trade.size) * coreItem.remainingSize
+              : null,
           timestampMs: coreItem.trade.timestampMs,
           timeFormatted: coreItem.trade.timeFormatted,
           txHash: coreItem.trade.txHash,
@@ -501,6 +542,10 @@ export function calculateHedgeMetrics(
   let totalNetPnlUsd = 0;
   let totalPricePnlUsd = 0;
   let totalFeesUsd = 0;
+  let rhTotalFundingUsd: number | null = null;
+  let coreTotalFundingUsd: number | null = null;
+  let totalFundingUsd: number | null = null;
+  let hasAnyFunding = false;
   let bestPairPnlUsd = pairs.length > 0 ? -Infinity : 0;
   let worstPairPnlUsd = pairs.length > 0 ? Infinity : 0;
   let firstTradeTime: number | null = null;
@@ -511,6 +556,18 @@ export function calculateHedgeMetrics(
     totalNetPnlUsd += p.netPnlUsd;
     totalPricePnlUsd += p.pricePnlUsd;
     totalFeesUsd += p.totalFeesUsd;
+    if (p.rhFundingUsd !== null && p.rhFundingUsd !== undefined) {
+      rhTotalFundingUsd = (rhTotalFundingUsd || 0) + p.rhFundingUsd;
+      hasAnyFunding = true;
+    }
+    if (p.coreFundingUsd !== null && p.coreFundingUsd !== undefined) {
+      coreTotalFundingUsd = (coreTotalFundingUsd || 0) + p.coreFundingUsd;
+      hasAnyFunding = true;
+    }
+    if (p.totalFundingUsd !== null && p.totalFundingUsd !== undefined) {
+      totalFundingUsd = (totalFundingUsd || 0) + p.totalFundingUsd;
+      hasAnyFunding = true;
+    }
 
     if (p.netPnlUsd > bestPairPnlUsd) bestPairPnlUsd = p.netPnlUsd;
     if (p.netPnlUsd < worstPairPnlUsd) worstPairPnlUsd = p.netPnlUsd;
@@ -535,8 +592,20 @@ export function calculateHedgeMetrics(
   for (const u of unhedged) {
     unhedgedVolumeUsd += u.usdValue;
     totalFeesUsd += u.feeUsd; // Include unhedged trades' fees in total fees
-    if (u.network === "RH") unhedgedRhCount++;
-    else unhedgedCoreCount++;
+    if (u.fundingUsd !== null && u.fundingUsd !== undefined) {
+      hasAnyFunding = true;
+      totalFundingUsd = (totalFundingUsd || 0) + u.fundingUsd;
+      if (u.network === "RH") {
+        rhTotalFundingUsd = (rhTotalFundingUsd || 0) + u.fundingUsd;
+      } else {
+        coreTotalFundingUsd = (coreTotalFundingUsd || 0) + u.fundingUsd;
+      }
+    }
+    if (u.network === "RH") {
+      unhedgedRhCount++;
+    } else {
+      unhedgedCoreCount++;
+    }
 
     if (firstTradeTime === null || u.timestampMs < firstTradeTime) {
       firstTradeTime = u.timestampMs;
@@ -546,6 +615,10 @@ export function calculateHedgeMetrics(
     }
   }
 
+  // Total Net PnL = Slippage (price delta PnL) + Funding - Fees
+  const totalFundingComponent = hasAnyFunding && totalFundingUsd !== null ? totalFundingUsd : 0;
+  totalNetPnlUsd = totalPricePnlUsd + totalFundingComponent - totalFeesUsd;
+
   const avgPnlBps = totalHedgedVolumeUsd > 0 ? (totalNetPnlUsd / totalHedgedVolumeUsd) * 10000 : 0;
 
   return {
@@ -554,6 +627,9 @@ export function calculateHedgeMetrics(
     totalNetPnlUsd,
     totalPricePnlUsd,
     totalFeesUsd,
+    totalFundingUsd: hasAnyFunding ? totalFundingUsd : null,
+    rhTotalFundingUsd: hasAnyFunding ? rhTotalFundingUsd : null,
+    coreTotalFundingUsd: hasAnyFunding ? coreTotalFundingUsd : null,
     avgPnlBps,
     bestPairPnlUsd,
     worstPairPnlUsd,
@@ -584,6 +660,8 @@ export function calculateSelectedHedgeMetrics(
   let totalNetPnlUsd = 0;
   let totalPricePnlUsd = 0;
   let totalFeesUsd = 0;
+  let totalFundingUsd: number | null = null;
+  let hasSelectedFunding = false;
   let totalMatchedSize = 0;
   let totalBuyProduct = 0;
   let totalSellProduct = 0;
@@ -596,6 +674,10 @@ export function calculateSelectedHedgeMetrics(
     totalNetPnlUsd += p.netPnlUsd;
     totalPricePnlUsd += p.pricePnlUsd;
     totalFeesUsd += p.totalFeesUsd;
+    if (p.totalFundingUsd !== null && p.totalFundingUsd !== undefined) {
+      totalFundingUsd = (totalFundingUsd || 0) + p.totalFundingUsd;
+      hasSelectedFunding = true;
+    }
     totalMatchedSize += p.matchedSize;
     totalBuyProduct += p.buyPrice * p.matchedSize;
     totalSellProduct += p.sellPrice * p.matchedSize;
@@ -608,8 +690,16 @@ export function calculateSelectedHedgeMetrics(
   for (const u of selectedUnhedged) {
     unhedgedVolumeUsd += u.usdValue;
     totalFeesUsd += u.feeUsd;
-    totalNetPnlUsd -= u.feeUsd;
+    if (u.fundingUsd !== null && u.fundingUsd !== undefined) {
+      totalFundingUsd = (totalFundingUsd || 0) + u.fundingUsd;
+      hasSelectedFunding = true;
+    }
   }
+
+  // Total Net PnL = Slippage + Funding - Fees
+  const selectedFundingComponent =
+    hasSelectedFunding && totalFundingUsd !== null ? totalFundingUsd : 0;
+  totalNetPnlUsd = totalPricePnlUsd + selectedFundingComponent - totalFeesUsd;
 
   const totalVolumeUsd = totalHedgedVolumeUsd + unhedgedVolumeUsd;
   const avgPnlBps = totalVolumeUsd > 0 ? (totalNetPnlUsd / totalVolumeUsd) * 10000 : 0;
@@ -632,6 +722,7 @@ export function calculateSelectedHedgeMetrics(
     totalNetPnlUsd,
     totalPricePnlUsd,
     totalFeesUsd,
+    totalFundingUsd,
     avgPnlBps,
     totalMatchedSize,
     weightedPriceDelta,
@@ -724,6 +815,9 @@ export function exportHedgeReportToCsv(pairs: HedgePair[], unhedged: UnhedgedTra
     "RH Fee USD",
     "Core Fee USD",
     "Total Fees USD",
+    "RH Funding USD",
+    "Core Funding USD",
+    "Total Funding USD",
     "Net PnL USD",
     "Hedge PnL (bps)",
     "Time Delta Sec",
@@ -737,8 +831,11 @@ export function exportHedgeReportToCsv(pairs: HedgePair[], unhedged: UnhedgedTra
   for (const p of pairs) {
     const rhFills = p.rhFillsCount ?? 1;
     const coreFills = p.coreFillsCount ?? 1;
+    const rhFunding = p.rhFundingUsd != null ? p.rhFundingUsd.toFixed(4) : "--";
+    const coreFunding = p.coreFundingUsd != null ? p.coreFundingUsd.toFixed(4) : "--";
+    const totalFunding = p.totalFundingUsd != null ? p.totalFundingUsd.toFixed(4) : "--";
     rows.push(
-      `${p.id},${p.rhTimeFormatted},${p.coreTimeFormatted},${p.marketSymbol},${p.rhSide},${p.coreSide},${p.matchedSize.toFixed(4)},${p.rhPrice.toFixed(4)},${p.corePrice.toFixed(4)},${rhFills},${coreFills},${p.priceDelta.toFixed(4)},${p.notionalUsd.toFixed(2)},${p.pricePnlUsd.toFixed(4)},${p.rhFeeUsd.toFixed(4)},${p.coreFeeUsd.toFixed(4)},${p.totalFeesUsd.toFixed(4)},${p.netPnlUsd.toFixed(4)},${p.pnlBps.toFixed(2)},${p.timeDeltaSec.toFixed(2)},${p.status},${p.rhTradeId},${p.coreTradeId}`,
+      `${p.id},${p.rhTimeFormatted},${p.coreTimeFormatted},${p.marketSymbol},${p.rhSide},${p.coreSide},${p.matchedSize.toFixed(4)},${p.rhPrice.toFixed(4)},${p.corePrice.toFixed(4)},${rhFills},${coreFills},${p.priceDelta.toFixed(4)},${p.notionalUsd.toFixed(2)},${p.pricePnlUsd.toFixed(4)},${p.rhFeeUsd.toFixed(4)},${p.coreFeeUsd.toFixed(4)},${p.totalFeesUsd.toFixed(4)},${rhFunding},${coreFunding},${totalFunding},${p.netPnlUsd.toFixed(4)},${p.pnlBps.toFixed(2)},${p.timeDeltaSec.toFixed(2)},${p.status},${p.rhTradeId},${p.coreTradeId}`,
     );
   }
 
@@ -755,10 +852,13 @@ export function exportHedgeReportToCsv(pairs: HedgePair[], unhedged: UnhedgedTra
     const rhFee = isRh ? u.feeUsd.toFixed(4) : "0.0000";
     const coreFee = !isRh ? u.feeUsd.toFixed(4) : "0.0000";
     const totalFee = u.feeUsd.toFixed(4);
+    const rhFunding = isRh && u.fundingUsd != null ? u.fundingUsd.toFixed(4) : "--";
+    const coreFunding = !isRh && u.fundingUsd != null ? u.fundingUsd.toFixed(4) : "--";
+    const totalFunding = u.fundingUsd != null ? u.fundingUsd.toFixed(4) : "--";
     const rhTradeId = isRh ? u.tradeId : "--";
     const coreTradeId = !isRh ? u.tradeId : "--";
     rows.push(
-      `unhedged-${u.network}-${u.tradeId},${rhTime},${coreTime},${u.marketSymbol},${rhSide},${coreSide},${u.unhedgedSize.toFixed(4)},${rhPrice},${corePrice},${rhFills},${coreFills},--,${u.usdValue.toFixed(2)},--,${rhFee},${coreFee},${totalFee},--,--,--,UNHEDGED (${u.network}),${rhTradeId},${coreTradeId}`,
+      `unhedged-${u.network}-${u.tradeId},${rhTime},${coreTime},${u.marketSymbol},${rhSide},${coreSide},${u.unhedgedSize.toFixed(4)},${rhPrice},${corePrice},${rhFills},${coreFills},--,${u.usdValue.toFixed(2)},--,${rhFee},${coreFee},${totalFee},${rhFunding},${coreFunding},${totalFunding},--,--,--,UNHEDGED (${u.network}),${rhTradeId},${coreTradeId}`,
     );
   }
 

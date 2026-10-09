@@ -7,6 +7,8 @@ import {
   formatDisplayFileName,
   formatTimestampLocal,
   renderDailySummary,
+  updateHedgeExecutiveMetrics,
+  updateHedgeSelectionMetrics,
   updateIndividualAccountMetrics,
 } from "../web/src/checker/dom";
 import {
@@ -56,6 +58,7 @@ function createMockIndividualElements() {
     volume: { textContent: "" } as HTMLElement,
     realizedPnl: { textContent: "", className: "" } as HTMLElement,
     fees: { textContent: "" } as HTMLElement,
+    funding: { textContent: "", className: "", title: "" } as HTMLElement,
     unhedgedCount: { textContent: "", className: "" } as HTMLElement,
     avgOi: { textContent: "", className: "", title: "" } as HTMLElement,
     dailySummary: { innerHTML: "" } as HTMLElement,
@@ -67,6 +70,8 @@ const makeMockHedgePair = (
   notionalUsd: number,
   pricePnlUsd: number,
   totalFeesUsd: number,
+  rhFundingUsd = 0,
+  coreFundingUsd = 0,
 ) => ({
   id,
   marketSymbol: "AAPL",
@@ -76,6 +81,7 @@ const makeMockHedgePair = (
   rhPrice: 200,
   rhSize: 50,
   rhFeeUsd: totalFeesUsd / 2,
+  rhFundingUsd,
   rhTimestampMs: 1000,
   rhTimeFormatted: "10:00:00",
   rhTxHash: "0x1",
@@ -85,6 +91,7 @@ const makeMockHedgePair = (
   corePrice: 200,
   coreSize: 50,
   coreFeeUsd: totalFeesUsd / 2,
+  coreFundingUsd,
   coreTimestampMs: 1000,
   coreTimeFormatted: "10:00:00",
   coreTxHash: "0x2",
@@ -94,9 +101,10 @@ const makeMockHedgePair = (
   priceDelta: pricePnlUsd / 50,
   pricePnlUsd,
   totalFeesUsd,
-  netPnlUsd: pricePnlUsd - totalFeesUsd,
+  totalFundingUsd: rhFundingUsd + coreFundingUsd,
+  netPnlUsd: pricePnlUsd + (rhFundingUsd + coreFundingUsd) - totalFeesUsd,
   notionalUsd,
-  pnlBps: ((pricePnlUsd - totalFeesUsd) / notionalUsd) * 10000,
+  pnlBps: ((pricePnlUsd + (rhFundingUsd + coreFundingUsd) - totalFeesUsd) / notionalUsd) * 10000,
   timeDeltaSec: 0,
   status: "HEDGED" as const,
 });
@@ -1952,6 +1960,325 @@ describe("Hedge Matching Engine", () => {
       expect(els.dailySummary.innerHTML).not.toContain("Trades:");
       expect(els.dailySummary.innerHTML).toContain("1m");
       expect(els.dailySummary.innerHTML).toContain("text-terminal-accent");
+    });
+  });
+
+  describe("Funding Integration in Hedge Checker", () => {
+    it("pro-rates funding across 1-to-1 and partial matches in matchHedgeTrades", () => {
+      // RH BUY 10 AAPL with -$2.00 funding
+      const rhTrade = mockTrade({
+        tradeId: "rh-1",
+        side: "BUY",
+        size: 10,
+        price: 200,
+        fundingUsd: -2.0,
+        timestampMs: 1000,
+      });
+
+      // Core SELL 6 AAPL with +$0.60 funding
+      const coreTrade1 = mockTrade({
+        tradeId: "core-1",
+        side: "SELL",
+        size: 6,
+        price: 200,
+        fundingUsd: 0.6,
+        timestampMs: 1050,
+      });
+
+      // Core SELL 4 AAPL with +$0.40 funding
+      const coreTrade2 = mockTrade({
+        tradeId: "core-2",
+        side: "SELL",
+        size: 4,
+        price: 200,
+        fundingUsd: 0.4,
+        timestampMs: 1100,
+      });
+
+      const result = matchHedgeTrades([rhTrade], [coreTrade1, coreTrade2], 10, 20);
+
+      expect(result.pairs).toHaveLength(2);
+      expect(result.unhedged).toHaveLength(0);
+
+      // Pair matched with core-1 (size 6):
+      // RH share: 6/10 of -2.00 = -1.20 USD
+      // Core share: full 0.60 USD
+      const p1 = result.pairs.find((p) => p.coreTradeId === "core-1");
+      expect(p1).toBeDefined();
+      expect(p1!.rhFundingUsd).toBeCloseTo(-1.2, 4);
+      expect(p1!.coreFundingUsd).toBeCloseTo(0.6, 4);
+      expect(p1!.totalFundingUsd).toBeCloseTo(-0.6, 4);
+
+      // Pair matched with core-2 (size 4):
+      // RH share: 4/10 of -2.00 = -0.80 USD
+      // Core share: full 0.40 USD
+      const p2 = result.pairs.find((p) => p.coreTradeId === "core-2");
+      expect(p2).toBeDefined();
+      expect(p2!.rhFundingUsd).toBeCloseTo(-0.8, 4);
+      expect(p2!.coreFundingUsd).toBeCloseTo(0.4, 4);
+      expect(p2!.totalFundingUsd).toBeCloseTo(-0.4, 4);
+
+      // Aggregate summary metrics
+      expect(result.metrics.rhTotalFundingUsd).toBeCloseTo(-2.0, 4);
+      expect(result.metrics.coreTotalFundingUsd).toBeCloseTo(1.0, 4);
+      expect(result.metrics.totalFundingUsd).toBeCloseTo(-1.0, 4);
+      expect(result.metrics.totalNetPnlUsd).toBeCloseTo(-2.5, 4); // 0 slippage + -1.0 funding - 1.5 fees
+    });
+
+    it("assigns remaining pro-rated funding to unhedged trades", () => {
+      // RH BUY 10 AAPL with -$5.00 funding
+      const rhTrade = mockTrade({
+        tradeId: "rh-1",
+        side: "BUY",
+        size: 10,
+        price: 200,
+        fundingUsd: -5.0,
+      });
+
+      // Core SELL only 4 AAPL with +$1.00 funding
+      const coreTrade = mockTrade({
+        tradeId: "core-1",
+        side: "SELL",
+        size: 4,
+        price: 200,
+        fundingUsd: 1.0,
+      });
+
+      const result = matchHedgeTrades([rhTrade], [coreTrade], 10, 20);
+
+      expect(result.pairs).toHaveLength(1);
+      expect(result.unhedged).toHaveLength(1);
+
+      // Matched pair: size 4 => 4/10 * -5.0 = -2.0 USD RH funding
+      expect(result.pairs[0].matchedSize).toBe(4);
+      expect(result.pairs[0].rhFundingUsd).toBeCloseTo(-2.0, 4);
+      expect(result.pairs[0].coreFundingUsd).toBeCloseTo(1.0, 4);
+      expect(result.pairs[0].totalFundingUsd).toBeCloseTo(-1.0, 4);
+
+      // Unhedged leg: remaining size 6 => 6/10 * -5.0 = -3.0 USD RH funding
+      const unhedged = result.unhedged[0];
+      expect(unhedged.unhedgedSize).toBe(6);
+      expect(unhedged.fundingUsd).toBeCloseTo(-3.0, 4);
+
+      // Overall metrics sum both pair and unhedged funding
+      expect(result.metrics.rhTotalFundingUsd).toBeCloseTo(-5.0, 4);
+      expect(result.metrics.coreTotalFundingUsd).toBeCloseTo(1.0, 4);
+      expect(result.metrics.totalFundingUsd).toBeCloseTo(-4.0, 4);
+    });
+
+    it("aggregates totalFundingUsd in calculateSelectedHedgeMetrics", () => {
+      const p1 = makeMockHedgePair("p1", 1000, 10, 1, -0.5, 0.2);
+      const p2 = makeMockHedgePair("p2", 2000, 20, 2, -1.0, 0.3);
+
+      const unhedged = {
+        tradeId: "u1",
+        network: "RH" as const,
+        timeFormatted: "12:00:00",
+        timestampMs: 12000,
+        marketSymbol: "AAPL",
+        side: "BUY" as const,
+        role: "TAKER" as const,
+        originalSize: 5,
+        unhedgedSize: 5,
+        price: 200,
+        usdValue: 1000,
+        feeUsd: 0.5,
+        fundingUsd: -0.25,
+        txHash: "0x123",
+      };
+
+      const metrics = calculateSelectedHedgeMetrics([p1, p2], [unhedged]);
+
+      // p1 totalFunding: -0.3
+      // p2 totalFunding: -0.7
+      // unhedged totalFunding: -0.25
+      expect(metrics.totalFundingUsd).toBeCloseTo(-1.25, 4);
+      expect(metrics.totalNetPnlUsd).toBeCloseTo(30 - 1.25 - 3.5, 4);
+      expect(metrics.selectedCount).toBe(3);
+    });
+
+    it("exports RH Funding USD, Core Funding USD, and Total Funding USD to CSV", () => {
+      const p = makeMockHedgePair("p1", 2000, 5, 1, -1.5, 0.5);
+      const u = {
+        tradeId: "u1",
+        network: "CORE" as const,
+        timeFormatted: "12:00:00",
+        timestampMs: 12000,
+        marketSymbol: "AAPL",
+        side: "SELL" as const,
+        role: "MAKER" as const,
+        originalSize: 5,
+        unhedgedSize: 5,
+        price: 200,
+        usdValue: 1000,
+        feeUsd: 0.1,
+        fundingUsd: 0.75,
+        txHash: "0xcore",
+      };
+
+      const csv = exportHedgeReportToCsv([p], [u]);
+      const lines = csv.split("\n");
+
+      // Verify header columns
+      expect(lines[0]).toContain("RH Funding USD");
+      expect(lines[0]).toContain("Core Funding USD");
+      expect(lines[0]).toContain("Total Funding USD");
+
+      // Verify pair row
+      const pairLine = lines.find((l) => l.startsWith("p1,"));
+      expect(pairLine).toBeDefined();
+      expect(pairLine).toContain("-1.5000,0.5000,-1.0000");
+
+      // Verify unhedged row (Core unhedged leg => RH funding is --, Core funding is 0.7500, Total is 0.7500)
+      const unhedgedLine = lines.find((l) => l.startsWith("unhedged-CORE-u1,"));
+      expect(unhedgedLine).toBeDefined();
+      expect(unhedgedLine).toContain("--,0.7500,0.7500");
+    });
+
+    it("formats individual account funding correctly with signs, classes, and titles in DOM", () => {
+      const els = createMockIndividualElements();
+
+      // Case 1: Positive funding (received income)
+      updateIndividualAccountMetrics(
+        {
+          accountIndex: 31704,
+          network: "RH",
+          tradesCount: 10,
+          totalVolumeUsd: 50000,
+          realizedPnlUsd: 10,
+          totalFeesUsd: 2,
+          totalFundingUsd: 4.56,
+          unhedgedCount: 0,
+        },
+        els,
+      );
+
+      expect(els.funding.textContent).toBe("+$4.56");
+      expect(els.funding.className).toContain("text-terminal-emerald");
+      expect(els.funding.title).toContain("RH Net funding received: +$4.56");
+
+      // Case 2: Negative funding (paid expense)
+      updateIndividualAccountMetrics(
+        {
+          accountIndex: 749329,
+          network: "CORE",
+          tradesCount: 10,
+          totalVolumeUsd: 50000,
+          realizedPnlUsd: -5,
+          totalFeesUsd: 2,
+          totalFundingUsd: -12.34,
+          unhedgedCount: 0,
+        },
+        els,
+      );
+
+      expect(els.funding.textContent).toBe("-$12.34");
+      expect(els.funding.className).toContain("text-terminal-coral");
+      expect(els.funding.title).toContain("CORE Net funding paid: -$12.34");
+
+      // Case 3: Zero funding
+      updateIndividualAccountMetrics(
+        {
+          accountIndex: 749329,
+          network: "CORE",
+          tradesCount: 10,
+          totalVolumeUsd: 50000,
+          realizedPnlUsd: 0,
+          totalFeesUsd: 0,
+          totalFundingUsd: 0,
+          unhedgedCount: 0,
+        },
+        els,
+      );
+
+      expect(els.funding.textContent).toBe("$0.00");
+      expect(els.funding.className).toContain("text-terminal-muted");
+      expect(els.funding.title).toContain("CORE No funding paid/received");
+    });
+
+    it("formats hedge executive and selection funding metrics correctly in DOM", () => {
+      // Executive Lead Strip
+      const execFundingEl = { textContent: "", className: "", title: "" } as HTMLElement;
+      updateHedgeExecutiveMetrics(
+        {
+          rhAccountIndex: null,
+          coreAccountIndex: null,
+          rhTotalTrades: 5,
+          coreTotalTrades: 5,
+          totalPairs: 5,
+          totalHedgedVolumeUsd: 10000,
+          totalNetPnlUsd: 25,
+          totalPricePnlUsd: 30,
+          totalFeesUsd: 5,
+          totalFundingUsd: -1.75,
+          rhTotalFundingUsd: -2.5,
+          coreTotalFundingUsd: 0.75,
+          avgPnlBps: 25,
+          bestPairPnlUsd: 10,
+          worstPairPnlUsd: -2,
+          totalUnhedgedTrades: 0,
+          unhedgedVolumeUsd: 0,
+          unhedgedRhCount: 0,
+          unhedgedCoreCount: 0,
+          firstTradeTime: 1000,
+          lastTradeTime: 2000,
+        },
+        {
+          pairsCount: null,
+          netPnl: null,
+          pnlBps: null,
+          hedgedVolume: null,
+          slippage: null,
+          fees: null,
+          funding: execFundingEl,
+          unhedgedCount: null,
+        },
+      );
+
+      expect(execFundingEl.textContent).toBe("-$1.75");
+      expect(execFundingEl.className).toContain("text-terminal-coral");
+      expect(execFundingEl.title).toBe("Net Funding: -$1.75 (RH: -$2.50 / Core: +$0.75)");
+
+      // Selection Floating Card
+      const selFundingEl = { textContent: "", className: "", title: "" } as HTMLElement;
+      updateHedgeSelectionMetrics(
+        {
+          selectedCount: 2,
+          pairsCount: 2,
+          unhedgedCount: 0,
+          totalVolumeUsd: 4000,
+          totalNetPnlUsd: 10,
+          totalPricePnlUsd: 12,
+          totalFeesUsd: 2,
+          totalFundingUsd: 3.2,
+          avgPnlBps: 25,
+          totalMatchedSize: 20,
+          weightedPriceDelta: 0.1,
+          weightedPriceDeltaBps: 5,
+          weightedBuyPrice: 200,
+          weightedSellPrice: 200.1,
+          isSingleMarket: true,
+          marketSymbol: "AAPL",
+        },
+        {
+          selectionCard: null,
+          countBadge: null,
+          pairsCount: null,
+          volume: null,
+          netPnl: null,
+          pnlBps: null,
+          weightedDelta: null,
+          weightedDeltaBps: null,
+          slippage: null,
+          fees: null,
+          funding: selFundingEl,
+          unhedgedCount: null,
+        },
+      );
+
+      expect(selFundingEl.textContent).toBe("+$3.20");
+      expect(selFundingEl.className).toContain("text-terminal-emerald");
+      expect(selFundingEl.title).toBe("Selected Net Funding: +$3.20");
     });
   });
 });

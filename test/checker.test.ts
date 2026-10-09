@@ -259,4 +259,154 @@ describe("Checker: API & Calculations", () => {
     // 5,000 trades matched in under 150ms thanks to O(N+M) sliding window (instead of seconds)
     expect(elapsed).toBeLessThan(150);
   });
+
+  it("attributeFundingToTrades attributes account position funding proportionally to trades", async () => {
+    const { attributeFundingToTrades } = await import("../web/src/checker/api");
+
+    const trades: any[] = [
+      {
+        marketSymbol: "NVDA",
+        usdValue: 1000,
+        fundingUsd: 0,
+      },
+      {
+        marketSymbol: "NVDA",
+        usdValue: 3000,
+        fundingUsd: 0,
+      },
+      {
+        marketSymbol: "BTC",
+        usdValue: 5000,
+        fundingUsd: 0,
+      },
+    ];
+
+    const fundingSummary = {
+      totalFundingUsd: -4.0,
+      byMarketUsd: {
+        NVDA: -4.0, // trader paid $4.00 funding total on NVDA
+        BTC: 10.0, // trader received $10.00 funding on BTC
+      },
+    };
+
+    attributeFundingToTrades(trades, fundingSummary);
+
+    // NVDA total notional is 4000. Trade 1 has 1000/4000 = 25% -> -1.0
+    expect(trades[0].fundingUsd).toBeCloseTo(-1.0, 4);
+    // Trade 2 has 3000/4000 = 75% -> -3.0
+    expect(trades[1].fundingUsd).toBeCloseTo(-3.0, 4);
+    // BTC trade has 100% of BTC -> 10.0
+    expect(trades[2].fundingUsd).toBeCloseTo(10.0, 4);
+  });
+
+  it("calculateTradeMetrics sums totalFundingUsd across trades", () => {
+    const tradesWithFunding: LighterTrade[] = [
+      {
+        ...mockTrades[0],
+        total_funding_paid_out: "-1.50",
+      },
+      {
+        ...mockTrades[1],
+        funding: 0.5,
+      },
+    ];
+
+    const metrics = calculateTradeMetrics(tradesWithFunding, 12345);
+    expect(metrics.totalFundingUsd).toBeCloseTo(-1.0, 4);
+  });
+
+  it("processTradesFundingHistory correctly accumulates funding and assigns proportionally to position close", async () => {
+    const { processTradesFundingHistory } = await import("../web/src/checker/api");
+
+    const baseTime = 1700000000000;
+    const trades: any[] = [
+      {
+        tradeId: "t1",
+        timestampMs: baseTime,
+        marketId: 1,
+        marketSymbol: "ETH",
+        side: "BUY",
+        size: 2.0,
+        fundingUsd: null,
+      },
+      {
+        tradeId: "t2",
+        timestampMs: baseTime + 7200000, // 2 hours later
+        marketId: 1,
+        marketSymbol: "ETH",
+        side: "SELL",
+        size: 1.0, // Partial close: 50%
+        fundingUsd: null,
+      },
+      {
+        tradeId: "t3",
+        timestampMs: baseTime + 10800000, // 3 hours later
+        marketId: 1,
+        marketSymbol: "ETH",
+        side: "SELL",
+        size: 1.0, // Full close of remaining 50%
+        fundingUsd: null,
+      },
+    ];
+
+    const fundingHistory: any[] = [
+      {
+        funding_id: 1,
+        market_id: 1,
+        timestamp: baseTime + 3600000, // +1 hour: paid $4 funding
+        change: "-4.00",
+        rate: "0.0001",
+      },
+      {
+        funding_id: 2,
+        market_id: 1,
+        timestamp: baseTime + 9000000, // +2.5 hours: paid $2 funding
+        change: "-2.00",
+        rate: "0.0001",
+      },
+    ];
+
+    const res = processTradesFundingHistory(trades, fundingHistory);
+
+    expect(res.hasFundingHistory).toBe(true);
+    // Trade 1 is OPEN -> fundingUsd is null (displays —)
+    expect(trades[0].fundingUsd).toBeNull();
+    expect(trades[0].isClose).toBe(false);
+
+    // Trade 2 closes 1.0 out of 2.0 (50%). Accumulated funding before t2 was -4.00. 50% of -4.00 = -2.00.
+    expect(trades[1].fundingUsd).toBeCloseTo(-2.0, 4);
+    expect(trades[1].isClose).toBe(true);
+
+    // Trade 3 closes remaining 1.0. Prior remainder was -2.00, plus new funding of -2.00 = -4.00 total remainder.
+    // Closes 100% of remaining position -> -4.00.
+    expect(trades[2].fundingUsd).toBeCloseTo(-4.0, 4);
+    expect(trades[2].isClose).toBe(true);
+
+    // Total funding attributed to closing trades = -2.00 + -4.00 = -6.00
+    expect(res.totalFundingUsd).toBeCloseTo(-6.0, 4);
+  });
+
+  it("processTradesFundingHistory sets null funding and hasFundingHistory: false when no funding history is present", async () => {
+    const { processTradesFundingHistory } = await import("../web/src/checker/api");
+
+    const trades: any[] = [
+      { tradeId: "t1", timestampMs: 1000, marketId: 1, side: "BUY", size: 1.0 },
+      { tradeId: "t2", timestampMs: 2000, marketId: 1, side: "SELL", size: 1.0 },
+    ];
+
+    const res = processTradesFundingHistory(trades, undefined);
+    expect(res.hasFundingHistory).toBe(false);
+    expect(res.totalFundingUsd).toBeNull();
+    expect(trades[0].fundingUsd).toBeNull();
+    expect(trades[1].fundingUsd).toBeNull();
+  });
+
+  it("getBookmarkletHref generates valid javascript bookmarklet URI", async () => {
+    const { getBookmarkletHref } = await import("../web/src/checker/bookmarklet");
+
+    const href = getBookmarkletHref();
+    expect(href.startsWith("javascript:")).toBe(true);
+    expect(href.length).toBeGreaterThan(100);
+    expect(href).toContain("Lighter%20Trade%20Exporter");
+  });
 });

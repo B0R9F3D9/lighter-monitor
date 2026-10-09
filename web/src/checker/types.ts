@@ -38,9 +38,39 @@ export interface LighterTrade {
   taker_allocated_margin_usdc_before?: number;
   ask_order_version?: number;
   bid_order_version?: number;
+  funding?: number;
+  funding_fee?: number;
+  total_funding_paid_out?: number | string;
 }
 
 export type AccountQuery = number | number[] | Set<number>;
+
+export interface PositionFundingRecord {
+  timestamp: number;
+  market_id: number;
+  funding_id?: number;
+  change: string | number;
+  rate?: string | number;
+  position_size?: string | number;
+  position_side?: "long" | "short" | string;
+  discount?: string | number;
+}
+
+export interface AccountPositionFunding {
+  marketId: number;
+  symbol: string;
+  positionSize: number;
+  totalFundingPaidOut: number; // positive = earned/inflow, negative = paid/outflow
+}
+
+export interface AccountFundingSummary {
+  accountIndex: number;
+  network: CheckerNetwork;
+  totalFundingPaidOut: number;
+  positions: AccountPositionFunding[];
+  byMarketId: Map<number, number>;
+  bySymbol: Map<string, number>;
+}
 
 export interface ImportedTradesResult {
   trades: LighterTrade[];
@@ -53,6 +83,12 @@ export interface ImportedTradesResult {
   rowCap?: number;
   fileName?: string;
   nextCursor?: string;
+  positions?: any[];
+  totalFundingUsd?: number | null;
+  fundingByMarketId?: Map<number, number>;
+  fundingBySymbol?: Map<string, number>;
+  funding_history?: PositionFundingRecord[];
+  hasFundingHistory?: boolean;
 }
 
 export interface StitchedTradesResult {
@@ -65,6 +101,11 @@ export interface StitchedTradesResult {
   duplicateTradesCount: number;
   fileCount: number;
   fileNames: string[];
+  totalFundingUsd?: number | null;
+  fundingByMarketId?: Map<number, number>;
+  fundingBySymbol?: Map<string, number>;
+  funding_history?: PositionFundingRecord[];
+  hasFundingHistory?: boolean;
 }
 
 export interface CheckerSummaryMetrics {
@@ -72,6 +113,8 @@ export interface CheckerSummaryMetrics {
   totalVolumeUsd: number;
   totalRealizedPnl: number;
   totalFeesUsd: number;
+  totalFundingUsd?: number | null;
+  hasFundingHistory?: boolean;
   makerTradesCount: number;
   takerTradesCount: number;
   buyTradesCount: number;
@@ -99,6 +142,8 @@ export interface ParsedTradeView {
   usdValue: number;
   realizedPnl: number;
   feeUsd: number;
+  fundingUsd?: number | null;
+  isClose?: boolean;
   txHash: string;
   txHashShort: string;
   fillsCount?: number;
@@ -118,10 +163,14 @@ export interface ExportPayload {
   total_trades: number;
   truncated?: boolean;
   row_cap?: number;
+  positions?: any[];
+  total_funding_paid_out?: number;
+  funding_history?: PositionFundingRecord[];
   summary: {
     total_volume_usd: number;
     total_realized_pnl_usd: number;
     total_fees_usd: number;
+    total_funding_usd?: number | null;
     buy_trades_count: number;
     sell_trades_count: number;
     maker_trades_count: number;
@@ -144,6 +193,7 @@ export interface HedgePair {
   rhPrice: number;
   rhSize: number;
   rhFeeUsd: number;
+  rhFundingUsd?: number | null;
   rhTimestampMs: number;
   rhTimeFormatted: string;
   rhTxHash: string;
@@ -157,6 +207,7 @@ export interface HedgePair {
   corePrice: number;
   coreSize: number;
   coreFeeUsd: number;
+  coreFundingUsd?: number | null;
   coreTimestampMs: number;
   coreTimeFormatted: string;
   coreTxHash: string;
@@ -169,6 +220,7 @@ export interface HedgePair {
   priceDelta: number; // sellPrice - buyPrice
   pricePnlUsd: number; // (sellPrice - buyPrice) * matchedSize
   totalFeesUsd: number; // rhFeeUsd + coreFeeUsd
+  totalFundingUsd?: number | null; // rhFundingUsd + coreFundingUsd
   netPnlUsd: number; // pricePnlUsd - totalFeesUsd
   notionalUsd: number; // matchedSize * ((rhPrice + corePrice) / 2)
   pnlBps: number; // (netPnlUsd / notionalUsd) * 10000
@@ -190,6 +242,7 @@ export interface UnhedgedTrade {
   price: number;
   usdValue: number;
   feeUsd: number;
+  fundingUsd?: number | null;
   timestampMs: number;
   timeFormatted: string;
   txHash: string;
@@ -205,6 +258,7 @@ export interface SelectedHedgeMetrics {
   totalNetPnlUsd: number;
   totalPricePnlUsd: number;
   totalFeesUsd: number;
+  totalFundingUsd?: number | null;
   avgPnlBps: number;
   totalMatchedSize: number;
   weightedPriceDelta: number;
@@ -221,6 +275,9 @@ export interface HedgeSummaryMetrics {
   totalNetPnlUsd: number;
   totalPricePnlUsd: number;
   totalFeesUsd: number;
+  totalFundingUsd?: number | null;
+  rhTotalFundingUsd?: number | null;
+  coreTotalFundingUsd?: number | null;
   avgPnlBps: number;
   bestPairPnlUsd: number;
   worstPairPnlUsd: number;
@@ -275,6 +332,7 @@ export interface IndividualAccountMetrics {
   totalVolumeUsd: number;
   realizedPnlUsd: number;
   totalFeesUsd: number;
+  totalFundingUsd?: number | null;
   unhedgedCount: number;
   avgOiUsd?: number;
   avgOiDetails?: AccountAverageOiResult;
