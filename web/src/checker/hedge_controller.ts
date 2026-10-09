@@ -14,11 +14,9 @@ import {
   type ActiveDateFilter,
   createPresetDateFilter,
   findPresetById,
-  formatDateRangeFilterLabel,
   isTradeInDateRange,
   parseCustomDateRange,
   populatePresetSelect,
-  renderPromoWeeksGrid,
 } from "./date_filter";
 import {
   formatDisplayFileName,
@@ -206,15 +204,6 @@ export class HedgeController {
   private inputCustomHedgeDateFrom: HTMLInputElement | null = null;
   private inputCustomHedgeDateTo: HTMLInputElement | null = null;
   private btnApplyCustomHedgeDate: HTMLButtonElement | null = null;
-  private activeHedgeDateBadge: HTMLElement | null = null;
-  private activeHedgeDateBadgeText: HTMLElement | null = null;
-  private btnClearHedgeDateFilter: HTMLButtonElement | null = null;
-  private btnOpenHedgePromoModal: HTMLButtonElement | null = null;
-  private hedgePromoModal: HTMLElement | null = null;
-  private btnCloseHedgePromoModal: HTMLButtonElement | null = null;
-  private btnDismissHedgePromoModal: HTMLButtonElement | null = null;
-  private btnHedgePromoSelectAll: HTMLButtonElement | null = null;
-  private hedgePromoWeeksGrid: HTMLElement | null = null;
 
   public init(): void {
     this.cacheDomElements();
@@ -397,25 +386,6 @@ export class HedgeController {
     this.btnApplyCustomHedgeDate = document.getElementById(
       "btnApplyCustomHedgeDate",
     ) as HTMLButtonElement | null;
-    this.activeHedgeDateBadge = document.getElementById("activeHedgeDateBadge");
-    this.activeHedgeDateBadgeText = document.getElementById("activeHedgeDateBadgeText");
-    this.btnClearHedgeDateFilter = document.getElementById(
-      "btnClearHedgeDateFilter",
-    ) as HTMLButtonElement | null;
-    this.btnOpenHedgePromoModal = document.getElementById(
-      "btnOpenHedgePromoModal",
-    ) as HTMLButtonElement | null;
-    this.hedgePromoModal = document.getElementById("hedgePromoModal");
-    this.btnCloseHedgePromoModal = document.getElementById(
-      "btnCloseHedgePromoModal",
-    ) as HTMLButtonElement | null;
-    this.btnDismissHedgePromoModal = document.getElementById(
-      "btnDismissHedgePromoModal",
-    ) as HTMLButtonElement | null;
-    this.btnHedgePromoSelectAll = document.getElementById(
-      "btnHedgePromoSelectAll",
-    ) as HTMLButtonElement | null;
-    this.hedgePromoWeeksGrid = document.getElementById("hedgePromoWeeksGrid");
   }
 
   private handleBookmarkletClick(e: MouseEvent): void {
@@ -602,36 +572,11 @@ export class HedgeController {
       this.applyHedgeDateFilter();
     });
 
-    // Clear Date Filter
-    this.btnClearHedgeDateFilter?.addEventListener("click", () => {
-      this.activeHedgeDateFilter = null;
-      if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
-      if (this.inputCustomHedgeDateFrom) this.inputCustomHedgeDateFrom.value = "";
-      if (this.inputCustomHedgeDateTo) this.inputCustomHedgeDateTo.value = "";
-      this.customHedgeDateContainer?.classList.add("hidden");
-      this.applyHedgeDateFilter();
-    });
-
-    // 20-Weeks Promo Modal Controls
-    this.btnOpenHedgePromoModal?.addEventListener("click", () => this.openHedgePromoModal());
-    this.btnCloseHedgePromoModal?.addEventListener("click", () => this.closeHedgePromoModal());
-    this.btnDismissHedgePromoModal?.addEventListener("click", () => this.closeHedgePromoModal());
-    this.hedgePromoModal?.addEventListener("click", (e) => {
-      if (e.target === this.hedgePromoModal) this.closeHedgePromoModal();
-    });
-    this.btnHedgePromoSelectAll?.addEventListener("click", () => {
-      this.activeHedgeDateFilter = null;
-      if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
-      this.closeHedgePromoModal();
-      this.applyHedgeDateFilter();
-    });
-
     // Keyboard hotkeys
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (!this.exportModal?.classList.contains("hidden")) this.closeExportModal();
         if (!this.pasteModal?.classList.contains("hidden")) this.closePasteModal();
-        if (!this.hedgePromoModal?.classList.contains("hidden")) this.closeHedgePromoModal();
         if (this.selectedHedgeRowIds.size > 0) {
           this.selectedHedgeRowIds.clear();
           this.lastClickedHedgeRowId = null;
@@ -975,46 +920,9 @@ export class HedgeController {
     this.applyHedgeDateFilter();
   }
 
-  public openHedgePromoModal(): void {
-    if (this.hedgePromoWeeksGrid) {
-      renderPromoWeeksGrid(
-        this.hedgePromoWeeksGrid,
-        (preset) => {
-          this.activeHedgeDateFilter = createPresetDateFilter(preset);
-          if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = preset.id;
-          if (preset.startDateFormatted && this.inputCustomHedgeDateFrom) {
-            this.inputCustomHedgeDateFrom.value = preset.startDateFormatted;
-          }
-          if (preset.endDateFormatted && this.inputCustomHedgeDateTo) {
-            this.inputCustomHedgeDateTo.value = preset.endDateFormatted;
-          }
-          this.closeHedgePromoModal();
-          this.applyHedgeDateFilter();
-        },
-        this.activeHedgeDateFilter?.presetId,
-      );
-    }
-    this.hedgePromoModal?.classList.remove("hidden");
-  }
-
-  public closeHedgePromoModal(): void {
-    this.hedgePromoModal?.classList.add("hidden");
-  }
-
   private updateHedgeDateFilterUi(): void {
     if (this.selectHedgeDatePreset) {
       this.selectHedgeDatePreset.value = this.activeHedgeDateFilter?.presetId || "all";
-    }
-
-    if (this.activeHedgeDateFilter && this.activeHedgeDateFilter.presetId !== "all") {
-      this.activeHedgeDateBadge?.classList.remove("hidden");
-      if (this.activeHedgeDateBadgeText) {
-        this.activeHedgeDateBadgeText.textContent = formatDateRangeFilterLabel(
-          this.activeHedgeDateFilter,
-        );
-      }
-    } else {
-      this.activeHedgeDateBadge?.classList.add("hidden");
     }
 
     if (this.activeHedgeDateFilter?.isCustom) {
