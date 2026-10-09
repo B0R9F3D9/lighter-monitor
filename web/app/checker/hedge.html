@@ -1053,24 +1053,36 @@
                     />
                   </th>
                   <th class="py-2 px-2 font-semibold w-8">#</th>
-                  <th class="py-2 px-2 font-semibold">Time (RH)</th>
+                  <th
+                    class="py-2 px-2 font-semibold"
+                    title="Robinhood execution timestamp in your local browser timezone"
+                  >
+                    Time (RH)
+                  </th>
                   <th class="py-2 px-2 font-semibold">Market</th>
                   <th class="py-2 px-2 font-semibold">RH Leg</th>
                   <th class="py-2 px-2 font-semibold">Core Leg</th>
-                  <th class="py-2 px-2 font-semibold text-right">Size</th>
+                  <th
+                    class="py-2 px-2 font-semibold text-right"
+                    title="Matched size (and USD notional)"
+                  >
+                    Size
+                  </th>
                   <th class="py-2 px-2 font-semibold text-right">Δ Price</th>
-                  <th class="py-2 px-2 font-semibold text-right">Notional</th>
-                  <th class="py-2 px-2 font-semibold text-right">Slippage PnL</th>
                   <th class="py-2 px-2 font-semibold text-right">Fees</th>
-                  <th class="py-2 px-2 font-semibold text-right">Net PnL</th>
-                  <th class="py-2 px-2 font-semibold text-right">Hedge PnL</th>
+                  <th
+                    class="py-2 px-2 font-semibold text-right"
+                    title="Net Hedge PnL (Gross Slippage PnL in parentheses)"
+                  >
+                    Hedge PnL
+                  </th>
                   <th class="py-2 px-2 font-semibold text-right">Time Δ</th>
                   <th class="py-2 px-2 font-semibold text-center">Status</th>
                 </tr>
               </thead>
               <tbody id="hedgeTableBody" class="divide-y divide-terminal-borderSubtle">
                 <tr>
-                  <td colspan="15" class="py-12 text-center text-terminal-muted">
+                  <td colspan="12" class="py-12 text-center text-terminal-muted">
                     <div class="flex flex-col items-center justify-center gap-1.5">
                       <span class="text-terminal-secondary font-medium">No hedge pairs loaded</span>
                       <span class="text-[11px] text-terminal-muted">

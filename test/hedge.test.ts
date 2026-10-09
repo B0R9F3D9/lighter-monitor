@@ -2,8 +2,10 @@ import { describe, expect, it } from "bun:test";
 import { getStaticMarketMap, parseFeeUsd, parseTradeForView } from "../web/src/checker/api";
 import {
   formatCompactDuration,
+  formatCompactK,
   formatCompactUsd,
   formatDisplayFileName,
+  formatTimestampLocal,
   renderDailySummary,
   updateIndividualAccountMetrics,
 } from "../web/src/checker/dom";
@@ -1844,6 +1846,32 @@ describe("Hedge Matching Engine", () => {
       expect(formatCompactUsd(12500)).toBe("$12.5k");
       expect(formatCompactUsd(120000)).toBe("$120k");
       expect(formatCompactUsd(1250000)).toBe("$1.3M");
+    });
+
+    it("formats notional sizes in K/M compactly without extra cents (formatCompactK)", () => {
+      expect(formatCompactK(0)).toBe("0K");
+      expect(formatCompactK(undefined)).toBe("0K");
+      expect(formatCompactK(null)).toBe("0K");
+      expect(formatCompactK(25)).toBe("<0.1K");
+      expect(formatCompactK(100)).toBe("0.1K");
+      expect(formatCompactK(500)).toBe("0.5K");
+      expect(formatCompactK(1000)).toBe("1K");
+      expect(formatCompactK(1500)).toBe("1.5K");
+      expect(formatCompactK(25400)).toBe("25.4K");
+      expect(formatCompactK(100000)).toBe("100K");
+      expect(formatCompactK(1250000)).toBe("1.3M");
+      expect(formatCompactK(2000000)).toBe("2M");
+    });
+
+    it("formats timestamp into local browser date-time (formatTimestampLocal)", () => {
+      expect(formatTimestampLocal(0)).toBe("--");
+      expect(formatTimestampLocal(NaN)).toBe("--");
+      expect(formatTimestampLocal(null)).toBe("--");
+      const ts = 1727863200000;
+      const res = formatTimestampLocal(ts);
+      expect(res).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+      const d = new Date(ts);
+      expect(res).toContain(d.getFullYear().toString());
     });
   });
 

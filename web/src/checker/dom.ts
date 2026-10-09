@@ -17,10 +17,45 @@ function formatSmartSize(size: number): string {
   return size.toFixed(4);
 }
 
+function padZero(n: number): string {
+  return n.toString().padStart(2, "0");
+}
+
 function formatSimpleDateUtc(d: Date): string {
-  const month = (d.getUTCMonth() + 1).toString().padStart(2, "0");
-  const day = d.getUTCDate().toString().padStart(2, "0");
+  const month = padZero(d.getUTCMonth() + 1);
+  const day = padZero(d.getUTCDate());
   return `${d.getUTCFullYear()}-${month}-${day}`;
+}
+
+/**
+ * Formats a timestamp in milliseconds into local browser timezone YYYY-MM-DD HH:MM:SS.
+ */
+export function formatTimestampLocal(ms: number | undefined | null): string {
+  if (!ms || isNaN(ms)) return "--";
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${padZero(d.getMonth() + 1)}-${padZero(d.getDate())} ${padZero(d.getHours())}:${padZero(d.getMinutes())}:${padZero(d.getSeconds())}`;
+}
+
+/**
+ * Formats a USD notional amount compactly in thousands/millions (e.g. 0.1K, 1.5K, 25K, 1.2M)
+ * without extra cents, stripping trailing zero decimals for whole numbers.
+ */
+export function formatCompactK(val: number | undefined | null): string {
+  if (val === undefined || val === null || isNaN(val) || val <= 0) return "0K";
+  const abs = Math.abs(val);
+  if (abs >= 1e6) {
+    const m = abs / 1e6;
+    if (abs >= 1e8) return Math.round(m) + "M";
+    const str = m.toFixed(1);
+    return (str.endsWith(".0") ? str.slice(0, -2) : str) + "M";
+  }
+  if (abs >= 1e5) {
+    return Math.round(abs / 1e3) + "K";
+  }
+  const k = abs / 1e3;
+  if (k < 0.05) return "<0.1K";
+  const str = k.toFixed(1);
+  return (str.endsWith(".0") && abs >= 1e3 ? str.slice(0, -2) : str) + "K";
 }
 
 export function updateExecutiveMetrics(
@@ -235,25 +270,24 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
     priceDeltaHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${formatPrice(pair.priceDelta)}</span>`;
   }
 
-  let slippageHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
-  if (pair.pricePnlUsd > 0.0001) {
-    slippageHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${formatMoney(pair.pricePnlUsd)}</span>`;
-  } else if (pair.pricePnlUsd < -0.0001) {
-    slippageHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${formatMoney(pair.pricePnlUsd)}</span>`;
-  }
-
-  let netPnlHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
+  let netPnlStr = "$0.00";
+  let netPnlColor = "text-terminal-muted";
   if (pair.netPnlUsd > 0.0001) {
-    netPnlHtml = `<span class="text-terminal-emerald font-bold tabular-nums">+${formatMoney(pair.netPnlUsd)}</span>`;
+    netPnlStr = `+${formatMoney(pair.netPnlUsd)}`;
+    netPnlColor = "text-terminal-emerald";
   } else if (pair.netPnlUsd < -0.0001) {
-    netPnlHtml = `<span class="text-terminal-coral font-bold tabular-nums">${formatMoney(pair.netPnlUsd)}</span>`;
+    netPnlStr = formatMoney(pair.netPnlUsd);
+    netPnlColor = "text-terminal-coral";
   }
 
-  let bpsHtml = `<span class="text-terminal-muted tabular-nums">0.0 bps</span>`;
-  if (pair.pnlBps > 0.01) {
-    bpsHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${pair.pnlBps.toFixed(2)} bps</span>`;
-  } else if (pair.pnlBps < -0.01) {
-    bpsHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${pair.pnlBps.toFixed(2)} bps</span>`;
+  let slippageStr = "$0.00";
+  let slippageColor = "text-terminal-muted";
+  if (pair.pricePnlUsd > 0.0001) {
+    slippageStr = `+${formatMoney(pair.pricePnlUsd)}`;
+    slippageColor = "text-terminal-emerald";
+  } else if (pair.pricePnlUsd < -0.0001) {
+    slippageStr = formatMoney(pair.pricePnlUsd);
+    slippageColor = "text-terminal-coral";
   }
 
   const statusBadge =
@@ -262,6 +296,10 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
       : `<span class="text-terminal-amber font-semibold text-[11px]">PARTIAL</span>`;
 
   const timeDeltaStr = (pair.timeDeltaSec >= 0 ? "+" : "") + pair.timeDeltaSec.toFixed(1) + "s";
+  const localTime = pair.rhTimestampMs
+    ? formatTimestampLocal(pair.rhTimestampMs)
+    : pair.rhTimeFormatted;
+  const notionalK = formatCompactK(pair.notionalUsd);
 
   tr.innerHTML = `
     <td class="py-1.5 px-2 text-center w-7">
@@ -274,7 +312,7 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
       />
     </td>
     <td class="py-1.5 px-2 text-terminal-muted tabular-nums text-[11px]">${index}</td>
-    <td class="py-1.5 px-2 text-white whitespace-nowrap text-[11px]">${pair.rhTimeFormatted}</td>
+    <td class="py-1.5 px-2 text-white whitespace-nowrap text-[11px]" title="Local: ${localTime} | UTC: ${pair.rhTimeFormatted}">${localTime}</td>
     <td class="py-1.5 px-2 whitespace-nowrap">
       <span class="font-bold text-white">${pair.marketSymbol}</span>
     </td>
@@ -288,13 +326,16 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
       <span class="text-white tabular-nums ml-1">@ ${formatPrice(pair.corePrice)}</span>
       ${pair.coreFillsCount && pair.coreFillsCount > 1 ? `<span class="text-terminal-muted text-[10px] ml-1">(${pair.coreFillsCount} fills)</span>` : ""}
     </td>
-    <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatSmartSize(pair.matchedSize)}</td>
+    <td class="py-1.5 px-2 text-right whitespace-nowrap tabular-nums" title="Size: ${formatSmartSize(pair.matchedSize)} | Notional: ${formatMoney(pair.notionalUsd)}">
+      <span class="text-white font-medium">${formatSmartSize(pair.matchedSize)}</span>
+      <span class="text-terminal-muted text-[10px] font-normal ml-1">(${notionalK})</span>
+    </td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap">${priceDeltaHtml}</td>
-    <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatMoney(pair.notionalUsd)}</td>
-    <td class="py-1.5 px-2 text-right whitespace-nowrap">${slippageHtml}</td>
     <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${formatFee(pair.totalFeesUsd)}</td>
-    <td class="py-1.5 px-2 text-right whitespace-nowrap">${netPnlHtml}</td>
-    <td class="py-1.5 px-2 text-right whitespace-nowrap text-[11px]">${bpsHtml}</td>
+    <td class="py-1.5 px-2 text-right whitespace-nowrap" title="Net Hedge PnL: ${netPnlStr} (${pair.pnlBps.toFixed(2)} bps) | Gross Slippage: ${slippageStr} | Fees: ${formatFee(pair.totalFeesUsd)}">
+      <span class="${netPnlColor} font-bold tabular-nums">${netPnlStr}</span>
+      <span class="${slippageColor} text-[10px] tabular-nums font-normal ml-1">(${slippageStr})</span>
+    </td>
     <td class="py-1.5 px-2 text-right text-terminal-muted text-[11px] tabular-nums">${timeDeltaStr}</td>
     <td class="py-1.5 px-2 text-center whitespace-nowrap">${statusBadge}</td>
   `;
@@ -331,6 +372,11 @@ function createUnhedgedRow(
       ? `<span class="font-bold ${sideColor}">${trade.side}</span> <span class="text-white tabular-nums">@ ${formatPrice(trade.price)}</span>${trade.fillsCount && trade.fillsCount > 1 ? ` <span class="text-terminal-muted text-[10px]">(${trade.fillsCount} fills)</span>` : ""}`
       : `<span class="text-terminal-muted">--</span>`;
 
+  const localTime = trade.timestampMs
+    ? formatTimestampLocal(trade.timestampMs)
+    : trade.timeFormatted;
+  const notionalK = formatCompactK(trade.usdValue);
+
   tr.innerHTML = `
     <td class="py-1.5 px-2 text-center w-7">
       <input
@@ -342,19 +388,19 @@ function createUnhedgedRow(
       />
     </td>
     <td class="py-1.5 px-2 text-terminal-muted tabular-nums text-[11px]">${index}</td>
-    <td class="py-1.5 px-2 text-white whitespace-nowrap text-[11px]">${trade.timeFormatted}</td>
+    <td class="py-1.5 px-2 text-white whitespace-nowrap text-[11px]" title="Local: ${localTime} | UTC: ${trade.timeFormatted}">${localTime}</td>
     <td class="py-1.5 px-2 whitespace-nowrap">
       <span class="font-bold text-white">${trade.marketSymbol}</span>
     </td>
     <td class="py-1.5 px-2 whitespace-nowrap text-[11px]">${rhLegHtml}</td>
     <td class="py-1.5 px-2 whitespace-nowrap text-[11px]">${coreLegHtml}</td>
-    <td class="py-1.5 px-2 text-right text-terminal-coral tabular-nums font-semibold">${formatSmartSize(trade.unhedgedSize)}</td>
-    <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
-    <td class="py-1.5 px-2 text-right text-white tabular-nums">${formatMoney(trade.usdValue)}</td>
+    <td class="py-1.5 px-2 text-right whitespace-nowrap tabular-nums" title="Unhedged Size: ${formatSmartSize(trade.unhedgedSize)} | Notional: ${formatMoney(trade.usdValue)}">
+      <span class="text-terminal-coral font-semibold">${formatSmartSize(trade.unhedgedSize)}</span>
+      <span class="text-terminal-muted text-[10px] font-normal ml-1">(${notionalK})</span>
+    </td>
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
     <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${formatFee(trade.feeUsd)}</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted font-bold">--</td>
-    <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
     <td class="py-1.5 px-2 text-center whitespace-nowrap">
       <span class="text-terminal-coral font-bold text-[11px]">UNHEDGED (${trade.network})</span>
@@ -380,7 +426,7 @@ export function renderHedgeTable(
   if (totalItems === 0) {
     const emptyRow = document.createElement("tr");
     emptyRow.innerHTML = `
-      <td colspan="15" class="py-12 text-center text-terminal-muted">
+      <td colspan="12" class="py-12 text-center text-terminal-muted">
         <div class="flex flex-col items-center justify-center gap-1.5">
           <span class="text-terminal-secondary font-medium">No hedge pairs to display</span>
           <span class="text-[11px] text-terminal-muted">Upload both your Robinhood JSON and Core JSON files to compare and audit your hedge efficiency.</span>
@@ -410,7 +456,7 @@ export function renderHedgeTable(
   if (totalItems > limit) {
     const noticeRow = document.createElement("tr");
     noticeRow.innerHTML = `
-      <td colspan="15" class="py-2.5 text-center text-[11px] text-terminal-secondary bg-terminal-surface/40">
+      <td colspan="12" class="py-2.5 text-center text-[11px] text-terminal-secondary bg-terminal-surface/40">
         Showing first ${limit} of ${totalItems} records. Export CSV to analyze the complete dataset.
       </td>
     `;
