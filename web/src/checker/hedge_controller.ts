@@ -31,6 +31,7 @@ import {
   updateIndividualAccountMetrics,
 } from "./dom";
 import {
+  calculateAccountAverageOi,
   calculateHedgeMetrics,
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
@@ -287,6 +288,7 @@ export class HedgeController {
       slippage: document.getElementById("leadHedgeSlippage"),
       fees: document.getElementById("leadHedgeFees"),
       unhedgedCount: document.getElementById("leadHedgeUnhedgedCount"),
+      avgOi: document.getElementById("leadHedgeAvgOi"),
     };
 
     this.rhMetricElements = {
@@ -296,6 +298,7 @@ export class HedgeController {
       realizedPnl: document.getElementById("leadRhRealizedPnl"),
       fees: document.getElementById("leadRhFees"),
       unhedgedCount: document.getElementById("leadRhUnhedgedCount"),
+      avgOi: document.getElementById("leadRhAvgOi"),
     };
 
     this.coreMetricElements = {
@@ -305,6 +308,7 @@ export class HedgeController {
       realizedPnl: document.getElementById("leadCoreRealizedPnl"),
       fees: document.getElementById("leadCoreFees"),
       unhedgedCount: document.getElementById("leadCoreUnhedgedCount"),
+      avgOi: document.getElementById("leadCoreAvgOi"),
     };
 
     this.hedgeEmptyStatePanel = document.getElementById("hedgeEmptyStatePanel");
@@ -1085,12 +1089,17 @@ export class HedgeController {
   }
 
   private updateHedgeExecutiveSummary(): void {
-    updateHedgeExecutiveMetrics(this.hedgeMetrics, this.hedgeMetricElements);
-
     const rhMetrics = this.computeIndividualAccountMetrics("RH");
-    updateIndividualAccountMetrics(rhMetrics, this.rhMetricElements);
-
     const coreMetrics = this.computeIndividualAccountMetrics("CORE");
+
+    if (this.hedgeMetrics) {
+      this.hedgeMetrics.rhAvgOiUsd = rhMetrics.avgOiUsd;
+      this.hedgeMetrics.coreAvgOiUsd = coreMetrics.avgOiUsd;
+      this.hedgeMetrics.totalAvgOiUsd = (rhMetrics.avgOiUsd ?? 0) + (coreMetrics.avgOiUsd ?? 0);
+    }
+
+    updateHedgeExecutiveMetrics(this.hedgeMetrics, this.hedgeMetricElements);
+    updateIndividualAccountMetrics(rhMetrics, this.rhMetricElements);
     updateIndividualAccountMetrics(coreMetrics, this.coreMetricElements);
   }
 
@@ -1115,6 +1124,7 @@ export class HedgeController {
     }
 
     const unhedgedCount = this.unhedgedTrades.filter((u) => u.network === network).length;
+    const oiResult = calculateAccountAverageOi(trades, this.activeHedgeDateFilter);
 
     return {
       accountIndex,
@@ -1125,6 +1135,8 @@ export class HedgeController {
       realizedPnlUsd,
       totalFeesUsd,
       unhedgedCount,
+      avgOiUsd: oiResult.avgOiUsd,
+      avgOiDetails: oiResult,
     };
   }
 
@@ -1303,7 +1315,8 @@ export class HedgeController {
       }
       if (this.labelRhAccount) {
         this.labelRhAccount.textContent = "No files loaded";
-        this.labelRhAccount.className = "text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36";
+        this.labelRhAccount.className =
+          "text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36";
       }
       if (this.btnClearRh) this.btnClearRh.classList.add("hidden");
       if (this.fileInputRh) this.fileInputRh.value = "";
@@ -1328,7 +1341,8 @@ export class HedgeController {
       }
       if (this.labelCoreAccount) {
         this.labelCoreAccount.textContent = "No files loaded";
-        this.labelCoreAccount.className = "text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36";
+        this.labelCoreAccount.className =
+          "text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36";
       }
       if (this.btnClearCore) this.btnClearCore.classList.add("hidden");
       if (this.fileInputCore) this.fileInputCore.value = "";

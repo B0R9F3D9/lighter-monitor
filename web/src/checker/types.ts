@@ -236,6 +236,17 @@ export interface HedgeSummaryMetrics {
   coreTotalTrades: number;
   firstTradeTime: number | null;
   lastTradeTime: number | null;
+  totalAvgOiUsd?: number;
+  rhAvgOiUsd?: number;
+  coreAvgOiUsd?: number;
+}
+
+export interface AccountAverageOiResult {
+  avgOiUsd: number;
+  currentOpenOiUsd: number;
+  holdingDurationMs: number;
+  periodDurationMs: number;
+  projectedFullPeriodAvgOiUsd?: number;
 }
 
 export interface HedgeMatchingResult {
@@ -253,4 +264,6 @@ export interface IndividualAccountMetrics {
   realizedPnlUsd: number;
   totalFeesUsd: number;
   unhedgedCount: number;
+  avgOiUsd?: number;
+  avgOiDetails?: AccountAverageOiResult;
 }

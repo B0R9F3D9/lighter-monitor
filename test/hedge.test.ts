@@ -3,6 +3,7 @@ import { getStaticMarketMap, parseFeeUsd, parseTradeForView } from "../web/src/c
 import { formatDisplayFileName, updateIndividualAccountMetrics } from "../web/src/checker/dom";
 import {
   aggregateTradesByOrder,
+  calculateAccountAverageOi,
   calculateHedgeMetrics,
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
@@ -47,6 +48,7 @@ function createMockIndividualElements() {
     realizedPnl: { textContent: "", className: "" } as HTMLElement,
     fees: { textContent: "" } as HTMLElement,
     unhedgedCount: { textContent: "", className: "" } as HTMLElement,
+    avgOi: { textContent: "", className: "", title: "" } as HTMLElement,
   };
 }
 
@@ -1137,11 +1139,11 @@ describe("Hedge Matching Engine", () => {
       expect(w8Metrics.totalHedgedVolumeUsd).toBe(3005);
     });
 
-    it("respects exact Thursday 00:00:00.000 UTC snapshot boundary across week transitions", () => {
-      // Snapshot 1 boundary: Thursday, Aug 20, 2026 00:00:00.000 UTC
-      const boundaryMs = Date.UTC(2026, 7, 20, 0, 0, 0);
-      const justBeforeBoundary = boundaryMs - 1; // 23:59:59.999 UTC Aug 19 -> Week 1
-      const exactlyAtBoundary = boundaryMs; // 00:00:00.000 UTC Aug 20 -> Week 2
+    it("respects exact Friday 00:00:00.000 UTC snapshot boundary across week transitions", () => {
+      // Snapshot 1 boundary: Friday, Aug 21, 2026 00:00:00.000 UTC
+      const boundaryMs = Date.UTC(2026, 7, 21, 0, 0, 0);
+      const justBeforeBoundary = boundaryMs - 1; // 23:59:59.999 UTC Aug 20 -> Week 1
+      const exactlyAtBoundary = boundaryMs; // 00:00:00.000 UTC Aug 21 -> Week 2
 
       const week1Filter = createPresetDateFilter(findPresetById("week-1")!);
       const week2Filter = createPresetDateFilter(findPresetById("week-2")!);
@@ -1155,8 +1157,8 @@ describe("Hedge Matching Engine", () => {
 
     it("prevents cross-boundary trades from producing false unhedged records when matched globally", () => {
       // RH fills 2 seconds before snapshot; Core hedge executes 2 seconds after snapshot
-      const rhTimestamp = Date.UTC(2026, 7, 20, 0, 0, 0) - 2000; // Aug 19, 23:59:58 UTC (Week 1)
-      const coreTimestamp = Date.UTC(2026, 7, 20, 0, 0, 0) + 2000; // Aug 20, 00:00:02 UTC (Week 2)
+      const rhTimestamp = Date.UTC(2026, 7, 21, 0, 0, 0) - 2000; // Aug 20, 23:59:58 UTC (Week 1)
+      const coreTimestamp = Date.UTC(2026, 7, 21, 0, 0, 0) + 2000; // Aug 21, 00:00:02 UTC (Week 2)
 
       const rhTrade = mockTrade({
         tradeId: "rh-cross",
@@ -1205,6 +1207,7 @@ describe("Hedge Matching Engine", () => {
       expect(els.realizedPnl.textContent).toBe("$0.00");
       expect(els.fees.textContent).toBe("$0.00");
       expect(els.unhedgedCount.textContent).toBe("0");
+      expect(els.avgOi.textContent).toBe("$0.00");
     });
 
     it("renders formatted metrics accurately for a populated account", () => {
@@ -1218,6 +1221,7 @@ describe("Hedge Matching Engine", () => {
           realizedPnlUsd: 145.2,
           totalFeesUsd: 8.45,
           unhedgedCount: 3,
+          avgOiUsd: 12500.0,
         },
         els,
       );
@@ -1231,6 +1235,8 @@ describe("Hedge Matching Engine", () => {
       expect(els.fees.textContent).toBe("$8.45");
       expect(els.unhedgedCount.textContent).toBe("3");
       expect(els.unhedgedCount.className).toContain("text-terminal-coral");
+      expect(els.avgOi.textContent).toBe("$12.5K");
+      expect(els.avgOi.className).toContain("text-white");
     });
 
     it("handles multiple accounts and negative PnL gracefully", () => {
@@ -1245,6 +1251,7 @@ describe("Hedge Matching Engine", () => {
           realizedPnlUsd: -34.5,
           totalFeesUsd: 2.1,
           unhedgedCount: 0,
+          avgOiUsd: 0,
         },
         els,
       );
@@ -1257,6 +1264,333 @@ describe("Hedge Matching Engine", () => {
       expect(els.fees.textContent).toBe("$2.10");
       expect(els.unhedgedCount.textContent).toBe("0");
       expect(els.unhedgedCount.className).toContain("text-terminal-muted");
+      expect(els.avgOi.textContent).toBe("$0.00");
+    });
+  });
+
+  describe("Time-Weighted Average Open Interest (calculateAccountAverageOi)", () => {
+    it("returns 0 when no trades are provided", () => {
+      const res = calculateAccountAverageOi([], null);
+      expect(res.avgOiUsd).toBe(0);
+      expect(res.currentOpenOiUsd).toBe(0);
+      expect(res.periodDurationMs).toBe(0);
+    });
+
+    it("calculates exact time-weighted average for a 1-to-1 open and close within period", () => {
+      // Open 10 ETH at $2,000 ($20,000 OI) at t=1000
+      // Close 10 ETH at $2,000 ($0 OI) at t=3000 (held for 2000 ms)
+      // Range: [0, 4000] (duration 4000 ms).
+      // Expected: ($20,000 * 2000) / 4000 = $10,000
+      const t1 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 10,
+        price: 2000,
+        timestampMs: 1000,
+      });
+      const t2 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 10,
+        price: 2000,
+        timestampMs: 3000,
+      });
+
+      const filter = {
+        startTimestampMs: 0,
+        endTimestampMs: 4000,
+        presetId: "custom",
+      };
+
+      const res = calculateAccountAverageOi([t1, t2], filter, 5000);
+      expect(res.avgOiUsd).toBe(10000);
+      expect(res.currentOpenOiUsd).toBe(0);
+      expect(res.holdingDurationMs).toBe(2000);
+      expect(res.periodDurationMs).toBe(4000);
+    });
+
+    it("accurately handles scale-in (partial open) with VWAP entry price", () => {
+      // t=0: BUY 5 ETH at $2,000 -> pos=5, entry=2000, OI=$10,000
+      // t=1000: BUY 5 ETH at $3,000 -> pos=10, entry=(5*2000 + 5*3000)/10 = 2500, OI=$25,000
+      // t=3000: SELL 10 ETH at $3,000 -> pos=0, OI=$0
+      // Filter [0, 3000]:
+      // [0, 1000] (1000 ms): 10,000 -> 10,000,000
+      // [1000, 3000] (2000 ms): 25,000 -> 50,000,000
+      // Total integral = 60,000,000 / 3000 = $20,000
+      const t1 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 5,
+        price: 2000,
+        timestampMs: 0,
+      });
+      const t2 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 5,
+        price: 3000,
+        timestampMs: 1000,
+      });
+      const t3 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 10,
+        price: 3000,
+        timestampMs: 3000,
+      });
+
+      const filter = {
+        startTimestampMs: 0,
+        endTimestampMs: 3000,
+        presetId: "custom",
+      };
+
+      const res = calculateAccountAverageOi([t1, t2, t3], filter, 4000);
+      expect(res.avgOiUsd).toBe(20000);
+      expect(res.currentOpenOiUsd).toBe(0);
+    });
+
+    it("accurately handles scale-out (partial close) preserving entry price", () => {
+      // t=0: BUY 10 ETH at $2,000 -> pos=10, entry=2000, OI=$20,000
+      // t=2000: SELL 4 ETH at $2,200 (partial close) -> pos=6, entry=2000, OI=$12,000
+      // t=4000: SELL 6 ETH at $2,400 (full close) -> pos=0, OI=$0
+      // Filter [0, 4000]:
+      // [0, 2000] (2000 ms): 20,000 -> 40,000,000
+      // [2000, 4000] (2000 ms): 12,000 -> 24,000,000
+      // Total integral = 64,000,000 / 4000 = $16,000
+      const t1 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 10,
+        price: 2000,
+        timestampMs: 0,
+      });
+      const t2 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 4,
+        price: 2200,
+        timestampMs: 2000,
+      });
+      const t3 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 6,
+        price: 2400,
+        timestampMs: 4000,
+      });
+
+      const filter = {
+        startTimestampMs: 0,
+        endTimestampMs: 4000,
+        presetId: "custom",
+      };
+
+      const res = calculateAccountAverageOi([t1, t2, t3], filter, 5000);
+      expect(res.avgOiUsd).toBe(16000);
+      expect(res.currentOpenOiUsd).toBe(0);
+    });
+
+    it("handles position carried over across date filter boundary", () => {
+      // Position opened BEFORE filter start:
+      // t=1000: BUY 10 ETH at $2,000 ($20,000 OI)
+      // Filter: [2000, 6000] (duration 4000 ms)
+      // t=3000: SELL 10 ETH at $2,100 ($0 OI) (1000 ms after filter start)
+      // In [2000, 6000]:
+      // [2000, 3000] (1000 ms): 20,000 -> 20,000,000
+      // [3000, 6000] (3000 ms): 0
+      // Average OI = 20,000,000 / 4000 = $5,000
+      const t1 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 10,
+        price: 2000,
+        timestampMs: 1000,
+      });
+      const t2 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 10,
+        price: 2100,
+        timestampMs: 3000,
+      });
+
+      const filter = {
+        startTimestampMs: 2000,
+        endTimestampMs: 6000,
+        presetId: "custom",
+      };
+
+      const res = calculateAccountAverageOi([t1, t2], filter, 7000);
+      expect(res.avgOiUsd).toBe(5000);
+      expect(res.holdingDurationMs).toBe(1000);
+    });
+
+    it("handles position flipping from Long to Short", () => {
+      // t=0: BUY 10 ETH at $2,000 -> pos=+10, entry=2000, OI=$20,000
+      // t=1000: SELL 15 ETH at $3,000 -> flips to pos=-5 (SHORT), entry=3000, OI=$15,000
+      // t=2000: BUY 5 ETH at $2,800 -> pos=0, OI=$0
+      // Filter [0, 2000]:
+      // [0, 1000] (1000 ms): 20,000 -> 20,000,000
+      // [1000, 2000] (1000 ms): 15,000 -> 15,000,000
+      // Total integral = 35,000,000 / 2000 = $17,500
+      const t1 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 10,
+        price: 2000,
+        timestampMs: 0,
+      });
+      const t2 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 15,
+        price: 3000,
+        timestampMs: 1000,
+      });
+      const t3 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 5,
+        price: 2800,
+        timestampMs: 2000,
+      });
+
+      const filter = {
+        startTimestampMs: 0,
+        endTimestampMs: 2000,
+        presetId: "custom",
+      };
+
+      const res = calculateAccountAverageOi([t1, t2, t3], filter, 3000);
+      expect(res.avgOiUsd).toBe(17500);
+      expect(res.currentOpenOiUsd).toBe(0);
+    });
+
+    it("tracks multiple markets concurrently without cross-contamination", () => {
+      // Market 0 (ETH): BUY 10 ETH at $2,000 at t=0, close at t=2000. OI = $20k for [0, 2000].
+      // Market 1 (BTC): BUY 1 BTC at $50,000 at t=1000, close at t=3000. OI = $50k for [1000, 3000].
+      // Filter [0, 4000]:
+      // ETH integral: 20,000 * 2000 = 40,000,000
+      // BTC integral: 50,000 * 2000 = 100,000,000
+      // Total integral = 140,000,000 / 4000 = $35,000
+      const eth1 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 10,
+        price: 2000,
+        timestampMs: 0,
+      });
+      const eth2 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 10,
+        price: 2000,
+        timestampMs: 2000,
+      });
+      const btc1 = mockTrade({
+        marketSymbol: "BTC",
+        marketId: 1,
+        side: "BUY",
+        size: 1,
+        price: 50000,
+        timestampMs: 1000,
+      });
+      const btc2 = mockTrade({
+        marketSymbol: "BTC",
+        marketId: 1,
+        side: "SELL",
+        size: 1,
+        price: 50000,
+        timestampMs: 3000,
+      });
+
+      const filter = {
+        startTimestampMs: 0,
+        endTimestampMs: 4000,
+        presetId: "custom",
+      };
+
+      const res = calculateAccountAverageOi([eth1, btc1, eth2, btc2], filter, 5000);
+      expect(res.avgOiUsd).toBe(35000);
+    });
+
+    it("handles All Time mode when position remains open into nowMs", () => {
+      // BUY 10 ETH at $2,000 at t=1000. Never closed!
+      // nowMs = 3000.
+      // All Time duration: [1000, 3000] = 2000 ms.
+      // Average OI = $20,000
+      const t1 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 10,
+        price: 2000,
+        timestampMs: 1000,
+      });
+
+      const res = calculateAccountAverageOi([t1], null, 3000);
+      expect(res.avgOiUsd).toBe(20000);
+      expect(res.currentOpenOiUsd).toBe(20000);
+      expect(res.periodDurationMs).toBe(2000);
+    });
+
+    it("calculates accurate average OI for a real completed Robinhood Campaign week", () => {
+      // Week 1: 2026-08-10 00:00 UTC to 2026-08-21 00:00 UTC (11 days = 950,400,000 ms)
+      const w1Start = Date.parse("2026-08-10T00:00:00.000Z");
+      const w1End = Date.parse("2026-08-21T00:00:00.000Z");
+      const msPerDay = 86400000;
+
+      // User opens $50,000 position on day 2 (Aug 12)
+      // Closes on day 7.5 (Aug 17.5) -> held for 5.5 days (half of 11-day campaign week 1)
+      const t1 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 25,
+        price: 2000,
+        timestampMs: w1Start + 2 * msPerDay,
+      });
+      const t2 = mockTrade({
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 25,
+        price: 2050,
+        timestampMs: w1Start + 7.5 * msPerDay,
+      });
+
+      const filter = {
+        startTimestampMs: w1Start,
+        endTimestampMs: w1End,
+        presetId: "week-1",
+      };
+
+      // nowMs in October (week is completed)
+      const res = calculateAccountAverageOi(
+        [t1, t2],
+        filter,
+        Date.parse("2026-10-09T00:00:00.000Z"),
+      );
+      // 50,000 * 5.5 days / 11 days = $25,000
+      expect(res.avgOiUsd).toBe(25000);
+      expect(res.currentOpenOiUsd).toBe(0);
+      expect(res.periodDurationMs).toBe(11 * msPerDay);
     });
   });
 });

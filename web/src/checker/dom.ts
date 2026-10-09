@@ -428,6 +428,7 @@ export interface HedgeMetricElements {
   slippage: HTMLElement | null;
   fees: HTMLElement | null;
   unhedgedCount: HTMLElement | null;
+  avgOi?: HTMLElement | null;
 }
 
 export function updateHedgeExecutiveMetrics(
@@ -448,6 +449,10 @@ export function updateHedgeExecutiveMetrics(
     if (elements.slippage) elements.slippage.textContent = "$0.00";
     if (elements.fees) elements.fees.textContent = "$0.00";
     if (elements.unhedgedCount) elements.unhedgedCount.textContent = "0";
+    if (elements.avgOi) {
+      elements.avgOi.textContent = "$0.00";
+      elements.avgOi.className = "font-bold text-terminal-muted tabular-nums";
+    }
     return;
   }
 
@@ -522,6 +527,15 @@ export function updateHedgeExecutiveMetrics(
         ? "font-bold text-terminal-coral tabular-nums"
         : "font-bold text-terminal-secondary tabular-nums";
   }
+
+  if (elements.avgOi) {
+    const avgOi = metrics.totalAvgOiUsd ?? (metrics.rhAvgOiUsd ?? 0) + (metrics.coreAvgOiUsd ?? 0);
+    elements.avgOi.textContent = formatMoney(avgOi);
+    elements.avgOi.className =
+      avgOi > 0
+        ? "font-bold text-white tabular-nums"
+        : "font-bold text-terminal-muted tabular-nums";
+  }
 }
 
 export interface IndividualAccountMetricElements {
@@ -531,6 +545,7 @@ export interface IndividualAccountMetricElements {
   realizedPnl: HTMLElement | null;
   fees: HTMLElement | null;
   unhedgedCount: HTMLElement | null;
+  avgOi?: HTMLElement | null;
 }
 
 export function updateIndividualAccountMetrics(
@@ -563,6 +578,11 @@ export function updateIndividualAccountMetrics(
     if (elements.unhedgedCount) {
       elements.unhedgedCount.textContent = "0";
       elements.unhedgedCount.className = "font-bold text-terminal-muted tabular-nums";
+    }
+    if (elements.avgOi) {
+      elements.avgOi.textContent = "$0.00";
+      elements.avgOi.className = "font-bold text-terminal-muted tabular-nums";
+      elements.avgOi.title = "";
     }
     return;
   }
@@ -609,6 +629,35 @@ export function updateIndividualAccountMetrics(
       metrics.unhedgedCount > 0
         ? "font-bold text-terminal-coral tabular-nums"
         : "font-bold text-terminal-muted tabular-nums";
+  }
+
+  if (elements.avgOi) {
+    const avgOi = metrics.avgOiUsd || 0;
+    elements.avgOi.textContent = formatMoney(avgOi);
+    elements.avgOi.className =
+      avgOi > 0
+        ? "font-bold text-white tabular-nums"
+        : "font-bold text-terminal-muted tabular-nums";
+
+    if (metrics.avgOiDetails && avgOi > 0) {
+      const d = metrics.avgOiDetails;
+      const hours = (d.periodDurationMs / (1000 * 3600)).toFixed(1);
+      const days = (d.periodDurationMs / (1000 * 86400)).toFixed(2);
+      let title = `Time-Weighted Average OI: ${formatMoney(avgOi)} (over ${days}d / ${hours}h)`;
+      if (d.currentOpenOiUsd > 0) {
+        title += `\nCurrently Open Position: ${formatMoney(d.currentOpenOiUsd)}`;
+      }
+      if (
+        d.projectedFullPeriodAvgOiUsd !== undefined &&
+        Math.abs(d.projectedFullPeriodAvgOiUsd - avgOi) > 0.01
+      ) {
+        title += `\nProjected Full-Period Average: ${formatMoney(d.projectedFullPeriodAvgOiUsd)}`;
+      }
+      elements.avgOi.title = title;
+    } else {
+      elements.avgOi.title =
+        "Time-weighted average open interest (notional position size with leverage)";
+    }
   }
 }
 

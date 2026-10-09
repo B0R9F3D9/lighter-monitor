@@ -57,16 +57,16 @@ function formatShortMonthDay(d: Date): string {
 /**
  * Generates all 20 weeks of the Lighter on Robinhood Chain points program.
  * - Program effective date: Monday, August 10, 2026
- * - First weekly snapshot & end of Week 1: Thursday, August 20, 2026 at 00:00 UTC
- * - Subsequent snapshots: Every Thursday at 00:00 UTC (weeks 2 through 20)
- * - Week 20 ends: Thursday, December 31, 2026 at 00:00 UTC
+ * - First weekly snapshot & end of Week 1: Friday, August 21, 2026 at 00:00 UTC
+ * - Subsequent snapshots: Every Friday at 00:00 UTC (weeks 2 through 20)
+ * - Week 20 ends: Friday, January 1, 2027 at 00:00 UTC
  */
 export function getRobinhoodPromoWeeks(nowMs = Date.now()): DateRangePreset[] {
   const weeks: DateRangePreset[] = [];
 
-  // Week 1: Promo start (Mon Aug 10, 2026) -> First Thursday snapshot (Thu Aug 20, 2026)
+  // Week 1: Promo start (Mon Aug 10, 2026) -> First Friday snapshot (Fri Aug 21, 2026)
   const w1StartMs = ROBINHOOD_PROMO_START_MS;
-  const w1EndMs = Date.parse("2026-08-20T00:00:00.000Z");
+  const w1EndMs = Date.parse("2026-08-21T00:00:00.000Z");
 
   let curStartMs = w1StartMs;
   let curEndMs = w1EndMs;
@@ -101,7 +101,7 @@ export function getRobinhoodPromoWeeks(nowMs = Date.now()): DateRangePreset[] {
       endDateFormatted: formatDateUtc(endDate),
     });
 
-    // Advance to next 7-day interval (Thursday to Thursday)
+    // Advance to next 7-day interval (Friday to Friday)
     curStartMs = curEndMs;
     curEndMs = curStartMs + MS_PER_WEEK;
   }
@@ -425,7 +425,7 @@ export function renderPromoWeeksGrid(
         ${w.startDateFormatted} 00:00 → ${w.endDateFormatted} 00:00 UTC
       </div>
       <div class="text-[10px] text-terminal-muted/80 flex items-center justify-between pt-0.5 border-t border-terminal-borderSubtle">
-        <span>Snapshot: Thu 00:00 UTC</span>
+        <span>Snapshot: Fri 00:00 UTC</span>
         <span class="text-terminal-accent font-semibold text-[10px]">Select &rarr;</span>
       </div>
     `;

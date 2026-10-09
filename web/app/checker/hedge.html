@@ -313,7 +313,9 @@
           <div class="flex items-center gap-2 shrink-0">
             <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Hedge:</span>
             <span id="leadHedgeAccountsBadge" class="font-bold text-sm tracking-tight"
-              ><span class="text-terminal-emerald">RH</span> <span class="text-terminal-muted font-normal">vs</span> <span class="text-terminal-accent">CORE</span></span
+              ><span class="text-terminal-emerald">RH</span>
+              <span class="text-terminal-muted font-normal">vs</span>
+              <span class="text-terminal-accent">CORE</span></span
             >
           </div>
 
@@ -327,9 +329,14 @@
             </div>
             <div>
               <span class="text-terminal-muted mr-1.5">HEDGED VOL:</span>
-              <span id="leadHedgeVolume" class="font-bold text-white tabular-nums"
-                >$0.00</span
-              >
+              <span id="leadHedgeVolume" class="font-bold text-white tabular-nums">$0.00</span>
+            </div>
+            <div
+              class="hidden sm:block"
+              title="Combined time-weighted average open interest across RH and Core accounts"
+            >
+              <span class="text-terminal-muted mr-1.5">AVG OI:</span>
+              <span id="leadHedgeAvgOi" class="font-bold text-white tabular-nums">$0.00</span>
             </div>
             <div>
               <span class="text-terminal-muted mr-1.5">NET PNL:</span>
@@ -369,10 +376,10 @@
             class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs font-mono"
           >
             <div class="flex items-center gap-2 shrink-0">
-              <span class="text-terminal-muted text-[11px] uppercase tracking-wider"
-                >RH:</span
-              >
-              <span id="leadRhAccountBadge" class="text-terminal-emerald font-bold text-sm tracking-tight"
+              <span class="text-terminal-muted text-[11px] uppercase tracking-wider">RH:</span>
+              <span
+                id="leadRhAccountBadge"
+                class="text-terminal-emerald font-bold text-sm tracking-tight"
                 >--</span
               >
             </div>
@@ -387,7 +394,13 @@
               </div>
               <div>
                 <span class="text-terminal-muted mr-1.5">VOL:</span>
-                <span id="leadRhVolume" class="font-bold text-white tabular-nums"
+                <span id="leadRhVolume" class="font-bold text-white tabular-nums">$0.00</span>
+              </div>
+              <div
+                title="Time-weighted average open interest (notional position size with leverage) over selected period"
+              >
+                <span class="text-terminal-muted mr-1.5">AVG OI:</span>
+                <span id="leadRhAvgOi" class="font-bold text-terminal-accent tabular-nums"
                   >$0.00</span
                 >
               </div>
@@ -419,7 +432,9 @@
           >
             <div class="flex items-center gap-2 shrink-0">
               <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Core:</span>
-              <span id="leadCoreAccountBadge" class="text-terminal-accent font-bold text-sm tracking-tight"
+              <span
+                id="leadCoreAccountBadge"
+                class="text-terminal-accent font-bold text-sm tracking-tight"
                 >--</span
               >
             </div>
@@ -434,7 +449,13 @@
               </div>
               <div>
                 <span class="text-terminal-muted mr-1.5">VOL:</span>
-                <span id="leadCoreVolume" class="font-bold text-white tabular-nums"
+                <span id="leadCoreVolume" class="font-bold text-white tabular-nums">$0.00</span>
+              </div>
+              <div
+                title="Time-weighted average open interest (notional position size with leverage) over selected period"
+              >
+                <span class="text-terminal-muted mr-1.5">AVG OI:</span>
+                <span id="leadCoreAvgOi" class="font-bold text-terminal-accent tabular-nums"
                   >$0.00</span
                 >
               </div>
@@ -494,9 +515,7 @@
             </div>
             <div>
               <span class="text-terminal-muted mr-1">VOL:</span>
-              <span id="selectedVolume" class="font-bold text-white tabular-nums"
-                >$0.00</span
-              >
+              <span id="selectedVolume" class="font-bold text-white tabular-nums">$0.00</span>
             </div>
             <div>
               <span
@@ -652,9 +671,7 @@
                   class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full"
                 >
                   <div class="flex items-center gap-1.5 shrink-0">
-                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">
-                      RH
-                    </h3>
+                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">RH</h3>
                   </div>
                   <div class="flex items-center gap-1.5 min-w-0 shrink">
                     <span
@@ -718,9 +735,7 @@
                   class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5 min-w-0 gap-1.5 w-full"
                 >
                   <div class="flex items-center gap-1.5 shrink-0">
-                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">
-                      Core
-                    </h3>
+                    <h3 class="text-xs font-bold text-white uppercase tracking-wider">Core</h3>
                   </div>
                   <div class="flex items-center gap-1.5 min-w-0 shrink">
                     <span
@@ -1041,8 +1056,8 @@
                     <div class="flex flex-col items-center justify-center gap-1.5">
                       <span class="text-terminal-secondary font-medium">No hedge pairs loaded</span>
                       <span class="text-[11px] text-terminal-muted">
-                        Upload both RH and Core JSON exports to calculate round-trip
-                        hedge efficiency.
+                        Upload both RH and Core JSON exports to calculate round-trip hedge
+                        efficiency.
                       </span>
                     </div>
                   </td>
@@ -1283,9 +1298,7 @@
             >
               Robinhood Campaign Weeks
             </h3>
-            <p class="text-[10px] text-terminal-muted">
-              Weekly snapshots: Every Thursday 00:00 UTC
-            </p>
+            <p class="text-[10px] text-terminal-muted">Weekly snapshots: Every Friday 00:00 UTC</p>
           </div>
           <button
             id="btnCloseHedgePromoModal"

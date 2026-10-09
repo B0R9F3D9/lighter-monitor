@@ -1,4 +1,5 @@
 import type {
+  AccountAverageOiResult,
   HedgeMatchingResult,
   HedgePair,
   HedgeSummaryMetrics,
@@ -761,4 +762,227 @@ export function exportHedgeReportToCsv(pairs: HedgePair[], unhedged: UnhedgedTra
   }
 
   return rows.join("\n");
+}
+
+/**
+ * Calculates the Time-Weighted Average Open Interest (TWAOI) for a set of account trades.
+ *
+ * Accurately tracks perpetual positions across markets and subaccounts over time:
+ * - Scale-in (adding to position in same direction): updates volume-weighted average entry price (VWAP)
+ * - Scale-out (partial close): reduces position size while preserving existing entry price
+ * - Full close: resets position and entry price to 0
+ * - Flips (crossing zero from Long to Short or vice versa): closes previous position and opens remainder at trade price
+ * - Models open interest notional (|pos| * entryPrice) as a piecewise-constant step function
+ * - Integrates over the specified date filter range (or entire active history)
+ *
+ * @param allTrades - Complete chronological history of trades for the account.
+ * @param dateFilter - Optional active date filter (preset or custom range).
+ * @param nowMs - Current timestamp in milliseconds (defaults to Date.now()).
+ */
+export function calculateAccountAverageOi(
+  allTrades: ParsedTradeView[],
+  dateFilter: {
+    startTimestampMs: number | null;
+    endTimestampMs: number | null;
+    presetId?: string;
+  } | null,
+  nowMs = Date.now(),
+): AccountAverageOiResult {
+  if (allTrades.length === 0) {
+    return {
+      avgOiUsd: 0,
+      currentOpenOiUsd: 0,
+      holdingDurationMs: 0,
+      periodDurationMs: 0,
+    };
+  }
+
+  // Filter out spot trades if any (open interest only applies to perpetual contracts)
+  const perpTrades = allTrades.filter(
+    (t) =>
+      (!t.marketKind || t.marketKind !== "spot") &&
+      t.timestampMs >= 0 &&
+      !isNaN(t.timestampMs) &&
+      t.size > 0 &&
+      t.price > 0,
+  );
+
+  if (perpTrades.length === 0) {
+    return {
+      avgOiUsd: 0,
+      currentOpenOiUsd: 0,
+      holdingDurationMs: 0,
+      periodDurationMs: 0,
+    };
+  }
+
+  // Sort chronologically ascending (earliest to latest)
+  const sortedTrades = perpTrades.toSorted((a, b) => {
+    if (a.timestampMs !== b.timestampMs) return a.timestampMs - b.timestampMs;
+    const aMicro = a.raw?.transaction_time ?? 0;
+    const bMicro = b.raw?.transaction_time ?? 0;
+    if (aMicro !== bMicro) return aMicro - bMicro;
+    const aId = a.tradeIdNum ?? (Number(a.tradeId) || 0);
+    const bId = b.tradeIdNum ?? (Number(b.tradeId) || 0);
+    return aId - bId;
+  });
+
+  const earliestTradeMs = sortedTrades[0].timestampMs;
+  const latestTradeMs = sortedTrades[sortedTrades.length - 1].timestampMs;
+
+  // Group trades by subaccount and market to prevent cross-account position offsetting
+  const marketAccountGroups = new Map<string, ParsedTradeView[]>();
+  for (const t of sortedTrades) {
+    const key = `${t.userAccountId ?? "default"}_${t.marketId ?? t.marketSymbol}`;
+    let list = marketAccountGroups.get(key);
+    if (!list) {
+      list = [];
+      marketAccountGroups.set(key, list);
+    }
+    list.push(t);
+  }
+
+  interface TimelineSegment {
+    startTime: number;
+    endTime: number;
+    oi: number;
+  }
+
+  const allSegments: TimelineSegment[] = [];
+  let totalCurrentOpenOi = 0;
+  const EPSILON = 1e-8;
+
+  // Replay trade history for each subaccount/market pair
+  for (const groupTrades of marketAccountGroups.values()) {
+    let pos = 0;
+    let entryPrice = 0;
+    let currentOi = 0;
+    let lastTime = groupTrades[0].timestampMs;
+
+    for (const t of groupTrades) {
+      const tTime = t.timestampMs;
+      const size = Math.abs(t.size);
+      const price = Math.abs(t.price);
+      const isBuy = t.side === "BUY";
+      const delta = isBuy ? size : -size;
+
+      // Close previous segment if time has advanced and we had positive open interest
+      if (tTime > lastTime) {
+        if (currentOi > 0) {
+          allSegments.push({
+            startTime: lastTime,
+            endTime: tTime,
+            oi: currentOi,
+          });
+        }
+      }
+
+      const prevPos = pos;
+      const newPos = pos + delta;
+
+      if (Math.abs(newPos) <= EPSILON) {
+        // Complete position closure
+        pos = 0;
+        entryPrice = 0;
+      } else if (Math.abs(prevPos) <= EPSILON) {
+        // Position opened from flat
+        pos = newPos;
+        entryPrice = price;
+      } else if ((prevPos > 0 && delta > 0) || (prevPos < 0 && delta < 0)) {
+        // Adding to position in the same direction: update VWAP entry price
+        const totalSize = Math.abs(newPos);
+        entryPrice = (Math.abs(prevPos) * entryPrice + size * price) / totalSize;
+        pos = newPos;
+      } else {
+        // Opposite direction (scale-out / reduction or flip)
+        if ((prevPos > 0 && newPos > 0) || (prevPos < 0 && newPos < 0)) {
+          // Partial close: entry price remains unchanged for remaining contracts
+          pos = newPos;
+        } else {
+          // Flipped position: remainder opened in opposite direction at current trade price
+          pos = newPos;
+          entryPrice = price;
+        }
+      }
+
+      currentOi = Math.abs(pos) * entryPrice;
+      lastTime = tTime;
+    }
+
+    // If position remains open after all trades, it stays open into the future
+    if (currentOi > 0) {
+      totalCurrentOpenOi += currentOi;
+      allSegments.push({
+        startTime: lastTime,
+        endTime: Infinity,
+        oi: currentOi,
+      });
+    }
+  }
+
+  // Determine time interval boundaries [T_start, T_end]
+  let tStart: number;
+  let tEnd: number;
+
+  const isSpecificFilter = Boolean(dateFilter && dateFilter.presetId !== "all");
+
+  if (isSpecificFilter) {
+    tStart = dateFilter!.startTimestampMs ?? earliestTradeMs;
+    tEnd = dateFilter!.endTimestampMs ?? Math.max(latestTradeMs, nowMs);
+  } else {
+    tStart = earliestTradeMs;
+    if (totalCurrentOpenOi > 0) {
+      tEnd = Math.max(latestTradeMs, nowMs);
+    } else {
+      tEnd = latestTradeMs;
+    }
+  }
+
+  const isFutureEnd = isSpecificFilter && tEnd > nowMs;
+  const effectiveEnd = isFutureEnd ? Math.max(tStart, Math.min(tEnd, nowMs)) : tEnd;
+  const periodDurationMs = Math.max(0, effectiveEnd - tStart);
+
+  if (periodDurationMs <= 0) {
+    return {
+      avgOiUsd: totalCurrentOpenOi,
+      currentOpenOiUsd: totalCurrentOpenOi,
+      holdingDurationMs: 0,
+      periodDurationMs: 0,
+      projectedFullPeriodAvgOiUsd: totalCurrentOpenOi,
+    };
+  }
+
+  let totalIntegral = 0;
+  let holdingDurationMs = 0;
+
+  for (const seg of allSegments) {
+    if (seg.oi <= 0) continue;
+    const overlapStart = Math.max(seg.startTime, tStart);
+    const overlapEnd = Math.min(seg.endTime, effectiveEnd);
+    if (overlapEnd > overlapStart) {
+      const dur = overlapEnd - overlapStart;
+      totalIntegral += seg.oi * dur;
+      holdingDurationMs += dur;
+    }
+  }
+
+  const avgOiUsd = totalIntegral / periodDurationMs;
+
+  let projectedFullPeriodAvgOiUsd: number | undefined = undefined;
+  if (isFutureEnd) {
+    const fullDuration = tEnd - tStart;
+    if (fullDuration > 0) {
+      const remainingTime = Math.max(0, tEnd - effectiveEnd);
+      const projectedIntegral = totalIntegral + totalCurrentOpenOi * remainingTime;
+      projectedFullPeriodAvgOiUsd = projectedIntegral / fullDuration;
+    }
+  }
+
+  return {
+    avgOiUsd,
+    currentOpenOiUsd: totalCurrentOpenOi,
+    holdingDurationMs,
+    periodDurationMs,
+    projectedFullPeriodAvgOiUsd,
+  };
 }
