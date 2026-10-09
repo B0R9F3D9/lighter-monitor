@@ -1,5 +1,6 @@
 import type {
   AccountAverageOiResult,
+  AccountDailyStat,
   HedgeMatchingResult,
   HedgePair,
   HedgeSummaryMetrics,
@@ -985,4 +986,224 @@ export function calculateAccountAverageOi(
     periodDurationMs,
     projectedFullPeriodAvgOiUsd,
   };
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function pad2(n: number): string {
+  return n.toString().padStart(2, "0");
+}
+
+/**
+ * Calculates day-by-day metrics (trades count, volume, average holding time, pnl, fees)
+ * for an account across the active period.
+ */
+export function calculateAccountDailyStats(
+  allTrades: ParsedTradeView[],
+  dateFilter?: {
+    startTimestampMs?: number | null;
+    endTimestampMs?: number | null;
+    presetId?: string;
+  } | null,
+  nowMs = Date.now(),
+): AccountDailyStat[] {
+  // Filter out spot trades if any (open interest & position duration apply to perps)
+  const perpTrades = allTrades.filter(
+    (t) =>
+      (!t.marketKind || t.marketKind !== "spot") &&
+      t.timestampMs >= 0 &&
+      !isNaN(t.timestampMs) &&
+      t.size > 0 &&
+      t.price > 0,
+  );
+
+  let tStart: number;
+  let tEnd: number;
+
+  const isSpecificFilter = Boolean(dateFilter && dateFilter.presetId !== "all");
+
+  if (isSpecificFilter) {
+    tStart =
+      dateFilter!.startTimestampMs ??
+      (perpTrades.length > 0
+        ? Math.min(...perpTrades.map((t) => t.timestampMs))
+        : nowMs - 7 * MS_PER_DAY);
+    tEnd = dateFilter!.endTimestampMs ?? Math.max(tStart + 7 * MS_PER_DAY, nowMs);
+  } else {
+    if (perpTrades.length > 0) {
+      tStart = Math.min(...perpTrades.map((t) => t.timestampMs));
+      tEnd = Math.max(...perpTrades.map((t) => t.timestampMs));
+    } else {
+      tStart = nowMs - 7 * MS_PER_DAY;
+      tEnd = nowMs;
+    }
+  }
+
+  // Normalize to UTC midnight boundaries
+  const startObj = new Date(tStart);
+  const startDayMs = Date.UTC(
+    startObj.getUTCFullYear(),
+    startObj.getUTCMonth(),
+    startObj.getUTCDate(),
+  );
+
+  const endObj = new Date(tEnd);
+  let endDayMs = Date.UTC(endObj.getUTCFullYear(), endObj.getUTCMonth(), endObj.getUTCDate());
+  if (tEnd > endDayMs || tEnd === tStart) {
+    endDayMs += MS_PER_DAY;
+  }
+
+  const daySpan = Math.max(1, Math.round((endDayMs - startDayMs) / MS_PER_DAY));
+
+  const candidateDayStarts: number[] = [];
+  if (daySpan <= 14 || isSpecificFilter) {
+    for (let dayMs = startDayMs; dayMs < endDayMs; dayMs += MS_PER_DAY) {
+      candidateDayStarts.push(dayMs);
+    }
+  } else {
+    const daysSet = new Set<number>();
+    for (const t of perpTrades) {
+      const d = new Date(t.timestampMs);
+      const dMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+      daysSet.add(dMs);
+    }
+    const sortedDays = Array.from(daysSet).toSorted((a, b) => a - b);
+    if (sortedDays.length > 0) {
+      candidateDayStarts.push(...sortedDays);
+    } else {
+      for (let dayMs = endDayMs - 7 * MS_PER_DAY; dayMs < endDayMs; dayMs += MS_PER_DAY) {
+        candidateDayStarts.push(dayMs);
+      }
+    }
+  }
+
+  // Sort chronologically ascending
+  const sortedTrades = perpTrades.toSorted((a, b) => {
+    if (a.timestampMs !== b.timestampMs) return a.timestampMs - b.timestampMs;
+    const aMicro = a.raw?.transaction_time ?? 0;
+    const bMicro = b.raw?.transaction_time ?? 0;
+    if (aMicro !== bMicro) return aMicro - bMicro;
+    const aId = a.tradeIdNum ?? (Number(a.tradeId) || 0);
+    const bId = b.tradeIdNum ?? (Number(b.tradeId) || 0);
+    return aId - bId;
+  });
+
+  // Group by subaccount and market to prevent cross-account position offsetting
+  const marketAccountGroups = new Map<string, ParsedTradeView[]>();
+  for (const t of sortedTrades) {
+    const key = `${t.userAccountId ?? "default"}_${t.marketId ?? t.marketSymbol}`;
+    let list = marketAccountGroups.get(key);
+    if (!list) {
+      list = [];
+      marketAccountGroups.set(key, list);
+    }
+    list.push(t);
+  }
+
+  const EPSILON = 1e-8;
+
+  interface HoldingInterval {
+    start: number;
+    end: number;
+  }
+  const allHoldingIntervals: HoldingInterval[] = [];
+
+  for (const groupTrades of marketAccountGroups.values()) {
+    let pos = 0;
+    let posOpenTime = 0;
+
+    for (const t of groupTrades) {
+      const prevPos = pos;
+      const size = Math.abs(t.size);
+      const delta = t.side === "BUY" ? size : -size;
+      const newPos = prevPos + delta;
+
+      if (Math.abs(prevPos) <= EPSILON && Math.abs(newPos) > EPSILON) {
+        // Opened from flat
+        posOpenTime = t.timestampMs;
+      } else if (Math.abs(prevPos) > EPSILON && Math.abs(newPos) <= EPSILON) {
+        // Closed to flat
+        if (t.timestampMs > posOpenTime) {
+          allHoldingIntervals.push({ start: posOpenTime, end: t.timestampMs });
+        }
+        posOpenTime = 0;
+      } else if ((prevPos > 0 && newPos < 0) || (prevPos < 0 && newPos > 0)) {
+        // Flipped position
+        if (t.timestampMs > posOpenTime) {
+          allHoldingIntervals.push({ start: posOpenTime, end: t.timestampMs });
+        }
+        posOpenTime = t.timestampMs;
+      }
+
+      pos = newPos;
+    }
+
+    if (Math.abs(pos) > EPSILON && posOpenTime > 0) {
+      allHoldingIntervals.push({ start: posOpenTime, end: Infinity });
+    }
+  }
+
+  return candidateDayStarts.map((dayStartMs) => {
+    const dayEndMs = dayStartMs + MS_PER_DAY;
+    const dateObj = new Date(dayStartMs);
+
+    const dayOfWeek = DAY_NAMES[dateObj.getUTCDay()];
+    const shortDate = `${pad2(dateObj.getUTCDate())}/${pad2(dateObj.getUTCMonth() + 1)}`;
+    const dateFormatted = `${dateObj.getUTCFullYear()}-${pad2(dateObj.getUTCMonth() + 1)}-${pad2(dateObj.getUTCDate())}`;
+
+    const dayTrades = perpTrades.filter(
+      (t) => t.timestampMs >= dayStartMs && t.timestampMs < dayEndMs,
+    );
+
+    let totalVolumeUsd = 0;
+    let realizedPnlUsd = 0;
+    let totalFeesUsd = 0;
+
+    for (const t of dayTrades) {
+      totalVolumeUsd += t.usdValue;
+      realizedPnlUsd += t.realizedPnl;
+      totalFeesUsd += t.feeUsd;
+    }
+
+    // Determine holding duration during this specific 24-hour day
+    const dayIntervals: HoldingInterval[] = [];
+    const effectiveLimit = Math.min(dayEndMs, nowMs);
+
+    for (const iv of allHoldingIntervals) {
+      const start = Math.max(iv.start, dayStartMs);
+      const end = Math.min(iv.end, effectiveLimit);
+      if (end > start) {
+        dayIntervals.push({ start, end });
+      }
+    }
+
+    const sortedIntervals = dayIntervals.toSorted((a, b) => a.start - b.start);
+    const merged: HoldingInterval[] = [];
+    for (const iv of sortedIntervals) {
+      if (merged.length === 0 || merged[merged.length - 1].end < iv.start) {
+        merged.push({ start: iv.start, end: iv.end });
+      } else {
+        merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, iv.end);
+      }
+    }
+
+    let dayHoldingMs = 0;
+    for (const m of merged) {
+      dayHoldingMs += m.end - m.start;
+    }
+    const avgHoldingDurationMs = Math.min(dayHoldingMs, MS_PER_DAY);
+
+    return {
+      dateFormatted,
+      dayOfWeek,
+      shortDate,
+      timestampMs: dayStartMs,
+      tradesCount: dayTrades.length,
+      totalVolumeUsd,
+      avgHoldingDurationMs,
+      realizedPnlUsd,
+      totalFeesUsd,
+    };
+  });
 }

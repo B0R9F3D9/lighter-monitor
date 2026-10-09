@@ -1,9 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import { getStaticMarketMap, parseFeeUsd, parseTradeForView } from "../web/src/checker/api";
-import { formatDisplayFileName, updateIndividualAccountMetrics } from "../web/src/checker/dom";
+import {
+  formatCompactDuration,
+  formatCompactUsd,
+  formatDisplayFileName,
+  renderDailySummary,
+  updateIndividualAccountMetrics,
+} from "../web/src/checker/dom";
 import {
   aggregateTradesByOrder,
   calculateAccountAverageOi,
+  calculateAccountDailyStats,
   calculateHedgeMetrics,
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
@@ -49,6 +56,7 @@ function createMockIndividualElements() {
     fees: { textContent: "" } as HTMLElement,
     unhedgedCount: { textContent: "", className: "" } as HTMLElement,
     avgOi: { textContent: "", className: "", title: "" } as HTMLElement,
+    dailySummary: { innerHTML: "" } as HTMLElement,
   };
 }
 
@@ -1591,6 +1599,331 @@ describe("Hedge Matching Engine", () => {
       expect(res.avgOiUsd).toBe(25000);
       expect(res.currentOpenOiUsd).toBe(0);
       expect(res.periodDurationMs).toBe(11 * msPerDay);
+    });
+  });
+
+  describe("Account Daily Summary Breakdown (calculateAccountDailyStats)", () => {
+    const msPerDay = 86400000;
+
+    it("returns 7-day scheduled breakdown for Robinhood promo week with no trades", () => {
+      // Promo Week 2: Friday Aug 21, 2026 to Friday Aug 28, 2026
+      const w2Start = Date.parse("2026-08-21T00:00:00.000Z");
+      const w2End = Date.parse("2026-08-28T00:00:00.000Z");
+      const filter = {
+        startTimestampMs: w2Start,
+        endTimestampMs: w2End,
+        presetId: "week-2",
+      };
+
+      const stats = calculateAccountDailyStats([], filter);
+      expect(stats.length).toBe(7);
+
+      expect(stats[0].dayOfWeek).toBe("Fri");
+      expect(stats[0].shortDate).toBe("21/08");
+      expect(stats[0].dateFormatted).toBe("2026-08-21");
+      expect(stats[0].tradesCount).toBe(0);
+      expect(stats[0].totalVolumeUsd).toBe(0);
+      expect(stats[0].avgHoldingDurationMs).toBe(0);
+
+      expect(stats[1].dayOfWeek).toBe("Sat");
+      expect(stats[1].shortDate).toBe("22/08");
+      expect(stats[2].dayOfWeek).toBe("Sun");
+      expect(stats[3].dayOfWeek).toBe("Mon");
+      expect(stats[4].dayOfWeek).toBe("Tue");
+      expect(stats[5].dayOfWeek).toBe("Wed");
+      expect(stats[6].dayOfWeek).toBe("Thu");
+      expect(stats[6].dateFormatted).toBe("2026-08-27");
+    });
+
+    it("calculates accurate trade count, volume, and average holding time for intraday trades", () => {
+      // Monday Aug 24:
+      // t1 at 10:00: BUY 10 ETH at $2,000 (vol $20,000)
+      // t2 at 10:15: SELL 10 ETH at $2,010 (vol $20,100) -> held 15m (900,000 ms)
+      const dayStart = Date.parse("2026-08-24T00:00:00.000Z");
+      const t1 = mockTrade({
+        tradeId: "t1",
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 10,
+        price: 2000,
+        usdValue: 20000,
+        timestampMs: dayStart + 10 * 3600 * 1000,
+      });
+      const t2 = mockTrade({
+        tradeId: "t2",
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 10,
+        price: 2010,
+        usdValue: 20100,
+        timestampMs: dayStart + 10.25 * 3600 * 1000,
+      });
+
+      const filter = {
+        startTimestampMs: dayStart,
+        endTimestampMs: dayStart + msPerDay,
+        presetId: "custom",
+      };
+
+      const stats = calculateAccountDailyStats([t1, t2], filter);
+      expect(stats.length).toBe(1);
+      const day = stats[0];
+
+      expect(day.dayOfWeek).toBe("Mon");
+      expect(day.shortDate).toBe("24/08");
+      expect(day.dateFormatted).toBe("2026-08-24");
+      expect(day.tradesCount).toBe(2);
+      expect(day.totalVolumeUsd).toBe(40100);
+      expect(day.avgHoldingDurationMs).toBe(15 * 60 * 1000); // 15 minutes
+    });
+
+    it("calculates accurate holding time for position carried overnight across UTC midnight", () => {
+      // Trade entered Monday Aug 24 at 23:00 UTC
+      // Trade exited Tuesday Aug 25 at 01:00 UTC (held for 2 hours)
+      const monStart = Date.parse("2026-08-24T00:00:00.000Z");
+      const t1 = mockTrade({
+        tradeId: "t1",
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "BUY",
+        size: 5,
+        price: 2000,
+        usdValue: 10000,
+        timestampMs: monStart + 23 * 3600 * 1000,
+      });
+      const t2 = mockTrade({
+        tradeId: "t2",
+        marketSymbol: "ETH",
+        marketId: 0,
+        side: "SELL",
+        size: 5,
+        price: 2000,
+        usdValue: 10000,
+        timestampMs: monStart + 25 * 3600 * 1000, // Tue 01:00 UTC
+      });
+
+      const filter = {
+        startTimestampMs: monStart,
+        endTimestampMs: monStart + 2 * msPerDay,
+        presetId: "custom",
+      };
+
+      const stats = calculateAccountDailyStats([t1, t2], filter);
+      expect(stats.length).toBe(2);
+
+      const mon = stats[0];
+      const tue = stats[1];
+
+      expect(mon.dayOfWeek).toBe("Mon");
+      expect(mon.shortDate).toBe("24/08");
+      expect(mon.tradesCount).toBe(1);
+      expect(mon.avgHoldingDurationMs).toBe(1 * 3600 * 1000); // 1 hour on Mon (23:00 to 24:00)
+
+      expect(tue.dayOfWeek).toBe("Tue");
+      expect(tue.shortDate).toBe("25/08");
+      expect(tue.tradesCount).toBe(1);
+      expect(tue.avgHoldingDurationMs).toBe(1 * 3600 * 1000); // 1 hour on Tue (00:00 to 01:00)
+    });
+
+    it("accurately handles scale-in and position holding time within day", () => {
+      // 10:00: BUY 10 ETH
+      // 10:10: BUY 10 ETH
+      // 10:20: SELL 20 ETH -> position open from 10:00 to 10:20 (20 minutes active in day)
+      const dayStart = Date.parse("2026-08-24T00:00:00.000Z");
+      const t1 = mockTrade({
+        tradeId: "t1",
+        marketSymbol: "ETH",
+        side: "BUY",
+        size: 10,
+        price: 2000,
+        usdValue: 20000,
+        timestampMs: dayStart + 10 * 3600 * 1000,
+      });
+      const t2 = mockTrade({
+        tradeId: "t2",
+        marketSymbol: "ETH",
+        side: "BUY",
+        size: 10,
+        price: 2000,
+        usdValue: 20000,
+        timestampMs: dayStart + 10 * 3600 * 1000 + 10 * 60 * 1000,
+      });
+      const t3 = mockTrade({
+        tradeId: "t3",
+        marketSymbol: "ETH",
+        side: "SELL",
+        size: 20,
+        price: 2000,
+        usdValue: 40000,
+        timestampMs: dayStart + 10 * 3600 * 1000 + 20 * 60 * 1000,
+      });
+
+      const filter = {
+        startTimestampMs: dayStart,
+        endTimestampMs: dayStart + msPerDay,
+        presetId: "custom",
+      };
+
+      const stats = calculateAccountDailyStats([t1, t2, t3], filter);
+      expect(stats.length).toBe(1);
+      expect(stats[0].tradesCount).toBe(3);
+      expect(stats[0].shortDate).toBe("24/08");
+      expect(stats[0].totalVolumeUsd).toBe(80000);
+      expect(stats[0].avgHoldingDurationMs).toBe(20 * 60 * 1000); // 20 min active position in day
+    });
+
+    it("reports 24h holding time for days with 0 trades when a position was open throughout", () => {
+      const monStart = Date.parse("2026-08-24T00:00:00.000Z"); // Mon 00:00 UTC
+      // Position opened Monday 10:00 UTC, closed Wednesday 14:00 UTC
+      // Tuesday has 0 trades, but position was open for the full 24 hours!
+      const tOpen = mockTrade({
+        tradeId: "open-1",
+        marketSymbol: "ETH",
+        side: "BUY",
+        size: 5,
+        price: 2000,
+        usdValue: 10000,
+        timestampMs: monStart + 10 * 3600 * 1000, // Mon 10:00 UTC
+      });
+      const tClose = mockTrade({
+        tradeId: "close-1",
+        marketSymbol: "ETH",
+        side: "SELL",
+        size: 5,
+        price: 2000,
+        usdValue: 10000,
+        timestampMs: monStart + 2 * msPerDay + 14 * 3600 * 1000, // Wed 14:00 UTC
+      });
+
+      const filter = {
+        startTimestampMs: monStart,
+        endTimestampMs: monStart + 3 * msPerDay,
+        presetId: "custom",
+      };
+
+      const stats = calculateAccountDailyStats([tOpen, tClose], filter);
+      expect(stats.length).toBe(3);
+
+      const [mon, tue, wed] = stats;
+      // Monday: 10:00 to 24:00 = 14 hours
+      expect(mon.tradesCount).toBe(1);
+      expect(mon.avgHoldingDurationMs).toBe(14 * 3600 * 1000);
+      expect(formatCompactDuration(mon.avgHoldingDurationMs)).toBe("14h");
+
+      // Tuesday: 0 trades, held entire 24h of the day
+      expect(tue.tradesCount).toBe(0);
+      expect(tue.totalVolumeUsd).toBe(0);
+      expect(tue.avgHoldingDurationMs).toBe(24 * 3600 * 1000);
+      expect(formatCompactDuration(tue.avgHoldingDurationMs)).toBe("24h");
+
+      // Wednesday: 00:00 to 14:00 = 14 hours
+      expect(wed.tradesCount).toBe(1);
+      expect(wed.avgHoldingDurationMs).toBe(14 * 3600 * 1000);
+      expect(formatCompactDuration(wed.avgHoldingDurationMs)).toBe("14h");
+    });
+  });
+
+  describe("Compact Formatters (formatCompactDuration & formatCompactUsd)", () => {
+    it("formats durations concisely without emojis", () => {
+      expect(formatCompactDuration(0)).toBe("—");
+      expect(formatCompactDuration(500)).toBe("<1s");
+      expect(formatCompactDuration(35000)).toBe("35s");
+      expect(formatCompactDuration(2 * 60 * 1000 + 15 * 1000)).toBe("2m 15s");
+      expect(formatCompactDuration(25 * 60 * 1000)).toBe("25m");
+      expect(formatCompactDuration(1.5 * 3600 * 1000)).toBe("1h 30m");
+      expect(formatCompactDuration(14 * 3600 * 1000)).toBe("14h");
+      expect(formatCompactDuration(24 * 3600 * 1000)).toBe("24h");
+      expect(formatCompactDuration(26 * 3600 * 1000)).toBe("24h");
+    });
+
+    it("formats usd volumes compactly", () => {
+      expect(formatCompactUsd(0)).toBe("$0");
+      expect(formatCompactUsd(450)).toBe("$450");
+      expect(formatCompactUsd(12500)).toBe("$12.5k");
+      expect(formatCompactUsd(120000)).toBe("$120k");
+      expect(formatCompactUsd(1250000)).toBe("$1.3M");
+    });
+  });
+
+  describe("DOM Daily Summary Column Rendering (renderDailySummary)", () => {
+    it("renders compact columns with day headers, date next to day, avg hold, and volume without emojis", () => {
+      const container = { innerHTML: "" } as HTMLElement;
+      const stats = [
+        {
+          dateFormatted: "2026-08-21",
+          dayOfWeek: "Fri",
+          shortDate: "21/08",
+          timestampMs: 1000,
+          tradesCount: 12,
+          totalVolumeUsd: 45000,
+          avgHoldingDurationMs: 4.5 * 60 * 1000, // 4m 30s
+          realizedPnlUsd: 15.5,
+          totalFeesUsd: 1.2,
+        },
+        {
+          dateFormatted: "2026-08-22",
+          dayOfWeek: "Sat",
+          shortDate: "22/08",
+          timestampMs: 2000,
+          tradesCount: 0,
+          totalVolumeUsd: 0,
+          avgHoldingDurationMs: 0,
+          realizedPnlUsd: 0,
+          totalFeesUsd: 0,
+        },
+      ];
+
+      renderDailySummary(container, stats, "RH");
+      expect(container.innerHTML).toContain("FRI");
+      expect(container.innerHTML).toContain("(21/08)");
+      expect(container.innerHTML).toContain("SAT");
+      expect(container.innerHTML).toContain("(22/08)");
+      expect(container.innerHTML).not.toContain("trd");
+      expect(container.innerHTML).not.toContain("Trades:");
+      expect(container.innerHTML).toContain("4m 30s");
+      expect(container.innerHTML).toContain("$45.0k");
+      // Check that emojis are NOT present
+      expect(container.innerHTML).not.toMatch(/[\u{1F300}-\u{1F9FF}]/u);
+    });
+
+    it("integrates seamlessly into updateIndividualAccountMetrics", () => {
+      const els = createMockIndividualElements();
+      const stats = [
+        {
+          dateFormatted: "2026-08-21",
+          dayOfWeek: "Fri",
+          shortDate: "21/08",
+          timestampMs: 1000,
+          tradesCount: 5,
+          totalVolumeUsd: 10000,
+          avgHoldingDurationMs: 60000,
+          realizedPnlUsd: 0,
+          totalFeesUsd: 0,
+        },
+      ];
+
+      updateIndividualAccountMetrics(
+        {
+          accountIndex: 1,
+          network: "CORE",
+          tradesCount: 5,
+          totalVolumeUsd: 10000,
+          realizedPnlUsd: 0,
+          totalFeesUsd: 0,
+          unhedgedCount: 0,
+          dailyStats: stats,
+        },
+        els,
+      );
+
+      expect(els.dailySummary.innerHTML).toContain("FRI");
+      expect(els.dailySummary.innerHTML).toContain("(21/08)");
+      expect(els.dailySummary.innerHTML).not.toContain("trd");
+      expect(els.dailySummary.innerHTML).not.toContain("Trades:");
+      expect(els.dailySummary.innerHTML).toContain("1m");
+      expect(els.dailySummary.innerHTML).toContain("text-terminal-accent");
     });
   });
 });

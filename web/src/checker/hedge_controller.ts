@@ -32,6 +32,7 @@ import {
 } from "./dom";
 import {
   calculateAccountAverageOi,
+  calculateAccountDailyStats,
   calculateHedgeMetrics,
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
@@ -299,6 +300,7 @@ export class HedgeController {
       fees: document.getElementById("leadRhFees"),
       unhedgedCount: document.getElementById("leadRhUnhedgedCount"),
       avgOi: document.getElementById("leadRhAvgOi"),
+      dailySummary: document.getElementById("leadRhDailySummary"),
     };
 
     this.coreMetricElements = {
@@ -309,6 +311,7 @@ export class HedgeController {
       fees: document.getElementById("leadCoreFees"),
       unhedgedCount: document.getElementById("leadCoreUnhedgedCount"),
       avgOi: document.getElementById("leadCoreAvgOi"),
+      dailySummary: document.getElementById("leadCoreDailySummary"),
     };
 
     this.hedgeEmptyStatePanel = document.getElementById("hedgeEmptyStatePanel");
@@ -1125,6 +1128,7 @@ export class HedgeController {
 
     const unhedgedCount = this.unhedgedTrades.filter((u) => u.network === network).length;
     const oiResult = calculateAccountAverageOi(trades, this.activeHedgeDateFilter);
+    const dailyStats = calculateAccountDailyStats(trades, this.activeHedgeDateFilter);
 
     return {
       accountIndex,
@@ -1137,6 +1141,7 @@ export class HedgeController {
       unhedgedCount,
       avgOiUsd: oiResult.avgOiUsd,
       avgOiDetails: oiResult,
+      dailyStats,
     };
   }
 

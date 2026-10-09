@@ -1,5 +1,6 @@
 import { formatFee, formatMoney, formatPrice } from "../shared/formatters";
 import type {
+  AccountDailyStat,
   CheckerSummaryMetrics,
   HedgePair,
   HedgeSummaryMetrics,
@@ -546,6 +547,79 @@ export interface IndividualAccountMetricElements {
   fees: HTMLElement | null;
   unhedgedCount: HTMLElement | null;
   avgOi?: HTMLElement | null;
+  dailySummary?: HTMLElement | null;
+}
+
+export function formatCompactDuration(ms: number | undefined | null): string {
+  if (!ms || isNaN(ms) || ms <= 0) return "—";
+  if (ms < 1000) return "<1s";
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const remSec = sec % 60;
+  if (min < 60) {
+    return min < 10 && remSec > 0 ? `${min}m ${remSec}s` : `${min}m`;
+  }
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  if (hr < 24) {
+    return hr < 10 && remMin > 0 ? `${hr}h ${remMin}m` : `${hr}h`;
+  }
+  return "24h";
+}
+
+export function formatCompactUsd(num: number | undefined | null): string {
+  if (num === undefined || num === null || isNaN(num) || num <= 0) return "$0";
+  const abs = Math.abs(num);
+  if (abs >= 1e6) return "$" + (abs / 1e6).toFixed(abs >= 1e8 ? 0 : 1) + "M";
+  if (abs >= 1e3) return "$" + (abs / 1e3).toFixed(abs >= 1e5 ? 0 : 1) + "k";
+  return "$" + Math.round(abs);
+}
+
+export function renderDailySummary(
+  container: HTMLElement,
+  dailyStats: AccountDailyStat[] | undefined,
+  network: "RH" | "CORE" = "RH",
+): void {
+  if (!dailyStats || dailyStats.length === 0) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const isRh = network === "RH";
+  const accentColor = isRh ? "text-terminal-emerald" : "text-terminal-accent";
+  const hoverBorder = isRh ? "hover:border-terminal-emerald/60" : "hover:border-terminal-accent/60";
+
+  const html = dailyStats
+    .map((day) => {
+      const hasActivity = day.tradesCount > 0 || day.avgHoldingDurationMs > 0;
+      const compactHold =
+        day.avgHoldingDurationMs > 0 ? formatCompactDuration(day.avgHoldingDurationMs) : "—";
+      const compactVol = day.totalVolumeUsd > 0 ? formatCompactUsd(day.totalVolumeUsd) : "$0";
+
+      const tooltipLines = [
+        `${day.dayOfWeek.toUpperCase()} (${day.shortDate})`,
+        day.avgHoldingDurationMs > 0
+          ? `Avg Hold: ${formatCompactDuration(day.avgHoldingDurationMs)}`
+          : null,
+        `Volume: ${formatMoney(day.totalVolumeUsd)}`,
+        day.realizedPnlUsd !== 0
+          ? `PnL: ${day.realizedPnlUsd > 0 ? "+" : ""}${formatMoney(day.realizedPnlUsd)}`
+          : null,
+        day.totalFeesUsd > 0 ? `Fees: ${formatFee(day.totalFeesUsd)}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const colClass = hasActivity
+        ? `flex-1 min-w-[56px] sm:min-w-[62px] py-1 px-1 rounded flex flex-col items-center justify-between text-center bg-terminal-bg/80 border border-terminal-border/80 ${hoverBorder} transition-colors cursor-default`
+        : `flex-1 min-w-[56px] sm:min-w-[62px] py-1 px-1 rounded flex flex-col items-center justify-between text-center bg-terminal-bg/20 border border-terminal-borderSubtle/40 opacity-40 cursor-default`;
+
+      return `<div class="${colClass}" title="${tooltipLines}"><div class="flex items-center justify-center gap-0.5 mb-1 leading-none whitespace-nowrap"><span class="text-[10px] font-bold ${hasActivity ? accentColor : "text-terminal-muted"} tracking-tight uppercase leading-none">${day.dayOfWeek.toUpperCase()}</span><span class="text-[8.5px] sm:text-[9px] text-terminal-muted leading-none">(${day.shortDate})</span></div><div class="flex flex-col items-center gap-0.5 w-full leading-none"><span class="text-[9px] ${day.avgHoldingDurationMs > 0 ? accentColor : "text-terminal-muted"} tabular-nums leading-none">${compactHold}</span><span class="text-[9px] ${day.totalVolumeUsd > 0 ? "text-terminal-secondary" : "text-terminal-muted"} tabular-nums leading-none">${compactVol}</span></div></div>`;
+    })
+    .join("");
+
+  container.innerHTML = html;
 }
 
 export function updateIndividualAccountMetrics(
@@ -583,6 +657,13 @@ export function updateIndividualAccountMetrics(
       elements.avgOi.textContent = "$0.00";
       elements.avgOi.className = "font-bold text-terminal-muted tabular-nums";
       elements.avgOi.title = "";
+    }
+    if (elements.dailySummary) {
+      if (metrics?.dailyStats && metrics.dailyStats.length > 0) {
+        renderDailySummary(elements.dailySummary, metrics.dailyStats, metrics.network);
+      } else {
+        elements.dailySummary.innerHTML = "";
+      }
     }
     return;
   }
@@ -657,6 +738,14 @@ export function updateIndividualAccountMetrics(
     } else {
       elements.avgOi.title =
         "Time-weighted average open interest (notional position size with leverage)";
+    }
+  }
+
+  if (elements.dailySummary) {
+    if (metrics.dailyStats && metrics.dailyStats.length > 0) {
+      renderDailySummary(elements.dailySummary, metrics.dailyStats, metrics.network);
+    } else {
+      elements.dailySummary.innerHTML = "";
     }
   }
 }

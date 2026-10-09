@@ -373,111 +373,129 @@
           <!-- Robinhood (RH) Account Card -->
           <div
             id="rhAccountCard"
-            class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs font-mono"
+            class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col gap-2 text-xs font-mono"
           >
-            <div class="flex items-center gap-2 shrink-0">
-              <span class="text-terminal-muted text-[11px] uppercase tracking-wider">RH:</span>
-              <span
-                id="leadRhAccountBadge"
-                class="text-terminal-emerald font-bold text-sm tracking-tight"
-                >--</span
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-terminal-muted text-[11px] uppercase tracking-wider">RH:</span>
+                <span
+                  id="leadRhAccountBadge"
+                  class="text-terminal-emerald font-bold text-sm tracking-tight"
+                  >--</span
+                >
+              </div>
+
+              <!-- Inline metrics -->
+              <div
+                class="flex items-center gap-3.5 sm:gap-4 overflow-x-auto text-[11px] no-scrollbar w-full sm:w-auto pb-0.5 sm:pb-0"
               >
+                <div>
+                  <span class="text-terminal-muted mr-1.5">TRADES:</span>
+                  <span id="leadRhTradesCount" class="font-bold text-white tabular-nums">0</span>
+                </div>
+                <div>
+                  <span class="text-terminal-muted mr-1.5">VOL:</span>
+                  <span id="leadRhVolume" class="font-bold text-white tabular-nums">$0.00</span>
+                </div>
+                <div
+                  title="Time-weighted average open interest (notional position size with leverage) over selected period"
+                >
+                  <span class="text-terminal-muted mr-1.5">AVG OI:</span>
+                  <span id="leadRhAvgOi" class="font-bold text-terminal-accent tabular-nums"
+                    >$0.00</span
+                  >
+                </div>
+                <div>
+                  <span class="text-terminal-muted mr-1.5">PNL:</span>
+                  <span id="leadRhRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
+                    >$0.00</span
+                  >
+                </div>
+                <div>
+                  <span class="text-terminal-muted mr-1.5">FEES:</span>
+                  <span id="leadRhFees" class="font-bold text-terminal-secondary tabular-nums"
+                    >$0.00</span
+                  >
+                </div>
+                <div class="hidden sm:block">
+                  <span class="text-terminal-muted mr-1.5">UNHEDGED:</span>
+                  <span id="leadRhUnhedgedCount" class="font-bold text-terminal-muted tabular-nums"
+                    >0</span
+                  >
+                </div>
+              </div>
             </div>
 
-            <!-- Inline metrics -->
+            <!-- Daily breakdown row -->
             <div
-              class="flex items-center gap-3.5 sm:gap-4 overflow-x-auto text-[11px] no-scrollbar w-full sm:w-auto pb-0.5 sm:pb-0"
-            >
-              <div>
-                <span class="text-terminal-muted mr-1.5">TRADES:</span>
-                <span id="leadRhTradesCount" class="font-bold text-white tabular-nums">0</span>
-              </div>
-              <div>
-                <span class="text-terminal-muted mr-1.5">VOL:</span>
-                <span id="leadRhVolume" class="font-bold text-white tabular-nums">$0.00</span>
-              </div>
-              <div
-                title="Time-weighted average open interest (notional position size with leverage) over selected period"
-              >
-                <span class="text-terminal-muted mr-1.5">AVG OI:</span>
-                <span id="leadRhAvgOi" class="font-bold text-terminal-accent tabular-nums"
-                  >$0.00</span
-                >
-              </div>
-              <div>
-                <span class="text-terminal-muted mr-1.5">PNL:</span>
-                <span id="leadRhRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
-                  >$0.00</span
-                >
-              </div>
-              <div>
-                <span class="text-terminal-muted mr-1.5">FEES:</span>
-                <span id="leadRhFees" class="font-bold text-terminal-secondary tabular-nums"
-                  >$0.00</span
-                >
-              </div>
-              <div class="hidden sm:block">
-                <span class="text-terminal-muted mr-1.5">UNHEDGED:</span>
-                <span id="leadRhUnhedgedCount" class="font-bold text-terminal-muted tabular-nums"
-                  >0</span
-                >
-              </div>
-            </div>
+              id="leadRhDailySummary"
+              class="border-t border-terminal-borderSubtle/60 pt-1.5 flex items-stretch gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar"
+            ></div>
           </div>
 
           <!-- Lighter Core (Mainnet) Account Card -->
           <div
             id="coreAccountCard"
-            class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 text-xs font-mono"
+            class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col gap-2 text-xs font-mono"
           >
-            <div class="flex items-center gap-2 shrink-0">
-              <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Core:</span>
-              <span
-                id="leadCoreAccountBadge"
-                class="text-terminal-accent font-bold text-sm tracking-tight"
-                >--</span
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4">
+              <div class="flex items-center gap-2 shrink-0">
+                <span class="text-terminal-muted text-[11px] uppercase tracking-wider">Core:</span>
+                <span
+                  id="leadCoreAccountBadge"
+                  class="text-terminal-accent font-bold text-sm tracking-tight"
+                  >--</span
+                >
+              </div>
+
+              <!-- Inline metrics -->
+              <div
+                class="flex items-center gap-3.5 sm:gap-4 overflow-x-auto text-[11px] no-scrollbar w-full sm:w-auto pb-0.5 sm:pb-0"
               >
+                <div>
+                  <span class="text-terminal-muted mr-1.5">TRADES:</span>
+                  <span id="leadCoreTradesCount" class="font-bold text-white tabular-nums">0</span>
+                </div>
+                <div>
+                  <span class="text-terminal-muted mr-1.5">VOL:</span>
+                  <span id="leadCoreVolume" class="font-bold text-white tabular-nums">$0.00</span>
+                </div>
+                <div
+                  title="Time-weighted average open interest (notional position size with leverage) over selected period"
+                >
+                  <span class="text-terminal-muted mr-1.5">AVG OI:</span>
+                  <span id="leadCoreAvgOi" class="font-bold text-terminal-accent tabular-nums"
+                    >$0.00</span
+                  >
+                </div>
+                <div>
+                  <span class="text-terminal-muted mr-1.5">PNL:</span>
+                  <span id="leadCoreRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
+                    >$0.00</span
+                  >
+                </div>
+                <div>
+                  <span class="text-terminal-muted mr-1.5">FEES:</span>
+                  <span id="leadCoreFees" class="font-bold text-terminal-secondary tabular-nums"
+                    >$0.00</span
+                  >
+                </div>
+                <div class="hidden sm:block">
+                  <span class="text-terminal-muted mr-1.5">UNHEDGED:</span>
+                  <span
+                    id="leadCoreUnhedgedCount"
+                    class="font-bold text-terminal-muted tabular-nums"
+                    >0</span
+                  >
+                </div>
+              </div>
             </div>
 
-            <!-- Inline metrics -->
+            <!-- Daily breakdown row -->
             <div
-              class="flex items-center gap-3.5 sm:gap-4 overflow-x-auto text-[11px] no-scrollbar w-full sm:w-auto pb-0.5 sm:pb-0"
-            >
-              <div>
-                <span class="text-terminal-muted mr-1.5">TRADES:</span>
-                <span id="leadCoreTradesCount" class="font-bold text-white tabular-nums">0</span>
-              </div>
-              <div>
-                <span class="text-terminal-muted mr-1.5">VOL:</span>
-                <span id="leadCoreVolume" class="font-bold text-white tabular-nums">$0.00</span>
-              </div>
-              <div
-                title="Time-weighted average open interest (notional position size with leverage) over selected period"
-              >
-                <span class="text-terminal-muted mr-1.5">AVG OI:</span>
-                <span id="leadCoreAvgOi" class="font-bold text-terminal-accent tabular-nums"
-                  >$0.00</span
-                >
-              </div>
-              <div>
-                <span class="text-terminal-muted mr-1.5">PNL:</span>
-                <span id="leadCoreRealizedPnl" class="font-bold text-terminal-muted tabular-nums"
-                  >$0.00</span
-                >
-              </div>
-              <div>
-                <span class="text-terminal-muted mr-1.5">FEES:</span>
-                <span id="leadCoreFees" class="font-bold text-terminal-secondary tabular-nums"
-                  >$0.00</span
-                >
-              </div>
-              <div class="hidden sm:block">
-                <span class="text-terminal-muted mr-1.5">UNHEDGED:</span>
-                <span id="leadCoreUnhedgedCount" class="font-bold text-terminal-muted tabular-nums"
-                  >0</span
-                >
-              </div>
-            </div>
+              id="leadCoreDailySummary"
+              class="border-t border-terminal-borderSubtle/60 pt-1.5 flex items-stretch gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar"
+            ></div>
           </div>
         </div>
 

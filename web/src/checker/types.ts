@@ -249,6 +249,18 @@ export interface AccountAverageOiResult {
   projectedFullPeriodAvgOiUsd?: number;
 }
 
+export interface AccountDailyStat {
+  dateFormatted: string; // YYYY-MM-DD
+  dayOfWeek: string; // Mon, Tue, Wed, etc.
+  shortDate: string; // DD/MM
+  timestampMs: number; // UTC midnight
+  tradesCount: number;
+  totalVolumeUsd: number;
+  avgHoldingDurationMs: number;
+  realizedPnlUsd: number;
+  totalFeesUsd: number;
+}
+
 export interface HedgeMatchingResult {
   pairs: HedgePair[];
   unhedged: UnhedgedTrade[];
@@ -266,4 +278,5 @@ export interface IndividualAccountMetrics {
   unhedgedCount: number;
   avgOiUsd?: number;
   avgOiDetails?: AccountAverageOiResult;
+  dailyStats?: AccountDailyStat[];
 }
