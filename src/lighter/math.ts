@@ -44,7 +44,10 @@ export function analyzePositionRisk(pos: LighterPosition): PositionRiskAnalysis 
 
 export function formatSmartPrice(price: number): string {
   if (price >= 100) {
-    return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fixed = price.toFixed(2);
+    const parts = fixed.split(".");
+    parts[0] = parts[0]!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return parts.join(".");
   }
   if (price >= 1) {
     return price.toFixed(4);

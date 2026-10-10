@@ -216,11 +216,15 @@ export async function fetchExchangeStats(
           const snapshot: MarketPriceSnapshot = {
             symbol: sym,
             price: parseFloat(item.last_trade_price),
-            dailyChange: parseFloat(item.daily_price_change || "0"),
+            dailyChange: item.daily_price_change ? parseFloat(item.daily_price_change) : 0,
           };
           map.set(sym, snapshot);
 
-          const baseSym = sym.replace(/[-/_].*$/, "");
+          let sepIdx = sym.indexOf("-");
+          if (sepIdx === -1) sepIdx = sym.indexOf("/");
+          if (sepIdx === -1) sepIdx = sym.indexOf("_");
+          const baseSym = sepIdx !== -1 ? sym.slice(0, sepIdx) : sym;
+
           const isPerp = sym.includes("PERP") || !sym.includes("/");
           if (!map.has(baseSym) || isPerp) {
             map.set(baseSym, snapshot);

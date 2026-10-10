@@ -2,6 +2,7 @@ import { webhookCallback } from "grammy";
 import { Env } from "./types";
 import { getBot } from "./bot/bot";
 import { runCronMonitor } from "./cron/monitor";
+import { ensureDatabaseSchema } from "./db/queries";
 import { executionContextStorage } from "./utils/background";
 import {
   APP_VERSION,
@@ -127,6 +128,7 @@ export default {
       if (!env.WEBAPP_URL && url.protocol === "https:") {
         env.WEBAPP_URL = url.origin;
       }
+      await ensureDatabaseSchema(env.DB);
       const bot = getBot(env);
       await bot.api.setMyCommands([
         { command: "positions", description: "📊 Открытые сделки и риски" },
@@ -218,6 +220,6 @@ export default {
   },
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runCronMonitor(env, ctx));
+    await runCronMonitor(env, ctx);
   },
 };

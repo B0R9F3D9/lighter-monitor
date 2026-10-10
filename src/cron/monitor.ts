@@ -15,7 +15,6 @@ import {
   syncAccountOpenPositions,
   getActivePositionsForMonitoring,
   removeBlockedUser,
-  ensureDatabaseSchema,
 } from "../db/queries";
 import {
   fetchLighterAccount,
@@ -132,12 +131,8 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
   const startTime = Date.now();
   const now = Math.floor(startTime / 1000);
   let subrequestsUsed = 0;
-
   try {
-    const bot = getBot(env);
     const MAX_WALL_CLOCK_MS = 14_000; // 14 сек безопасный таймаут (гарантирует завершение всего цикла до 15с)
-    await ensureDatabaseSchema(env.DB);
-    trace.mark("schema_check");
 
     let jitChecksDone = 0;
 
@@ -195,6 +190,9 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
 
       if (syncPromises.length > 0) {
         await Promise.all(syncPromises);
+      }
+      if (cacheUpdates.size > 0) {
+        await batchUpdatePositionsCache(env.DB, Array.from(cacheUpdates.values()));
       }
     }
 
@@ -510,82 +508,82 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
     const userEntries = Array.from(alertsByUser.entries());
     const ALERT_SEND_CONCURRENCY = 3;
 
-    for (let i = 0; i < userEntries.length; i += ALERT_SEND_CONCURRENCY) {
-      if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
-        console.warn("Cron wall-clock budget reached. Postponing remaining alert deliveries.");
-        break;
-      }
-      if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 2) break;
+    if (userEntries.length > 0) {
+      const bot = getBot(env);
+      for (let i = 0; i < userEntries.length; i += ALERT_SEND_CONCURRENCY) {
+        if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
+          console.warn("Cron wall-clock budget reached. Postponing remaining alert deliveries.");
+          break;
+        }
+        if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 2) break;
 
-      const chunk = userEntries.slice(i, i + ALERT_SEND_CONCURRENCY);
-      await Promise.allSettled(
-        chunk.map(async ([telegramId, alerts]) => {
-          if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 1) return;
+        const chunk = userEntries.slice(i, i + ALERT_SEND_CONCURRENCY);
+        await Promise.allSettled(
+          chunk.map(async ([telegramId, alerts]) => {
+            if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 1) return;
 
-          const combinedText = alerts.map((a) => a.alertText).join("\n\n───────────────────\n\n");
-          let keyboard: InlineKeyboard;
+            const combinedText = alerts.map((a) => a.alertText).join("\n\n───────────────────\n\n");
+            let keyboard: InlineKeyboard;
 
-          if (alerts.length === 1) {
-            const first = alerts[0]!;
-            const lighterUrl =
-              first.item.network === "mainnet"
-                ? "https://app.lighter.xyz/"
-                : "https://rh.lighter.xyz/";
-            keyboard = new InlineKeyboard()
-              .text("🔄 Обновить", `refresh:${first.item.network}:${first.item.account_index}`)
-              .url("🌐 Открыть биржу", lighterUrl);
-          } else {
-            keyboard = new InlineKeyboard()
-              .text("📊 Мои сделки", "action_positions")
-              .url("🌐 Открыть биржу", "https://app.lighter.xyz/");
-          }
-
-          try {
-            await bot.api.sendMessage(telegramId, combinedText, {
-              parse_mode: "HTML",
-              reply_markup: keyboard,
-            });
-            subrequestsUsed++;
-
-            for (const a of alerts) {
-              alertUpdateStmts.push(
-                env.DB.prepare(`
-                INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
-                  last_price = excluded.last_price,
-                  last_alerted_at = excluded.last_alerted_at
-              `).bind(
-                  a.item.telegram_id,
-                  a.item.network,
-                  a.item.account_index,
-                  a.item.market_id,
-                  a.item.symbol,
-                  a.currentPrice,
-                  now,
-                ),
-              );
-            }
-          } catch (err: any) {
-            if (err?.error_code === 403) {
-              await removeBlockedUser(env.DB, telegramId);
-            } else if (err?.error_code === 429) {
-              console.warn(
-                `[telegram] Rate limited (429) for user ${telegramId}, retry_after: ${err?.parameters?.retry_after ?? "unknown"}s`,
-              );
+            if (alerts.length === 1) {
+              const first = alerts[0]!;
+              const lighterUrl =
+                first.item.network === "mainnet"
+                  ? "https://app.lighter.xyz/"
+                  : "https://rh.lighter.xyz/";
+              keyboard = new InlineKeyboard()
+                .text("🔄 Обновить", `refresh:${first.item.network}:${first.item.account_index}`)
+                .url("🌐 Открыть биржу", lighterUrl);
             } else {
-              console.error(`Failed to send alert to ${telegramId}:`, err);
+              keyboard = new InlineKeyboard()
+                .text("📊 Мои сделки", "action_positions")
+                .url("🌐 Открыть биржу", "https://app.lighter.xyz/");
             }
-          }
-        }),
-      );
+
+            try {
+              await bot.api.sendMessage(telegramId, combinedText, {
+                parse_mode: "HTML",
+                reply_markup: keyboard,
+              });
+              subrequestsUsed++;
+
+              for (const a of alerts) {
+                alertUpdateStmts.push(
+                  env.DB.prepare(`
+                  INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)
+                  ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
+                    last_price = excluded.last_price,
+                    last_alerted_at = excluded.last_alerted_at
+                `).bind(
+                    a.item.telegram_id,
+                    a.item.network,
+                    a.item.account_index,
+                    a.item.market_id,
+                    a.item.symbol,
+                    a.currentPrice,
+                    now,
+                  ),
+                );
+              }
+            } catch (err: any) {
+              if (err?.error_code === 403) {
+                await removeBlockedUser(env.DB, telegramId);
+              } else if (err?.error_code === 429) {
+                console.warn(
+                  `[telegram] Rate limited (429) for user ${telegramId}, retry_after: ${err?.parameters?.retry_after ?? "unknown"}s`,
+                );
+              } else {
+                console.error(`Failed to send alert to ${telegramId}:`, err);
+              }
+            }
+          }),
+        );
+      }
     }
     trace.mark("send_alerts");
 
-    // 6. Единая пакетная транзакция в D1 чанками (кэш позиций + алерты + зомби)
-    if (cacheUpdates.size > 0) {
-      await batchUpdatePositionsCache(env.DB, Array.from(cacheUpdates.values()));
-    }
+    // 6. Единая пакетная транзакция в D1 чанками (алерты + зомби + новые позиции)
     const allUpdates = [
       ...newPositionsToInit,
       ...favorableBaselineUpdates,
