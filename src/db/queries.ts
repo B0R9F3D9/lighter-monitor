@@ -10,13 +10,13 @@ import {
 } from "../types";
 
 // 2. Обновление last_updated_at ТОЛЬКО для упавших запросов (экономия 50% квоты D1)
-export async function touchFailedAccounts(
+export function buildTouchFailedAccountsStmts(
   db: D1Database,
   failedAccounts: TrackedAccountKey[],
-): Promise<void> {
-  if (failedAccounts.length === 0) return;
-  const now = Math.floor(Date.now() / 1000);
-  const statements = failedAccounts.map((item) =>
+  now: number = Math.floor(Date.now() / 1000),
+): D1PreparedStatement[] {
+  if (failedAccounts.length === 0) return [];
+  return failedAccounts.map((item) =>
     db
       .prepare(`
       INSERT INTO account_positions_cache (network, account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at)
@@ -25,20 +25,29 @@ export async function touchFailedAccounts(
     `)
       .bind(item.network, item.accountIndex, now),
   );
-  await db.batch(statements);
+}
+
+export async function touchFailedAccounts(
+  db: D1Database,
+  failedAccounts: TrackedAccountKey[],
+): Promise<void> {
+  const stmts = buildTouchFailedAccountsStmts(db, failedAccounts);
+  if (stmts.length > 0) {
+    await db.batch(stmts);
+  }
 }
 
 // 3. Пакетное обновление детального кэша для успешно опрошенных аккаунтов
-export async function batchUpdatePositionsCache(
+export function buildBatchUpdatePositionsCacheStmts(
   db: D1Database,
   accountsData: Array<{
     network: LighterNetwork;
     account: LighterAccount;
     cachedPositions: CachedPositionPayload[];
   }>,
-): Promise<void> {
-  const now = Math.floor(Date.now() / 1000);
-  const statements: D1PreparedStatement[] = accountsData.map((item) => {
+  now: number = Math.floor(Date.now() / 1000),
+): D1PreparedStatement[] {
+  return accountsData.map((item) => {
     const acc = item.account;
     return db
       .prepare(`
@@ -62,9 +71,19 @@ export async function batchUpdatePositionsCache(
         now,
       );
   });
+}
 
-  if (statements.length > 0) {
-    await db.batch(statements);
+export async function batchUpdatePositionsCache(
+  db: D1Database,
+  accountsData: Array<{
+    network: LighterNetwork;
+    account: LighterAccount;
+    cachedPositions: CachedPositionPayload[];
+  }>,
+): Promise<void> {
+  const stmts = buildBatchUpdatePositionsCacheStmts(db, accountsData);
+  if (stmts.length > 0) {
+    await db.batch(stmts);
   }
 }
 
@@ -194,28 +213,26 @@ export async function removeBlockedUser(db: D1Database, telegramId: number): Pro
   ]);
 }
 
-// 6. Адаптивный фоновый Round-Robin (приоритет новым и активным аккаунтам, ускоренный с API-токеном)
+// 6. Адаптивный фоновый Round-Robin (приоритет новым и активным аккаунтам, опрос по 5 аккаунтов без задержки)
 export async function getNextAccountsForSync(
   db: D1Database,
-  limit: number = 6,
+  limit: number = 5,
   nowSec: number = Math.floor(Date.now() / 1000),
-  minStalenessSec: number = 60, // Снижаем до 60 сек: с API-токеном нет жестких лимитов 429
+  minStalenessSec: number = 0, // 0 = без задержки, проверяем пачку на каждом тике
 ): Promise<TrackedAccountKey[]> {
   const query = `
     SELECT DISTINCT uta.network, uta.account_index
     FROM user_tracked_accounts uta
     LEFT JOIN account_positions_cache c
       ON uta.network = c.network AND uta.account_index = c.account_index
-    LEFT JOIN (
-      SELECT DISTINCT network, account_index FROM account_open_positions
-    ) active
-      ON uta.network = active.network AND uta.account_index = active.account_index
+    LEFT JOIN account_open_positions aop
+      ON uta.network = aop.network AND uta.account_index = aop.account_index
     WHERE (c.last_updated_at IS NULL OR (? - c.last_updated_at) >= ?)
-      AND (c.last_updated_at IS NULL OR active.account_index IS NOT NULL OR c.collateral > 0)
+      AND (c.last_updated_at IS NULL OR aop.account_index IS NOT NULL OR c.collateral > 0)
     ORDER BY
       CASE
         WHEN c.last_updated_at IS NULL THEN 0
-        WHEN active.account_index IS NOT NULL THEN 1
+        WHEN aop.account_index IS NOT NULL THEN 1
         WHEN c.collateral > 0 THEN 2
         ELSE 3
       END ASC,
@@ -326,25 +343,24 @@ export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
 }
 
 // 9. Синхронизация открытых позиций аккаунта (удаление закрытых, добавление новых)
-export async function syncAccountOpenPositions(
+export function buildSyncAccountOpenPositionsStmts(
   db: D1Database,
   network: LighterNetwork,
   accountIndex: number,
   positions: LighterPosition[],
-): Promise<void> {
-  const now = Math.floor(Date.now() / 1000);
+  now: number = Math.floor(Date.now() / 1000),
+): D1PreparedStatement[] {
   const active = positions.filter((p) => Math.abs(parseFloat(p.position || "0")) > 0);
 
   if (active.length === 0) {
-    await db.batch([
+    return [
       db
         .prepare("DELETE FROM account_open_positions WHERE network = ? AND account_index = ?")
         .bind(network, accountIndex),
       db
         .prepare("DELETE FROM user_token_alerts WHERE network = ? AND account_index = ?")
         .bind(network, accountIndex),
-    ]);
-    return;
+    ];
   }
 
   const activeMarketIds = active.map((p) => p.market_id);
@@ -396,7 +412,19 @@ export async function syncAccountOpenPositions(
     );
   }
 
-  await db.batch(stmts);
+  return stmts;
+}
+
+export async function syncAccountOpenPositions(
+  db: D1Database,
+  network: LighterNetwork,
+  accountIndex: number,
+  positions: LighterPosition[],
+): Promise<void> {
+  const stmts = buildSyncAccountOpenPositionsStmts(db, network, accountIndex, positions);
+  if (stmts.length > 0) {
+    await db.batch(stmts);
+  }
 }
 
 // 10. Системные и бизнес-метрики для админ-панели (/stats) — 1 сетевой round-trip через db.batch

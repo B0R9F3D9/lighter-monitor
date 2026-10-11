@@ -1,4 +1,4 @@
-import { InlineKeyboard } from "grammy";
+import { Api, InlineKeyboard } from "grammy";
 import {
   Env,
   LighterAccount,
@@ -10,9 +10,9 @@ import {
 import { CONFIG, getLighterAuthToken } from "../config";
 import {
   getNextAccountsForSync,
-  touchFailedAccounts,
-  batchUpdatePositionsCache,
-  syncAccountOpenPositions,
+  buildTouchFailedAccountsStmts,
+  buildBatchUpdatePositionsCacheStmts,
+  buildSyncAccountOpenPositionsStmts,
   getActivePositionsForMonitoring,
   removeBlockedUser,
 } from "../db/queries";
@@ -24,7 +24,6 @@ import {
 } from "../lighter/api";
 import { analyzePositionRisk } from "../lighter/math";
 import { formatPriceStepAlert } from "../bot/formatters";
-import { getBot } from "../bot/bot";
 import { Tracer } from "../utils/tracer";
 import { pingHealthcheckSuccess, pingHealthcheckFail } from "../utils/healthcheck";
 
@@ -126,28 +125,26 @@ export function getMovedSymbols(
   return { movedSymbols: Array.from(moved), isFullSweep: false };
 }
 
-export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<void> {
+export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise<void> {
   const trace = new Tracer("cron_monitor");
   const startTime = Date.now();
   const now = Math.floor(startTime / 1000);
   let subrequestsUsed = 0;
   try {
     const MAX_WALL_CLOCK_MS = 14_000; // 14 сек безопасный таймаут (гарантирует завершение всего цикла до 15с)
+    const allUpdates: D1PreparedStatement[] = [];
 
     let jitChecksDone = 0;
 
-    // 1. АДАПТИВНЫЙ ФОНОВЫЙ ROUND-ROBIN (приоритет новым и активным аккаунтам, ускоренный с API-токеном)
-    const accountsToSync = await getNextAccountsForSync(env.DB, 6, now, 60);
+    // 1. АДАПТИВНЫЙ ФОНОВЫЙ ROUND-ROBIN (5 аккаунтов за тик без задержки)
+    const accountsToSync = await getNextAccountsForSync(env.DB, 5, now, 0);
     const jitCache = new Map<string, LighterAccount | null>();
     const failedAccounts: TrackedAccountKey[] = [];
-    const cacheUpdates = new Map<
-      string,
-      {
-        network: LighterNetwork;
-        account: LighterAccount;
-        cachedPositions: any[];
-      }
-    >();
+    const cacheUpdates: Array<{
+      network: LighterNetwork;
+      account: LighterAccount;
+      cachedPositions: any[];
+    }> = [];
 
     if (accountsToSync.length > 0) {
       const syncResults = await fetchInChunks(accountsToSync, 3, (acc) =>
@@ -159,7 +156,6 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
         ),
       );
       subrequestsUsed += accountsToSync.length;
-      const syncPromises: Promise<any>[] = [];
 
       for (let i = 0; i < accountsToSync.length; i++) {
         const accKey = accountsToSync[i]!;
@@ -170,15 +166,16 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
         jitCache.set(cacheKey, syncedData);
 
         if (syncedData) {
-          syncPromises.push(
-            syncAccountOpenPositions(
+          allUpdates.push(
+            ...buildSyncAccountOpenPositionsStmts(
               env.DB,
               accKey.network,
               accKey.accountIndex,
               syncedData.positions,
-            ).catch((e) => console.error("syncAccountOpenPositions error:", e)),
+              now,
+            ),
           );
-          cacheUpdates.set(cacheKey, {
+          cacheUpdates.push({
             network: accKey.network,
             account: syncedData,
             cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
@@ -188,29 +185,25 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
         }
       }
 
-      if (syncPromises.length > 0) {
-        await Promise.all(syncPromises);
-      }
-      if (cacheUpdates.size > 0) {
-        await batchUpdatePositionsCache(env.DB, Array.from(cacheUpdates.values()));
+      if (cacheUpdates.length > 0) {
+        allUpdates.push(...buildBatchUpdatePositionsCacheStmts(env.DB, cacheUpdates, now));
       }
     }
 
     if (failedAccounts.length > 0) {
-      await touchFailedAccounts(env.DB, failedAccounts);
+      allUpdates.push(...buildTouchFailedAccountsStmts(env.DB, failedAccounts, now));
     }
     trace.mark("round_robin_sync");
 
-    // 2. ЗАГРУЖАЕМ СРЕЗЫ ЦЕН БИРЖИ (2 подзапроса на всю систему)
+    // 2. ЗАГРУЖАЕМ СРЕЗЫ ЦЕН БИРЖИ ПАРАЛЛЕЛЬНО (2 подзапроса на всю систему)
     const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
-    const networks: LighterNetwork[] = ["rh", "mainnet"];
-
-    for (const net of networks) {
-      if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 10) break;
-      const snap = await fetchExchangeStats(net, getLighterAuthToken(env, net));
-      subrequestsUsed++;
-      priceSnapshots.set(net, snap);
-    }
+    const [snapRh, snapMainnet] = await Promise.all([
+      fetchExchangeStats("rh", getLighterAuthToken(env, "rh")),
+      fetchExchangeStats("mainnet", getLighterAuthToken(env, "mainnet")),
+    ]);
+    subrequestsUsed += 2;
+    priceSnapshots.set("rh", snapRh);
+    priceSnapshots.set("mainnet", snapMainnet);
     trace.mark("fetch_exchange_prices");
 
     // 3. REVERSE INDEXING: Вычисляем инструменты с реальным импульсом (или делаем полный срез)
@@ -219,11 +212,7 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
     const items = isFullSweep
       ? await getActivePositionsForMonitoring(env.DB)
       : await getActivePositionsForMonitoring(env.DB, movedSymbols);
-    trace.mark("positions_db_fetch");
-
-    const newPositionsToInit: D1PreparedStatement[] = [];
     const candidateAlerts: AlertCandidate[] = [];
-    const favorableBaselineUpdates: D1PreparedStatement[] = [];
 
     // 4. ФАЗА А: Мгновенная in-memory фильтрация и оценка срочности без сетевых запросов
     for (const item of items) {
@@ -237,7 +226,7 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
 
       // ПЕРВЫЙ ТИК: пакуем в единый batch без отправки спама
       if (item.last_price === null) {
-        newPositionsToInit.push(
+        allUpdates.push(
           env.DB.prepare(`
           INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -270,7 +259,7 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
         // Цена сдвинулась в пользу позиции (прибыль/уменьшение риска) на шаг порога или более.
         // Не отправляем уведомление, но подтягиваем базовую отметку цены в D1,
         // чтобы последующие откаты (когда риск снова начнет расти) фиксировались с нового экстремума.
-        favorableBaselineUpdates.push(
+        allUpdates.push(
           env.DB.prepare(`
           INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -312,8 +301,6 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
     trace.mark("evaluate_candidates");
 
     // 5. ФАЗА Б: Параллельная JIT-актуализация и доставка алертов
-    const alertUpdateStmts: D1PreparedStatement[] = [];
-    const zombieCleanupStmts: D1PreparedStatement[] = [];
     const cleanedZombieKeys = new Set<string>();
 
     // Шаг Б.1: Селективный JIT отбор с API-токеном для надежного устранения «зомби»
@@ -371,7 +358,6 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
       subrequestsUsed += chunk.length;
       jitChecksDone += chunk.length;
 
-      const jitSyncPromises: Promise<any>[] = [];
       for (let j = 0; j < chunk.length; j++) {
         const acc = chunk[j]!;
         const res = results[j];
@@ -379,25 +365,31 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
         const cacheKey = `${acc.network}:${acc.accountIndex}`;
         jitCache.set(cacheKey, syncedData);
 
-        // JIT-СИНК: сразу актуализируем открытые позиции в D1 без ожидания Round-Robin очереди
+        // JIT-СИНК: накапливаем стейтменты прямо в allUpdates для единого пакетного сохранения
         if (syncedData) {
-          jitSyncPromises.push(
-            syncAccountOpenPositions(
+          allUpdates.push(
+            ...buildSyncAccountOpenPositionsStmts(
               env.DB,
               acc.network,
               acc.accountIndex,
               syncedData.positions,
-            ).catch((e) => console.error("jit syncAccountOpenPositions error:", e)),
+              now,
+            ),
           );
-          cacheUpdates.set(cacheKey, {
-            network: acc.network,
-            account: syncedData,
-            cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
-          });
+          allUpdates.push(
+            ...buildBatchUpdatePositionsCacheStmts(
+              env.DB,
+              [
+                {
+                  network: acc.network,
+                  account: syncedData,
+                  cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
+                },
+              ],
+              now,
+            ),
+          );
         }
-      }
-      if (jitSyncPromises.length > 0) {
-        await Promise.all(jitSyncPromises);
       }
     }
     trace.mark("jit_checks");
@@ -432,7 +424,7 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
           const zKey = `${item.network}:${item.account_index}:${item.market_id}`;
           if (!cleanedZombieKeys.has(zKey)) {
             cleanedZombieKeys.add(zKey);
-            zombieCleanupStmts.push(
+            allUpdates.push(
               env.DB.prepare(
                 "DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?",
               ).bind(item.network, item.account_index, item.market_id),
@@ -463,7 +455,7 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
 
       // Проверка режима «Тихий сон» (Mute)
       if (item.muted_until && now < item.muted_until) {
-        alertUpdateStmts.push(
+        allUpdates.push(
           env.DB.prepare(`
           INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -504,12 +496,13 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
       alertsByUser.set(item.telegram_id, userAlerts);
     }
 
-    // Шаг Б.4: Параллельная отправка агрегированных алертов (0 мс сна, защита от 429)
+    // Шаг Б.4: Параллельная отправка агрегированных алертов (легковесный Api без тяжелого роутера)
     const userEntries = Array.from(alertsByUser.entries());
     const ALERT_SEND_CONCURRENCY = 3;
+    let alertsSentCount = 0;
 
-    if (userEntries.length > 0) {
-      const bot = getBot(env);
+    if (userEntries.length > 0 && env.TELEGRAM_BOT_TOKEN) {
+      const api = new Api(env.TELEGRAM_BOT_TOKEN);
       for (let i = 0; i < userEntries.length; i += ALERT_SEND_CONCURRENCY) {
         if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
           console.warn("Cron wall-clock budget reached. Postponing remaining alert deliveries.");
@@ -541,14 +534,15 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
             }
 
             try {
-              await bot.api.sendMessage(telegramId, combinedText, {
+              await api.sendMessage(telegramId, combinedText, {
                 parse_mode: "HTML",
                 reply_markup: keyboard,
               });
               subrequestsUsed++;
 
               for (const a of alerts) {
-                alertUpdateStmts.push(
+                alertsSentCount++;
+                allUpdates.push(
                   env.DB.prepare(`
                   INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
                   VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -583,19 +577,7 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
     }
     trace.mark("send_alerts");
 
-    // 6. Единая пакетная транзакция в D1 чанками (алерты + зомби + новые позиции)
-    const allUpdates = [
-      ...newPositionsToInit,
-      ...favorableBaselineUpdates,
-      ...alertUpdateStmts,
-      ...zombieCleanupStmts,
-    ];
-    if (allUpdates.length > 0) {
-      await executeD1BatchInChunks(env.DB, allUpdates);
-    }
-    trace.mark("d1_batch_update");
-
-    // 7. СТРУКТУРИРОВАННЫЙ JSON-ЛОГ (Observability & Cloudflare Dashboard / Axiom)
+    // 6. Единая пакетная транзакция в D1 (кэш позиций + синхронизация + алерты + зомби + метрики)
     const durationMs = Date.now() - startTime;
     const executionMetrics = {
       event: "cron_completed",
@@ -605,39 +587,34 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
       total_positions_checked: items.length,
       candidates_count: candidateAlerts.length,
       jit_checks_performed: jitChecksDone,
-      alerts_sent: alertUpdateStmts.length,
-      zombies_cleaned: zombieCleanupStmts.length / 2,
+      alerts_sent: alertsSentCount,
+      zombies_cleaned: cleanedZombieKeys.size,
       timestamp: now,
     };
-    console.log(JSON.stringify(executionMetrics));
 
-    // 8. АСИНХРОННЫЕ ФОНОВЫЕ ОПЕРАЦИИ (сохранение метрик в D1 и пинг Healthcheck без блокировки крона)
-    const backgroundWork = async () => {
-      try {
-        await env.DB.prepare(`
+    allUpdates.push(
+      env.DB.prepare(`
         INSERT INTO bot_system_metrics (key, value_json, updated_at)
         VALUES ('last_cron', ?, ?)
         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-      `)
-          .bind(JSON.stringify(executionMetrics), now)
-          .run();
-      } catch (err) {
-        console.error("Failed to persist cron metrics:", err);
-      }
+      `).bind(JSON.stringify(executionMetrics), now),
+    );
 
-      if (env.HEALTHCHECK_URL) {
-        await pingHealthcheckSuccess(env.HEALTHCHECK_URL, executionMetrics);
-      }
-    };
-
-    if (ctx && typeof ctx.waitUntil === "function") {
-      ctx.waitUntil(backgroundWork());
-    } else {
-      await backgroundWork();
+    if (allUpdates.length > 0) {
+      await executeD1BatchInChunks(env.DB, allUpdates);
     }
-    trace.mark("metrics_and_healthcheck_dispatched");
+    trace.mark("d1_batch_update");
+
+    // 7. СТРУКТУРИРОВАННЫЙ JSON-ЛОГ (Observability & Cloudflare Dashboard / Axiom)
+    console.log(JSON.stringify(executionMetrics));
+
+    // 8. ПИНГ HEALTHCHECK (гарантированная доставка до выхода из изолята)
+    if (env.HEALTHCHECK_URL) {
+      await pingHealthcheckSuccess(env.HEALTHCHECK_URL, executionMetrics);
+    }
+    trace.mark("healthcheck_ping");
     trace.set("subrequests", subrequestsUsed);
-    trace.set("alertsSent", alertUpdateStmts.length);
+    trace.set("alertsSent", alertsSentCount);
     trace.set("positionsChecked", items.length);
   } catch (err: any) {
     const durationMs = Date.now() - startTime;
@@ -673,6 +650,6 @@ export async function runCronMonitor(env: Env, ctx?: ExecutionContext): Promise<
 
     throw err;
   } finally {
-    trace.end();
+    trace.end(2000);
   }
 }
