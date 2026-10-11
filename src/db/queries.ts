@@ -14,17 +14,23 @@ export function buildTouchFailedAccountsStmts(
   db: D1Database,
   failedAccounts: TrackedAccountKey[],
   now: number = Math.floor(Date.now() / 1000),
+  preparedStmt?: D1PreparedStatement,
 ): D1PreparedStatement[] {
-  if (failedAccounts.length === 0) return [];
-  return failedAccounts.map((item) =>
-    db
-      .prepare(`
+  const len = failedAccounts.length;
+  if (len === 0) return [];
+  const stmt =
+    preparedStmt ??
+    db.prepare(`
       INSERT INTO account_positions_cache (network, account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at)
       VALUES (?, ?, '', 0, 0, '[]', ?)
       ON CONFLICT(network, account_index) DO UPDATE SET last_updated_at = excluded.last_updated_at;
-    `)
-      .bind(item.network, item.accountIndex, now),
-  );
+    `);
+  const res: D1PreparedStatement[] = [];
+  for (let i = 0; i < len; i++) {
+    const item = failedAccounts[i]!;
+    res.push(stmt.bind(item.network, item.accountIndex, now));
+  }
+  return res;
 }
 
 export async function touchFailedAccounts(
@@ -46,11 +52,13 @@ export function buildBatchUpdatePositionsCacheStmts(
     cachedPositions: CachedPositionPayload[];
   }>,
   now: number = Math.floor(Date.now() / 1000),
+  preparedStmt?: D1PreparedStatement,
 ): D1PreparedStatement[] {
-  return accountsData.map((item) => {
-    const acc = item.account;
-    return db
-      .prepare(`
+  const len = accountsData.length;
+  if (len === 0) return [];
+  const stmt =
+    preparedStmt ??
+    db.prepare(`
       INSERT INTO account_positions_cache (
         network, account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -60,8 +68,13 @@ export function buildBatchUpdatePositionsCacheStmts(
         total_asset_value = excluded.total_asset_value,
         positions_json = excluded.positions_json,
         last_updated_at = excluded.last_updated_at
-    `)
-      .bind(
+    `);
+  const res: D1PreparedStatement[] = [];
+  for (let i = 0; i < len; i++) {
+    const item = accountsData[i]!;
+    const acc = item.account;
+    res.push(
+      stmt.bind(
         item.network,
         acc.index,
         acc.l1_address ?? "0x0000000000000000000000000000000000000000",
@@ -69,8 +82,10 @@ export function buildBatchUpdatePositionsCacheStmts(
         parseFloat(acc.total_asset_value || "0"),
         JSON.stringify(item.cachedPositions),
         now,
-      );
-  });
+      ),
+    );
+  }
+  return res;
 }
 
 export async function batchUpdatePositionsCache(
@@ -349,6 +364,7 @@ export function buildSyncAccountOpenPositionsStmts(
   accountIndex: number,
   positions: LighterPosition[],
   now: number = Math.floor(Date.now() / 1000),
+  preparedUpsertStmt?: D1PreparedStatement,
 ): D1PreparedStatement[] {
   const active = positions.filter((p) => Math.abs(parseFloat(p.position || "0")) > 0);
 
@@ -381,12 +397,9 @@ export function buildSyncAccountOpenPositionsStmts(
       .bind(network, accountIndex, ...activeMarketIds),
   ];
 
-  for (const p of active) {
-    const isLong = (p.sign ?? (parseFloat(p.position) > 0 ? 1 : -1)) > 0 ? 1 : 0;
-    const liqPrice = parseFloat(p.liquidation_price || "0");
-    stmts.push(
-      db
-        .prepare(`
+  const upsertStmt =
+    preparedUpsertStmt ??
+    db.prepare(`
       INSERT INTO account_open_positions (
         network, account_index, market_id, symbol, is_long, entry_price, size, liquidation_price, last_updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -397,18 +410,24 @@ export function buildSyncAccountOpenPositionsStmts(
         size = excluded.size,
         liquidation_price = excluded.liquidation_price,
         last_updated_at = excluded.last_updated_at
-    `)
-        .bind(
-          network,
-          accountIndex,
-          p.market_id,
-          p.symbol.toUpperCase(),
-          isLong,
-          parseFloat(p.avg_entry_price || "0"),
-          Math.abs(parseFloat(p.position || "0")),
-          liqPrice,
-          now,
-        ),
+    `);
+
+  for (let i = 0; i < active.length; i++) {
+    const p = active[i]!;
+    const isLong = (p.sign ?? (parseFloat(p.position) > 0 ? 1 : -1)) > 0 ? 1 : 0;
+    const liqPrice = parseFloat(p.liquidation_price || "0");
+    stmts.push(
+      upsertStmt.bind(
+        network,
+        accountIndex,
+        p.market_id,
+        p.symbol.toUpperCase(),
+        isLong,
+        parseFloat(p.avg_entry_price || "0"),
+        Math.abs(parseFloat(p.position || "0")),
+        liqPrice,
+        now,
+      ),
     );
   }
 

@@ -210,8 +210,11 @@ export async function fetchExchangeStats(
     const data = (await res.json()) as any;
 
     if (data.code === 200 && Array.isArray(data.order_book_stats)) {
-      for (const item of data.order_book_stats) {
-        if (item.symbol && item.last_trade_price) {
+      const stats = data.order_book_stats;
+      const count = stats.length;
+      for (let i = 0; i < count; i++) {
+        const item = stats[i];
+        if (item && item.symbol && item.last_trade_price) {
           const sym = String(item.symbol).toUpperCase();
           const snapshot: MarketPriceSnapshot = {
             symbol: sym,
@@ -220,14 +223,15 @@ export async function fetchExchangeStats(
           };
           map.set(sym, snapshot);
 
-          let sepIdx = sym.indexOf("-");
-          if (sepIdx === -1) sepIdx = sym.indexOf("/");
-          if (sepIdx === -1) sepIdx = sym.indexOf("_");
-          const baseSym = sepIdx !== -1 ? sym.slice(0, sepIdx) : sym;
-
-          const isPerp = sym.includes("PERP") || !sym.includes("/");
-          if (!map.has(baseSym) || isPerp) {
-            map.set(baseSym, snapshot);
+          const dash = sym.indexOf("-");
+          const slash = sym.indexOf("/");
+          const under = sym.indexOf("_");
+          const sep = dash !== -1 ? dash : (slash !== -1 ? slash : under);
+          if (sep !== -1) {
+            const baseSym = sym.slice(0, sep);
+            if (!map.has(baseSym) || sym.endsWith("PERP")) {
+              map.set(baseSym, snapshot);
+            }
           }
         }
       }
@@ -243,30 +247,30 @@ export function findMarketPrice(
   map: Map<string, MarketPriceSnapshot>,
   symbol: string,
 ): MarketPriceSnapshot | undefined {
-  const sym = symbol.toUpperCase();
-  const direct = map.get(sym);
+  // 1. Direct hit (fastest path: ~95% of queries for already normalized uppercase symbols)
+  let direct = map.get(symbol);
   if (direct) return direct;
 
-  // Быстрый поиск суффиксов без регулярных выражений
-  const perp = map.get(`${sym}-PERP`);
+  const sym = symbol.toUpperCase();
+  if (sym !== symbol) {
+    direct = map.get(sym);
+    if (direct) return direct;
+  }
+
+  // 2. Common suffixes without regex
+  const perp = map.get(sym + "-PERP");
   if (perp) return perp;
 
-  const usdg = map.get(`${sym}/USDG`);
+  const usdg = map.get(sym + "/USDG");
   if (usdg) return usdg;
 
-  // Быстрое отсечение суффиксов без RegExp (например, "ETH-PERP", "GOOGL/USDG", "BTC_USDC")
-  const dashIdx = sym.indexOf("-");
-  const slashIdx = sym.indexOf("/");
-  const underIdx = sym.indexOf("_");
-  let sepIdx = -1;
-  if (dashIdx !== -1) sepIdx = dashIdx;
-  else if (slashIdx !== -1) sepIdx = slashIdx;
-  else if (underIdx !== -1) sepIdx = underIdx;
-
-  if (sepIdx !== -1) {
-    const base = sym.substring(0, sepIdx);
-    const baseMatch = map.get(base);
-    if (baseMatch) return baseMatch;
+  // 3. Fast separator strip (e.g. "ETH-PERP" -> "ETH")
+  const dash = sym.indexOf("-");
+  const slash = sym.indexOf("/");
+  const under = sym.indexOf("_");
+  const sep = dash !== -1 ? dash : (slash !== -1 ? slash : under);
+  if (sep !== -1) {
+    return map.get(sym.slice(0, sep));
   }
 
   return undefined;

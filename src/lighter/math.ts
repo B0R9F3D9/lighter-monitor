@@ -42,12 +42,28 @@ export function analyzePositionRisk(pos: LighterPosition): PositionRiskAnalysis 
   };
 }
 
+function addCommas(numStr: string): string {
+  const len = numStr.length;
+  if (len <= 3) return numStr;
+  let result = "";
+  const remainder = len % 3;
+  if (remainder > 0) {
+    result += numStr.slice(0, remainder);
+  }
+  for (let i = remainder; i < len; i += 3) {
+    if (result.length > 0) result += ",";
+    result += numStr.slice(i, i + 3);
+  }
+  return result;
+}
+
 export function formatSmartPrice(price: number): string {
   if (price >= 100) {
     const fixed = price.toFixed(2);
-    const parts = fixed.split(".");
-    parts[0] = parts[0]!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-    return parts.join(".");
+    const dotIdx = fixed.indexOf(".");
+    const intPart = dotIdx === -1 ? fixed : fixed.slice(0, dotIdx);
+    const decPart = dotIdx === -1 ? "" : fixed.slice(dotIdx);
+    return addCommas(intPart) + decPart;
   }
   if (price >= 1) {
     return price.toFixed(4);
@@ -57,3 +73,4 @@ export function formatSmartPrice(price: number): string {
   }
   return price.toFixed(8);
 }
+

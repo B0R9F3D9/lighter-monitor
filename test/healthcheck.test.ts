@@ -87,7 +87,7 @@ describe("Healthcheck Monitoring Utilities", () => {
 
       expect(calledUrl).toBe("https://hc-ping.com/uuid-test");
       expect(calledMethod).toBe("POST");
-      expect(calledBody).toContain('"event": "cron_completed"');
+      expect(JSON.parse(calledBody).event).toBe("cron_completed");
     });
 
     it("falls back to GET if POST returns 405 Method Not Allowed", async () => {

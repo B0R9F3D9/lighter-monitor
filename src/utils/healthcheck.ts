@@ -60,7 +60,7 @@ export async function pingHealthcheckSuccess(
     let headers: Record<string, string> | undefined;
 
     if (payload && Object.keys(payload).length > 0) {
-      body = JSON.stringify(payload, null, 2);
+      body = JSON.stringify(payload);
       if (body.length > 100_000) {
         body = body.slice(0, 99_900) + "\n... [truncated]";
       }
