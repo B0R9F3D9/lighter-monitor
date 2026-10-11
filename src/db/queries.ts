@@ -236,7 +236,7 @@ export async function getNextAccountsForSync(
   minStalenessSec: number = 0, // 0 = без задержки, проверяем пачку на каждом тике
 ): Promise<TrackedAccountKey[]> {
   const query = `
-    SELECT DISTINCT uta.network, uta.account_index
+    SELECT DISTINCT uta.network, uta.account_index, c.positions_json
     FROM user_tracked_accounts uta
     LEFT JOIN account_positions_cache c
       ON uta.network = c.network AND uta.account_index = c.account_index
@@ -257,9 +257,13 @@ export async function getNextAccountsForSync(
   const { results } = await db
     .prepare(query)
     .bind(nowSec, minStalenessSec, limit)
-    .all<{ network: LighterNetwork; account_index: number }>();
+    .all<{ network: LighterNetwork; account_index: number; positions_json: string | null }>();
   if (!results || results.length === 0) return [];
-  return results.map((row) => ({ network: row.network, accountIndex: row.account_index }));
+  return results.map((row) => ({
+    network: row.network,
+    accountIndex: row.account_index,
+    positionsJson: row.positions_json,
+  }));
 }
 
 // 7. Единый оптимизированный JOIN открытых позиций с поддержкой Reverse Indexing
@@ -555,4 +559,166 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
     lastCron,
     lastCronError,
   };
+}
+
+export interface UserTrackedAccountRow {
+  network: LighterNetwork;
+  account_index: number;
+  alias: string | null;
+}
+
+export async function getUserTrackedAccounts(
+  db: D1Database,
+  telegramId: number,
+): Promise<UserTrackedAccountRow[]> {
+  const { results } = await db
+    .prepare(
+      "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? ORDER BY network ASC, id ASC",
+    )
+    .bind(telegramId)
+    .all<UserTrackedAccountRow>();
+  return results || [];
+}
+
+export interface UserPositionFullStateRow {
+  network: LighterNetwork;
+  account_index: number;
+  alias: string | null;
+  l1_address: string | null;
+  collateral: number | string | null;
+  positions_json: string | null;
+  last_updated_at: number | null;
+  alert_threshold: number | null;
+}
+
+export async function getUserPositionsFullState(
+  db: D1Database,
+  telegramId: number,
+  filterIndex?: number,
+  filterNetwork?: LighterNetwork,
+): Promise<{
+  rows: UserPositionFullStateRow[];
+  userThreshold?: number;
+}> {
+  let query: string;
+  let params: any[];
+
+  if (filterIndex) {
+    if (filterNetwork) {
+      query = `
+        SELECT 
+          uta.network, 
+          uta.account_index, 
+          uta.alias,
+          c.l1_address,
+          c.collateral,
+          c.positions_json,
+          c.last_updated_at,
+          u.alert_threshold
+        FROM user_tracked_accounts uta
+        LEFT JOIN users u ON uta.telegram_id = u.telegram_id
+        LEFT JOIN account_positions_cache c 
+          ON uta.network = c.network AND uta.account_index = c.account_index
+        WHERE uta.telegram_id = ? AND uta.network = ? AND uta.account_index = ?
+      `;
+      params = [telegramId, filterNetwork, filterIndex];
+    } else {
+      query = `
+        SELECT 
+          uta.network, 
+          uta.account_index, 
+          uta.alias,
+          c.l1_address,
+          c.collateral,
+          c.positions_json,
+          c.last_updated_at,
+          u.alert_threshold
+        FROM user_tracked_accounts uta
+        LEFT JOIN users u ON uta.telegram_id = u.telegram_id
+        LEFT JOIN account_positions_cache c 
+          ON uta.network = c.network AND uta.account_index = c.account_index
+        WHERE uta.telegram_id = ? AND uta.account_index = ?
+      `;
+      params = [telegramId, filterIndex];
+    }
+  } else {
+    query = `
+      SELECT 
+        uta.network, 
+        uta.account_index, 
+        uta.alias,
+        c.l1_address,
+        c.collateral,
+        c.positions_json,
+        c.last_updated_at,
+        u.alert_threshold
+      FROM user_tracked_accounts uta
+      LEFT JOIN users u ON uta.telegram_id = u.telegram_id
+      LEFT JOIN account_positions_cache c 
+        ON uta.network = c.network AND uta.account_index = c.account_index
+      WHERE uta.telegram_id = ?
+      ORDER BY uta.network ASC, uta.id ASC
+    `;
+    params = [telegramId];
+  }
+
+  const { results } = await db.prepare(query).bind(...params).all<UserPositionFullStateRow>();
+  const rows = results || [];
+  const userThreshold = rows[0]?.alert_threshold ?? undefined;
+
+  return { rows, userThreshold };
+}
+
+export async function getAccountsPositionsCache(
+  db: D1Database,
+  accounts: Array<{ network: LighterNetwork; account_index: number }>,
+): Promise<Map<string, any>> {
+  const map = new Map<string, any>();
+  if (accounts.length === 0) return map;
+
+  const rows = await Promise.all(
+    accounts.map((item) =>
+      db
+        .prepare("SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?")
+        .bind(item.network, item.account_index)
+        .first<any>(),
+    ),
+  );
+  for (const row of rows) {
+    if (row) {
+      map.set(`${row.network}:${row.account_index}`, row);
+    }
+  }
+  return map;
+}
+
+export interface UserAccountCardDetails {
+  alias: string | null;
+  l1_address: string | null;
+  collateral: number | null;
+  positions_json: string | null;
+}
+
+export async function getUserAccountCardDetails(
+  db: D1Database,
+  telegramId: number,
+  network: LighterNetwork,
+  accountIndex: number,
+): Promise<UserAccountCardDetails | null> {
+  const cardData = await db
+    .prepare(`
+      SELECT 
+        uta.alias,
+        c.l1_address,
+        c.collateral,
+        c.positions_json
+      FROM user_tracked_accounts uta
+      LEFT JOIN account_positions_cache c 
+        ON uta.network = c.network AND uta.account_index = c.account_index
+      WHERE uta.telegram_id = ? AND uta.network = ? AND uta.account_index = ?
+    `)
+    .bind(telegramId, network, accountIndex)
+    .first<UserAccountCardDetails>();
+
+  return cardData || null;
 }

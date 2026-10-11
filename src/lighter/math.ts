@@ -42,35 +42,29 @@ export function analyzePositionRisk(pos: LighterPosition): PositionRiskAnalysis 
   };
 }
 
-function addCommas(numStr: string): string {
-  const len = numStr.length;
-  if (len <= 3) return numStr;
-  let result = "";
-  const remainder = len % 3;
-  if (remainder > 0) {
-    result += numStr.slice(0, remainder);
-  }
-  for (let i = remainder; i < len; i += 3) {
-    if (result.length > 0) result += ",";
-    result += numStr.slice(i, i + 3);
-  }
-  return result;
-}
-
 export function formatSmartPrice(price: number): string {
-  if (price >= 100) {
+  if (price >= 1000) {
     const fixed = price.toFixed(2);
     const dotIdx = fixed.indexOf(".");
     const intPart = dotIdx === -1 ? fixed : fixed.slice(0, dotIdx);
     const decPart = dotIdx === -1 ? "" : fixed.slice(dotIdx);
-    return addCommas(intPart) + decPart;
+
+    let formattedInt = "";
+    const len = intPart.length;
+    let digits = 0;
+
+    for (let i = len - 1; i >= 0; i--) {
+      formattedInt = intPart[i] + formattedInt;
+      digits++;
+      if (digits % 3 === 0 && i > 0) {
+        formattedInt = "," + formattedInt;
+      }
+    }
+    return formattedInt + decPart;
   }
-  if (price >= 1) {
-    return price.toFixed(4);
-  }
-  if (price >= 0.0001) {
-    return price.toFixed(6);
-  }
+  if (price >= 100) return price.toFixed(2);
+  if (price >= 1) return price.toFixed(4);
+  if (price >= 0.0001) return price.toFixed(6);
   return price.toFixed(8);
 }
 

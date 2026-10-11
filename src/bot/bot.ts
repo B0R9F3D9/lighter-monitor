@@ -15,9 +15,12 @@ import {
   updateAccountAlias,
   removeTrackedAccount,
   getSystemStats,
+  getUserTrackedAccounts,
+  getUserPositionsFullState,
+  getAccountsPositionsCache,
+  getUserAccountCardDetails,
 } from "../db/queries";
 import { formatPositionsReport } from "./formatters";
-import { Tracer } from "../utils/tracer";
 import { runInBackground } from "../utils/background";
 
 let botInstance: Bot | null = null;
@@ -205,18 +208,9 @@ export function getBot(env: Env): Bot {
     console.error("Unhandled error in bot handler:", err.error || err);
   });
 
-  // Сквозной легковесный трейсинг всех входящих событий Telegram
-  bot.use(async (ctx, next) => {
-    const trace = new Tracer("telegram_update", {
-      updateId: ctx.update?.update_id,
-      userId: ctx.from?.id,
-      action: ctx.message?.text || ctx.callbackQuery?.data || "other",
-    });
-    try {
-      await next();
-    } finally {
-      trace.end();
-    }
+  // Пропуск входящих событий Telegram без оверхеда на трейсинг
+  bot.use(async (_ctx, next) => {
+    await next();
   });
 
   // Сохранение пользователя в БД при первом взаимодействии в изоляте (в фоне без задержки ответа)
@@ -764,13 +758,9 @@ export function getBot(env: Env): Bot {
     accountIndex: number,
     isEdit: boolean = true,
   ) => {
-    const accRow = await env.DB.prepare(
-      "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?",
-    )
-      .bind(ctx.from!.id, network, accountIndex)
-      .first<{ network: LighterNetwork; account_index: number; alias: string | null }>();
+    const cardData = await getUserAccountCardDetails(env.DB, ctx.from!.id, network, accountIndex);
 
-    if (!accRow) {
+    if (!cardData) {
       const notFoundMsg = `Аккаунт #${accountIndex} не найден среди ваших отслеживаемых.`;
       if (isEdit) {
         return ctx
@@ -782,23 +772,17 @@ export function getBot(env: Env): Bot {
       return ctx.reply(notFoundMsg, { reply_markup: getMainKb(ctx) });
     }
 
-    const cacheRow = await env.DB.prepare(
-      "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?",
-    )
-      .bind(network, accountIndex)
-      .first<any>();
-
     const netConfig = CONFIG.NETWORKS[network];
-    const shortAddr = cacheRow?.l1_address
-      ? `${cacheRow.l1_address.slice(0, 6)}...${cacheRow.l1_address.slice(-4)}`
+    const shortAddr = cardData.l1_address
+      ? `${cardData.l1_address.slice(0, 6)}...${cardData.l1_address.slice(-4)}`
       : "—";
-    const collateral = parseFloat(String(cacheRow?.collateral || 0));
+    const collateral = parseFloat(String(cardData.collateral || 0));
 
     let positionsCount = 0;
     let symbolsSummary = "";
-    if (cacheRow?.positions_json) {
+    if (cardData.positions_json) {
       try {
-        const parsed = JSON.parse(cacheRow.positions_json) as any[];
+        const parsed = JSON.parse(cardData.positions_json) as any[];
         const active = parsed.filter((p) => Math.abs(parseFloat(p.position || p.size || "0")) > 0);
         positionsCount = active.length;
         if (positionsCount > 0) {
@@ -810,7 +794,7 @@ export function getBot(env: Env): Bot {
 
     const card =
       `💼 <b>Управление аккаунтом #${accountIndex}</b> <code>${netConfig.badge}</code>\n\n` +
-      `🏷 <b>Имя:</b> ${accRow.alias ? `<b>${accRow.alias}</b>` : "<i>не задано</i>"}\n` +
+      `🏷 <b>Имя:</b> ${cardData.alias ? `<b>${cardData.alias}</b>` : "<i>не задано</i>"}\n` +
       `💳 <b>Кошелек:</b> <code>${shortAddr}</code>\n` +
       `💰 <b>Залог:</b> $${collateral.toFixed(2)}\n` +
       `📊 <b>Открытых сделок:</b> ${positionsCount}${symbolsSummary}\n`;
@@ -877,17 +861,8 @@ export function getBot(env: Env): Bot {
 
   // Функция вывода списка кошельков /list
   const handleList = async (ctx: any, isEdit: boolean = false) => {
-    const trace = new Tracer("handle_list", { userId: ctx.from?.id, isEdit });
     try {
-      const { results } = await env.DB.prepare(`
-        SELECT network, account_index, alias 
-        FROM user_tracked_accounts 
-        WHERE telegram_id = ? 
-        ORDER BY network ASC, id ASC
-      `)
-        .bind(ctx.from!.id)
-        .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
-      trace.mark("d1_query");
+      const results = await getUserTrackedAccounts(env.DB, ctx.from!.id);
 
       if (!results || results.length === 0) {
         const emptyText =
@@ -926,9 +901,6 @@ export function getBot(env: Env): Bot {
         `Нажмите на кошелек для управления:\n\n` +
         `🕒 <i>Обновлено: ${timeStr} UTC</i>`;
 
-      trace.mark("render");
-      trace.set("accountCount", results.length);
-
       if (isEdit) {
         try {
           await ctx.editMessageText(msg, { parse_mode: "HTML", reply_markup: kb });
@@ -940,9 +912,8 @@ export function getBot(env: Env): Bot {
       } else {
         await ctx.reply(msg, { parse_mode: "HTML", reply_markup: kb });
       }
-      trace.mark("telegram_send");
-    } finally {
-      trace.end();
+    } catch (err) {
+      console.error("[handleList] Error:", err);
     }
   };
 
@@ -970,55 +941,38 @@ export function getBot(env: Env): Bot {
     isEdit: boolean = false,
     filterNetwork?: LighterNetwork,
   ) => {
-    const trace = new Tracer("handle_positions", {
-      userId: ctx.from?.id,
-      forceRefresh,
-      filterIndex,
-      filterNetwork,
-    });
-
     try {
+      const { rows: userFullRows, userThreshold: preloadedThreshold } =
+        await getUserPositionsFullState(env.DB, ctx.from!.id, filterIndex, filterNetwork);
+
       let trackedList: Array<{
         network: LighterNetwork;
         account_index: number;
         alias: string | null;
       }> = [];
+      let cacheMap = new Map<string, any>();
+      let userThreshold = preloadedThreshold;
 
-      if (filterIndex) {
-        if (filterNetwork) {
-          const { results } = await env.DB.prepare(
-            "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?",
-          )
-            .bind(ctx.from!.id, filterNetwork, filterIndex)
-            .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
-          trackedList =
-            results && results.length > 0
-              ? results
-              : [{ network: filterNetwork, account_index: filterIndex, alias: null }];
-        } else {
-          const { results } = await env.DB.prepare(
-            "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? AND account_index = ?",
-          )
-            .bind(ctx.from!.id, filterIndex)
-            .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
-          trackedList = results || [];
-          if (trackedList.length === 0) {
-            trackedList = [
+      if (userFullRows.length > 0) {
+        for (const row of userFullRows) {
+          trackedList.push({
+            network: row.network,
+            account_index: row.account_index,
+            alias: row.alias,
+          });
+          if (row.l1_address || row.positions_json) {
+            cacheMap.set(`${row.network}:${row.account_index}`, row);
+          }
+        }
+      } else if (filterIndex) {
+        trackedList = filterNetwork
+          ? [{ network: filterNetwork, account_index: filterIndex, alias: null }]
+          : [
               { network: "rh", account_index: filterIndex, alias: null },
               { network: "mainnet", account_index: filterIndex, alias: null },
             ];
-          }
-        }
-      } else {
-        const { results } = await env.DB.prepare(
-          "SELECT network, account_index, alias FROM user_tracked_accounts WHERE telegram_id = ? ORDER BY network ASC, id ASC",
-        )
-          .bind(ctx.from!.id)
-          .all<{ network: LighterNetwork; account_index: number; alias: string | null }>();
-        trackedList = results || [];
+        cacheMap = await getAccountsPositionsCache(env.DB, trackedList);
       }
-
-      trace.mark("d1_load_tracked");
 
       if (trackedList.length === 0) {
         if (filterIndex) {
@@ -1040,45 +994,6 @@ export function getBot(env: Env): Bot {
         return ctx.reply(emptyText, { parse_mode: "HTML", reply_markup: emptyKb });
       }
 
-      // Загрузка кэша из D1
-      const cacheMap = new Map<string, any>();
-      if (trackedList.length > 0) {
-        if (!filterIndex) {
-          const { results: cachedRows } = await env.DB.prepare(`
-            SELECT c.* 
-            FROM account_positions_cache c
-            JOIN user_tracked_accounts uta 
-              ON c.network = uta.network AND c.account_index = uta.account_index
-            WHERE uta.telegram_id = ?
-          `)
-            .bind(ctx.from!.id)
-            .all<any>();
-
-          if (cachedRows) {
-            for (const row of cachedRows) {
-              cacheMap.set(`${row.network}:${row.account_index}`, row);
-            }
-          }
-        } else {
-          const rows = await Promise.all(
-            trackedList.map((item) =>
-              env.DB.prepare(
-                "SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?",
-              )
-                .bind(item.network, item.account_index)
-                .first<any>(),
-            ),
-          );
-          for (const row of rows) {
-            if (row) {
-              cacheMap.set(`${row.network}:${row.account_index}`, row);
-            }
-          }
-        }
-      }
-
-      trace.mark("d1_load_cache");
-
       const nowSec = Math.floor(Date.now() / 1000);
       let isRateLimited = false;
 
@@ -1093,7 +1008,6 @@ export function getBot(env: Env): Bot {
           });
 
       const freshMap = new Map<string, any>();
-      trace.set("toFetchCount", toFetch.length);
       if (toFetch.length > 0) {
         const settled = await fetchInChunks(
           toFetch,
@@ -1106,7 +1020,6 @@ export function getBot(env: Env): Bot {
               getLighterAuthToken(currentEnv || env, item.network),
             ),
         );
-        trace.mark("lighter_api_fetch");
         toFetch.forEach((item, i) => {
           const res = settled[i];
           if (res && res.status === "fulfilled") {
@@ -1159,11 +1072,12 @@ export function getBot(env: Env): Bot {
               ),
             ]),
           );
-          trace.mark("d1_sync_and_cache_dispatched");
         }
       }
 
-      const userThreshold = await getUserThreshold(env.DB, ctx.from.id);
+      if (userThreshold === undefined) {
+        userThreshold = await getUserThreshold(env.DB, ctx.from.id);
+      }
       let totalUnPnl = 0;
       let totalCollateral = 0;
       const cards: string[] = [];
@@ -1270,8 +1184,6 @@ export function getBot(env: Env): Bot {
         }
 
         combinedReport += footerSuffix;
-        trace.mark("calc_and_render");
-        trace.set("cardsCount", cards.length);
 
         if (combinedReport.length > 3800) {
           let currentChunk = "";
@@ -1286,7 +1198,6 @@ export function getBot(env: Env): Bot {
           }
           currentChunk += `${summaryBlock}${footerSuffix}`;
           await ctx.reply(currentChunk, { parse_mode: "HTML", reply_markup: posKeyboard });
-          trace.mark("telegram_send");
           return;
         }
 
@@ -1304,15 +1215,13 @@ export function getBot(env: Env): Bot {
         } else {
           await ctx.reply(combinedReport, { parse_mode: "HTML", reply_markup: posKeyboard });
         }
-        trace.mark("telegram_send");
       } else if (filterIndex) {
         await ctx.reply(`Аккаунт #${filterIndex} не найден ни в одной из поддерживаемых сетей.`, {
           reply_markup: getMainKb(ctx),
         });
-        trace.mark("telegram_send");
       }
-    } finally {
-      trace.end();
+    } catch (err) {
+      console.error("[handlePositions] Error:", err);
     }
   };
 

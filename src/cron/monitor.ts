@@ -84,7 +84,8 @@ export function getMovedSymbols(
   minMoveThreshold: number = 0.05, // 0.05% отсечка для надежного улавливания пользовательского шага 0.1%
   maxAgeSeconds: number = 600, // 10 минут принудительный пересчет для защиты от дрейфа
 ): { movedSymbols: string[]; isFullSweep: boolean } {
-  // Холодный старт изолята: прогреваем кэш цен без тяжелого полного среза базы
+  // Холодный старт изолята: прогреваем кэш цен и форсируем полный срез активных позиций,
+  // чтобы ни один спайк не был упущен из-за пересоздания изолята!
   if (priceReferenceCache.size === 0) {
     for (const [, netMap] of currentSnapshots) {
       for (const [sym, snap] of netMap) {
@@ -93,7 +94,7 @@ export function getMovedSymbols(
         }
       }
     }
-    return { movedSymbols: [], isFullSweep: false };
+    return { movedSymbols: [], isFullSweep: true };
   }
 
   const moved = new Set<string>();
@@ -301,7 +302,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       const accountsToSync = await getNextAccountsForSync(env.DB, 5, now, 0);
 
       if (accountsToSync.length > 0) {
-        const syncResults = await fetchInChunks(accountsToSync, 3, (acc) =>
+        const syncResults = await fetchInChunks(accountsToSync, 5, (acc) =>
           fetchLighterAccount(
             acc.network,
             acc.accountIndex,
@@ -327,16 +328,25 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
 
           if (syncedData) {
             roundRobinSyncedCount++;
-            allUpdates.push(
-              ...buildSyncAccountOpenPositionsStmts(
-                env.DB,
-                accKey.network,
-                accKey.accountIndex,
-                syncedData.positions,
-                now,
-                stmtUpsertOpenPos,
-              ),
-            );
+
+            // Zero-Query Dirty Checking: обновляем открытые позиции в D1 только если они изменились
+            const currentPositionsJson = JSON.stringify(syncedData.positions || []);
+            const hasChanged =
+              !accKey.positionsJson || accKey.positionsJson !== currentPositionsJson;
+
+            if (hasChanged) {
+              allUpdates.push(
+                ...buildSyncAccountOpenPositionsStmts(
+                  env.DB,
+                  accKey.network,
+                  accKey.accountIndex,
+                  syncedData.positions,
+                  now,
+                  stmtUpsertOpenPos,
+                ),
+              );
+            }
+
             cacheUpdates.push({
               network: accKey.network,
               account: syncedData,
@@ -390,8 +400,8 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
         }
       }
 
-      // Шаг Б.2: Параллельный опрос аккаунтов пачками по 3 штуки
-      const JIT_CHUNK = 3;
+      // Шаг Б.2: Параллельный опрос аккаунтов пачками по 5 штук
+      const JIT_CHUNK = 5;
       for (let i = 0; i < pendingJitKeys.length; i += JIT_CHUNK) {
         if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
           console.warn("Cron wall-clock budget reached. Postponing remaining JIT checks.");
@@ -537,22 +547,14 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
         alertsByUser.set(item.telegram_id, userAlerts);
       }
 
-      // Шаг Б.4: Параллельная отправка агрегированных алертов
+      // Шаг Б.4: Параллельная отправка агрегированных алертов одной волной
       const userEntries = Array.from(alertsByUser.entries());
-      const ALERT_SEND_CONCURRENCY = 3;
 
       if (userEntries.length > 0 && env.TELEGRAM_BOT_TOKEN) {
-        const api = new Api(env.TELEGRAM_BOT_TOKEN);
-        for (let i = 0; i < userEntries.length; i += ALERT_SEND_CONCURRENCY) {
-          if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
-            console.warn("Cron wall-clock budget reached. Postponing remaining alert deliveries.");
-            break;
-          }
-          if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 2) break;
-
-          const chunk = userEntries.slice(i, i + ALERT_SEND_CONCURRENCY);
+        if (Date.now() - startTime <= MAX_WALL_CLOCK_MS) {
+          const api = new Api(env.TELEGRAM_BOT_TOKEN);
           await Promise.allSettled(
-            chunk.map(async ([telegramId, alerts]) => {
+            userEntries.map(async ([telegramId, alerts]) => {
               if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 1) return;
 
               const combinedText = alerts.map((a) => a.alertText).join("\n\n───────────────────\n\n");
@@ -608,6 +610,8 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
               }
             }),
           );
+        } else {
+          console.warn("Cron wall-clock budget reached. Postponing remaining alert deliveries.");
         }
       }
     }

@@ -266,7 +266,7 @@ describe("Price-Driven Monitoring Unit Tests", () => {
     });
 
     describe("Reverse Indexing (getMovedSymbols)", () => {
-      it("warms up reference cache on cold start without full sweep", () => {
+      it("warms up reference cache on cold start with full sweep to prevent missed spikes", () => {
         resetPriceReferenceCache();
         const snapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>([
           ["rh", new Map([["XAU", { symbol: "XAU", price: 4200.0, dailyChange: 0 }]])],
@@ -274,7 +274,7 @@ describe("Price-Driven Monitoring Unit Tests", () => {
         ]);
 
         const res = getMovedSymbols(snapshots, 1000);
-        expect(res.isFullSweep).toBe(false);
+        expect(res.isFullSweep).toBe(true);
         expect(res.movedSymbols.length).toBe(0);
       });
 

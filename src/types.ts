@@ -16,6 +16,7 @@ export interface Env {
 export interface TrackedAccountKey {
   network: LighterNetwork;
   accountIndex: number;
+  positionsJson?: string | null;
 }
 
 export interface LighterPosition {

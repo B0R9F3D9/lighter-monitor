@@ -8,6 +8,14 @@ export interface FetchAccountResult {
   message?: string;
 }
 
+const BASE_HEADERS: Record<string, string> = {
+  Accept: "application/json",
+  "Cache-Control": "no-cache, no-store, must-revalidate",
+  Pragma: "no-cache",
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+};
+
 export async function fetchLighterAccountWithStatus(
   network: LighterNetwork,
   accountIndex: number,
@@ -20,28 +28,19 @@ export async function fetchLighterAccountWithStatus(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const headers: Record<string, string> = {
-        Accept: "application/json",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        Pragma: "no-cache",
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      };
-      if (authToken && authToken.trim()) {
-        headers["Authorization"] = authToken.trim();
-      }
+      const headers =
+        authToken && authToken.trim()
+          ? { ...BASE_HEADERS, Authorization: authToken.trim() }
+          : BASE_HEADERS;
 
-      const fetchOptions = {
+      const fetchOptions: RequestInit & { cf?: any } = {
         headers,
         signal: AbortSignal.timeout(CONFIG.FETCH_TIMEOUT_MS || 5000),
+        cf: { cacheTtl: 0, cacheEverything: false },
       };
 
-      // Добавляем микросекундный cache-buster _t=${Date.now()}, чтобы CloudFront и промежуточные CDN
-      // гарантированно не отдавали «застрявшие» кэшированные ответы при ручном обновлении
-      let res = await fetch(
-        `${baseUrl}/account?by=index&value=${accountIndex}&_t=${Date.now()}`,
-        fetchOptions,
-      );
+      // Прямой запрос без _t для сохранения Keep-Alive TLS сессии и сокетов
+      let res = await fetch(`${baseUrl}/account?by=index&value=${accountIndex}`, fetchOptions);
 
       // Защита от невалидного или протухшего токена авторизации:
       // если биржа вернула 401 с токеном, пробуем резервный публичный запрос без него
@@ -49,10 +48,9 @@ export async function fetchLighterAccountWithStatus(
         console.warn(
           `[${network}] #${accountIndex} got 401 with Authorization token. Retrying without auth token...`,
         );
-        delete headers["Authorization"];
-        res = await fetch(`${baseUrl}/account?by=index&value=${accountIndex}&_t=${Date.now()}`, {
+        res = await fetch(`${baseUrl}/account?by=index&value=${accountIndex}`, {
           ...fetchOptions,
-          headers,
+          headers: BASE_HEADERS,
         });
       }
 
@@ -165,13 +163,12 @@ export async function fetchInChunks<T, R>(
   fn: (item: T) => Promise<R>,
 ): Promise<PromiseSettledResult<R>[]> {
   const results: PromiseSettledResult<R>[] = [];
-  for (let i = 0; i < items.length; i += chunkSize) {
+  const len = items.length;
+  for (let i = 0; i < len; i += chunkSize) {
     const chunk = items.slice(i, i + chunkSize);
-    const chunkResults = await Promise.allSettled(chunk.map((item) => fn(item)));
-    results.push(...chunkResults);
-    // Небольшая пауза между чанками для предотвращения 429 всплесков
-    if (i + chunkSize < items.length) {
-      await new Promise((r) => setTimeout(r, 150));
+    const chunkResults = await Promise.allSettled(chunk.map(fn));
+    for (let j = 0; j < chunkResults.length; j++) {
+      results.push(chunkResults[j]!);
     }
   }
   return results;
@@ -185,25 +182,27 @@ export async function fetchExchangeStats(
   const map = new Map<string, MarketPriceSnapshot>();
 
   try {
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      Pragma: "no-cache",
-      "User-Agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    };
-    if (authToken && authToken.trim()) {
-      headers["Authorization"] = authToken.trim();
-    }
+    const headers =
+      authToken && authToken.trim()
+        ? { ...BASE_HEADERS, Authorization: authToken.trim() }
+        : BASE_HEADERS;
 
-    let res = await fetch(`${baseUrl}/exchangeStats?_t=${Date.now()}`, { headers });
+    const fetchOptions: RequestInit & { cf?: any } = {
+      headers,
+      signal: AbortSignal.timeout(CONFIG.FETCH_TIMEOUT_MS || 5000),
+      cf: { cacheTtl: 0, cacheEverything: false },
+    };
+
+    let res = await fetch(`${baseUrl}/exchangeStats`, fetchOptions);
 
     if (res.status === 401 && authToken) {
       console.warn(
         `[${network}] exchangeStats got 401 with Authorization token. Retrying without auth token...`,
       );
-      delete headers["Authorization"];
-      res = await fetch(`${baseUrl}/exchangeStats?_t=${Date.now()}`, { headers });
+      res = await fetch(`${baseUrl}/exchangeStats`, {
+        ...fetchOptions,
+        headers: BASE_HEADERS,
+      });
     }
 
     if (!res.ok) return map;

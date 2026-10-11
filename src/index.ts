@@ -15,6 +15,8 @@ import {
   HEDGE_HTML_HASH,
 } from "./version";
 
+let cachedWebhookHandler: ((req: Request) => Promise<Response>) | null = null;
+
 /**
  * Local Bun fallback to serve static assets from `./dist` during local development
  * (e.g. `bun run web` or `bun test`) when Cloudflare CDN / env.ASSETS is not available.
@@ -196,8 +198,10 @@ export default {
       }
 
       const bot = getBot(env);
-      const cb = webhookCallback(bot, "cloudflare-mod");
-      return await executionContextStorage.run(ctx, () => cb(request as any));
+      if (!cachedWebhookHandler) {
+        cachedWebhookHandler = webhookCallback(bot, "cloudflare-mod");
+      }
+      return await executionContextStorage.run(ctx, () => cachedWebhookHandler!(request as any));
     }
 
     // Static Assets on Cloudflare via Workers Assets binding (GET / HEAD only)
