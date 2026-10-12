@@ -105,8 +105,6 @@ export interface MarketMetrics {
   vwapTotalDragBps: number;
   costUsd: number;
   rawCostUsd: number;
-  pointCostUsd: number;
-  pointsEarned: number;
   maxLevelsSwept: number;
   minDepthUsd: number;
   optimalSizeUsd: number;
@@ -152,8 +150,10 @@ export interface RowDomCache {
   verdictEl: HTMLElement;
   sizeEl: HTMLElement;
   rtLossEl: HTMLElement;
-  ptCostEl: HTMLElement;
-  turnoverDragEl: HTMLElement;
+  entryBpsEl: HTMLElement;
+  entryUsdEl: HTMLElement;
+  exitBpsEl: HTMLElement;
+  exitUsdEl: HTMLElement;
   midPriceEl: HTMLElement;
   deltaMidEl: HTMLElement | null;
   volEl: HTMLElement | null;
@@ -166,10 +166,10 @@ export interface RowDomCache {
   lastIsDynamic?: boolean;
   lastCostUsd?: number;
   lastCostTier?: number;
-  lastPointCostUsd?: number;
-  lastPointCostTier?: number;
-  lastDragBps?: number;
-  lastDragTier?: number;
+  lastEntryLossUsd?: number;
+  lastEntryDragBps?: number;
+  lastExitLossUsd?: number;
+  lastExitDragBps?: number;
   lastMidPrice?: number;
   lastDeltaMidUsd?: number;
   lastDeltaMidBps?: number;

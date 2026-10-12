@@ -26,9 +26,13 @@ export function createRowElement(
     <td class="py-1.5 sm:py-2 px-1 sm:px-2 md:px-2.5 text-right tabular-nums whitespace-nowrap">
       <div class="rt-loss-val font-medium text-terminal-muted text-xs">—</div>
     </td>
-    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right ptcost-cell tabular-nums font-medium text-terminal-muted text-xs whitespace-nowrap">—</td>
-    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right tabular-nums whitespace-nowrap">
-      <div class="turnover-drag-val font-medium text-terminal-muted text-xs">—</div>
+    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right entry-cell tabular-nums whitespace-nowrap">
+      <div class="entry-bps-val text-xs leading-tight font-medium text-terminal-muted tabular-nums">—</div>
+      <div class="entry-usd-val text-[10px] text-terminal-muted tabular-nums leading-tight">—</div>
+    </td>
+    <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right exit-cell tabular-nums whitespace-nowrap">
+      <div class="exit-bps-val text-xs leading-tight font-medium text-terminal-muted tabular-nums">—</div>
+      <div class="exit-usd-val text-[10px] text-terminal-muted tabular-nums leading-tight">—</div>
     </td>
     <td class="py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right tabular-nums whitespace-nowrap">
       <div class="mid-price-val text-terminal-primary text-xs leading-tight">—</div>
@@ -57,8 +61,10 @@ export function createRowElement(
     verdictEl: tr.querySelector(".verdict-badge") as HTMLElement,
     sizeEl: tr.querySelector(".size-cell span") as HTMLElement,
     rtLossEl: tr.querySelector(".rt-loss-val") as HTMLElement,
-    ptCostEl: tr.querySelector(".ptcost-cell") as HTMLElement,
-    turnoverDragEl: tr.querySelector(".turnover-drag-val") as HTMLElement,
+    entryBpsEl: tr.querySelector(".entry-bps-val") as HTMLElement,
+    entryUsdEl: tr.querySelector(".entry-usd-val") as HTMLElement,
+    exitBpsEl: tr.querySelector(".exit-bps-val") as HTMLElement,
+    exitUsdEl: tr.querySelector(".exit-usd-val") as HTMLElement,
     midPriceEl: tr.querySelector(".mid-price-val") as HTMLElement,
     deltaMidEl: tr.querySelector(".delta-mid-val") as HTMLElement,
     volEl: tr.querySelector(".vol-cell span") as HTMLElement,
@@ -191,74 +197,96 @@ export function applyRowMetricsToDom(cache: RowDomCache, row: MarketMetrics): vo
     }
   }
 
-  // 3. Point Cost ($/pt)
-  if (cache.ptCostEl) {
-    const ptTier = row.isStale
-      ? -2
-      : !row.allFilled
-        ? -1
-        : row.pointCostUsd < 1.5
-          ? 0
-          : row.pointCostUsd <= 3.0
-            ? 1
-            : 2;
-    const ptChanged =
-      cache.lastPointCostUsd === undefined ||
-      Math.abs(cache.lastPointCostUsd - row.pointCostUsd) >= 0.005 ||
-      cache.lastPointCostTier !== ptTier;
-    if (ptChanged) {
-      cache.lastPointCostUsd = row.pointCostUsd;
-      cache.lastPointCostTier = ptTier;
+  // 3. Entry Spread (bps + $)
+  if (cache.entryBpsEl && cache.entryUsdEl) {
+    const entryChanged =
+      cache.lastEntryLossUsd === undefined ||
+      Math.abs(cache.lastEntryLossUsd - row.entryLossUsd) >= 0.005 ||
+      cache.lastEntryDragBps === undefined ||
+      Math.abs(cache.lastEntryDragBps - row.entryDragBps) >= 0.05;
+    if (entryChanged) {
+      cache.lastEntryLossUsd = row.entryLossUsd;
+      cache.lastEntryDragBps = row.entryDragBps;
       if (row.isStale) {
-        setTextIfChanged(cache.ptCostEl, "—");
+        setTextIfChanged(cache.entryBpsEl, "—");
+        setTextIfChanged(cache.entryUsdEl, "—");
         setClassIfChanged(
-          cache.ptCostEl,
-          "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
+          cache.entryBpsEl,
+          "entry-bps-val text-xs leading-tight font-medium text-terminal-muted tabular-nums",
         );
       } else if (!row.allFilled) {
-        setTextIfChanged(cache.ptCostEl, "N/A");
+        setTextIfChanged(cache.entryBpsEl, "N/A (< liq)");
+        setTextIfChanged(cache.entryUsdEl, "—");
         setClassIfChanged(
-          cache.ptCostEl,
-          "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
+          cache.entryBpsEl,
+          "entry-bps-val text-xs leading-tight font-semibold text-terminal-coral tabular-nums",
         );
       } else {
-        setTextIfChanged(cache.ptCostEl, `$${row.pointCostUsd.toFixed(2)}/pt`);
-        if (ptTier === 0) {
+        setTextIfChanged(cache.entryBpsEl, formatBps(row.entryDragBps, true));
+        setTextIfChanged(cache.entryUsdEl, formatMoney(row.entryLossUsd));
+        if (row.entryLossUsd <= 0) {
           setClassIfChanged(
-            cache.ptCostEl,
-            "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-bold text-terminal-emerald tabular-nums text-xs whitespace-nowrap",
+            cache.entryBpsEl,
+            "entry-bps-val text-xs leading-tight font-bold text-terminal-emerald tabular-nums",
           );
-        } else if (ptTier === 1) {
+        } else if (row.entryDragBps <= 3.5) {
           setClassIfChanged(
-            cache.ptCostEl,
-            "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-amber tabular-nums text-xs whitespace-nowrap",
+            cache.entryBpsEl,
+            "entry-bps-val text-xs leading-tight font-semibold text-terminal-primary tabular-nums",
           );
         } else {
           setClassIfChanged(
-            cache.ptCostEl,
-            "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-coral tabular-nums text-xs whitespace-nowrap",
+            cache.entryBpsEl,
+            "entry-bps-val text-xs leading-tight font-medium text-terminal-secondary tabular-nums",
           );
         }
       }
     }
   }
 
-  // 4. Turnover Drag in bps
-  if (cache.turnoverDragEl) {
-    const dragTier = row.isStale ? -2 : !row.allFilled ? -1 : 0;
-    const dragChanged =
-      cache.lastDragBps === undefined ||
-      Math.abs(cache.lastDragBps - row.vwapTotalDragBps) >= 0.05 ||
-      cache.lastDragTier !== dragTier;
-    if (dragChanged) {
-      cache.lastDragBps = row.vwapTotalDragBps;
-      cache.lastDragTier = dragTier;
+  // 4. Exit Spread (bps + $)
+  if (cache.exitBpsEl && cache.exitUsdEl) {
+    const exitChanged =
+      cache.lastExitLossUsd === undefined ||
+      Math.abs(cache.lastExitLossUsd - row.exitLossUsd) >= 0.005 ||
+      cache.lastExitDragBps === undefined ||
+      Math.abs(cache.lastExitDragBps - row.exitDragBps) >= 0.05;
+    if (exitChanged) {
+      cache.lastExitLossUsd = row.exitLossUsd;
+      cache.lastExitDragBps = row.exitDragBps;
       if (row.isStale) {
-        setTextIfChanged(cache.turnoverDragEl, "—");
+        setTextIfChanged(cache.exitBpsEl, "—");
+        setTextIfChanged(cache.exitUsdEl, "—");
+        setClassIfChanged(
+          cache.exitBpsEl,
+          "exit-bps-val text-xs leading-tight font-medium text-terminal-muted tabular-nums",
+        );
       } else if (!row.allFilled) {
-        setTextIfChanged(cache.turnoverDragEl, "N/A");
+        setTextIfChanged(cache.exitBpsEl, "N/A (< liq)");
+        setTextIfChanged(cache.exitUsdEl, "—");
+        setClassIfChanged(
+          cache.exitBpsEl,
+          "exit-bps-val text-xs leading-tight font-semibold text-terminal-coral tabular-nums",
+        );
       } else {
-        setTextIfChanged(cache.turnoverDragEl, formatBps(row.vwapTotalDragBps));
+        setTextIfChanged(cache.exitBpsEl, formatBps(row.exitDragBps, true));
+        setTextIfChanged(cache.exitUsdEl, formatMoney(row.exitLossUsd));
+        if (row.exitLossUsd <= 0) {
+          setClassIfChanged(
+            cache.exitBpsEl,
+            "exit-bps-val text-xs leading-tight font-bold text-terminal-emerald tabular-nums",
+          );
+        } else if (row.exitDragBps <= 3.5) {
+          setClassIfChanged(
+            cache.exitBpsEl,
+            "exit-bps-val text-xs leading-tight font-semibold text-terminal-primary tabular-nums",
+          );
+        } else {
+          setClassIfChanged(
+            cache.exitBpsEl,
+            "exit-bps-val text-xs leading-tight font-medium text-terminal-secondary tabular-nums",
+          );
+        }
       }
     }
   }
@@ -331,12 +359,18 @@ export function applyNullMetricsToDom(cache: RowDomCache, m: MarketInfo): void {
     cache.rtLossEl,
     "rt-loss-val font-medium text-terminal-muted tabular-nums text-xs",
   );
-  setTextIfChanged(cache.ptCostEl, "—");
+  setTextIfChanged(cache.entryBpsEl, "—");
+  setTextIfChanged(cache.entryUsdEl, "—");
   setClassIfChanged(
-    cache.ptCostEl,
-    "py-1.5 sm:py-2 px-1 sm:px-1.5 md:px-2 text-right font-medium text-terminal-muted tabular-nums text-xs whitespace-nowrap",
+    cache.entryBpsEl,
+    "entry-bps-val text-xs leading-tight font-medium text-terminal-muted tabular-nums",
   );
-  setTextIfChanged(cache.turnoverDragEl, "—");
+  setTextIfChanged(cache.exitBpsEl, "—");
+  setTextIfChanged(cache.exitUsdEl, "—");
+  setClassIfChanged(
+    cache.exitBpsEl,
+    "exit-bps-val text-xs leading-tight font-medium text-terminal-muted tabular-nums",
+  );
   setTextIfChanged(cache.midPriceEl, "—");
   if (cache.deltaMidEl) {
     setTextIfChanged(cache.deltaMidEl, "—");
@@ -362,16 +396,14 @@ export function createDetailRowElement(
   detailTr.className = "bg-terminal-surface/70 border-b border-terminal-border";
 
   detailTr.innerHTML = `
-    <td colspan="${r.isDynamic ? 10 : 9}" class="detail-row-cell py-2 sm:py-3 px-1 sm:px-2">
-      <div class="detail-expanded-container mx-auto space-y-2 font-mono text-xs">
+    <td colspan="${r.isDynamic ? 10 : 9}" class="detail-row-cell py-1.5 sm:py-2 px-1 sm:px-2">
+      <div class="detail-expanded-container mx-auto space-y-1.5 font-mono text-xs">
         <!-- Top Info Bar -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-terminal-border pb-1.5 text-[11px] gap-1">
-          <div class="flex flex-wrap items-center gap-1.5">
-            <span class="text-white font-bold">Execution Breakdown (4 Legs):</span>
-            <span id="dtlSymbol" class="text-terminal-secondary font-semibold"></span>
-            <span id="dtlLev" class="text-terminal-accent font-semibold"></span>
-            <span id="dtlLevVenues" class="text-terminal-muted text-[10px]"></span>
-            <span id="dtlSize" class="text-white font-semibold"></span>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b border-terminal-border/60 pb-1 text-[11px] gap-1">
+          <div class="flex items-center gap-2">
+            <span id="dtlSymbol" class="text-white font-bold text-xs tracking-tight"></span>
+            <span class="text-terminal-border">|</span>
+            <span id="dtlSize" class="text-terminal-accent font-semibold"></span>
           </div>
           <div class="text-terminal-muted flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px]">
             <div>Basis: <span id="dtlBasis" class="font-bold tabular-nums"></span></div>
@@ -381,78 +413,77 @@ export function createDetailRowElement(
         </div>
 
         <!-- 4 Leg Cards (4 vertical blocks) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 min-w-0">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 min-w-0">
           <!-- Leg 1: RH LONG -->
-          <div class="bg-terminal-surface border border-terminal-emerald/30 p-2 sm:p-2.5 rounded space-y-1 min-w-0">
-            <div class="flex items-center justify-between text-[11px] font-bold text-terminal-emerald">
+          <div class="bg-terminal-surface border border-terminal-emerald/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
+            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-emerald">
               <span>LEG 1: RH LONG</span>
               <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-emeraldMuted border border-terminal-emerald/30">Buy Ask</span>
             </div>
-            <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+            <div class="text-[10px] space-y-0.5 text-terminal-secondary">
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL1Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL1Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL1Slip" class="text-terminal-emerald tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Levels Swept:</span> <span id="dtlL1Swept" class="tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Asks Depth:</span> <span id="dtlL1Depth" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL1Swept" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Depth:</span> <span id="dtlL1Depth" class="tabular-nums shrink-0"></span></div>
             </div>
           </div>
 
           <!-- Leg 2: CORE SHORT -->
-          <div class="bg-terminal-surface border border-terminal-coral/30 p-2 sm:p-2.5 rounded space-y-1 min-w-0">
-            <div class="flex items-center justify-between text-[11px] font-bold text-terminal-coral">
+          <div class="bg-terminal-surface border border-terminal-coral/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
+            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-coral">
               <span>LEG 2: CORE SHORT</span>
               <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-coralMuted border border-terminal-coral/30">Sell Bid</span>
             </div>
-            <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+            <div class="text-[10px] space-y-0.5 text-terminal-secondary">
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL2Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL2Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL2Slip" class="text-terminal-coral tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Levels Swept:</span> <span id="dtlL2Swept" class="tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Bids Depth:</span> <span id="dtlL2Depth" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL2Swept" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Depth:</span> <span id="dtlL2Depth" class="tabular-nums shrink-0"></span></div>
             </div>
           </div>
 
           <!-- Leg 3: CLOSE RH -->
-          <div class="bg-terminal-surface border border-terminal-border p-2 sm:p-2.5 rounded space-y-1 min-w-0">
-            <div class="flex items-center justify-between text-[11px] font-bold text-terminal-secondary">
+          <div class="bg-terminal-surface border border-terminal-border p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
+            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-secondary">
               <span>LEG 3: CLOSE RH</span>
               <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Sell Bid</span>
             </div>
-            <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+            <div class="text-[10px] space-y-0.5 text-terminal-secondary">
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL3Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL3Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL3Slip" class="tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Levels Swept:</span> <span id="dtlL3Swept" class="tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Bids Depth:</span> <span id="dtlL3Depth" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL3Swept" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Depth:</span> <span id="dtlL3Depth" class="tabular-nums shrink-0"></span></div>
             </div>
           </div>
 
           <!-- Leg 4: CLOSE CORE -->
-          <div class="bg-terminal-surface border border-terminal-border p-2 sm:p-2.5 rounded space-y-1 min-w-0">
-            <div class="flex items-center justify-between text-[11px] font-bold text-terminal-secondary">
+          <div class="bg-terminal-surface border border-terminal-border p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
+            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-secondary">
               <span>LEG 4: CLOSE CORE</span>
               <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Buy Ask</span>
             </div>
-            <div class="text-[11px] space-y-0.5 text-terminal-secondary">
+            <div class="text-[10px] space-y-0.5 text-terminal-secondary">
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL4Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL4Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL4Slip" class="tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Levels Swept:</span> <span id="dtlL4Swept" class="tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Asks Depth:</span> <span id="dtlL4Depth" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL4Swept" class="tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Depth:</span> <span id="dtlL4Depth" class="tabular-nums shrink-0"></span></div>
             </div>
           </div>
         </div>
 
         <!-- Summary Footnote -->
-        <div class="p-1.5 sm:p-2 bg-terminal-surface rounded border border-terminal-borderSubtle text-[10px] text-terminal-muted flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span>Mid <strong id="dtlFntMid" class="text-white"></strong></span>
+        <div class="p-1 px-2 bg-terminal-surface rounded border border-terminal-borderSubtle text-[10px] text-terminal-muted flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+          <div class="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+            <span>Mid: <strong id="dtlFntMid" class="text-white"></strong></span>
             <span>Entry: <strong id="dtlFntEntryCost" class="text-white"></strong></span>
           </div>
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <div class="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
             <span>Turnover Drag: <strong id="dtlFntDrag" class="text-terminal-primary"></strong></span>
             <span>(RT Loss: <strong id="dtlFntRtLoss" class="text-terminal-coral"></strong>)</span>
-            <span>Cost/pt: <strong id="dtlFntPtCost"></strong></span>
           </div>
         </div>
       </div>
@@ -465,8 +496,6 @@ export function createDetailRowElement(
 
 interface DetailRowDomCache {
   dtlSymbol: HTMLElement | null;
-  dtlLev: HTMLElement | null;
-  dtlLevVenues: HTMLElement | null;
   dtlSize: HTMLElement | null;
   dtlBasis: HTMLElement | null;
   dtlEntry: HTMLElement | null;
@@ -497,7 +526,6 @@ interface DetailRowDomCache {
   dtlFntEntryCost: HTMLElement | null;
   dtlFntDrag: HTMLElement | null;
   dtlFntRtLoss: HTMLElement | null;
-  dtlFntPtCost: HTMLElement | null;
 }
 
 const detailRowCacheMap = new WeakMap<HTMLElement, DetailRowDomCache>();
@@ -508,8 +536,6 @@ function getDetailRowCache(root: HTMLElement | Document): DetailRowDomCache {
     if (!cache) {
       cache = {
         dtlSymbol: root.querySelector("#dtlSymbol"),
-        dtlLev: root.querySelector("#dtlLev"),
-        dtlLevVenues: root.querySelector("#dtlLevVenues"),
         dtlSize: root.querySelector("#dtlSize"),
         dtlBasis: root.querySelector("#dtlBasis"),
         dtlEntry: root.querySelector("#dtlEntry"),
@@ -540,7 +566,6 @@ function getDetailRowCache(root: HTMLElement | Document): DetailRowDomCache {
         dtlFntEntryCost: root.querySelector("#dtlFntEntryCost"),
         dtlFntDrag: root.querySelector("#dtlFntDrag"),
         dtlFntRtLoss: root.querySelector("#dtlFntRtLoss"),
-        dtlFntPtCost: root.querySelector("#dtlFntPtCost"),
       };
       detailRowCacheMap.set(root, cache);
     }
@@ -548,8 +573,6 @@ function getDetailRowCache(root: HTMLElement | Document): DetailRowDomCache {
   }
   return {
     dtlSymbol: root.getElementById("dtlSymbol"),
-    dtlLev: root.getElementById("dtlLev"),
-    dtlLevVenues: root.getElementById("dtlLevVenues"),
     dtlSize: root.getElementById("dtlSize"),
     dtlBasis: root.getElementById("dtlBasis"),
     dtlEntry: root.getElementById("dtlEntry"),
@@ -580,7 +603,6 @@ function getDetailRowCache(root: HTMLElement | Document): DetailRowDomCache {
     dtlFntEntryCost: root.getElementById("dtlFntEntryCost"),
     dtlFntDrag: root.getElementById("dtlFntDrag"),
     dtlFntRtLoss: root.getElementById("dtlFntRtLoss"),
-    dtlFntPtCost: root.getElementById("dtlFntPtCost"),
   };
 }
 
@@ -594,8 +616,6 @@ export function updateDetailRow(
 
   // Header info
   setTextIfChanged(c.dtlSymbol, r.symbol);
-  setTextIfChanged(c.dtlLev, `[Min Lev: ${r.leverage}]`);
-  setTextIfChanged(c.dtlLevVenues, `(RH: ${r.rhLeverage} • Core: ${r.coreLeverage})`);
   setTextIfChanged(
     c.dtlSize,
     `Size: ${formatMoney(r.effectiveTargetUsd || targetSizeUsd)}${
@@ -660,13 +680,6 @@ export function updateDetailRow(
   setTextIfChanged(c.dtlFntDrag, formatBps(r.vwapTotalDragBps));
   setTextIfChanged(c.dtlFntRtLoss, formatMoney(r.costUsd));
 
-  if (c.dtlFntPtCost) {
-    setTextIfChanged(c.dtlFntPtCost, `$${r.pointCostUsd.toFixed(2)} / pt`);
-    setClassIfChanged(
-      c.dtlFntPtCost,
-      r.pointCostUsd < 1.5 ? "text-terminal-emerald font-bold" : "text-terminal-amber font-bold",
-    );
-  }
 }
 
 interface ExecutiveSummaryDomElements {
@@ -676,17 +689,16 @@ interface ExecutiveSummaryDomElements {
   topSizeLabel: HTMLElement | null;
   topOptSize: HTMLElement | null;
   topLossUsd: HTMLElement | null;
-  topEntryLossUsd: HTMLElement | null;
-  topPointCost: HTMLElement | null;
-  topVwapDrag: HTMLElement | null;
-  topLiquidity: HTMLElement | null;
+  topEntrySpread: HTMLElement | null;
+  topExitSpread: HTMLElement | null;
 }
 
 let cachedSummaryElements: ExecutiveSummaryDomElements | null = null;
 let lastSummarySymbol: string | null = null;
 let lastSummaryCost = -999999;
 let lastSummaryTarget = -999999;
-let lastSummaryPtCost = -999999;
+let lastSummaryEntryLoss = -999999;
+let lastSummaryExitLoss = -999999;
 let lastSummaryDynamicMode: string | boolean = "";
 
 function getSummaryElements(): ExecutiveSummaryDomElements {
@@ -698,10 +710,8 @@ function getSummaryElements(): ExecutiveSummaryDomElements {
       topSizeLabel: document.getElementById("topSizeLabel"),
       topOptSize: document.getElementById("topOptSize"),
       topLossUsd: document.getElementById("topLossUsd"),
-      topEntryLossUsd: document.getElementById("topEntryLossUsd"),
-      topPointCost: document.getElementById("topPointCost"),
-      topVwapDrag: document.getElementById("topVwapDrag"),
-      topLiquidity: document.getElementById("topLiquidity"),
+      topEntrySpread: document.getElementById("topEntrySpread"),
+      topExitSpread: document.getElementById("topExitSpread"),
     };
   }
   return cachedSummaryElements;
@@ -719,7 +729,8 @@ export function updateExecutiveSummary(
     lastSummarySymbol = null;
     lastSummaryCost = -999999;
     lastSummaryTarget = -999999;
-    lastSummaryPtCost = -999999;
+    lastSummaryEntryLoss = -999999;
+    lastSummaryExitLoss = -999999;
     lastSummaryDynamicMode = dynamicMode;
 
     setTextIfChanged(els.topSymbol, "--");
@@ -727,10 +738,8 @@ export function updateExecutiveSummary(
     setTextIfChanged(els.topSizeLabel, isDynamic ? "OPT SIZE:" : "SIZE:");
     setTextIfChanged(els.topOptSize, "$--");
     setTextIfChanged(els.topLossUsd, "$--");
-    setTextIfChanged(els.topEntryLossUsd, "");
-    setTextIfChanged(els.topPointCost, "$--/pt");
-    setTextIfChanged(els.topVwapDrag, "-- bps");
-    setTextIfChanged(els.topLiquidity, "$--");
+    setTextIfChanged(els.topEntrySpread, "--");
+    setTextIfChanged(els.topExitSpread, "--");
     if (els.vBadge) {
       setTextIfChanged(els.vBadge, "○ SCANNING");
       setClassIfChanged(els.vBadge, "text-[11px] font-semibold text-terminal-muted");
@@ -743,7 +752,8 @@ export function updateExecutiveSummary(
     r.symbol === lastSummarySymbol &&
     Math.abs(r.costUsd - lastSummaryCost) < 0.005 &&
     r.effectiveTargetUsd === lastSummaryTarget &&
-    Math.abs(r.pointCostUsd - lastSummaryPtCost) < 0.005 &&
+    Math.abs(r.entryLossUsd - lastSummaryEntryLoss) < 0.005 &&
+    Math.abs(r.exitLossUsd - lastSummaryExitLoss) < 0.005 &&
     dynamicMode === lastSummaryDynamicMode
   ) {
     return;
@@ -752,7 +762,8 @@ export function updateExecutiveSummary(
   lastSummarySymbol = r.symbol;
   lastSummaryCost = r.costUsd;
   lastSummaryTarget = r.effectiveTargetUsd;
-  lastSummaryPtCost = r.pointCostUsd;
+  lastSummaryEntryLoss = r.entryLossUsd;
+  lastSummaryExitLoss = r.exitLossUsd;
   lastSummaryDynamicMode = dynamicMode;
 
   setTextIfChanged(els.topSymbol, r.symbol);
@@ -760,11 +771,35 @@ export function updateExecutiveSummary(
   setTextIfChanged(els.topSizeLabel, isDynamic ? "OPT SIZE:" : "SIZE:");
   setTextIfChanged(els.topOptSize, formatMoney(r.effectiveTargetUsd));
   setTextIfChanged(els.topLossUsd, formatMoney(r.costUsd));
-  const sign = r.entryLossUsd > 0 ? "+" : "";
-  setTextIfChanged(els.topEntryLossUsd, `(${sign}${formatMoney(r.entryLossUsd)} entry)`);
-  setTextIfChanged(els.topPointCost, `$${r.pointCostUsd.toFixed(2)}/pt`);
-  setTextIfChanged(els.topVwapDrag, formatBps(r.vwapTotalDragBps));
-  setTextIfChanged(els.topLiquidity, formatMoney(r.minDepthUsd));
+  if (els.topLossUsd) {
+    setClassIfChanged(els.topLossUsd, "font-bold text-terminal-emerald tabular-nums");
+  }
+
+  if (els.topEntrySpread) {
+    setTextIfChanged(
+      els.topEntrySpread,
+      `${formatBps(r.entryDragBps, true)} (${formatMoney(r.entryLossUsd)})`,
+    );
+    setClassIfChanged(
+      els.topEntrySpread,
+      r.entryLossUsd <= 0
+        ? "font-bold text-terminal-emerald tabular-nums"
+        : "font-bold text-terminal-primary tabular-nums",
+    );
+  }
+
+  if (els.topExitSpread) {
+    setTextIfChanged(
+      els.topExitSpread,
+      `${formatBps(r.exitDragBps, true)} (${formatMoney(r.exitLossUsd)})`,
+    );
+    setClassIfChanged(
+      els.topExitSpread,
+      r.exitLossUsd <= 0
+        ? "font-bold text-terminal-emerald tabular-nums"
+        : "font-bold text-terminal-primary tabular-nums",
+    );
+  }
 
   if (els.vBadge) {
     if (r.costUsd <= 0) {

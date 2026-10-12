@@ -144,7 +144,7 @@ export function findOptimalSize(
   let hasCompletedSim = false;
   let bestSize = scratchCandidates[0]!;
   let bestArbSize = 0;
-  let basePtCost = -1;
+  let baseDragBps = -1;
   let bestScore = -Infinity;
 
   for (let i = 0; i < scratchCandidates.length; i++) {
@@ -171,8 +171,6 @@ export function findOptimalSize(
 
     const vwapDragBps = (costUsd / s) * 10000;
     const slippageBps = Math.max(0, vwapDragBps - rawSpreadBps);
-    const pointsEarned = ((s * 2) / 1000000) * 52 * 5.0;
-    const pointCostUsd = pointsEarned > 0 ? costUsd / pointsEarned : 0;
     const maxSwept = Math.max(
       staticSimEntryRh.levelsSwept,
       staticSimEntryCore.levelsSwept,
@@ -183,11 +181,11 @@ export function findOptimalSize(
     if (mode === "max_vol") {
       let score = 0;
       if (slippageBps <= 3.5 && maxSwept <= 4) {
-        score = s / Math.max(0.3, pointCostUsd);
+        score = s / Math.max(1.0, vwapDragBps);
       } else if (slippageBps <= 6.0 && maxSwept <= 6) {
-        score = (s / Math.max(0.3, pointCostUsd)) * 0.4;
+        score = (s / Math.max(1.0, vwapDragBps)) * 0.4;
       } else {
-        score = (s / Math.max(0.3, pointCostUsd)) * 0.05;
+        score = (s / Math.max(1.0, vwapDragBps)) * 0.05;
       }
       if (score > bestScore) {
         bestScore = score;
@@ -197,14 +195,14 @@ export function findOptimalSize(
         break;
       }
     } else {
-      // ALGORITHM 1: Min Burn (Strict minimum unit cost $/pt & bps, stops immediately on price degradation)
-      if (basePtCost < 0) {
-        basePtCost = pointCostUsd;
+      // ALGORITHM 1: Min Burn (Strict minimum spread & slippage, stops immediately on price degradation)
+      if (baseDragBps < 0) {
+        baseDragBps = vwapDragBps;
         bestSize = s;
       } else {
-        const costInflation = basePtCost > 0 ? (pointCostUsd - basePtCost) / basePtCost : 0;
-        // Stop increasing size if slippage exceeds 0.8 bps or point cost inflates by > 5% or > 3 levels swept
-        if (slippageBps > 0.8 || costInflation > 0.05 || maxSwept > 3) {
+        const dragInflation = baseDragBps > 0 ? (vwapDragBps - baseDragBps) / baseDragBps : 0;
+        // Stop increasing size if slippage exceeds 0.8 bps or drag inflates by > 5% or > 3 levels swept
+        if (slippageBps > 0.8 || dragInflation > 0.05 || maxSwept > 3) {
           break;
         }
         bestSize = s;
@@ -264,8 +262,6 @@ function createEmptyMetrics(symbol: string): MarketMetrics {
     vwapTotalDragBps: 0,
     costUsd: 999999,
     rawCostUsd: 999999,
-    pointCostUsd: 999999,
-    pointsEarned: 0,
     maxLevelsSwept: 0,
     minDepthUsd: 0,
     optimalSizeUsd: 0,
@@ -402,11 +398,6 @@ export function calculateMarketMetrics(
   const costUsd = entryLossUsd + exitLossUsd;
   const vwapTotalDragBps = rawVwapDragBps;
 
-  // Point cost calculation:
-  const rhRoundTripVol = effectiveTargetUsd * 2;
-  const pointsEarned = (rhRoundTripVol / 1000000) * 52 * 5.0;
-  const pointCostUsd = pointsEarned > 0 ? costUsd / pointsEarned : 0;
-
   const maxLevelsSwept = Math.max(
     simEntryRh.levelsSwept,
     simEntryCore.levelsSwept,
@@ -437,7 +428,6 @@ export function calculateMarketMetrics(
   }
 
   const effectiveCostUsd = allFilled && !isStale ? costUsd : 999999;
-  const effectivePointCostUsd = allFilled && !isStale ? pointCostUsd : 999999;
 
   res.symbol = m.symbol;
   res.leverage = m.leverage;
@@ -464,8 +454,6 @@ export function calculateMarketMetrics(
   res.vwapTotalDragBps = vwapTotalDragBps;
   res.costUsd = effectiveCostUsd;
   res.rawCostUsd = costUsd;
-  res.pointCostUsd = effectivePointCostUsd;
-  res.pointsEarned = pointsEarned;
   res.maxLevelsSwept = maxLevelsSwept;
   res.minDepthUsd = minDepthUsd;
   res.optimalSizeUsd = optimalSizeUsd;
@@ -512,12 +500,10 @@ export function getMetrics(
 
   if (r.allFilled && !r.isStale && isFinite(r.rawCostUsd) && !isNaN(r.rawCostUsd)) {
     r.costUsd = r.rawCostUsd;
-    r.pointCostUsd = r.pointsEarned > 0 ? r.rawCostUsd / r.pointsEarned : 0;
     r.vwapTotalDragBps =
       r.effectiveTargetUsd > 0 ? (r.rawCostUsd / r.effectiveTargetUsd) * 10000 : 0;
   } else {
     r.costUsd = 999999;
-    r.pointCostUsd = 999999;
     r.vwapTotalDragBps =
       r.effectiveTargetUsd > 0 ? (r.rawCostUsd / r.effectiveTargetUsd) * 10000 : 0;
   }

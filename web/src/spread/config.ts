@@ -22,4 +22,6 @@ export const STORAGE_KEYS = {
   FILTER_EQUITIES: "terminal_filter_equities",
   FILTER_READY: "terminal_filter_ready",
   RERANK_INTERVAL: "terminal_rerank_interval",
+  SORT_COLUMN: "terminal_sort_column",
+  SORT_DIRECTION: "terminal_sort_direction",
 } as const;

@@ -19,6 +19,7 @@ import {
 } from "../web/src/spread/simulation";
 import type { FastSimResult } from "../web/src/spread/simulation";
 import { calculateMarketMetrics, findOptimalSize, getMetrics } from "../web/src/spread/metrics";
+import { STORAGE_KEYS } from "../web/src/spread/config";
 import type { MarketInfo, OrderBook, SimFillResult, TerminalState } from "../web/src/spread/types";
 
 describe("Spread Terminal: Formatters", () => {
@@ -385,7 +386,7 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     expect(metrics.status).toBe("READY");
   });
 
-  it("calculates instant real-time rawCostUsd through getMetrics and derives consistent bps and point cost", () => {
+  it("calculates instant real-time rawCostUsd through getMetrics and derives consistent bps and entry/exit loss", () => {
     const rhBook: OrderBook = {
       marketId: 1,
       asks: new Map([[100.1, 100]]),
@@ -436,7 +437,8 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     expect(m1.costUsd).toBeCloseTo(30.0, 2);
     // Drag bps = (30 / 10000) * 10000 = 30.0 bps
     expect(m1.vwapTotalDragBps).toBeCloseTo(30.0, 2);
-    expect(m1.pointCostUsd).toBeGreaterThan(0);
+    expect(m1.entryLossUsd).toBeGreaterThan(0);
+    expect(m1.exitLossUsd).toBeGreaterThan(0);
 
     // After 1 second with a spike in price, instant real-time cost updates immediately
     const dtNow = now + 1000;
@@ -461,7 +463,7 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
 });
 
 describe("Spread Terminal: Dynamic Position Sizing (Min Burn vs Max Vol)", () => {
-  it("min_burn mode stops increasing size when price/point cost deteriorates", () => {
+  it("min_burn mode stops increasing size when price/slippage cost deteriorates", () => {
     // Level 1: $10,000 depth at 100.05 / 99.95 (tight 10 bps spread)
     // Level 2: $20,000 depth at 100.25 / 99.75 (wide 50 bps spread - deteriorates unit cost!)
     const rhAsks = [
@@ -735,4 +737,10 @@ describe("Spread Terminal: High-Throughput & Zero-Allocation Hot Path", () => {
     expect(side.totalDepthBase).toBe(0);
     expect(side.totalDepthUsd).toBe(0);
   });
+
+  it("includes sort persistence keys in STORAGE_KEYS", () => {
+    expect(STORAGE_KEYS.SORT_COLUMN).toBe("terminal_sort_column");
+    expect(STORAGE_KEYS.SORT_DIRECTION).toBe("terminal_sort_direction");
+  });
 });
+

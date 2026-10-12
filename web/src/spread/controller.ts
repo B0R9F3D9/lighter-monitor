@@ -227,9 +227,8 @@ export class TerminalController {
         r.costUsd < 1000 &&
         nowTime - (r.computedAt || 0) < CONFIG.LEADER_FRESHNESS_WINDOW_MS
       ) {
-        const rankMetric = this.state.isDynamicSize ? r.pointCostUsd : r.costUsd;
-        if (rankMetric < bestCost) {
-          bestCost = rankMetric;
+        if (r.costUsd < bestCost) {
+          bestCost = r.costUsd;
           topRow = r;
         }
         if (isSortedByCostAsc) {
@@ -282,8 +281,6 @@ export class TerminalController {
       vwapTotalDragBps: 0,
       costUsd: 999999,
       rawCostUsd: 999999,
-      pointCostUsd: 999999,
-      pointsEarned: 0,
       maxLevelsSwept: 0,
       minDepthUsd: 0,
       optimalSizeUsd: 10000,
@@ -360,8 +357,12 @@ export class TerminalController {
       const rankB = b.status === "READY" ? 0 : b.status === "SLIPPAGE" ? 1 : 2;
       if (rankA !== rankB) return rankA - rankB;
 
-      if (this.state.isDynamicSize && this.state.sortColumn === "costUsd") {
-        return (a.pointCostUsd - b.pointCostUsd) * dir;
+
+      if (this.state.sortColumn === "entryLossUsd" || this.state.sortColumn === "entryDragBps") {
+        return (a.entryLossUsd - b.entryLossUsd) * dir;
+      }
+      if (this.state.sortColumn === "exitLossUsd" || this.state.sortColumn === "exitDragBps") {
+        return (a.exitLossUsd - b.exitLossUsd) * dir;
       }
 
       const col = this.state.sortColumn as keyof MarketMetrics;
@@ -666,7 +667,6 @@ export class TerminalController {
   ): void {
     const sizeInput = document.getElementById("sizeInput") as HTMLInputElement | null;
     const sizeInputLabel = document.getElementById("sizeInputLabel");
-    const sizeModeHint = document.getElementById("sizeModeHint");
 
     if (val === "auto-min-burn" || val === "auto") {
       this.state.isDynamicSize = true;
@@ -677,9 +677,6 @@ export class TerminalController {
         sizeInput.value = String(this.state.maxCapUsd || 20000);
         sizeInput.title = "Max position size cap to optimize up to (Min Burn mode)";
       }
-      if (sizeModeHint) {
-        sizeModeHint.textContent = "Auto Min Burn: Lowest Point Cost ($/pt)";
-      }
     } else if (val === "auto-max-vol") {
       this.state.isDynamicSize = true;
       this.state.dynamicMode = "max_vol";
@@ -689,9 +686,6 @@ export class TerminalController {
         sizeInput.value = String(this.state.maxCapUsd || 20000);
         sizeInput.title = "Max position size cap to optimize up to (Max Vol mode)";
       }
-      if (sizeModeHint) {
-        sizeModeHint.textContent = "Auto Max Vol: Max size (slippage ≤ 3.5 bps)";
-      }
     } else {
       this.state.isDynamicSize = false;
       this.state.dynamicMode = "none";
@@ -700,9 +694,6 @@ export class TerminalController {
       if (sizeInput) {
         sizeInput.value = String(val);
         sizeInput.title = "Fixed target size in USD";
-      }
-      if (sizeModeHint) {
-        sizeModeHint.textContent = `Manual Fixed Size: $${Number(val).toLocaleString()}`;
       }
     }
 
@@ -737,6 +728,7 @@ export class TerminalController {
       this.state.sortColumn = "costUsd";
       this.state.sortDirection = "asc";
       this.updateSortHeaderUi();
+      this.saveFilterSettings();
     }
 
     // Mark all markets dirty so rerank recalculates metrics for the new size
@@ -810,6 +802,8 @@ export class TerminalController {
       localStorage.setItem(STORAGE_KEYS.FILTER_EQUITIES, String(this.state.filterEquities));
       localStorage.setItem(STORAGE_KEYS.FILTER_READY, String(this.state.filterReadyOnly));
       localStorage.setItem(STORAGE_KEYS.RERANK_INTERVAL, String(this.state.rerankIntervalSec));
+      localStorage.setItem(STORAGE_KEYS.SORT_COLUMN, String(this.state.sortColumn));
+      localStorage.setItem(STORAGE_KEYS.SORT_DIRECTION, String(this.state.sortDirection));
     } catch {}
   }
 
@@ -879,6 +873,30 @@ export class TerminalController {
         this.state.filterReadyOnly = savedReady === "true";
         this.updateReadyControl(this.state.filterReadyOnly);
       }
+
+      const savedSortCol = localStorage.getItem(STORAGE_KEYS.SORT_COLUMN);
+      const savedSortDir = localStorage.getItem(STORAGE_KEYS.SORT_DIRECTION);
+      const VALID_SORT_COLS = new Set([
+        "symbol",
+        "status",
+        "effectiveTargetUsd",
+        "costUsd",
+        "entryLossUsd",
+        "entryDragBps",
+        "exitLossUsd",
+        "exitDragBps",
+        "midPrice",
+        "totalVolume24h",
+        "totalOiUsd",
+        "leverageNum",
+      ]);
+      if (savedSortCol && VALID_SORT_COLS.has(savedSortCol)) {
+        this.state.sortColumn = savedSortCol as keyof MarketMetrics | "leverageNum";
+      }
+      if (savedSortDir === "asc" || savedSortDir === "desc") {
+        this.state.sortDirection = savedSortDir;
+      }
+      this.updateSortHeaderUi();
     } catch {}
   }
 
@@ -891,9 +909,13 @@ export class TerminalController {
     this.state.filterEquities = true;
     this.state.filterReadyOnly = false;
     this.state.searchQuery = "";
+    this.state.sortColumn = "costUsd";
+    this.state.sortDirection = "asc";
     this.state.emaMap.clear();
     this.state.rerankIntervalSec = CONFIG.DEFAULT_RERANK_INTERVAL_SEC;
     this.state.rerankTimerRemaining = CONFIG.DEFAULT_RERANK_INTERVAL_SEC;
+
+    this.updateSortHeaderUi();
 
     const rerankSelector = document.getElementById("rerankSelector") as HTMLSelectElement | null;
     const mobileRerankSelector = document.getElementById(
@@ -920,6 +942,8 @@ export class TerminalController {
       localStorage.removeItem(STORAGE_KEYS.FILTER_EQUITIES);
       localStorage.removeItem(STORAGE_KEYS.FILTER_READY);
       localStorage.removeItem(STORAGE_KEYS.RERANK_INTERVAL);
+      localStorage.removeItem(STORAGE_KEYS.SORT_COLUMN);
+      localStorage.removeItem(STORAGE_KEYS.SORT_DIRECTION);
       localStorage.removeItem("terminal_freeze_interval");
     } catch {}
 
@@ -1129,6 +1153,7 @@ export class TerminalController {
         }
 
         this.updateSortHeaderUi();
+        this.saveFilterSettings();
         this.rerank();
       });
     });

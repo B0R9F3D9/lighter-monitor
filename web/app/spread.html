@@ -372,25 +372,14 @@
           <div>
             <span class="text-terminal-muted mr-1.5">RT LOSS:</span>
             <span id="topLossUsd" class="font-bold text-terminal-emerald tabular-nums">$--</span>
-            <span id="topEntryLossUsd" class="text-terminal-muted text-[10px] ml-1 tabular-nums"
-              >(Entry: $--)</span
-            >
           </div>
-          <div class="hidden sm:block">
-            <span class="text-terminal-muted mr-1.5">PT COST:</span>
-            <span id="topPointCost" class="font-bold text-terminal-emerald tabular-nums"
-              >$--/pt</span
-            >
+          <div>
+            <span class="text-terminal-muted mr-1.5">ENTRY:</span>
+            <span id="topEntrySpread" class="font-bold text-terminal-primary tabular-nums">--</span>
           </div>
-          <div class="hidden md:block">
-            <span class="text-terminal-muted mr-1.5">TURNOVER DRAG:</span>
-            <span id="topVwapDrag" class="font-bold text-terminal-primary tabular-nums"
-              >-- bps</span
-            >
-          </div>
-          <div class="hidden lg:block">
-            <span class="text-terminal-muted mr-1.5">DEPTH:</span>
-            <span id="topLiquidity" class="text-terminal-secondary tabular-nums">$--</span>
+          <div>
+            <span class="text-terminal-muted mr-1.5">EXIT:</span>
+            <span id="topExitSpread" class="font-bold text-terminal-primary tabular-nums">--</span>
           </div>
         </div>
       </div>
@@ -433,7 +422,7 @@
             <button
               class="size-btn size-btn-active px-1.5 sm:px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap"
               data-size="auto-min-burn"
-              title="Minimum Burn Rate: Auto-optimizes size for lowest Point Cost ($/pt) and minimum spread"
+              title="Minimum Burn Rate: Auto-optimizes size for lowest spread and slippage"
             >
               Min Burn
             </button>
@@ -488,13 +477,6 @@
               20K
             </button>
           </div>
-        </div>
-
-        <!-- Strategy Context Tag / Legend -->
-        <div class="hidden md:flex items-center text-[11px] text-terminal-muted shrink-0">
-          <span id="sizeModeHint" class="text-terminal-secondary"
-            >Auto Min Burn: Lowest Point Cost ($/pt)</span
-          >
         </div>
       </div>
 
@@ -640,19 +622,19 @@
                   <span class="sort-indicator text-terminal-accent">▲</span>
                 </th>
                 <th
-                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white min-w-[66px] sm:min-w-[78px] whitespace-nowrap"
-                  data-sort="pointCostUsd"
-                  title="Point Cost ($/pt)"
+                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white min-w-[64px] sm:min-w-[78px] whitespace-nowrap"
+                  data-sort="entryLossUsd"
+                  title="Entry Spread: Basis points & USD cost to open position"
                 >
-                  <span class="hidden lg:inline">Point </span>Pt Cost
+                  Entry<span class="hidden sm:inline"> Spread</span>
                   <span class="sort-indicator"></span>
                 </th>
                 <th
-                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white min-w-[58px] sm:min-w-[72px] whitespace-nowrap"
-                  data-sort="vwapTotalDragBps"
-                  title="Turnover Drag in basis points"
+                  class="py-2 px-1 sm:px-1.5 md:px-2 font-semibold text-right cursor-pointer hover:text-white min-w-[64px] sm:min-w-[78px] whitespace-nowrap"
+                  data-sort="exitLossUsd"
+                  title="Exit Spread: Basis points & USD cost to close position"
                 >
-                  <span class="hidden lg:inline">Turnover </span>Drag
+                  Exit<span class="hidden sm:inline"> Spread</span>
                   <span class="sort-indicator"></span>
                 </th>
                 <th
@@ -695,16 +677,10 @@
 
       <!-- FOOTER EXPLANATION & CALCULATION LEGEND -->
       <footer
-        class="border border-terminal-borderSubtle rounded bg-terminal-surface/60 p-3 text-[11px] font-mono text-terminal-muted flex flex-col md:flex-row md:items-center justify-between gap-3"
+        class="border border-terminal-borderSubtle rounded bg-terminal-surface/60 p-2.5 sm:p-3 text-[11px] font-mono text-terminal-muted flex flex-col sm:flex-row sm:items-center justify-between gap-2"
       >
-        <div class="flex flex-wrap items-center gap-4">
-          <span
-            ><strong>Point Cost Formula:</strong> Loss_USD / (RoundTripVol_RH / 1M * 52 * 5.0)</span
-          >
-          <span class="text-terminal-border hidden sm:inline">|</span>
-          <span class="text-terminal-emerald">&lt; $1.50/pt (High Profit)</span>
-          <span class="text-terminal-amber">$1.50–$3.00/pt (Fair)</span>
-          <span class="text-terminal-coral">&gt; $3.00/pt (Unfavorable)</span>
+        <div class="flex items-center gap-2">
+          <span>Real-time Lighter Core &amp; Robinhood order book execution simulator.</span>
         </div>
         <div>Click any row to inspect 4-leg order execution breakdown (RH / Core).</div>
       </footer>
