@@ -67,9 +67,9 @@ export class Tracer {
     return performance.now() - this.startTime;
   }
 
-  end(thresholdMs = 0): void {
+  end(thresholdMs = 15): void {
     const totalMs = performance.now() - this.startTime;
-    // Log only if execution duration exceeded the threshold (e.g. frame > 8ms or 16ms)
+    // Log only if execution duration exceeded the threshold (e.g. frame > 15ms)
     if (totalMs >= thresholdMs) {
       const formattedSpans: Record<string, string> = {};
       for (const [k, v] of Object.entries(this.spans)) {

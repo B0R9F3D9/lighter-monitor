@@ -1,5 +1,6 @@
 import { CONFIG } from "../config";
 import { LighterAccount, LighterNetwork, MarketPriceSnapshot } from "../types";
+import { MEMORY_PRICES } from "../cache/memory";
 
 export interface FetchAccountResult {
   account: LighterAccount | null;
@@ -176,8 +177,21 @@ export async function fetchInChunks<T, R>(
 
 export async function fetchExchangeStats(
   network: LighterNetwork,
-  authToken?: string,
+  activeSymbolsOrToken?: Set<string> | string,
+  maybeToken?: string,
 ): Promise<Map<string, MarketPriceSnapshot>> {
+  let activeSymbols: Set<string> | undefined;
+  let authToken: string | undefined;
+
+  if (typeof activeSymbolsOrToken === "string") {
+    authToken = activeSymbolsOrToken;
+  } else {
+    if (activeSymbolsOrToken instanceof Set) {
+      activeSymbols = activeSymbolsOrToken;
+    }
+    authToken = maybeToken;
+  }
+
   const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
   const map = new Map<string, MarketPriceSnapshot>();
 
@@ -213,24 +227,34 @@ export async function fetchExchangeStats(
       const count = stats.length;
       for (let i = 0; i < count; i++) {
         const item = stats[i];
-        if (item && item.symbol && item.last_trade_price) {
-          const sym = String(item.symbol).toUpperCase();
-          const snapshot: MarketPriceSnapshot = {
-            symbol: sym,
-            price: parseFloat(item.last_trade_price),
-            dailyChange: item.daily_price_change ? parseFloat(item.daily_price_change) : 0,
-          };
-          map.set(sym, snapshot);
+        if (!item || !item.symbol || !item.last_trade_price) continue;
+        const sym = String(item.symbol).toUpperCase();
 
-          const dash = sym.indexOf("-");
-          const slash = sym.indexOf("/");
-          const under = sym.indexOf("_");
-          const sep = dash !== -1 ? dash : (slash !== -1 ? slash : under);
-          if (sep !== -1) {
-            const baseSym = sym.slice(0, sep);
-            if (!map.has(baseSym) || sym.endsWith("PERP")) {
-              map.set(baseSym, snapshot);
-            }
+        const dash = sym.indexOf("-");
+        const slash = sym.indexOf("/");
+        const under = sym.indexOf("_");
+        const sep = dash !== -1 ? dash : slash !== -1 ? slash : under;
+        const cleanSym = sep !== -1 ? sym.slice(0, sep) : sym;
+
+        // Predicate Filtering: if activeSymbols is provided, skip tickers not in activeSymbols!
+        if (activeSymbols && !activeSymbols.has(sym) && !activeSymbols.has(cleanSym)) {
+          continue;
+        }
+
+        const price = parseFloat(item.last_trade_price);
+        const snapshot: MarketPriceSnapshot = {
+          symbol: sym,
+          price,
+          dailyChange: item.daily_price_change ? parseFloat(item.daily_price_change) : 0,
+        };
+        map.set(sym, snapshot);
+        MEMORY_PRICES.set(sym, price);
+
+        if (sep !== -1) {
+          const baseSym = sym.slice(0, sep);
+          if (!map.has(baseSym) || sym.endsWith("PERP")) {
+            map.set(baseSym, snapshot);
+            MEMORY_PRICES.set(baseSym, price);
           }
         }
       }
@@ -240,6 +264,21 @@ export async function fetchExchangeStats(
   }
 
   return map;
+}
+
+export async function fetchTargetedMarketPrices(
+  network: LighterNetwork,
+  activeSymbols: Set<string>,
+  authToken?: string,
+): Promise<Map<string, number>> {
+  const snapshots = await fetchExchangeStats(network, activeSymbols, authToken);
+  const result = new Map<string, number>();
+  for (const [sym, snap] of snapshots) {
+    if (snap.price > 0) {
+      result.set(sym, snap.price);
+    }
+  }
+  return result;
 }
 
 export function findMarketPrice(
@@ -267,7 +306,7 @@ export function findMarketPrice(
   const dash = sym.indexOf("-");
   const slash = sym.indexOf("/");
   const under = sym.indexOf("_");
-  const sep = dash !== -1 ? dash : (slash !== -1 ? slash : under);
+  const sep = dash !== -1 ? dash : slash !== -1 ? slash : under;
   if (sep !== -1) {
     return map.get(sym.slice(0, sep));
   }

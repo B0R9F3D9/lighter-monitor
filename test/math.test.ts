@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { analyzePositionRisk, formatSmartPrice } from "../src/lighter/math";
+import {
+  analyzePositionRisk,
+  formatSmartPrice,
+  formatSmartPriceFast,
+  computePositionsFingerprint,
+  packPositions,
+  unpackPosition,
+} from "../src/lighter/math";
 import { LighterPosition } from "../src/types";
 
 describe("analyzePositionRisk", () => {
@@ -134,19 +141,116 @@ describe("analyzePositionRisk", () => {
   });
 });
 
-describe("formatSmartPrice", () => {
+describe("formatSmartPrice and formatSmartPriceFast", () => {
   it("formats large numbers with 2 decimals and commas", () => {
     expect(formatSmartPrice(4267.44)).toBe("4,267.44");
     expect(formatSmartPrice(100000)).toBe("100,000.00");
+    expect(formatSmartPriceFast(4267.44)).toBe("4,267.44");
+    expect(formatSmartPriceFast(100000)).toBe("100,000.00");
   });
 
   it("formats medium numbers with 4 decimals", () => {
     expect(formatSmartPrice(1.23456)).toBe("1.2346");
     expect(formatSmartPrice(15.5)).toBe("15.5000");
+    expect(formatSmartPriceFast(1.23456)).toBe("1.2346");
+    expect(formatSmartPriceFast(15.5)).toBe("15.5000");
   });
 
   it("formats small numbers (< 1) with 6 decimals, and micro prices with 8 decimals", () => {
     expect(formatSmartPrice(0.001234)).toBe("0.001234");
     expect(formatSmartPrice(0.00001234)).toBe("0.00001234");
+    expect(formatSmartPriceFast(0.001234)).toBe("0.001234");
+    expect(formatSmartPriceFast(0.00001234)).toBe("0.00001234");
+  });
+});
+
+describe("computePositionsFingerprint and pack/unpack", () => {
+  it("computes reproducible 32-bit integer fingerprint", () => {
+    const raw = [
+      { market_id: 1, position: "0.5", sign: 1 },
+      { market_id: 40, position: "-3.1", sign: -1 },
+    ];
+    const fp1 = computePositionsFingerprint(raw);
+    const fp2 = computePositionsFingerprint(raw);
+    expect(typeof fp1).toBe("number");
+    expect(fp1).toBe(fp2);
+
+    // Changing size changes hash
+    const changed = [
+      { market_id: 1, position: "0.6", sign: 1 },
+      { market_id: 40, position: "-3.1", sign: -1 },
+    ];
+    expect(computePositionsFingerprint(changed)).not.toBe(fp1);
+
+    // Microlot sizes (< 0.001 BTC) produce distinct hashes
+    const micro1 = [{ market_id: 1, position: "0.0004", sign: 1 }];
+    const micro2 = [{ market_id: 1, position: "0.0008", sign: 1 }];
+    expect(computePositionsFingerprint(micro1)).not.toBe(computePositionsFingerprint(micro2));
+  });
+
+  it("packs positions to compact tuple format and unpacks correctly", () => {
+    const raw = [
+      {
+        market_id: 1,
+        symbol: "BTC",
+        sign: 1,
+        position: "0.5",
+        avg_entry_price: "60000",
+        liquidation_price: "45000",
+      },
+    ];
+    const packed = packPositions(raw);
+    expect(packed).toEqual([[1, "BTC", 1, 60000, 0.5, 45000, 60000, 0]]);
+
+    const unpacked = unpackPosition(packed[0]);
+    expect(unpacked).not.toBeNull();
+    expect(unpacked?.symbol).toBe("BTC");
+    expect(unpacked?.size).toBe(0.5);
+    expect(unpacked?.entryPrice).toBe(60000);
+    expect(unpacked?.liqPrice).toBe(45000);
+    expect(unpacked?.markPrice).toBe(60000);
+    expect(unpacked?.unrealizedPnl).toBe(0);
+  });
+
+  it("preserves stored markPrice and unrealizedPnl when marketPrices map is empty (Bug #1 fix)", () => {
+    const raw = [
+      {
+        market_id: 1,
+        symbol: "BTC",
+        sign: 1,
+        position: "0.5",
+        avg_entry_price: "60000",
+        liquidation_price: "45000",
+        mark_price: "62000",
+        unrealized_pnl: "1000",
+      },
+    ];
+    const packed = packPositions(raw);
+    expect(packed).toEqual([[1, "BTC", 1, 60000, 0.5, 45000, 62000, 1000]]);
+
+    // Empty memory prices map (e.g. cold start or different Cloudflare isolate)
+    const emptyPrices = new Map<string, number>();
+    const unpackedCold = unpackPosition(packed[0], emptyPrices);
+    expect(unpackedCold?.markPrice).toBe(62000);
+    expect(unpackedCold?.unrealizedPnl).toBe(1000);
+    expect(unpackedCold?.distancePercent).toBeCloseTo(((62000 - 45000) / 62000) * 100, 2);
+
+    // Warm memory prices map with live price (e.g. 64000)
+    const livePrices = new Map<string, number>([["BTC", 64000]]);
+    const unpackedLive = unpackPosition(packed[0], livePrices);
+    expect(unpackedLive?.markPrice).toBe(64000);
+    expect(unpackedLive?.unrealizedPnl).toBe(2000); // (64000 - 60000) * 0.5
+    expect(unpackedLive?.distancePercent).toBeCloseTo(((64000 - 45000) / 64000) * 100, 2);
+  });
+
+  it("supports unpacking legacy 6-tuple packed positions gracefully", () => {
+    const legacyTuple: any = [1, "BTC", 1, 60000, 0.5, 45000];
+    const unpacked = unpackPosition(legacyTuple);
+    expect(unpacked?.markPrice).toBe(60000);
+    expect(unpacked?.unrealizedPnl).toBe(0);
+    expect(unpacked?.distancePercent).toBeCloseTo(((60000 - 45000) / 60000) * 100, 2);
+
+    const rePacked = packPositions([legacyTuple]);
+    expect(rePacked).toEqual([[1, "BTC", 1, 60000, 0.5, 45000, 60000, 0]]);
   });
 });

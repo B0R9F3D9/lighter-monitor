@@ -238,6 +238,12 @@ describe("Price-Driven Monitoring Unit Tests", () => {
       expect(eth).toBeDefined();
       expect(eth!.price).toBeGreaterThan(1000);
     }, 10000);
+
+    it("filters orderbook when activeSymbols Set is provided", async () => {
+      const targeted = await fetchExchangeStats("rh", new Set(["XAU"]));
+      expect(targeted.size).toBeLessThan(10);
+      expect(targeted.has("XAU")).toBe(true);
+    }, 10000);
   });
 
   describe("Scaling Optimizations", () => {

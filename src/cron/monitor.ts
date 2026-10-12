@@ -14,15 +14,18 @@ import {
   buildBatchUpdatePositionsCacheStmts,
   buildSyncAccountOpenPositionsStmts,
   getActivePositionsForMonitoring,
+  getDistinctActiveSymbols,
   removeBlockedUser,
 } from "../db/queries";
+import { getCronStatements } from "../db/statements";
 import {
   fetchLighterAccount,
   fetchInChunks,
   fetchExchangeStats,
   findMarketPrice,
 } from "../lighter/api";
-import { analyzePositionRisk } from "../lighter/math";
+import { computePositionsFingerprint } from "../lighter/math";
+import { getMemoryAccount } from "../cache/memory";
 import { formatPriceStepAlert } from "../bot/formatters";
 import { pingHealthcheckSuccess, pingHealthcheckFail } from "../utils/healthcheck";
 
@@ -134,71 +137,17 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     const MAX_WALL_CLOCK_MS = 14_000; // 14 сек таймаут
     const allUpdates: D1PreparedStatement[] = [];
 
-    // Пре-компиляция D1 стейтментов 1 раз (Zero-Alloc на горячем пути)
-    const stmtUpsertAlertPrice = env.DB.prepare(`
-      INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET last_price = excluded.last_price
-    `);
+    // Пре-компиляция D1 стейтментов из кэша (Zero-Alloc на горячем пути)
+    const stmts = getCronStatements(env.DB);
 
-    const stmtUpsertAlertSent = env.DB.prepare(`
-      INSERT INTO user_token_alerts (telegram_id, network, account_index, market_id, symbol, last_price, last_alerted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(telegram_id, network, account_index, market_id) DO UPDATE SET
-        last_price = excluded.last_price,
-        last_alerted_at = excluded.last_alerted_at
-    `);
+    // 1. ЗАГРУЖАЕМ СРЕЗЫ ЦЕН БИРЖИ ПАРАЛЛЕЛЬНО (Целевой парсинг только активных инструментов)
+    const uniqueSymbols = await getDistinctActiveSymbols(env.DB);
+    const activeSymbolsSet = uniqueSymbols.length > 0 ? new Set(uniqueSymbols) : undefined;
 
-    const stmtDeleteZombiePos = env.DB.prepare(
-      "DELETE FROM account_open_positions WHERE network = ? AND account_index = ? AND market_id = ?",
-    );
-
-    const stmtDeleteZombieAlert = env.DB.prepare(
-      "DELETE FROM user_token_alerts WHERE network = ? AND account_index = ? AND market_id = ?",
-    );
-
-    const stmtUpsertOpenPos = env.DB.prepare(`
-      INSERT INTO account_open_positions (
-        network, account_index, market_id, symbol, is_long, entry_price, size, liquidation_price, last_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(network, account_index, market_id) DO UPDATE SET
-        symbol = excluded.symbol,
-        is_long = excluded.is_long,
-        entry_price = excluded.entry_price,
-        size = excluded.size,
-        liquidation_price = excluded.liquidation_price,
-        last_updated_at = excluded.last_updated_at
-    `);
-
-    const stmtUpsertCache = env.DB.prepare(`
-      INSERT INTO account_positions_cache (
-        network, account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(network, account_index) DO UPDATE SET
-        l1_address = excluded.l1_address,
-        collateral = excluded.collateral,
-        total_asset_value = excluded.total_asset_value,
-        positions_json = excluded.positions_json,
-        last_updated_at = excluded.last_updated_at
-    `);
-
-    const stmtTouchFailed = env.DB.prepare(`
-      INSERT INTO account_positions_cache (network, account_index, l1_address, collateral, total_asset_value, positions_json, last_updated_at)
-      VALUES (?, ?, '', 0, 0, '[]', ?)
-      ON CONFLICT(network, account_index) DO UPDATE SET last_updated_at = excluded.last_updated_at;
-    `);
-
-    const stmtSaveMetrics = env.DB.prepare(`
-      INSERT INTO bot_system_metrics (key, value_json, updated_at)
-      VALUES ('last_cron', ?, ?)
-      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-    `);
-
-    // 1. ЗАГРУЖАЕМ СРЕЗЫ ЦЕН БИРЖИ ПАРАЛЛЕЛЬНО (2 подзапроса на всю систему)
     const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
     const [snapRh, snapMainnet] = await Promise.all([
-      fetchExchangeStats("rh", getLighterAuthToken(env, "rh")),
-      fetchExchangeStats("mainnet", getLighterAuthToken(env, "mainnet")),
+      fetchExchangeStats("rh", activeSymbolsSet, getLighterAuthToken(env, "rh")),
+      fetchExchangeStats("mainnet", activeSymbolsSet, getLighterAuthToken(env, "mainnet")),
     ]);
     subrequestsUsed += 2;
     priceSnapshots.set("rh", snapRh);
@@ -227,7 +176,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       // ПЕРВЫЙ ТИК: пакуем в единый batch без отправки спама
       if (item.last_price === null) {
         allUpdates.push(
-          stmtUpsertAlertPrice.bind(
+          stmts.upsertAlertPrice.bind(
             item.telegram_id,
             item.network,
             item.account_index,
@@ -254,7 +203,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       if (!isRiskIncreasing) {
         // Цена сдвинулась в пользу позиции: подтягиваем базовую отметку без отправки алерта
         allUpdates.push(
-          stmtUpsertAlertPrice.bind(
+          stmts.upsertAlertPrice.bind(
             item.telegram_id,
             item.network,
             item.account_index,
@@ -329,10 +278,20 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
           if (syncedData) {
             roundRobinSyncedCount++;
 
-            // Zero-Query Dirty Checking: обновляем открытые позиции в D1 только если они изменились
-            const currentPositionsJson = JSON.stringify(syncedData.positions || []);
-            const hasChanged =
-              !accKey.positionsJson || accKey.positionsJson !== currentPositionsJson;
+            // Fast Zero-Alloc Fingerprint Dirty Checking
+            const currentFingerprint = computePositionsFingerprint(syncedData.positions || []);
+            const memAcc = getMemoryAccount(accKey.network, accKey.accountIndex);
+            let hasChanged = true;
+            if (memAcc) {
+              hasChanged = memAcc.fingerprint !== currentFingerprint;
+            } else if (accKey.positionsJson) {
+              try {
+                const cachedPositions = JSON.parse(accKey.positionsJson);
+                hasChanged = computePositionsFingerprint(cachedPositions) !== currentFingerprint;
+              } catch {
+                hasChanged = true;
+              }
+            }
 
             if (hasChanged) {
               allUpdates.push(
@@ -342,7 +301,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                   accKey.accountIndex,
                   syncedData.positions,
                   now,
-                  stmtUpsertOpenPos,
+                  stmts.upsertOpenPos,
                 ),
               );
             }
@@ -350,7 +309,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
             cacheUpdates.push({
               network: accKey.network,
               account: syncedData,
-              cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
+              cachedPositions: syncedData.positions,
             });
           } else {
             failedAccounts.push(accKey);
@@ -359,12 +318,12 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
 
         if (cacheUpdates.length > 0) {
           allUpdates.push(
-            ...buildBatchUpdatePositionsCacheStmts(env.DB, cacheUpdates, now, stmtUpsertCache),
+            ...buildBatchUpdatePositionsCacheStmts(env.DB, cacheUpdates, now, stmts.upsertCache),
           );
         }
         if (failedAccounts.length > 0) {
           allUpdates.push(
-            ...buildTouchFailedAccountsStmts(env.DB, failedAccounts, now, stmtTouchFailed),
+            ...buildTouchFailedAccountsStmts(env.DB, failedAccounts, now, stmts.touchFailed),
           );
         }
       }
@@ -430,16 +389,32 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
           jitCache.set(`${acc.network}:${acc.accountIndex}`, syncedData);
 
           if (syncedData) {
-            allUpdates.push(
-              ...buildSyncAccountOpenPositionsStmts(
-                env.DB,
-                acc.network,
-                acc.accountIndex,
-                syncedData.positions,
-                now,
-                stmtUpsertOpenPos,
-              ),
-            );
+            const currentFingerprint = computePositionsFingerprint(syncedData.positions || []);
+            const memAcc = getMemoryAccount(acc.network, acc.accountIndex);
+            let hasChanged = true;
+            if (memAcc) {
+              hasChanged = memAcc.fingerprint !== currentFingerprint;
+            } else if (acc.positionsJson) {
+              try {
+                const cachedPositions = JSON.parse(acc.positionsJson);
+                hasChanged = computePositionsFingerprint(cachedPositions) !== currentFingerprint;
+              } catch {
+                hasChanged = true;
+              }
+            }
+
+            if (hasChanged) {
+              allUpdates.push(
+                ...buildSyncAccountOpenPositionsStmts(
+                  env.DB,
+                  acc.network,
+                  acc.accountIndex,
+                  syncedData.positions,
+                  now,
+                  stmts.upsertOpenPos,
+                ),
+              );
+            }
             allUpdates.push(
               ...buildBatchUpdatePositionsCacheStmts(
                 env.DB,
@@ -447,11 +422,11 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                   {
                     network: acc.network,
                     account: syncedData,
-                    cachedPositions: syncedData.positions.map(analyzePositionRisk).filter(Boolean) as any,
+                    cachedPositions: syncedData.positions,
                   },
                 ],
                 now,
-                stmtUpsertCache,
+                stmts.upsertCache,
               ),
             );
           }
@@ -479,7 +454,8 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
         if (freshAccount) {
           const livePosition = Array.isArray(freshAccount?.positions)
             ? freshAccount.positions.find(
-                (p) => p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0,
+                (p) =>
+                  p.market_id === item.market_id && Math.abs(parseFloat(p.position || "0")) > 0,
               )
             : undefined;
 
@@ -488,8 +464,8 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
             if (!cleanedZombieKeys.has(zKey)) {
               cleanedZombieKeys.add(zKey);
               allUpdates.push(
-                stmtDeleteZombiePos.bind(item.network, item.account_index, item.market_id),
-                stmtDeleteZombieAlert.bind(item.network, item.account_index, item.market_id),
+                stmts.deleteZombiePos.bind(item.network, item.account_index, item.market_id),
+                stmts.deleteZombieAlert.bind(item.network, item.account_index, item.market_id),
               );
             }
             continue;
@@ -513,7 +489,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
 
         if (item.muted_until && now < item.muted_until) {
           allUpdates.push(
-            stmtUpsertAlertSent.bind(
+            stmts.upsertAlertSent.bind(
               item.telegram_id,
               item.network,
               item.account_index,
@@ -557,7 +533,9 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
             userEntries.map(async ([telegramId, alerts]) => {
               if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 1) return;
 
-              const combinedText = alerts.map((a) => a.alertText).join("\n\n───────────────────\n\n");
+              const combinedText = alerts
+                .map((a) => a.alertText)
+                .join("\n\n───────────────────\n\n");
               let keyboard: InlineKeyboard;
 
               if (alerts.length === 1) {
@@ -586,7 +564,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                   const a = alerts[k]!;
                   alertsSentCount++;
                   allUpdates.push(
-                    stmtUpsertAlertSent.bind(
+                    stmts.upsertAlertSent.bind(
                       a.item.telegram_id,
                       a.item.network,
                       a.item.account_index,
@@ -631,7 +609,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       timestamp: now,
     };
 
-    allUpdates.push(stmtSaveMetrics.bind(JSON.stringify(executionMetrics), now));
+    allUpdates.push(stmts.saveMetrics.bind(JSON.stringify(executionMetrics), now));
 
     if (allUpdates.length > 0) {
       await executeD1BatchInChunks(env.DB, allUpdates);

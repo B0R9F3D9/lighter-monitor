@@ -8,6 +8,8 @@ import {
   WizardState,
   SystemStats,
 } from "../types";
+import { packPositions, computePositionsFingerprint } from "../lighter/math";
+import { setMemoryAccount, getMemoryAccount, FastPosition } from "../cache/memory";
 
 // 2. Обновление last_updated_at ТОЛЬКО для упавших запросов (экономия 50% квоты D1)
 export function buildTouchFailedAccountsStmts(
@@ -43,13 +45,14 @@ export async function touchFailedAccounts(
   }
 }
 
-// 3. Пакетное обновление детального кэша для успешно опрошенных аккаунтов
+// 3. Пакетное обновление детального кэша для успешно опрошенных аккаунтов (Compact Flat Tuple format)
 export function buildBatchUpdatePositionsCacheStmts(
   db: D1Database,
   accountsData: Array<{
     network: LighterNetwork;
     account: LighterAccount;
-    cachedPositions: CachedPositionPayload[];
+    cachedPositions: CachedPositionPayload[] | any[];
+    alias?: string | null;
   }>,
   now: number = Math.floor(Date.now() / 1000),
   preparedStmt?: D1PreparedStatement,
@@ -73,17 +76,47 @@ export function buildBatchUpdatePositionsCacheStmts(
   for (let i = 0; i < len; i++) {
     const item = accountsData[i]!;
     const acc = item.account;
+    const rawPositions = item.cachedPositions || acc.positions || [];
+    const packed = packPositions(rawPositions);
+    const collateralNum = parseFloat(acc.collateral || "0");
+
     res.push(
       stmt.bind(
         item.network,
         acc.index,
         acc.l1_address ?? "0x0000000000000000000000000000000000000000",
-        parseFloat(acc.collateral || "0"),
+        collateralNum,
         parseFloat(acc.total_asset_value || "0"),
-        JSON.stringify(item.cachedPositions),
+        JSON.stringify(packed),
         now,
       ),
     );
+
+    // Warm up In-Memory Fast State
+    const fastPositions: FastPosition[] = packed.map(
+      ([mId, sym, isLong, entry, size, liq, mark, pnl]) => ({
+        marketId: mId,
+        symbol: sym,
+        isLong: isLong === 1,
+        entryPrice: entry,
+        size,
+        liqPrice: liq,
+        markPrice: mark ?? entry,
+        unrealizedPnl: pnl ?? 0,
+      }),
+    );
+    const fp = computePositionsFingerprint(fastPositions);
+    const prevMem = getMemoryAccount(item.network, acc.index);
+    setMemoryAccount({
+      network: item.network,
+      accountIndex: acc.index,
+      alias: item.alias !== undefined ? item.alias : (prevMem?.alias ?? null),
+      l1Address: acc.l1_address,
+      collateral: collateralNum,
+      lastUpdated: now,
+      fingerprint: fp,
+      positions: fastPositions,
+    });
   }
   return res;
 }
@@ -333,6 +366,15 @@ export async function getActivePositionsForMonitoring(
   return items;
 }
 
+// 7b. Выборка уникальных активных символов для предикатной фильтрации цен
+export async function getDistinctActiveSymbols(db: D1Database): Promise<string[]> {
+  const { results } = await db
+    .prepare("SELECT DISTINCT symbol FROM account_open_positions")
+    .all<{ symbol: string }>();
+  if (!results || results.length === 0) return [];
+  return results.map((r) => r.symbol.toUpperCase());
+}
+
 // 8. Авто-миграция схемы базы данных для безопасного запуска
 let isSchemaEnsured = false;
 export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
@@ -341,6 +383,13 @@ export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
   try {
     await db
       .prepare("ALTER TABLE account_open_positions ADD COLUMN liquidation_price REAL DEFAULT 0")
+      .run();
+  } catch {}
+  try {
+    await db
+      .prepare(
+        "ALTER TABLE account_positions_cache ADD COLUMN fingerprint INTEGER NOT NULL DEFAULT 0",
+      )
       .run();
   } catch {}
   try {
@@ -662,7 +711,10 @@ export async function getUserPositionsFullState(
     params = [telegramId];
   }
 
-  const { results } = await db.prepare(query).bind(...params).all<UserPositionFullStateRow>();
+  const { results } = await db
+    .prepare(query)
+    .bind(...params)
+    .all<UserPositionFullStateRow>();
   const rows = results || [];
   const userThreshold = rows[0]?.alert_threshold ?? undefined;
 

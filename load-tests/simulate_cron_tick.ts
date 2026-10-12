@@ -21,8 +21,10 @@ function createD1Adapter(db: Database): any {
         sqlQuery: query,
         sqlParams: [] as any[],
         bind(...params: any[]) {
-          this.sqlParams = params;
-          return this;
+          return {
+            ...this,
+            sqlParams: params,
+          };
         },
         async first<T = any>(colName?: string): Promise<T | null> {
           const stmt = db.query(this.sqlQuery);

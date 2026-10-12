@@ -2,7 +2,8 @@ import { Bot, InlineKeyboard, Keyboard } from "grammy";
 import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
 import { CONFIG, getLighterAuthToken } from "../config";
 import { fetchLighterAccountWithStatus, fetchInChunks } from "../lighter/api";
-import { analyzePositionRisk } from "../lighter/math";
+import { analyzePositionRisk, unpackPosition } from "../lighter/math";
+import { getMemoryAccount, MEMORY_PRICES } from "../cache/memory";
 import {
   batchUpdatePositionsCache,
   getUserThreshold,
@@ -783,10 +784,13 @@ export function getBot(env: Env): Bot {
     if (cardData.positions_json) {
       try {
         const parsed = JSON.parse(cardData.positions_json) as any[];
-        const active = parsed.filter((p) => Math.abs(parseFloat(p.position || p.size || "0")) > 0);
+        const active = parsed.filter((p) => {
+          if (Array.isArray(p)) return Number(p[4]) > 0;
+          return Math.abs(parseFloat(p.position || p.size || "0")) > 0;
+        });
         positionsCount = active.length;
         if (positionsCount > 0) {
-          const syms = active.map((p) => p.symbol).filter(Boolean);
+          const syms = active.map((p) => (Array.isArray(p) ? p[1] : p.symbol)).filter(Boolean);
           symbolsSummary = ` (${syms.join(", ")})`;
         }
       } catch {}
@@ -997,15 +1001,27 @@ export function getBot(env: Env): Bot {
       const nowSec = Math.floor(Date.now() / 1000);
       let isRateLimited = false;
 
-      // При клике "🔄 Обновить" (forceRefresh === true) ВСЕГДА опрашиваем биржу напрямую без ограничений.
-      // В обычном режиме (/positions или меню) опрашиваем биржу, если кэш старше 5 секунд, либо отдаем из D1.
-      const toFetch = forceRefresh
-        ? trackedList
-        : trackedList.filter((item) => {
-            const key = `${item.network}:${item.account_index}`;
-            const c = cacheMap.get(key);
-            return !c || !c.l1_address || !c.last_updated_at || nowSec - c.last_updated_at >= 5;
-          });
+      // HFT Stale-While-Revalidate:
+      // Если forceRefresh === false и у нас уже есть данные в памяти/D1 — отвечаем МГНОВЕННО (<15 мс),
+      // а фоновый опрос биржи для устаревших счетов (>5 сек) выносим в background.
+      // Если данных по аккаунту нет вообще (первый запуск) или forceRefresh === true — опрашиваем синхронно.
+      const accountsNeedingSync = trackedList.filter((item) => {
+        const key = `${item.network}:${item.account_index}`;
+        const mem = getMemoryAccount(item.network, item.account_index);
+        const c = cacheMap.get(key);
+        const lastUpdated = mem?.lastUpdated || c?.last_updated_at || 0;
+        return !lastUpdated || nowSec - lastUpdated >= 5;
+      });
+
+      const hasCachedState = trackedList.every((item) => {
+        const key = `${item.network}:${item.account_index}`;
+        const mem = getMemoryAccount(item.network, item.account_index);
+        const c = cacheMap.get(key);
+        return Boolean(mem || (c && (c.l1_address || c.positions_json)));
+      });
+
+      const shouldFetchSync = forceRefresh || (!hasCachedState && accountsNeedingSync.length > 0);
+      const toFetch = shouldFetchSync ? (forceRefresh ? trackedList : accountsNeedingSync) : [];
 
       const freshMap = new Map<string, any>();
       if (toFetch.length > 0) {
@@ -1052,7 +1068,7 @@ export function getBot(env: Env): Bot {
               updates.push({
                 network: item.network,
                 account: acc,
-                cachedPositions: acc.positions.map(analyzePositionRisk).filter(Boolean),
+                cachedPositions: acc.positions || [],
               });
               syncPromises.push(
                 syncAccountOpenPositions(
@@ -1073,6 +1089,67 @@ export function getBot(env: Env): Bot {
             ]),
           );
         }
+      } else if (!shouldFetchSync && accountsNeedingSync.length > 0) {
+        // Фоновый асинхронный синк (Stale-While-Revalidate)
+        runInBackground(
+          (async () => {
+            try {
+              const settled = await fetchInChunks(
+                accountsNeedingSync,
+                CONFIG.LIGHTER_CHUNK_CONCURRENCY || 5,
+                (item) =>
+                  fetchLighterAccountWithStatus(
+                    item.network,
+                    item.account_index,
+                    true,
+                    getLighterAuthToken(currentEnv || env, item.network),
+                  ),
+              );
+              const updates: Array<{
+                network: LighterNetwork;
+                account: any;
+                cachedPositions: any[];
+              }> = [];
+              const syncPromises: Promise<any>[] = [];
+
+              accountsNeedingSync.forEach((item, i) => {
+                const res = settled[i];
+                if (
+                  res &&
+                  res.status === "fulfilled" &&
+                  res.value.status === "OK" &&
+                  res.value.account
+                ) {
+                  const acc = res.value.account;
+                  updates.push({
+                    network: item.network,
+                    account: acc,
+                    cachedPositions: acc.positions || [],
+                  });
+                  syncPromises.push(
+                    syncAccountOpenPositions(
+                      env.DB,
+                      item.network,
+                      item.account_index,
+                      acc.positions,
+                    ).catch((e) => console.error("background syncAccountOpenPositions error:", e)),
+                  );
+                }
+              });
+
+              if (updates.length > 0) {
+                await Promise.all([
+                  ...syncPromises,
+                  batchUpdatePositionsCache(env.DB, updates).catch((e) =>
+                    console.error("background batchUpdatePositionsCache error:", e),
+                  ),
+                ]);
+              }
+            } catch (bgErr) {
+              console.error("Background SWR sync error:", bgErr);
+            }
+          })(),
+        );
       }
 
       if (userThreshold === undefined) {
@@ -1085,6 +1162,7 @@ export function getBot(env: Env): Bot {
       for (const item of trackedList) {
         const key = `${item.network}:${item.account_index}`;
         const fresh = freshMap.get(key);
+        const memAcc = getMemoryAccount(item.network, item.account_index);
         const cached = cacheMap.get(key);
         let card = "";
         let accPositions: PositionRiskAnalysis[] = [];
@@ -1103,15 +1181,42 @@ export function getBot(env: Env): Bot {
             accPositions,
             userThreshold,
           );
-        } else if (cached && cached.l1_address && cached.positions_json) {
-          const parsedPositions = JSON.parse(cached.positions_json) as any[];
+        } else if (memAcc) {
+          accPositions = memAcc.positions
+            .map((p) =>
+              unpackPosition(
+                [
+                  p.marketId,
+                  p.symbol,
+                  p.isLong ? 1 : 0,
+                  p.entryPrice,
+                  p.size,
+                  p.liqPrice,
+                  p.markPrice ?? p.entryPrice,
+                  p.unrealizedPnl ?? 0,
+                ],
+                MEMORY_PRICES,
+              ),
+            )
+            .filter(Boolean) as PositionRiskAnalysis[];
+          accCollateral = memAcc.collateral;
+          card = formatPositionsReport(
+            item.network,
+            item.account_index,
+            item.alias || memAcc.alias,
+            accCollateral,
+            accPositions,
+            userThreshold,
+          );
+        } else if (cached && (cached.l1_address || cached.positions_json)) {
+          let parsedPositions: any[] = [];
+          if (cached.positions_json) {
+            try {
+              parsedPositions = JSON.parse(cached.positions_json);
+            } catch {}
+          }
           accPositions = parsedPositions
-            .map((p: any) => {
-              if (p.marketId !== undefined && p.tier !== undefined) {
-                return p as PositionRiskAnalysis;
-              }
-              return analyzePositionRisk(p);
-            })
+            .map((p: any) => unpackPosition(p, MEMORY_PRICES))
             .filter(Boolean) as PositionRiskAnalysis[];
           accCollateral = parseFloat(String(cached.collateral || 0));
 
@@ -1124,7 +1229,7 @@ export function getBot(env: Env): Bot {
             userThreshold,
           );
         } else {
-          if (filterIndex && !fresh && !cached) continue;
+          if (filterIndex && !fresh && !cached && !memAcc) continue;
           const netBadge =
             CONFIG.NETWORKS[item.network]?.badge || `[${item.network.toUpperCase()}]`;
           card = `Аккаунт #${item.account_index} ${netBadge}: данные временно недоступны.\n`;
@@ -1165,9 +1270,11 @@ export function getBot(env: Env): Bot {
         } else {
           let oldestCacheSec = nowSec;
           for (const item of trackedList) {
+            const mem = getMemoryAccount(item.network, item.account_index);
             const c = cacheMap.get(`${item.network}:${item.account_index}`);
-            if (c?.last_updated_at && c.last_updated_at < oldestCacheSec) {
-              oldestCacheSec = c.last_updated_at;
+            const ts = mem?.lastUpdated || c?.last_updated_at;
+            if (ts && ts < oldestCacheSec) {
+              oldestCacheSec = ts;
             }
           }
           const cacheDate = new Date(oldestCacheSec * 1000);

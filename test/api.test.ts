@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { fetchLighterAccount, fetchInChunks } from "../src/lighter/api";
+import { fetchLighterAccount, fetchInChunks, fetchExchangeStats } from "../src/lighter/api";
 
 describe("fetchLighterAccount", () => {
   it("should successfully fetch real account 31704 from Robinhood Lighter API", async () => {
@@ -73,5 +73,34 @@ describe("getLighterAuthToken", () => {
     };
     expect(getLighterAuthToken(env, "mainnet")).toBe("mainnet_token");
     expect(getLighterAuthToken(env, "rh")).toBeUndefined();
+  });
+});
+
+describe("fetchExchangeStats argument parsing (Bug #2 fix)", () => {
+  it("passes authToken correctly when activeSymbols is undefined", async () => {
+    const originalFetch = globalThis.fetch;
+    let capturedHeaders: any;
+    try {
+      globalThis.fetch = (async (_url: any, opts: any) => {
+        capturedHeaders = opts?.headers;
+        return new Response(JSON.stringify({ code: 200, order_book_stats: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as any;
+
+      await fetchExchangeStats("rh", undefined, "my-auth-token");
+      expect(capturedHeaders?.Authorization).toBe("my-auth-token");
+
+      // 2-argument signature
+      await fetchExchangeStats("rh", "direct-token");
+      expect(capturedHeaders?.Authorization).toBe("direct-token");
+
+      // 3-argument signature with Set
+      await fetchExchangeStats("rh", new Set(["BTC"]), "set-token");
+      expect(capturedHeaders?.Authorization).toBe("set-token");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
