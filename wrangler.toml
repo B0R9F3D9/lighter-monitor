@@ -3,6 +3,8 @@ main = "src/index.ts"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+minify = true
+
 [placement]
 mode = "smart"
 
@@ -11,7 +13,16 @@ directory = "./dist"
 binding = "ASSETS"
 html_handling = "drop-trailing-slash"
 not_found_handling = "none"
-run_worker_first = ["/*", "!/assets/*", "!/spread*", "!/analytics*", "!/checker/solo*", "!/checker/hedge*", "!/favicon*", "!/apple-touch-icon*", "!/lighter-logo.svg"]
+run_worker_first = [
+  "/webhook*",
+  "/api/*",
+  "/health*",
+  "/setup-commands*",
+  "/checker",
+  "/checker/",
+  "/hedge",
+  "/hedge/",
+]
 
 [build]
 command = "bun scripts/build_web.ts"
@@ -26,9 +37,5 @@ database_name = "lighter-db"
 database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 [observability]
-enabled = true
-head_sampling_rate = 1
-
-[observability.logs]
 enabled = true
 head_sampling_rate = 1

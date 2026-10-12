@@ -237,18 +237,18 @@ bunx wrangler secret put LIGHTER_API_KEY
 bun run deploy
 ```
 
-### 5. Регистрация команд в меню Telegram
+### 5. Регистрация команд, Web App и вебхука в Telegram
 
-Откройте в браузере или вызовите через curl:
+Откройте в браузере или вызовите через curl (автоматически настроит меню, Web App кнопку и привяжет вебхук к `/webhook`):
 
 ```bash
 curl "https://<ВАШ_ВОРКЕР>.workers.dev/setup-commands"
 ```
 
-### 6. Установка вебхука Telegram
+### 6. Ручная установка вебхука Telegram (при необходимости)
 
 ```bash
-curl -F "url=https://<ВАШ_ВОРКЕР>.workers.dev" \
+curl -F "url=https://<ВАШ_ВОРКЕР>.workers.dev/webhook" \
      -F "secret_token=<ВАШ_TELEGRAM_SECRET_TOKEN>" \
      "https://api.telegram.org/bot<ВАШ_TELEGRAM_BOT_TOKEN>/setWebhook"
 ```

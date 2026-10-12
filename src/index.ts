@@ -161,11 +161,26 @@ export default {
         menuButtonConfigured = true;
       }
 
+      let webhookConfigured = false;
+      let webhookUrl: string | null = null;
+      if (url.protocol === "https:") {
+        try {
+          webhookUrl = `${url.origin}/webhook`;
+          await bot.api.setWebhook(webhookUrl, {
+            secret_token: env.TELEGRAM_SECRET_TOKEN,
+          });
+          webhookConfigured = true;
+        } catch (e) {
+          console.error("Failed to set webhook in /setup-commands:", e);
+        }
+      }
+
       return new Response(
         JSON.stringify({
           ok: true,
-          message: "Commands and Menu Button registered successfully in Telegram",
+          message: "Commands, Menu Button, and Webhook registered successfully in Telegram",
           webAppUrl: menuButtonConfigured ? webAppUrl : null,
+          webhookUrl: webhookConfigured ? webhookUrl : null,
         }),
         {
           headers: { "Content-Type": "application/json" },
