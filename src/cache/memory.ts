@@ -41,20 +41,53 @@ export function setMemoryAccount(state: FastAccountState): void {
   MEMORY_ACCOUNTS.set(getMemoryAccountKey(state.network, state.accountIndex), state);
 }
 
-export function getMemoryPrice(symbol: string): number | undefined {
-  const sym = symbol.toUpperCase();
+export function getMemoryPrice(
+  networkOrSymbol: LighterNetwork | string,
+  symbolArg?: string,
+): number | undefined {
+  if (symbolArg !== undefined) {
+    const network = networkOrSymbol as LighterNetwork;
+    const sym = symbolArg.toUpperCase();
+    return MEMORY_PRICES.get(`${network}:${sym}`) ?? MEMORY_PRICES.get(sym);
+  }
+  const sym = String(networkOrSymbol).toUpperCase();
   return MEMORY_PRICES.get(sym);
 }
 
-export function setMemoryPrice(symbol: string, price: number): void {
+export function setMemoryPrice(
+  networkOrSymbol: LighterNetwork | string,
+  symbolOrPrice: string | number,
+  priceArg?: number,
+): void {
+  let network: LighterNetwork | undefined;
+  let symbol: string;
+  let price: number;
+
+  if (typeof symbolOrPrice === "number") {
+    symbol = String(networkOrSymbol);
+    price = symbolOrPrice;
+  } else {
+    network = networkOrSymbol as LighterNetwork;
+    symbol = symbolOrPrice;
+    price = priceArg!;
+  }
+
   const sym = symbol.toUpperCase();
+  if (network) {
+    MEMORY_PRICES.set(`${network}:${sym}`, price);
+  }
   MEMORY_PRICES.set(sym, price);
+
   const dash = sym.indexOf("-");
   const slash = sym.indexOf("/");
   const under = sym.indexOf("_");
   const sep = dash !== -1 ? dash : slash !== -1 ? slash : under;
   if (sep !== -1) {
-    MEMORY_PRICES.set(sym.slice(0, sep), price);
+    const base = sym.slice(0, sep);
+    if (network) {
+      MEMORY_PRICES.set(`${network}:${base}`, price);
+    }
+    MEMORY_PRICES.set(base, price);
   }
 }
 

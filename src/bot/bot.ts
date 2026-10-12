@@ -3,7 +3,7 @@ import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
 import { CONFIG, getLighterAuthToken } from "../config";
 import { fetchLighterAccountWithStatus, fetchInChunks } from "../lighter/api";
 import { analyzePositionRisk, unpackPosition } from "../lighter/math";
-import { getMemoryAccount, MEMORY_PRICES } from "../cache/memory";
+import { MEMORY_PRICES } from "../cache/memory";
 import {
   batchUpdatePositionsCache,
   getUserThreshold,
@@ -1001,29 +1001,20 @@ export function getBot(env: Env): Bot {
       const nowSec = Math.floor(Date.now() / 1000);
       let isRateLimited = false;
 
-      // HFT Stale-While-Revalidate:
-      // Если forceRefresh === false и у нас уже есть данные в памяти/D1 — отвечаем МГНОВЕННО (<15 мс),
-      // а фоновый опрос биржи для устаревших счетов (>5 сек) выносим в background.
-      // Если данных по аккаунту нет вообще (первый запуск) или forceRefresh === true — опрашиваем синхронно.
+      // TTL кэша: 10 секунд.
+      // Если данные в D1 старше 10 сек или нажат принудительный рефреш -> запрашиваем биржу синхронно (~40-60 мс)
+      const STALE_TTL_SEC = 10;
       const accountsNeedingSync = trackedList.filter((item) => {
         const key = `${item.network}:${item.account_index}`;
-        const mem = getMemoryAccount(item.network, item.account_index);
         const c = cacheMap.get(key);
-        const lastUpdated = mem?.lastUpdated || c?.last_updated_at || 0;
-        return !lastUpdated || nowSec - lastUpdated >= 5;
+        const lastUpdated = c?.last_updated_at || 0;
+        return !lastUpdated || nowSec - lastUpdated >= STALE_TTL_SEC;
       });
 
-      const hasCachedState = trackedList.every((item) => {
-        const key = `${item.network}:${item.account_index}`;
-        const mem = getMemoryAccount(item.network, item.account_index);
-        const c = cacheMap.get(key);
-        return Boolean(mem || (c && (c.l1_address || c.positions_json)));
-      });
-
-      const shouldFetchSync = forceRefresh || (!hasCachedState && accountsNeedingSync.length > 0);
-      const toFetch = shouldFetchSync ? (forceRefresh ? trackedList : accountsNeedingSync) : [];
-
+      // Синхронный опрос, если данные устарели или запрошен принудительный сброс
+      const toFetch = forceRefresh ? trackedList : accountsNeedingSync;
       const freshMap = new Map<string, any>();
+
       if (toFetch.length > 0) {
         const settled = await fetchInChunks(
           toFetch,
@@ -1080,6 +1071,7 @@ export function getBot(env: Env): Bot {
               );
             }
           }
+          // Фоновая фиксация в D1 (не задерживает ответ клиенту)
           runInBackground(
             Promise.all([
               ...syncPromises,
@@ -1089,67 +1081,6 @@ export function getBot(env: Env): Bot {
             ]),
           );
         }
-      } else if (!shouldFetchSync && accountsNeedingSync.length > 0) {
-        // Фоновый асинхронный синк (Stale-While-Revalidate)
-        runInBackground(
-          (async () => {
-            try {
-              const settled = await fetchInChunks(
-                accountsNeedingSync,
-                CONFIG.LIGHTER_CHUNK_CONCURRENCY || 5,
-                (item) =>
-                  fetchLighterAccountWithStatus(
-                    item.network,
-                    item.account_index,
-                    true,
-                    getLighterAuthToken(currentEnv || env, item.network),
-                  ),
-              );
-              const updates: Array<{
-                network: LighterNetwork;
-                account: any;
-                cachedPositions: any[];
-              }> = [];
-              const syncPromises: Promise<any>[] = [];
-
-              accountsNeedingSync.forEach((item, i) => {
-                const res = settled[i];
-                if (
-                  res &&
-                  res.status === "fulfilled" &&
-                  res.value.status === "OK" &&
-                  res.value.account
-                ) {
-                  const acc = res.value.account;
-                  updates.push({
-                    network: item.network,
-                    account: acc,
-                    cachedPositions: acc.positions || [],
-                  });
-                  syncPromises.push(
-                    syncAccountOpenPositions(
-                      env.DB,
-                      item.network,
-                      item.account_index,
-                      acc.positions,
-                    ).catch((e) => console.error("background syncAccountOpenPositions error:", e)),
-                  );
-                }
-              });
-
-              if (updates.length > 0) {
-                await Promise.all([
-                  ...syncPromises,
-                  batchUpdatePositionsCache(env.DB, updates).catch((e) =>
-                    console.error("background batchUpdatePositionsCache error:", e),
-                  ),
-                ]);
-              }
-            } catch (bgErr) {
-              console.error("Background SWR sync error:", bgErr);
-            }
-          })(),
-        );
       }
 
       if (userThreshold === undefined) {
@@ -1159,10 +1090,10 @@ export function getBot(env: Env): Bot {
       let totalCollateral = 0;
       const cards: string[] = [];
 
+      // РЕНДЕРИНГ: Свежие данные > Согласованная база D1 (никаких слепых memAcc из разных изолятов!)
       for (const item of trackedList) {
         const key = `${item.network}:${item.account_index}`;
         const fresh = freshMap.get(key);
-        const memAcc = getMemoryAccount(item.network, item.account_index);
         const cached = cacheMap.get(key);
         let card = "";
         let accPositions: PositionRiskAnalysis[] = [];
@@ -1181,33 +1112,6 @@ export function getBot(env: Env): Bot {
             accPositions,
             userThreshold,
           );
-        } else if (memAcc) {
-          accPositions = memAcc.positions
-            .map((p) =>
-              unpackPosition(
-                [
-                  p.marketId,
-                  p.symbol,
-                  p.isLong ? 1 : 0,
-                  p.entryPrice,
-                  p.size,
-                  p.liqPrice,
-                  p.markPrice ?? p.entryPrice,
-                  p.unrealizedPnl ?? 0,
-                ],
-                MEMORY_PRICES,
-              ),
-            )
-            .filter(Boolean) as PositionRiskAnalysis[];
-          accCollateral = memAcc.collateral;
-          card = formatPositionsReport(
-            item.network,
-            item.account_index,
-            item.alias || memAcc.alias,
-            accCollateral,
-            accPositions,
-            userThreshold,
-          );
         } else if (cached && (cached.l1_address || cached.positions_json)) {
           let parsedPositions: any[] = [];
           if (cached.positions_json) {
@@ -1216,7 +1120,7 @@ export function getBot(env: Env): Bot {
             } catch {}
           }
           accPositions = parsedPositions
-            .map((p: any) => unpackPosition(p, MEMORY_PRICES))
+            .map((p: any) => unpackPosition(p, item.network, MEMORY_PRICES))
             .filter(Boolean) as PositionRiskAnalysis[];
           accCollateral = parseFloat(String(cached.collateral || 0));
 
@@ -1229,7 +1133,7 @@ export function getBot(env: Env): Bot {
             userThreshold,
           );
         } else {
-          if (filterIndex && !fresh && !cached && !memAcc) continue;
+          if (filterIndex && !fresh && !cached) continue;
           const netBadge =
             CONFIG.NETWORKS[item.network]?.badge || `[${item.network.toUpperCase()}]`;
           card = `Аккаунт #${item.account_index} ${netBadge}: данные временно недоступны.\n`;
@@ -1268,16 +1172,16 @@ export function getBot(env: Env): Bot {
         if (freshMap.size > 0) {
           footerSuffix = `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
         } else {
-          let oldestCacheSec = nowSec;
+          // Берем самый свежий актуальный срез из D1
+          let latestCacheSec = 0;
           for (const item of trackedList) {
-            const mem = getMemoryAccount(item.network, item.account_index);
             const c = cacheMap.get(`${item.network}:${item.account_index}`);
-            const ts = mem?.lastUpdated || c?.last_updated_at;
-            if (ts && ts < oldestCacheSec) {
-              oldestCacheSec = ts;
+            const ts = c?.last_updated_at || 0;
+            if (ts > latestCacheSec) {
+              latestCacheSec = ts;
             }
           }
-          const cacheDate = new Date(oldestCacheSec * 1000);
+          const cacheDate = new Date((latestCacheSec || nowSec) * 1000);
           const cacheTimeStr = cacheDate.toLocaleTimeString("ru-RU", {
             timeZone: "UTC",
             hour: "2-digit",

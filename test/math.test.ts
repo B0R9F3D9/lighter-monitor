@@ -241,6 +241,19 @@ describe("computePositionsFingerprint and pack/unpack", () => {
     expect(unpackedLive?.markPrice).toBe(64000);
     expect(unpackedLive?.unrealizedPnl).toBe(2000); // (64000 - 60000) * 0.5
     expect(unpackedLive?.distancePercent).toBeCloseTo(((64000 - 45000) / 64000) * 100, 2);
+
+    // Network-scoped live price resolution (rh vs mainnet)
+    const multiNetworkPrices = new Map<string, number>([
+      ["rh:BTC", 64500],
+      ["mainnet:BTC", 64100],
+    ]);
+    const unpackedRh = unpackPosition(packed[0], "rh", multiNetworkPrices);
+    expect(unpackedRh?.markPrice).toBe(64500);
+    expect(unpackedRh?.unrealizedPnl).toBe(2250); // (64500 - 60000) * 0.5
+
+    const unpackedMainnet = unpackPosition(packed[0], "mainnet", multiNetworkPrices);
+    expect(unpackedMainnet?.markPrice).toBe(64100);
+    expect(unpackedMainnet?.unrealizedPnl).toBe(2050); // (64100 - 60000) * 0.5
   });
 
   it("supports unpacking legacy 6-tuple packed positions gracefully", () => {

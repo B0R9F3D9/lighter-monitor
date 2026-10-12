@@ -248,12 +248,14 @@ export async function fetchExchangeStats(
           dailyChange: item.daily_price_change ? parseFloat(item.daily_price_change) : 0,
         };
         map.set(sym, snapshot);
+        MEMORY_PRICES.set(`${network}:${sym}`, price);
         MEMORY_PRICES.set(sym, price);
 
         if (sep !== -1) {
           const baseSym = sym.slice(0, sep);
           if (!map.has(baseSym) || sym.endsWith("PERP")) {
             map.set(baseSym, snapshot);
+            MEMORY_PRICES.set(`${network}:${baseSym}`, price);
             MEMORY_PRICES.set(baseSym, price);
           }
         }

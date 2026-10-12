@@ -60,6 +60,15 @@ describe("In-Memory State & Statements", () => {
     expect(getMemoryPrice("ETH")).toBeUndefined();
   });
 
+  it("isolates prices across networks (rh vs mainnet)", () => {
+    clearMemoryCache();
+    setMemoryPrice("rh", "NVDA", 230.07);
+    setMemoryPrice("mainnet", "NVDA", 229.88);
+
+    expect(getMemoryPrice("rh", "NVDA")).toBe(230.07);
+    expect(getMemoryPrice("mainnet", "NVDA")).toBe(229.88);
+  });
+
   it("fetchTargetedMarketPrices returns price map for requested active symbols", async () => {
     const prices = await fetchTargetedMarketPrices("rh", new Set(["XAU"]));
     expect(prices instanceof Map).toBe(true);

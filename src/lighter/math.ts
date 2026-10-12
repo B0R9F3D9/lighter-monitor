@@ -1,5 +1,5 @@
 import { CONFIG } from "../config";
-import { AlertTier, LighterPosition, PositionRiskAnalysis } from "../types";
+import { AlertTier, LighterNetwork, LighterPosition, PositionRiskAnalysis } from "../types";
 
 export function analyzePositionRisk(pos: LighterPosition): PositionRiskAnalysis | null {
   const size = Math.abs(parseFloat(pos.position || "0"));
@@ -149,6 +149,7 @@ export function packPositions(positions: any[]): PackedPosition[] {
 
 export function unpackPosition(
   p: PackedPosition | any,
+  networkOrPrices?: LighterNetwork | Map<string, number>,
   marketPrices?: Map<string, number>,
 ): PositionRiskAnalysis | null {
   if (!p) return null;
@@ -164,9 +165,28 @@ export function unpackPosition(
 
   const isLong = isLongNum === 1;
   const cleanSym = String(symbol || "").toUpperCase();
-  const livePrice =
-    marketPrices &&
-    (marketPrices.get(cleanSym) || marketPrices.get(cleanSym.replace(/-PERP$/, "")));
+  const baseSym = cleanSym.replace(/-PERP$/, "");
+
+  let network: LighterNetwork | undefined;
+  let prices: Map<string, number> | undefined;
+
+  if (typeof networkOrPrices === "string") {
+    network = networkOrPrices;
+    prices = marketPrices;
+  } else if (networkOrPrices instanceof Map) {
+    prices = networkOrPrices;
+  }
+
+  // Network-scoped live price resolution
+  let livePrice: number | undefined;
+  if (prices) {
+    if (network) {
+      livePrice = prices.get(`${network}:${cleanSym}`) ?? prices.get(`${network}:${baseSym}`);
+    }
+    if (livePrice === undefined) {
+      livePrice = prices.get(cleanSym) ?? prices.get(baseSym);
+    }
+  }
 
   // If live price is in memory, recalculate markPrice & PnL; otherwise fallback to stored cached values
   const markPrice =
