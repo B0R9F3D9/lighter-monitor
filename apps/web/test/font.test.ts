@@ -9,7 +9,7 @@ import {
   initFontSelector,
   renderFontSelectorMarkup,
   setFont,
-} from "../web/src/shared/font";
+} from "../src/shared/font";
 
 describe("Shared Font Management", () => {
   const store: Record<string, string> = {};

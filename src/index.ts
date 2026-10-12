@@ -1,9 +1,5 @@
-import { webhookCallback } from "grammy";
-import { Env } from "./types";
-import { getBot } from "./bot/bot";
-import { runCronMonitor } from "./cron/monitor";
-import { ensureDatabaseSchema } from "./db/queries";
-import { executionContextStorage } from "./utils/background";
+import type { Env } from "../apps/bot/src/types";
+import { handleBotWebhook, setupBotCommands, runBotScheduled } from "../apps/bot/src";
 import {
   APP_VERSION,
   HUB_HTML_HASH,
@@ -13,12 +9,10 @@ import {
   CHECKER_HEDGE_HTML_HASH,
   CHECKER_HTML_HASH,
   HEDGE_HTML_HASH,
-} from "./version";
-
-let cachedWebhookHandler: ((req: Request) => Promise<Response>) | null = null;
+} from "../apps/web/src/version";
 
 /**
- * Local Bun fallback to serve static assets from `./dist` during local development
+ * Local Bun fallback to serve static assets from `./apps/web/dist` during local development
  * (e.g. `bun run web` or `bun test`) when Cloudflare CDN / env.ASSETS is not available.
  */
 async function serveLocalBunAsset(request: Request): Promise<Response | null> {
@@ -46,7 +40,10 @@ async function serveLocalBunAsset(request: Request): Promise<Response | null> {
     pathname = pathname.slice(pathname.indexOf("/assets/"));
   }
 
-  const file = BunRef.file("./dist" + pathname);
+  let file = BunRef.file("./apps/web/dist" + pathname);
+  if (!(await file.exists())) {
+    file = BunRef.file("./dist" + pathname);
+  }
   if (await file.exists()) {
     const isImmutable = pathname.includes("/assets/");
     return new Response(file, {
@@ -118,74 +115,17 @@ export default {
 
     // Telegram Bot API command registration (setMyCommands) and Menu Button
     if (url.pathname === "/setup-commands") {
-      if (!env.TELEGRAM_BOT_TOKEN) {
-        return new Response(
-          JSON.stringify({ ok: false, error: "TELEGRAM_BOT_TOKEN is not configured" }),
-          {
-            status: 503,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
-      }
-      if (!env.WEBAPP_URL && url.protocol === "https:") {
-        env.WEBAPP_URL = url.origin;
-      }
-      await ensureDatabaseSchema(env.DB);
-      const bot = getBot(env);
-      await bot.api.setMyCommands([
-        { command: "positions", description: "📊 Открытые сделки и риски" },
-        { command: "list", description: "💼 Список ваших кошельков" },
-        { command: "threshold", description: "⚙️ Настройка шага цены для алертов" },
-        { command: "settings", description: "⚙️ Параметры уведомлений и тихий сон" },
-        { command: "help", description: "ℹ️ Справка и возможности" },
-        { command: "stats", description: "📊 Системный дашборд (админ)" },
-        { command: "add_rh", description: "➕ Добавить аккаунт Robinhood Lighter" },
-        { command: "add_mainnet", description: "➕ Добавить аккаунт Lighter Mainnet" },
-        { command: "remove_rh", description: "➖ Удалить аккаунт Robinhood Lighter" },
-        { command: "remove_mainnet", description: "➖ Удалить аккаунт Lighter Mainnet" },
-        { command: "start", description: "🚀 Главное меню" },
-      ]);
-
-      let menuButtonConfigured = false;
-      const webAppUrl = (env.WEBAPP_URL || (url.protocol === "https:" ? url.origin : ""))
-        .trim()
-        .replace(/\/$/, "");
-      if (webAppUrl && webAppUrl.startsWith("https://")) {
-        await bot.api.setChatMenuButton({
-          menu_button: {
-            type: "web_app",
-            text: "🚀 Web App",
-            web_app: { url: webAppUrl },
-          },
-        });
-        menuButtonConfigured = true;
-      }
-
-      let webhookConfigured = false;
-      let webhookUrl: string | null = null;
-      if (url.protocol === "https:") {
-        try {
-          webhookUrl = `${url.origin}/webhook`;
-          await bot.api.setWebhook(webhookUrl, {
-            secret_token: env.TELEGRAM_SECRET_TOKEN,
-          });
-          webhookConfigured = true;
-        } catch (e) {
-          console.error("Failed to set webhook in /setup-commands:", e);
-        }
-      }
-
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          message: "Commands, Menu Button, and Webhook registered successfully in Telegram",
-          webAppUrl: menuButtonConfigured ? webAppUrl : null,
-          webhookUrl: webhookConfigured ? webhookUrl : null,
-        }),
-        {
+      try {
+        const res = await setupBotCommands(env, url.protocol === "https:" ? url.origin : undefined);
+        return new Response(JSON.stringify(res), {
           headers: { "Content-Type": "application/json" },
-        },
-      );
+        });
+      } catch (err: any) {
+        return new Response(JSON.stringify({ ok: false, error: err.message }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Telegram webhook handler (POST to "/" or "/webhook")
@@ -196,27 +136,7 @@ export default {
         url.pathname === "/webhook" ||
         url.pathname === "/webhook/")
     ) {
-      // Проверка Secret Token для безопасности вебхука Telegram
-      if (env.TELEGRAM_SECRET_TOKEN) {
-        const headerSecret = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
-        if (headerSecret !== env.TELEGRAM_SECRET_TOKEN) {
-          return new Response("Unauthorized", { status: 403 });
-        }
-      }
-
-      if (!env.TELEGRAM_BOT_TOKEN) {
-        return new Response("Bot token not configured", { status: 503 });
-      }
-
-      if (!env.WEBAPP_URL && url.protocol === "https:") {
-        env.WEBAPP_URL = url.origin;
-      }
-
-      const bot = getBot(env);
-      if (!cachedWebhookHandler) {
-        cachedWebhookHandler = webhookCallback(bot, "cloudflare-mod");
-      }
-      return await executionContextStorage.run(ctx, () => cachedWebhookHandler!(request as any));
+      return await handleBotWebhook(request, env, ctx);
     }
 
     // Static Assets on Cloudflare via Workers Assets binding (GET / HEAD only)
@@ -238,7 +158,7 @@ export default {
     return new Response("Not Found", { status: 404 });
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    await runCronMonitor(env, ctx);
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    await runBotScheduled(event, env, ctx);
   },
 };

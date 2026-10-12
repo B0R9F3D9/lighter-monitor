@@ -89,7 +89,7 @@ const originalFetch = globalThis.fetch;
 
 let tickNumber = 1;
 
-globalThis.fetch = async (input: string | URL | Request, init?: any): Promise<Response> => {
+globalThis.fetch = (async (input: string | URL | Request, init?: any): Promise<Response> => {
   const urlStr =
     typeof input === "string" ? input : input instanceof Request ? input.url : input.toString();
 
@@ -209,7 +209,7 @@ globalThis.fetch = async (input: string | URL | Request, init?: any): Promise<Re
   }
 
   return originalFetch(input, init);
-};
+}) as any;
 
 const mockDb = createD1Adapter(sqlite);
 

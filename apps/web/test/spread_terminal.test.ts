@@ -5,22 +5,22 @@ import {
   formatBps,
   formatBaseQty,
   formatDeltaMid,
-} from "../web/src/shared/formatters";
+} from "../src/shared/formatters";
 import {
   getOrCreateBook,
   updateBookFromWs,
   getSortedLevels,
   FlatOrderBookSide,
-} from "../web/src/spread/orderbook";
+} from "../src/spread/orderbook";
 import {
   simulateFillBase,
   simulateFillBaseInto,
   fastSimFillInto,
-} from "../web/src/spread/simulation";
-import type { FastSimResult } from "../web/src/spread/simulation";
-import { calculateMarketMetrics, findOptimalSize, getMetrics } from "../web/src/spread/metrics";
-import { STORAGE_KEYS } from "../web/src/spread/config";
-import type { MarketInfo, OrderBook, SimFillResult, TerminalState } from "../web/src/spread/types";
+} from "../src/spread/simulation";
+import type { FastSimResult } from "../src/spread/simulation";
+import { calculateMarketMetrics, findOptimalSize, getMetrics } from "../src/spread/metrics";
+import { STORAGE_KEYS } from "../src/spread/config";
+import type { MarketInfo, OrderBook, SimFillResult, TerminalState } from "../src/spread/types";
 
 describe("Spread Terminal: Formatters", () => {
   it("formats positive, zero, and negative money correctly", () => {

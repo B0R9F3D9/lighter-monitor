@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import worker from "../src/index";
-import type { Env } from "../src/types";
+import type { Env } from "../apps/bot/src/types";
 
 describe("Worker HTTP Routing", () => {
   const mockEnv: Env = {

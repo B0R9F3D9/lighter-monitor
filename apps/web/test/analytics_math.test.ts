@@ -14,8 +14,8 @@ import {
   getTokenIcon,
   getTokenImageUrl,
   splitIntervalsIntoApiChunks,
-} from "../web/src/analytics/math";
-import type { RawCandle } from "../web/src/analytics/types";
+} from "../src/analytics/math";
+import type { RawCandle } from "../src/analytics/types";
 
 describe("Analytics Math Engine", () => {
   it("aligns RH and Core candles correctly and computes basis", () => {

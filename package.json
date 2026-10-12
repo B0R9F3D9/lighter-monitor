@@ -1,43 +1,37 @@
 {
   "name": "lighter-monitor",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "web": "bun scripts/build_web.ts && bun -e 'import app from \"./src/index.ts\"; Bun.serve({ port: 3000, fetch: (req) => app.fetch(req, {} as any, {} as any) }); console.log(\"\\n⚡ Web Scanner live at http://localhost:3000/spread\\n\");'",
-    "dev:web": "vite",
-    "build": "bun scripts/build_web.ts",
-    "build:web": "bun scripts/build_web.ts",
+    "web": "bun run build && bun -e 'import app from \"./src/index.ts\"; Bun.serve({ port: 3000, fetch: (req) => app.fetch(req, {} as any, {} as any) }); console.log(\"\\n⚡ Web Scanner live at http://localhost:3000/spread\\n\");'",
+    "dev:web": "bun run --cwd apps/web dev",
+    "build": "bun run --cwd apps/web build",
+    "build:web": "bun run --cwd apps/web build",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "d1:init": "wrangler d1 execute lighter-db --local --file=./schema.sql",
-    "seed": "bun load-tests/seed.ts > load-tests/seed.sql && wrangler d1 execute lighter-db --local --file=./load-tests/seed.sql",
-    "profile": "bun load-tests/profile_engine.ts",
-    "simulate": "bun load-tests/simulate_cron_tick.ts",
-    "test": "bun scripts/build_web.ts && bun test",
-    "typecheck": "bun scripts/build_web.ts && tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "d1:init": "wrangler d1 execute lighter-db --local --file=./apps/bot/schema.sql",
+    "seed": "bun apps/bot/load-tests/seed.ts > apps/bot/load-tests/seed.sql && wrangler d1 execute lighter-db --local --file=./apps/bot/load-tests/seed.sql",
+    "profile": "bun apps/bot/load-tests/profile_engine.ts",
+    "simulate": "bun apps/bot/load-tests/simulate_cron_tick.ts",
+    "test": "bun test",
+    "test:bot": "bun test apps/bot",
+    "test:web": "bun test apps/web",
+    "typecheck": "tsc --noEmit && bun run --cwd apps/bot typecheck && bun run --cwd apps/web typecheck",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "lint:deadcode": "knip",
-    "knip": "knip",
     "format": "oxfmt --write",
     "format:check": "oxfmt --check"
   },
-  "dependencies": {
-    "grammy": "^1.46.0"
-  },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261001.1",
-    "@tailwindcss/vite": "^4.3.3",
     "@types/bun": "latest",
-    "html-minifier-terser": "^7.2.0",
-    "knip": "^6.39.0",
-    "lightweight-charts": "^5.2.1",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
-    "postcss": "^8.5.28",
-    "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.3.2",
     "wrangler": "^4.146.0"
   }
 }

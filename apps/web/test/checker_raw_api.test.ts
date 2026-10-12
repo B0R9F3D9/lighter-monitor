@@ -5,9 +5,9 @@ import {
   parseImportedTradesJson,
   parseTradeForView,
   stitchTradeBatches,
-} from "../web/src/checker/api";
-import { matchHedgeTrades } from "../web/src/checker/hedge";
-import type { LighterTrade } from "../web/src/checker/types";
+} from "../src/checker/api";
+import { matchHedgeTrades } from "../src/checker/hedge";
+import type { LighterTrade } from "../src/checker/types";
 
 describe("Raw Lighter API Ingestion & Multi-Account Stitching", () => {
   const rawApiUserPayload = {

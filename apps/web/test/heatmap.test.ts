@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterAll } from "bun:test";
-import { renderHourlyHeatmap } from "../web/src/analytics/heatmap";
-import type { HourlyBucketStats } from "../web/src/analytics/types";
+import { renderHourlyHeatmap } from "../src/analytics/heatmap";
+import type { HourlyBucketStats } from "../src/analytics/types";
 
 function createMockElement(tag: string = "div"): any {
   const listeners: Record<string, Function[]> = {};

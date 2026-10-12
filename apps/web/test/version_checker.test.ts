@@ -4,7 +4,7 @@ import {
   STORAGE_KEY_DISMISSED,
   showUpdateSonner,
   VersionChecker,
-} from "../web/src/shared/version_checker";
+} from "../src/shared/version_checker";
 
 describe("Version Checker & Auto-Updater", () => {
   beforeEach(() => {

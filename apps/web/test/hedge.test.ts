@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { getStaticMarketMap, parseFeeUsd, parseTradeForView } from "../web/src/checker/api";
+import { getStaticMarketMap, parseFeeUsd, parseTradeForView } from "../src/checker/api";
 import {
   formatCompactDuration,
   formatCompactK,
@@ -10,7 +10,7 @@ import {
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
   updateIndividualAccountMetrics,
-} from "../web/src/checker/dom";
+} from "../src/checker/dom";
 import {
   aggregateTradesByOrder,
   calculateAccountAverageOi,
@@ -20,13 +20,13 @@ import {
   computeRangeSelection,
   exportHedgeReportToCsv,
   matchHedgeTrades,
-} from "../web/src/checker/hedge";
+} from "../src/checker/hedge";
 import {
   createPresetDateFilter,
   findPresetById,
   isTradeInDateRange,
-} from "../web/src/checker/date_filter";
-import type { ParsedTradeView } from "../web/src/checker/types";
+} from "../src/checker/date_filter";
+import type { ParsedTradeView } from "../src/checker/types";
 
 function mockTrade(overrides: Partial<ParsedTradeView>): ParsedTradeView {
   return {

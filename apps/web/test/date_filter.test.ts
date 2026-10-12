@@ -9,7 +9,7 @@ import {
   getRobinhoodPromoWeeks,
   isTradeInDateRange,
   parseCustomDateRange,
-} from "../web/src/checker/date_filter";
+} from "../src/checker/date_filter";
 
 describe("DateFilter: Robinhood Points Campaign & Custom Ranges", () => {
   it("generates exactly 20 campaign weeks starting Aug 10, 2026", () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { cleanupLegacyStorage } from "../web/src/analytics/cleanup";
+import { cleanupLegacyStorage } from "../src/analytics/cleanup";
 
 describe("cleanupLegacyStorage", () => {
   let mockLocalStorage: Record<string, string>;

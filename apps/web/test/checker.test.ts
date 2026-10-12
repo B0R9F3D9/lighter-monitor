@@ -6,8 +6,8 @@ import {
   parseTradeForView,
   prepareExportPayload,
   resolveAccountIndex,
-} from "../web/src/checker/api";
-import type { LighterTrade } from "../web/src/checker/types";
+} from "../src/checker/api";
+import type { LighterTrade } from "../src/checker/types";
 
 describe("Checker: API & Calculations", () => {
   const mockTrades: LighterTrade[] = [
@@ -132,7 +132,7 @@ describe("Checker: API & Calculations", () => {
   });
 
   it("parseImportedTradesJson parses truncation flags correctly", async () => {
-    const { parseImportedTradesJson } = await import("../web/src/checker/api");
+    const { parseImportedTradesJson } = await import("../src/checker/api");
     const payload = prepareExportPayload(mockTrades, "rh", 12345, undefined, true, 150000);
     const jsonStr = JSON.stringify(payload);
 
@@ -142,7 +142,7 @@ describe("Checker: API & Calculations", () => {
   });
 
   it("parseImportedTradesJson cleanly handles UTF-8 BOM prefix without errors", async () => {
-    const { parseImportedTradesJson } = await import("../web/src/checker/api");
+    const { parseImportedTradesJson } = await import("../src/checker/api");
     const payload = prepareExportPayload(mockTrades, "rh", 12345);
     const jsonWithBom = "\uFEFF" + JSON.stringify(payload);
 
@@ -153,7 +153,7 @@ describe("Checker: API & Calculations", () => {
 
   it("getBookmarkletHref returns valid URL-encoded javascript:... string with resilient features", async () => {
     const { getBookmarkletHref, BOOKMARKLET_RAW_CODE } =
-      await import("../web/src/checker/bookmarklet");
+      await import("../src/checker/bookmarklet");
     expect(BOOKMARKLET_RAW_CODE).toContain("/api/v1");
     expect(BOOKMARKLET_RAW_CODE).toContain("/trades");
     expect(BOOKMARKLET_RAW_CODE).toContain("Wrong tab");
@@ -185,7 +185,7 @@ describe("Checker: API & Calculations", () => {
   });
 
   it("sortTradesChronologicalDesc correctly sorts unsorted trades and preserves already sorted trades in O(N)", async () => {
-    const { sortTradesChronologicalDesc } = await import("../web/src/checker/api");
+    const { sortTradesChronologicalDesc } = await import("../src/checker/api");
     const t1 = { ...mockTrades[0], timestamp: 1000, trade_id: 1, trade_id_str: "1" };
     const t2 = { ...mockTrades[0], timestamp: 2000, trade_id: 2, trade_id_str: "2" };
     const t3 = { ...mockTrades[0], timestamp: 3000, trade_id: 3, trade_id_str: "3" };
@@ -201,7 +201,7 @@ describe("Checker: API & Calculations", () => {
   });
 
   it("matchHedgeTrades executes large dataset (5,000 trades) in milliseconds via O(N+M) sliding window", async () => {
-    const { matchHedgeTrades } = await import("../web/src/checker/hedge");
+    const { matchHedgeTrades } = await import("../src/checker/hedge");
     const rhTrades: any[] = [];
     const coreTrades: any[] = [];
 
@@ -261,7 +261,7 @@ describe("Checker: API & Calculations", () => {
   });
 
   it("attributeFundingToTrades attributes account position funding proportionally to trades", async () => {
-    const { attributeFundingToTrades } = await import("../web/src/checker/api");
+    const { attributeFundingToTrades } = await import("../src/checker/api");
 
     const trades: any[] = [
       {
@@ -316,7 +316,7 @@ describe("Checker: API & Calculations", () => {
   });
 
   it("processTradesFundingHistory correctly accumulates funding and assigns proportionally to position close", async () => {
-    const { processTradesFundingHistory } = await import("../web/src/checker/api");
+    const { processTradesFundingHistory } = await import("../src/checker/api");
 
     const baseTime = 1700000000000;
     const trades: any[] = [
@@ -387,7 +387,7 @@ describe("Checker: API & Calculations", () => {
   });
 
   it("processTradesFundingHistory sets null funding and hasFundingHistory: false when no funding history is present", async () => {
-    const { processTradesFundingHistory } = await import("../web/src/checker/api");
+    const { processTradesFundingHistory } = await import("../src/checker/api");
 
     const trades: any[] = [
       { tradeId: "t1", timestampMs: 1000, marketId: 1, side: "BUY", size: 1.0 },
@@ -402,7 +402,7 @@ describe("Checker: API & Calculations", () => {
   });
 
   it("getBookmarkletHref generates valid javascript bookmarklet URI", async () => {
-    const { getBookmarkletHref } = await import("../web/src/checker/bookmarklet");
+    const { getBookmarkletHref } = await import("../src/checker/bookmarklet");
 
     const href = getBookmarkletHref();
     expect(href.startsWith("javascript:")).toBe(true);

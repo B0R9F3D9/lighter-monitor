@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterAll } from "bun:test";
-import { initMobileNav } from "../web/src/shared/mobile_nav";
+import { initMobileNav } from "../src/shared/mobile_nav";
 
 describe("Mobile Navigation & Sandwich Menu", () => {
   const origDoc = (globalThis as any).document;
