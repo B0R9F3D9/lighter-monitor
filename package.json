@@ -2,10 +2,10 @@
   "name": "lighter-monitor",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
   "workspaces": [
     "apps/*"
   ],
+  "type": "module",
   "scripts": {
     "web": "bun run build && bun -e 'import app from \"./src/index.ts\"; Bun.serve({ port: 3000, fetch: (req) => app.fetch(req, {} as any, {} as any) }); console.log(\"\\n⚡ Web Scanner live at http://localhost:3000/spread\\n\");'",
     "dev:web": "bun run --cwd apps/web dev",

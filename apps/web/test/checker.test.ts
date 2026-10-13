@@ -152,8 +152,7 @@ describe("Checker: API & Calculations", () => {
   });
 
   it("getBookmarkletHref returns valid URL-encoded javascript:... string with resilient features", async () => {
-    const { getBookmarkletHref, BOOKMARKLET_RAW_CODE } =
-      await import("../src/checker/bookmarklet");
+    const { getBookmarkletHref, BOOKMARKLET_RAW_CODE } = await import("../src/checker/bookmarklet");
     expect(BOOKMARKLET_RAW_CODE).toContain("/api/v1");
     expect(BOOKMARKLET_RAW_CODE).toContain("/trades");
     expect(BOOKMARKLET_RAW_CODE).toContain("Wrong tab");
@@ -162,6 +161,11 @@ describe("Checker: API & Calculations", () => {
     expect(BOOKMARKLET_RAW_CODE).toContain("slimTrade");
     expect(BOOKMARKLET_RAW_CODE).toContain("lte-last100-btn");
     expect(BOOKMARKLET_RAW_CODE).toContain("Export Last 100");
+    expect(BOOKMARKLET_RAW_CODE).toContain("lte-funding-chk");
+    expect(BOOKMARKLET_RAW_CODE).toContain("lte-this-week-btn");
+    expect(BOOKMARKLET_RAW_CODE).toContain("lte-prev-week-btn");
+    expect(BOOKMARKLET_RAW_CODE).toContain("lte-last24h-btn");
+    expect(BOOKMARKLET_RAW_CODE).toContain("getWeekRange");
     expect(BOOKMARKLET_RAW_CODE).toContain("runExport");
     const href = getBookmarkletHref();
     expect(href.startsWith("javascript:")).toBe(true);
@@ -169,6 +173,9 @@ describe("Checker: API & Calculations", () => {
     expect(decodeURIComponent(href)).toContain("ROW_CAP");
     expect(decodeURIComponent(href)).toContain("Export Last 100");
     expect(decodeURIComponent(href)).toContain("lte-last100-btn");
+    expect(decodeURIComponent(href)).toContain("lte-funding-chk");
+    expect(decodeURIComponent(href)).toContain("lte-this-week-btn");
+    expect(decodeURIComponent(href)).toContain("This Week");
   });
 
   it("parseTradeForView precomputes searchIndex and tradeIdNum for instant filtering and sorting", () => {

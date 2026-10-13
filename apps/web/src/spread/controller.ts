@@ -357,7 +357,6 @@ export class TerminalController {
       const rankB = b.status === "READY" ? 0 : b.status === "SLIPPAGE" ? 1 : 2;
       if (rankA !== rankB) return rankA - rankB;
 
-
       if (this.state.sortColumn === "entryLossUsd" || this.state.sortColumn === "entryDragBps") {
         return (a.entryLossUsd - b.entryLossUsd) * dir;
       }

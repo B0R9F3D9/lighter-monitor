@@ -212,11 +212,60 @@
     return "";
   }
 
-  // 3. Build Floating Dark HUD Modal
+  // 3. Week and Campaign calculation helper (Friday 00:00:00.000 UTC snapshot boundaries)
+  function getWeekRange(nowMs) {
+    const now = nowMs || Date.now();
+    const MS_PER_DAY = 86400000;
+    const MS_PER_WEEK = 7 * MS_PER_DAY;
+    const PROMO_START_MS = 1786320000000; // Date.parse("2026-08-10T00:00:00.000Z")
+    const W1_END_MS = 1787270400000; // Date.parse("2026-08-21T00:00:00.000Z")
+
+    let curStart = PROMO_START_MS;
+    let curEnd = W1_END_MS;
+    for (let w = 1; w <= 20; w++) {
+      if (now >= curStart && now < curEnd) {
+        const prevStart = w === 1 ? null : w === 2 ? PROMO_START_MS : curStart - MS_PER_WEEK;
+        const prevEnd = w === 1 ? null : curStart;
+        return {
+          thisWeekStart: curStart,
+          thisWeekEnd: curEnd,
+          weekNumber: w,
+          prevWeekStart: prevStart,
+          prevWeekEnd: prevEnd,
+          prevWeekNumber: w > 1 ? w - 1 : null,
+        };
+      }
+      curStart = curEnd;
+      curEnd = curStart + MS_PER_WEEK;
+    }
+
+    const d = new Date(now);
+    const day = d.getUTCDay(); // 0 = Sun, 1 = Mon, ..., 5 = Fri, 6 = Sat
+    const daysSinceFriday = (day - 5 + 7) % 7;
+    const thisFridayStart = Date.UTC(
+      d.getUTCFullYear(),
+      d.getUTCMonth(),
+      d.getUTCDate() - daysSinceFriday,
+      0,
+      0,
+      0,
+      0,
+    );
+    return {
+      thisWeekStart: thisFridayStart,
+      thisWeekEnd: thisFridayStart + MS_PER_WEEK,
+      weekNumber: null,
+      prevWeekStart: thisFridayStart - MS_PER_WEEK,
+      prevWeekEnd: thisFridayStart,
+      prevWeekNumber: null,
+    };
+  }
+
+  // 4. Build Floating Dark HUD Modal
   const hud = document.createElement("div");
   hud.id = "lighter-trade-exporter-hud";
   hud.style.cssText =
-    "position:fixed;bottom:20px;right:20px;width:320px;background:#121417;border:1px solid #1f2328;border-radius:6px;padding:12px 14px;box-shadow:0 12px 32px rgba(0,0,0,0.8);z-index:2147483647;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace;color:#f0f6fc;font-size:11px;line-height:1.4;box-sizing:border-box;";
+    "position:fixed;bottom:20px;right:20px;width:330px;background:#121417;border:1px solid #1f2328;border-radius:6px;padding:12px 14px;box-shadow:0 12px 32px rgba(0,0,0,0.8);z-index:2147483647;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,monospace;color:#f0f6fc;font-size:11px;line-height:1.4;box-sizing:border-box;";
 
   hud.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #1f2328;padding-bottom:8px;">
@@ -233,6 +282,11 @@
       <span id="lte-auth-badge" style="color:#d29922;font-size:10px;font-weight:600;">Checking auth...</span>
     </div>
 
+    <label id="lte-funding-wrap" style="display:inline-flex;align-items:center;gap:6px;margin:6px 0 8px 0;cursor:pointer;user-select:none;font-size:11px;color:#c9d1d9;">
+      <input type="checkbox" id="lte-funding-chk" checked style="accent-color:#238636;cursor:pointer;margin:0;width:12px;height:12px;">
+      <span>Include funding</span>
+    </label>
+
     <div id="lte-progress-bar-wrap" style="display:none;margin-bottom:8px;background:#21262d;border-radius:2px;height:4px;overflow:hidden;">
       <div id="lte-progress-bar" style="background:#2ea043;height:100%;width:0%;transition:width 0.2s;"></div>
     </div>
@@ -241,23 +295,37 @@
       Connecting to session in browser...
     </div>
 
-    <div style="display:flex;gap:6px;">
-      <button id="lte-start-btn" style="flex:1;background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 8px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s,opacity 0.15s;opacity:0.6;white-space:nowrap;text-align:center;" disabled title="Export complete trade history (up to 150,000)">
-        Initializing...
+    <div id="lte-btn-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+      <button id="lte-this-week-btn" style="background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 6px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s,opacity 0.15s;opacity:0.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;" disabled title="Export trades for this week (starts Friday 00:00 UTC)">
+        This Week (Fri)
       </button>
-      <button id="lte-last100-btn" style="flex:1;background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 8px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s,opacity 0.15s;opacity:0.6;white-space:nowrap;text-align:center;" disabled title="Export only the last 100 trades">
+      <button id="lte-prev-week-btn" style="background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 6px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s,opacity 0.15s;opacity:0.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;" disabled title="Export trades for previous week (Fri to Fri 00:00 UTC)">
+        Prev Week
+      </button>
+      <button id="lte-last24h-btn" style="background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 6px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s,opacity 0.15s;opacity:0.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;" disabled title="Export trades for the last 24 hours">
+        Last 24 Hours
+      </button>
+      <button id="lte-last100-btn" style="background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 6px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s,opacity 0.15s;opacity:0.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;" disabled title="Export only the last 100 trades">
         Export Last 100
       </button>
-      <button id="lte-stop-btn" style="display:none;flex:1;background:#da3633;color:#fff;border:0;border-radius:4px;padding:6px 12px;font-weight:600;font-size:11px;cursor:pointer;text-align:center;">
-        Stop
+      <button id="lte-start-btn" style="grid-column:span 2;background:#238636;color:#fff;border:0;border-radius:4px;padding:6px 8px;font-weight:600;font-size:11px;cursor:pointer;transition:background 0.15s,opacity 0.15s;opacity:0.6;white-space:nowrap;text-align:center;" disabled title="Export complete trade history (up to 150,000)">
+        Export All History
       </button>
     </div>
+
+    <button id="lte-stop-btn" style="display:none;width:100%;background:#da3633;color:#fff;border:0;border-radius:4px;padding:6px 12px;font-weight:600;font-size:11px;cursor:pointer;text-align:center;">
+      Stop Export
+    </button>
   `;
 
   document.body.appendChild(hud);
 
-  const startBtn = hud.querySelector("#lte-start-btn");
+  const btnGrid = hud.querySelector("#lte-btn-grid");
+  const thisWeekBtn = hud.querySelector("#lte-this-week-btn");
+  const prevWeekBtn = hud.querySelector("#lte-prev-week-btn");
+  const last24hBtn = hud.querySelector("#lte-last24h-btn");
   const last100Btn = hud.querySelector("#lte-last100-btn");
+  const startBtn = hud.querySelector("#lte-start-btn");
   const stopBtn = hud.querySelector("#lte-stop-btn");
   const closeBtn = hud.querySelector("#lte-close-btn");
   const statusDiv = hud.querySelector("#lte-status");
@@ -265,19 +333,20 @@
   const progressBar = hud.querySelector("#lte-progress-bar");
   const accountValSpan = hud.querySelector("#lte-account-val");
   const authBadgeSpan = hud.querySelector("#lte-auth-badge");
+  const fundingWrap = hud.querySelector("#lte-funding-wrap");
+  const fundingChk = hud.querySelector("#lte-funding-chk");
 
-  const addBtnHover = (btn, normalBg) => {
+  const actionButtons = [thisWeekBtn, prevWeekBtn, last24hBtn, last100Btn, startBtn];
+  for (const btn of actionButtons) {
     btn.addEventListener("mouseenter", () => {
       if (!btn.disabled && !isRunning) btn.style.background = "#2ea043";
     });
     btn.addEventListener("mouseleave", () => {
       if (!btn.disabled && !isRunning) {
-        btn.style.background = btn === startBtn && !detectedAuth ? "#d29922" : normalBg;
+        btn.style.background = btn === startBtn && !detectedAuth ? "#d29922" : "#238636";
       }
     });
-  };
-  addBtnHover(startBtn, "#238636");
-  addBtnHover(last100Btn, "#238636");
+  }
 
   stopBtn.addEventListener("mouseenter", () => {
     stopBtn.style.background = "#b62324";
@@ -340,19 +409,38 @@
       detectedAuth = "";
     }
 
+    const wInfo = getWeekRange();
+
     if (detectedAuth) {
       authBadgeSpan.textContent = "● Ready";
       authBadgeSpan.style.color = "#2ea043";
       statusDiv.style.color = "#8b949e";
       statusDiv.textContent = "Ready to export trades for Account #" + detectedAccount;
-      startBtn.textContent = "Export All";
-      startBtn.style.background = "#238636";
-      startBtn.style.opacity = "1";
-      startBtn.disabled = false;
-      last100Btn.textContent = "Export Last 100";
-      last100Btn.style.background = "#238636";
-      last100Btn.style.opacity = "1";
-      last100Btn.disabled = false;
+
+      if (wInfo.weekNumber) {
+        thisWeekBtn.textContent = "This Week (W" + wInfo.weekNumber + ")";
+        thisWeekBtn.title =
+          "Export trades for this week (W" + wInfo.weekNumber + ", starts Friday 00:00 UTC)";
+        if (wInfo.prevWeekNumber) {
+          prevWeekBtn.textContent = "Prev Week (W" + wInfo.prevWeekNumber + ")";
+          prevWeekBtn.title =
+            "Export trades for previous week (W" +
+            wInfo.prevWeekNumber +
+            ", Friday to Friday 00:00 UTC)";
+        }
+      } else {
+        thisWeekBtn.textContent = "This Week (Fri)";
+        thisWeekBtn.title = "Export trades for current week (starts Friday 00:00 UTC)";
+        prevWeekBtn.textContent = "Prev Week";
+        prevWeekBtn.title = "Export trades for previous week (Friday to Friday 00:00 UTC)";
+      }
+
+      startBtn.textContent = "Export All History";
+      for (const btn of actionButtons) {
+        btn.disabled = false;
+        btn.style.opacity = "1";
+        btn.style.background = "#238636";
+      }
     } else {
       authBadgeSpan.textContent = "● Key Missing";
       authBadgeSpan.style.color = "#f85149";
@@ -363,14 +451,15 @@
         statusDiv.textContent =
           "API key not found. Refresh tab (F5) or place an order to unlock session.";
       }
+
+      for (const btn of [thisWeekBtn, prevWeekBtn, last24hBtn, last100Btn]) {
+        btn.disabled = true;
+        btn.style.opacity = "0.5";
+      }
       startBtn.textContent = "Re-scan Session";
       startBtn.style.background = "#d29922";
       startBtn.style.opacity = "1";
       startBtn.disabled = false;
-      last100Btn.textContent = "Export Last 100";
-      last100Btn.style.background = "#238636";
-      last100Btn.style.opacity = "0.5";
-      last100Btn.disabled = true;
     }
   }
 
@@ -494,7 +583,7 @@
     };
   }
 
-  async function runExport(targetCap) {
+  async function runExport(options) {
     if (isRunning) return;
 
     if (!detectedAccount || !detectedAuth) {
@@ -503,22 +592,38 @@
       if (!detectedAccount || !detectedAuth) return;
     }
 
-    const isLimit100 = targetCap === 100;
+    const opts =
+      typeof options === "number"
+        ? { targetCap: options, mode: options === 100 ? "last100" : "all" }
+        : options || {};
+    const targetCap = opts.targetCap || ROW_CAP;
+    const sinceTimestampMs = opts.sinceTimestampMs || null;
+    const untilTimestampMs = opts.untilTimestampMs || null;
+    const mode = opts.mode || (targetCap === 100 ? "last100" : "all");
+    const modeLabel = opts.modeLabel || (mode === "last100" ? "Last 100" : "All Trades");
+    const isLimit100 = mode === "last100";
+    const includeFunding = Boolean(fundingChk && fundingChk.checked);
     const acc = detectedAccount;
     const auth = detectedAuth;
 
     isRunning = true;
     isCancelled = false;
     abortController = new AbortController();
-    startBtn.style.display = "none";
-    last100Btn.style.display = "none";
+
+    btnGrid.style.display = "none";
     stopBtn.style.display = "block";
+    if (fundingChk) fundingChk.disabled = true;
+    if (fundingWrap) {
+      fundingWrap.style.opacity = "0.6";
+      fundingWrap.style.cursor = "default";
+    }
+
     progressWrap.style.display = "block";
     progressBar.style.width = isLimit100 ? "10%" : "4%";
     statusDiv.style.color = "#58a6ff";
     statusDiv.textContent = isLimit100
       ? "Fetching last 100 trades..."
-      : "Connecting to " + apiBase + "...";
+      : "Connecting to " + apiBase + " (" + modeLabel + ")...";
 
     // 1. Precomputed URL bases without cursor to eliminate repeated concatenations in loop
     const urlBase =
@@ -581,40 +686,31 @@
           break;
         }
 
-        // Overlapped Network I/O: immediately fire next request while CPU processes current page
-        const nextCursor = data.next_cursor;
-        if (
-          nextCursor &&
-          nextCursor !== cursor &&
-          !isCancelled &&
-          !isClosed &&
-          totalTradesCount + trades.length < targetCap
-        ) {
-          cursor = nextCursor;
-          currentFetchPromise = fetchWithRetry(
-            urlWithCursorBase + encodeURIComponent(nextCursor),
-            fetchOptions,
-          ).catch((err) => {
-            if (isCancelled || isClosed || totalTradesCount >= targetCap) return null;
-            throw err;
-          });
-        } else {
-          if (nextCursor && nextCursor !== cursor) {
-            hasMoreAfterCap = true;
-          }
-          currentFetchPromise = null;
-        }
-
-        // Process current 100-item page while next response flies over network
+        let reachedTradeCutoff = false;
         const pageSlimmed = [];
+
         for (let i = 0; i < trades.length; i++) {
           const t = trades[i];
+          const rawTs = t.timestamp;
+          const tMs = rawTs ? (rawTs < 1e11 ? rawTs * 1000 : rawTs) : 0;
+
+          // If filtering until a timestamp (e.g. prev-week before this Friday 00:00 UTC):
+          if (untilTimestampMs && tMs >= untilTimestampMs) {
+            continue; // Trade is newer than target window, keep paginating backwards
+          }
+
+          // If filtering since a timestamp (e.g. this-week since Friday 00:00 UTC):
+          if (sinceTimestampMs && tMs < sinceTimestampMs) {
+            reachedTradeCutoff = true;
+            break; // Since trades are sorted descending, all subsequent trades will be older
+          }
+
           const id = +t.trade_id;
           if (!seenIds.has(id)) {
             seenIds.add(id);
             pageSlimmed.push(slimTrade(t));
             if (totalTradesCount + pageSlimmed.length >= targetCap) {
-              if (nextCursor || cursor) hasMoreAfterCap = true;
+              if (data.next_cursor || cursor) hasMoreAfterCap = true;
               break;
             }
           }
@@ -630,13 +726,39 @@
           totalTradesCount += pageSlimmed.length;
         }
 
-        // UI Throttling: Phase 1 (Trades) occupies 0% -> 50% of total progress
+        // Overlapped Network I/O: prefetch next page only if cutoff not hit and more trades needed
+        const nextCursor = data.next_cursor;
+        if (
+          !reachedTradeCutoff &&
+          nextCursor &&
+          nextCursor !== cursor &&
+          !isCancelled &&
+          !isClosed &&
+          totalTradesCount < targetCap
+        ) {
+          cursor = nextCursor;
+          currentFetchPromise = fetchWithRetry(
+            urlWithCursorBase + encodeURIComponent(nextCursor),
+            fetchOptions,
+          ).catch((err) => {
+            if (isCancelled || isClosed || totalTradesCount >= targetCap) return null;
+            throw err;
+          });
+        } else {
+          if (nextCursor && nextCursor !== cursor && !reachedTradeCutoff) {
+            hasMoreAfterCap = true;
+          }
+          currentFetchPromise = null;
+        }
+
+        // UI Throttling: Phase 1 (Trades) occupies 0% -> (includeFunding ? 48% : 88%)
         const now = Date.now();
         if (now - lastUiUpdate > 200) {
           lastUiUpdate = now;
+          const maxPercent = includeFunding ? 48 : 88;
           const estProgress = isLimit100
-            ? Math.min(48, Math.round((totalTradesCount / 100) * 44) + 4)
-            : Math.min(48, 4 + Math.round((1 - Math.exp(-page / 6)) * 44));
+            ? Math.min(maxPercent, Math.round((totalTradesCount / 100) * 44) + 4)
+            : Math.min(maxPercent, 4 + Math.round((1 - Math.exp(-page / 6)) * (maxPercent - 4)));
           progressBar.style.width = estProgress + "%";
           statusDiv.textContent = isLimit100
             ? "Fetching trades: " + totalTradesCount + "/100..."
@@ -646,6 +768,8 @@
               totalTradesCount.toLocaleString() +
               " trades)...";
         }
+
+        if (reachedTradeCutoff) break;
       }
 
       // Immediately release Set memory before finalizing export
@@ -662,90 +786,118 @@
         statusDiv.style.color = "#d29922";
         statusDiv.textContent = isCancelled
           ? "Export cancelled."
-          : "No trades found for Account #" + acc + ".";
+          : "No trades found for Account #" + acc + " (" + modeLabel + ").";
       } else {
-        // Phase 1 finished at exactly 50%
-        progressBar.style.width = "50%";
-        statusDiv.style.color = "#8b949e";
-        statusDiv.textContent =
-          "Trades fetched (" +
-          totalTradesCount.toLocaleString() +
-          "). Fetching position funding history...";
-
-        // Fetch account positions and funding summary
         let accountPositions = null;
         let accountFunding = null;
-        try {
-          const accRes = await fetch(apiBase + "/account?by=index&value=" + acc, {
-            signal: abortController.signal,
-          });
-          if (accRes.ok) {
-            const accData = await accRes.json();
-            const accObj = accData?.account || accData?.sub_accounts?.[0] || accData;
-            if (accObj?.positions && Array.isArray(accObj.positions)) {
-              accountPositions = accObj.positions;
-              let totFund = 0;
-              const byMarket = {};
-              for (const p of accountPositions) {
-                const sym = String(p.symbol || p.market_symbol || p.market_id || "").toUpperCase();
-                const paid = Number(p.total_funding_paid_out) || 0;
-                totFund += paid;
-                if (sym) {
-                  byMarket[sym] = (byMarket[sym] || 0) + paid;
-                }
-              }
-              accountFunding = {
-                totalFundingUsd: totFund,
-                byMarketUsd: byMarket,
-                positions: accountPositions,
-              };
-            }
-          }
-        } catch {}
-
-        // Fetch hourly position funding history (requires auth)
-        // Phase 2 (Funding): advances smoothly from 50% up to 96%
         const fundingRecords = [];
-        try {
-          let fundCursor = "";
-          let fundPage = 0;
-          const maxFundPages = 50; // up to 5,000 hourly funding records
-          while (fundPage < maxFundPages && !isCancelled && !isClosed) {
-            fundPage++;
-            const fundUrl =
-              apiBase +
-              "/positionFunding?account_index=" +
-              acc +
-              "&limit=100" +
-              (fundCursor ? "&cursor=" + encodeURIComponent(fundCursor) : "");
-            const fRes = await fetchWithRetry(fundUrl, fetchOptions).catch(() => null);
-            if (!fRes || !fRes.ok || isCancelled || isClosed) break;
-            const fData = await fRes.json().catch(() => null);
-            if (!fData || (fData.code !== 200 && fData.code !== 0 && fData.code !== undefined))
-              break;
-            const list = fData.position_fundings || fData.data || fData.funding_history || [];
-            if (!Array.isArray(list) || list.length === 0) break;
-            for (let i = 0; i < list.length; i++) {
-              fundingRecords.push(list[i]);
+
+        if (includeFunding) {
+          progressBar.style.width = "50%";
+          statusDiv.style.color = "#8b949e";
+          statusDiv.textContent =
+            "Trades fetched (" +
+            totalTradesCount.toLocaleString() +
+            "). Fetching position funding history...";
+
+          // Fetch account positions and funding summary
+          try {
+            const accRes = await fetch(apiBase + "/account?by=index&value=" + acc, {
+              signal: abortController.signal,
+            });
+            if (accRes.ok) {
+              const accData = await accRes.json();
+              const accObj = accData?.account || accData?.sub_accounts?.[0] || accData;
+              if (accObj?.positions && Array.isArray(accObj.positions)) {
+                accountPositions = accObj.positions;
+                let totFund = 0;
+                const byMarket = {};
+                for (const p of accountPositions) {
+                  const sym = String(
+                    p.symbol || p.market_symbol || p.market_id || "",
+                  ).toUpperCase();
+                  const paid = Number(p.total_funding_paid_out) || 0;
+                  totFund += paid;
+                  if (sym) {
+                    byMarket[sym] = (byMarket[sym] || 0) + paid;
+                  }
+                }
+                accountFunding = {
+                  totalFundingUsd: totFund,
+                  byMarketUsd: byMarket,
+                  positions: accountPositions,
+                };
+              }
             }
+          } catch {}
 
-            const fundProgress = Math.min(96, 50 + Math.round((1 - Math.exp(-fundPage / 6)) * 46));
-            progressBar.style.width = fundProgress + "%";
-            statusDiv.textContent =
-              "Fetching funding: page " +
-              fundPage +
-              " (" +
-              fundingRecords.length.toLocaleString() +
-              " records)...";
+          // Fetch hourly position funding history (requires auth)
+          // Phase 2 (Funding): advances smoothly from 50% up to 96%
+          try {
+            let fundCursor = "";
+            let fundPage = 0;
+            const maxFundPages = 50; // up to 5,000 hourly funding records
+            while (fundPage < maxFundPages && !isCancelled && !isClosed) {
+              fundPage++;
+              const fundUrl =
+                apiBase +
+                "/positionFunding?account_index=" +
+                acc +
+                "&limit=100" +
+                (fundCursor ? "&cursor=" + encodeURIComponent(fundCursor) : "");
+              const fRes = await fetchWithRetry(fundUrl, fetchOptions).catch(() => null);
+              if (!fRes || !fRes.ok || isCancelled || isClosed) break;
+              const fData = await fRes.json().catch(() => null);
+              if (!fData || (fData.code !== 200 && fData.code !== 0 && fData.code !== undefined))
+                break;
+              const list = fData.position_fundings || fData.data || fData.funding_history || [];
+              if (!Array.isArray(list) || list.length === 0) break;
 
-            const nextCur = fData.next_cursor || fData.cursor;
-            if (!nextCur || nextCur === fundCursor) break;
-            fundCursor = nextCur;
+              let reachedFundingCutoff = false;
+              for (let i = 0; i < list.length; i++) {
+                const item = list[i];
+                const rawFTs = item.timestamp;
+                const fTs = rawFTs ? (rawFTs < 1e11 ? rawFTs * 1000 : rawFTs) : 0;
+                if (sinceTimestampMs && fTs && fTs < sinceTimestampMs) {
+                  reachedFundingCutoff = true;
+                  continue;
+                }
+                if (untilTimestampMs && fTs && fTs >= untilTimestampMs) {
+                  continue;
+                }
+                fundingRecords.push(item);
+              }
+
+              const fundProgress = Math.min(
+                96,
+                50 + Math.round((1 - Math.exp(-fundPage / 6)) * 46),
+              );
+              progressBar.style.width = fundProgress + "%";
+              statusDiv.textContent =
+                "Fetching funding: page " +
+                fundPage +
+                " (" +
+                fundingRecords.length.toLocaleString() +
+                " records)...";
+
+              if (reachedFundingCutoff) break;
+
+              const nextCur = fData.next_cursor || fData.cursor;
+              if (!nextCur || nextCur === fundCursor) break;
+              fundCursor = nextCur;
+            }
+          } catch (e) {
+            if (!isCancelled && !isClosed) {
+              console.warn("[Lighter Exporter] positionFunding fetch error:", e);
+            }
           }
-        } catch (e) {
-          if (!isCancelled && !isClosed) {
-            console.warn("[Lighter Exporter] positionFunding fetch error:", e);
-          }
+        } else {
+          progressBar.style.width = "92%";
+          statusDiv.style.color = "#8b949e";
+          statusDiv.textContent =
+            "Trades fetched (" +
+            totalTradesCount.toLocaleString() +
+            "). Packaging JSON (funding skipped)...";
         }
 
         if (isClosed || isCancelled) {
@@ -769,6 +921,10 @@
             total_trades: totalTradesCount,
             truncated: isTruncated,
             row_cap: targetCap,
+            filter_mode: mode,
+            filter_since_ms: sinceTimestampMs || undefined,
+            filter_until_ms: untilTimestampMs || undefined,
+            week_number: opts.weekNumber || undefined,
             positions: accountPositions || undefined,
             funding: accountFunding || undefined,
             funding_history: fundingRecords.length > 0 ? fundingRecords : undefined,
@@ -788,7 +944,7 @@
         const a = document.createElement("a");
         const dateStr = new Date().toISOString().slice(0, 10);
         a.href = dlUrl;
-        const fileSuffix = isLimit100 ? "-last100-" : "-";
+        const fileSuffix = opts.fileSuffix || (isLimit100 ? "-last100-" : "-");
         a.download =
           "lighter-trades-" + defaultNetwork + "-acc" + acc + fileSuffix + dateStr + ".json";
         document.body.appendChild(a);
@@ -803,7 +959,10 @@
         const fundCountStr =
           fundingRecords.length > 0
             ? " & " + fundingRecords.length.toLocaleString() + " funding records"
-            : "";
+            : includeFunding
+              ? ""
+              : " (funding skipped)";
+
         if (isLimit100) {
           statusDiv.textContent =
             totalTradesCount.toLocaleString() +
@@ -842,17 +1001,14 @@
       seenIds.clear();
       tradeChunks.length = 0;
       if (!isClosed) {
-        startBtn.style.display = "";
-        last100Btn.style.display = "";
-        startBtn.disabled = false;
-        startBtn.style.opacity = "1";
-        startBtn.textContent = "Export All";
-        startBtn.style.background = "#238636";
-        last100Btn.disabled = false;
-        last100Btn.style.opacity = "1";
-        last100Btn.textContent = "Export Last 100";
-        last100Btn.style.background = "#238636";
+        btnGrid.style.display = "grid";
         stopBtn.style.display = "none";
+        if (fundingChk) fundingChk.disabled = false;
+        if (fundingWrap) {
+          fundingWrap.style.opacity = "1";
+          fundingWrap.style.cursor = "pointer";
+        }
+        await refreshCredentials();
       }
     }
   }
@@ -864,7 +1020,71 @@
       await refreshCredentials();
       if (!detectedAccount || !detectedAuth) return;
     }
-    await runExport(ROW_CAP);
+    await runExport({
+      targetCap: ROW_CAP,
+      sinceTimestampMs: null,
+      untilTimestampMs: null,
+      mode: "all",
+      modeLabel: "All Trades",
+      fileSuffix: "-",
+    });
+  });
+
+  thisWeekBtn.addEventListener("click", async function () {
+    if (isRunning) return;
+    if (!detectedAccount || !detectedAuth) {
+      statusDiv.textContent = "Re-scanning session credentials...";
+      await refreshCredentials();
+      if (!detectedAccount || !detectedAuth) return;
+    }
+    const wInfo = getWeekRange();
+    const label = wInfo.weekNumber ? "Week " + wInfo.weekNumber : "This Week";
+    await runExport({
+      targetCap: ROW_CAP,
+      sinceTimestampMs: wInfo.thisWeekStart,
+      untilTimestampMs: null,
+      mode: "this-week",
+      modeLabel: "This Week (" + label + ")",
+      fileSuffix: "-this-week" + (wInfo.weekNumber ? "-w" + wInfo.weekNumber : "") + "-",
+      weekNumber: wInfo.weekNumber,
+    });
+  });
+
+  prevWeekBtn.addEventListener("click", async function () {
+    if (isRunning) return;
+    if (!detectedAccount || !detectedAuth) {
+      statusDiv.textContent = "Re-scanning session credentials...";
+      await refreshCredentials();
+      if (!detectedAccount || !detectedAuth) return;
+    }
+    const wInfo = getWeekRange();
+    const label = wInfo.prevWeekNumber ? "Week " + wInfo.prevWeekNumber : "Previous Week";
+    await runExport({
+      targetCap: ROW_CAP,
+      sinceTimestampMs: wInfo.prevWeekStart,
+      untilTimestampMs: wInfo.prevWeekEnd,
+      mode: "prev-week",
+      modeLabel: "Prev Week (" + label + ")",
+      fileSuffix: "-prev-week" + (wInfo.prevWeekNumber ? "-w" + wInfo.prevWeekNumber : "") + "-",
+      weekNumber: wInfo.prevWeekNumber,
+    });
+  });
+
+  last24hBtn.addEventListener("click", async function () {
+    if (isRunning) return;
+    if (!detectedAccount || !detectedAuth) {
+      statusDiv.textContent = "Re-scanning session credentials...";
+      await refreshCredentials();
+      if (!detectedAccount || !detectedAuth) return;
+    }
+    await runExport({
+      targetCap: ROW_CAP,
+      sinceTimestampMs: Date.now() - 24 * 3600 * 1000,
+      untilTimestampMs: null,
+      mode: "24h",
+      modeLabel: "Last 24 Hours",
+      fileSuffix: "-24h-",
+    });
   });
 
   last100Btn.addEventListener("click", async function () {
@@ -874,6 +1094,13 @@
       await refreshCredentials();
       if (!detectedAccount || !detectedAuth) return;
     }
-    await runExport(100);
+    await runExport({
+      targetCap: 100,
+      sinceTimestampMs: null,
+      untilTimestampMs: null,
+      mode: "last100",
+      modeLabel: "Last 100 Trades",
+      fileSuffix: "-last100-",
+    });
   });
 })();

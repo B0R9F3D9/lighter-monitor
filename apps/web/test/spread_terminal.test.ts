@@ -12,11 +12,7 @@ import {
   getSortedLevels,
   FlatOrderBookSide,
 } from "../src/spread/orderbook";
-import {
-  simulateFillBase,
-  simulateFillBaseInto,
-  fastSimFillInto,
-} from "../src/spread/simulation";
+import { simulateFillBase, simulateFillBaseInto, fastSimFillInto } from "../src/spread/simulation";
 import type { FastSimResult } from "../src/spread/simulation";
 import { calculateMarketMetrics, findOptimalSize, getMetrics } from "../src/spread/metrics";
 import { STORAGE_KEYS } from "../src/spread/config";
@@ -743,4 +739,3 @@ describe("Spread Terminal: High-Throughput & Zero-Allocation Hot Path", () => {
     expect(STORAGE_KEYS.SORT_DIRECTION).toBe("terminal_sort_direction");
   });
 });
-

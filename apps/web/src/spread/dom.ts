@@ -679,7 +679,6 @@ export function updateDetailRow(
 
   setTextIfChanged(c.dtlFntDrag, formatBps(r.vwapTotalDragBps));
   setTextIfChanged(c.dtlFntRtLoss, formatMoney(r.costUsd));
-
 }
 
 interface ExecutiveSummaryDomElements {
