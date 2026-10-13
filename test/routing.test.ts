@@ -1,6 +1,15 @@
 import { describe, expect, it } from "bun:test";
-import worker from "../src/index";
+import fs from "node:fs";
+import path from "node:path";
+import { execSync } from "node:child_process";
 import type { Env } from "../apps/bot/src/types";
+
+const versionFile = path.resolve(import.meta.dirname, "../apps/web/src/version.ts");
+if (!fs.existsSync(versionFile)) {
+  execSync("bun run --cwd apps/web build", { stdio: "ignore" });
+}
+
+const { default: worker } = await import("../src/index");
 
 describe("Worker HTTP Routing", () => {
   const mockEnv: Env = {
