@@ -1159,7 +1159,7 @@ export function renderMarketSummaryCards(
         activeMarketFilter!.toUpperCase() === stat.marketSymbol.toUpperCase();
 
       const rowClass = isActive
-        ? "bg-terminal-surfaceHover border-l-2 border-l-terminal-accent ring-1 ring-terminal-accent/40"
+        ? "bg-white/10 hover:bg-white/[0.13]"
         : "hover:bg-terminal-surfaceHover/80";
 
       const holdDurationFormatted =
@@ -1208,7 +1208,7 @@ export function renderMarketSummaryCards(
             ${idx + 1}
           </td>
           <td class="py-2 px-3 whitespace-nowrap">
-            <span class="font-bold text-white group-hover:text-terminal-accent transition-colors">
+            <span class="font-bold text-white transition-colors">
               ${stat.marketSymbol}
             </span>
           </td>

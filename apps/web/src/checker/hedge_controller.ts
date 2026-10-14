@@ -570,11 +570,6 @@ export class HedgeController {
       this.selectionSnapshot.clear();
       if (this.activeMarketFilter) {
         this.activeMarketFilter = null;
-        if (this.inputHedgeSearch) {
-          this.inputHedgeSearch.value = "";
-        }
-        this.hedgeSearchQuery = "";
-        this.applyHedgeFilter();
         this.updateHedgeMarketSummary();
       }
       this.onHedgeSelectionChanged();
@@ -1081,28 +1076,19 @@ export class HedgeController {
   private handleMarketCardClick(marketSymbol: string): void {
     const sym = marketSymbol.trim();
     if (this.activeMarketFilter?.toUpperCase() === sym.toUpperCase()) {
-      // Toggle off: clear market filter, clear selection, hide HUD
+      // Toggle off: clear selection and active market indicator
       this.activeMarketFilter = null;
-      if (this.inputHedgeSearch) {
-        this.inputHedgeSearch.value = "";
-      }
-      this.hedgeSearchQuery = "";
       this.selectedHedgeRowIds.clear();
       this.lastClickedHedgeRowId = null;
       this.lastClickedHedgeRowState = true;
       this.selectionSnapshot.clear();
-      this.applyHedgeFilter();
       this.onHedgeSelectionChanged();
       this.updateHedgeMarketSummary();
       return;
     }
 
-    // Toggle on: set active market filter and select all trades for this market
+    // Toggle on: select all trades of this market without changing the table list
     this.activeMarketFilter = sym;
-    if (this.inputHedgeSearch) {
-      this.inputHedgeSearch.value = sym;
-    }
-    this.hedgeSearchQuery = sym.toLowerCase();
 
     // Populate selected row IDs for all pairs and unhedged trades of this market
     this.selectedHedgeRowIds.clear();
@@ -1122,7 +1108,6 @@ export class HedgeController {
     this.lastClickedHedgeRowState = true;
     this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
 
-    this.applyHedgeFilter();
     this.onHedgeSelectionChanged();
     this.updateHedgeMarketSummary();
   }
@@ -1190,17 +1175,12 @@ export class HedgeController {
 
   private applyHedgeFilter(): void {
     const q = this.hedgeSearchQuery;
-    let pairs = this.hedgePairs;
-    let unhedged = this.unhedgedTrades;
 
-    if (this.activeMarketFilter) {
-      const targetSym = this.activeMarketFilter.toUpperCase();
-      pairs = pairs.filter((p) => p.marketSymbol.toUpperCase() === targetSym);
-      unhedged = unhedged.filter((u) => u.marketSymbol.toUpperCase() === targetSym);
-    }
-
-    if (q && (!this.activeMarketFilter || q !== this.activeMarketFilter.toLowerCase())) {
-      pairs = pairs.filter((p) =>
+    if (!q) {
+      this.filteredHedgePairs = this.hedgePairs;
+      this.filteredUnhedgedTrades = this.unhedgedTrades;
+    } else {
+      this.filteredHedgePairs = this.hedgePairs.filter((p) =>
         p.searchIndex
           ? p.searchIndex.includes(q)
           : p.marketSymbol.toLowerCase().includes(q) ||
@@ -1210,7 +1190,7 @@ export class HedgeController {
             p.coreTradeId.includes(q),
       );
 
-      unhedged = unhedged.filter((u) =>
+      this.filteredUnhedgedTrades = this.unhedgedTrades.filter((u) =>
         u.searchIndex
           ? u.searchIndex.includes(q)
           : u.marketSymbol.toLowerCase().includes(q) ||
@@ -1219,9 +1199,6 @@ export class HedgeController {
             u.tradeId.includes(q),
       );
     }
-
-    this.filteredHedgePairs = pairs;
-    this.filteredUnhedgedTrades = unhedged;
 
     if (this.hedgeTableBody) {
       renderHedgeTable(
@@ -1241,9 +1218,8 @@ export class HedgeController {
         (showPairs ? this.filteredHedgePairs.length : 0) + this.filteredUnhedgedTrades.length;
       const total = (showPairs ? this.hedgePairs.length : 0) + this.unhedgedTrades.length;
 
-      if ((q || this.activeMarketFilter) && total > 0) {
-        const marketSuffix = this.activeMarketFilter ? ` (${this.activeMarketFilter})` : "";
-        this.hedgeCountNotice.textContent = `Showing ${count} of ${total} records${marketSuffix}`;
+      if (q && total > 0) {
+        this.hedgeCountNotice.textContent = `Showing ${count} of ${total} records`;
         this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium";
       } else if (this.activeHedgeDateFilter && this.activeHedgeDateFilter.presetId !== "all") {
         const allTotal =

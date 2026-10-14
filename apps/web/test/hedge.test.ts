@@ -2575,8 +2575,8 @@ describe("Hedge Matching Engine", () => {
         clickedToken = sym;
       });
 
-      // Active border applied
-      expect(container.innerHTML).toContain("ring-terminal-accent");
+      // Active row selection style applied (matching trades table)
+      expect(container.innerHTML).toContain("bg-white/10");
 
       // Verify click callback works
       expect(clickHandler).not.toBeNull();
