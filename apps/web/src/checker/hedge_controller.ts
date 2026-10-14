@@ -25,6 +25,7 @@ import {
   type HedgeSelectionMetricElements,
   type IndividualAccountMetricElements,
   renderHedgeTable,
+  renderMarketSummaryCards,
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
   updateIndividualAccountMetrics,
@@ -33,6 +34,7 @@ import {
   calculateAccountAverageOi,
   calculateAccountDailyStats,
   calculateHedgeMetrics,
+  calculateMarketSummaryStats,
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
   exportHedgeReportToCsv,
@@ -44,6 +46,7 @@ import type {
   ImportedTradesResult,
   IndividualAccountMetrics,
   LighterTrade,
+  MarketSummarySortColumn,
   ParsedTradeView,
   StitchedTradesResult,
   UnhedgedTrade,
@@ -208,6 +211,13 @@ export class HedgeController {
   private inputCustomHedgeDateFrom: HTMLInputElement | null = null;
   private inputCustomHedgeDateTo: HTMLInputElement | null = null;
   private btnApplyCustomHedgeDate: HTMLButtonElement | null = null;
+
+  // Token / Market Summary Elements
+  private hedgeMarketSummaryCard: HTMLElement | null = null;
+  private hedgeMarketCardsContainer: HTMLElement | null = null;
+  private activeMarketFilter: string | null = null;
+  private marketSortColumn: MarketSummarySortColumn = "volumeUsd";
+  private marketSortDirection: "asc" | "desc" = "desc";
 
   public init(): void {
     this.cacheDomElements();
@@ -394,6 +404,10 @@ export class HedgeController {
     this.btnApplyCustomHedgeDate = document.getElementById(
       "btnApplyCustomHedgeDate",
     ) as HTMLButtonElement | null;
+
+    // Token / Market Summary Elements
+    this.hedgeMarketSummaryCard = document.getElementById("hedgeMarketSummaryCard");
+    this.hedgeMarketCardsContainer = document.getElementById("hedgeMarketCardsContainer");
   }
 
   private handleBookmarkletClick(e: MouseEvent): void {
@@ -521,6 +535,13 @@ export class HedgeController {
     // Search and filters with 150ms debounce
     this.inputHedgeSearch?.addEventListener("input", (e) => {
       this.hedgeSearchQuery = (e.target as HTMLInputElement).value.trim().toLowerCase();
+      if (
+        this.activeMarketFilter &&
+        this.activeMarketFilter.toLowerCase() !== this.hedgeSearchQuery
+      ) {
+        this.activeMarketFilter = null;
+        this.updateHedgeMarketSummary();
+      }
       if (this.hedgeFilterDebounceTimer) {
         clearTimeout(this.hedgeFilterDebounceTimer);
       }
@@ -547,6 +568,15 @@ export class HedgeController {
       this.lastClickedHedgeRowId = null;
       this.lastClickedHedgeRowState = true;
       this.selectionSnapshot.clear();
+      if (this.activeMarketFilter) {
+        this.activeMarketFilter = null;
+        if (this.inputHedgeSearch) {
+          this.inputHedgeSearch.value = "";
+        }
+        this.hedgeSearchQuery = "";
+        this.applyHedgeFilter();
+        this.updateHedgeMarketSummary();
+      }
       this.onHedgeSelectionChanged();
     });
 
@@ -1007,9 +1037,94 @@ export class HedgeController {
     );
 
     this.updateHedgeExecutiveSummary();
+    this.updateHedgeMarketSummary();
     this.applyHedgeFilter();
     this.updateHedgeDateFilterUi();
     this.onHedgeSelectionChanged();
+  }
+
+  private updateHedgeMarketSummary(): void {
+    if (!this.hedgeMarketCardsContainer) return;
+
+    const stats = calculateMarketSummaryStats(
+      this.hedgePairs,
+      this.unhedgedTrades,
+      this.rhParsedTrades,
+      this.coreParsedTrades,
+      this.activeHedgeDateFilter,
+      Date.now(),
+      this.marketSortColumn,
+      this.marketSortDirection,
+    );
+
+    renderMarketSummaryCards(
+      this.hedgeMarketCardsContainer,
+      stats,
+      this.activeMarketFilter,
+      (clickedMarket) => this.handleMarketCardClick(clickedMarket),
+      this.marketSortColumn,
+      this.marketSortDirection,
+      (clickedCol) => this.handleMarketHeaderSort(clickedCol),
+    );
+  }
+
+  private handleMarketHeaderSort(column: MarketSummarySortColumn): void {
+    if (this.marketSortColumn === column) {
+      this.marketSortDirection = this.marketSortDirection === "asc" ? "desc" : "asc";
+    } else {
+      this.marketSortColumn = column;
+      this.marketSortDirection = column === "marketSymbol" ? "asc" : "desc";
+    }
+    this.updateHedgeMarketSummary();
+  }
+
+  private handleMarketCardClick(marketSymbol: string): void {
+    const sym = marketSymbol.trim();
+    if (this.activeMarketFilter?.toUpperCase() === sym.toUpperCase()) {
+      // Toggle off: clear market filter, clear selection, hide HUD
+      this.activeMarketFilter = null;
+      if (this.inputHedgeSearch) {
+        this.inputHedgeSearch.value = "";
+      }
+      this.hedgeSearchQuery = "";
+      this.selectedHedgeRowIds.clear();
+      this.lastClickedHedgeRowId = null;
+      this.lastClickedHedgeRowState = true;
+      this.selectionSnapshot.clear();
+      this.applyHedgeFilter();
+      this.onHedgeSelectionChanged();
+      this.updateHedgeMarketSummary();
+      return;
+    }
+
+    // Toggle on: set active market filter and select all trades for this market
+    this.activeMarketFilter = sym;
+    if (this.inputHedgeSearch) {
+      this.inputHedgeSearch.value = sym;
+    }
+    this.hedgeSearchQuery = sym.toLowerCase();
+
+    // Populate selected row IDs for all pairs and unhedged trades of this market
+    this.selectedHedgeRowIds.clear();
+    const targetSym = sym.toUpperCase();
+    for (const p of this.hedgePairs) {
+      if (p.marketSymbol.toUpperCase() === targetSym) {
+        this.selectedHedgeRowIds.add(p.id);
+      }
+    }
+    for (const u of this.unhedgedTrades) {
+      if (u.marketSymbol.toUpperCase() === targetSym) {
+        const id = u.id || `unhedged-${u.network}-${u.tradeId}`;
+        this.selectedHedgeRowIds.add(id);
+      }
+    }
+    this.lastClickedHedgeRowId = null;
+    this.lastClickedHedgeRowState = true;
+    this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
+
+    this.applyHedgeFilter();
+    this.onHedgeSelectionChanged();
+    this.updateHedgeMarketSummary();
   }
 
   private updateHedgeExecutiveSummary(): void {
@@ -1019,7 +1134,7 @@ export class HedgeController {
     if (this.hedgeMetrics) {
       this.hedgeMetrics.rhAvgOiUsd = rhMetrics.avgOiUsd;
       this.hedgeMetrics.coreAvgOiUsd = coreMetrics.avgOiUsd;
-      this.hedgeMetrics.totalAvgOiUsd = (rhMetrics.avgOiUsd ?? 0) + (coreMetrics.avgOiUsd ?? 0);
+      this.hedgeMetrics.totalAvgOiUsd = rhMetrics.avgOiUsd ?? 0;
     }
 
     updateHedgeExecutiveMetrics(this.hedgeMetrics, this.hedgeMetricElements);
@@ -1075,12 +1190,17 @@ export class HedgeController {
 
   private applyHedgeFilter(): void {
     const q = this.hedgeSearchQuery;
+    let pairs = this.hedgePairs;
+    let unhedged = this.unhedgedTrades;
 
-    if (!q) {
-      this.filteredHedgePairs = this.hedgePairs;
-      this.filteredUnhedgedTrades = this.unhedgedTrades;
-    } else {
-      this.filteredHedgePairs = this.hedgePairs.filter((p) =>
+    if (this.activeMarketFilter) {
+      const targetSym = this.activeMarketFilter.toUpperCase();
+      pairs = pairs.filter((p) => p.marketSymbol.toUpperCase() === targetSym);
+      unhedged = unhedged.filter((u) => u.marketSymbol.toUpperCase() === targetSym);
+    }
+
+    if (q && (!this.activeMarketFilter || q !== this.activeMarketFilter.toLowerCase())) {
+      pairs = pairs.filter((p) =>
         p.searchIndex
           ? p.searchIndex.includes(q)
           : p.marketSymbol.toLowerCase().includes(q) ||
@@ -1090,7 +1210,7 @@ export class HedgeController {
             p.coreTradeId.includes(q),
       );
 
-      this.filteredUnhedgedTrades = this.unhedgedTrades.filter((u) =>
+      unhedged = unhedged.filter((u) =>
         u.searchIndex
           ? u.searchIndex.includes(q)
           : u.marketSymbol.toLowerCase().includes(q) ||
@@ -1099,6 +1219,9 @@ export class HedgeController {
             u.tradeId.includes(q),
       );
     }
+
+    this.filteredHedgePairs = pairs;
+    this.filteredUnhedgedTrades = unhedged;
 
     if (this.hedgeTableBody) {
       renderHedgeTable(
@@ -1118,8 +1241,9 @@ export class HedgeController {
         (showPairs ? this.filteredHedgePairs.length : 0) + this.filteredUnhedgedTrades.length;
       const total = (showPairs ? this.hedgePairs.length : 0) + this.unhedgedTrades.length;
 
-      if (q && total > 0) {
-        this.hedgeCountNotice.textContent = `Showing ${count} of ${total} records`;
+      if ((q || this.activeMarketFilter) && total > 0) {
+        const marketSuffix = this.activeMarketFilter ? ` (${this.activeMarketFilter})` : "";
+        this.hedgeCountNotice.textContent = `Showing ${count} of ${total} records${marketSuffix}`;
         this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium";
       } else if (this.activeHedgeDateFilter && this.activeHedgeDateFilter.presetId !== "all") {
         const allTotal =
@@ -1309,6 +1433,7 @@ export class HedgeController {
     }
 
     this.updateHedgeExecutiveSummary();
+    this.updateHedgeMarketSummary();
     this.applyHedgeFilter();
     this.updateHedgeDateFilterUi();
   }
@@ -1316,6 +1441,9 @@ export class HedgeController {
   public clearHedge(): void {
     this.uploadSessionId++;
     this.activeHedgeDateFilter = null;
+    this.activeMarketFilter = null;
+    this.marketSortColumn = "volumeUsd";
+    this.marketSortDirection = "desc";
     if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
     if (this.inputCustomHedgeDateFrom) this.inputCustomHedgeDateFrom.value = "";
     if (this.inputCustomHedgeDateTo) this.inputCustomHedgeDateTo.value = "";

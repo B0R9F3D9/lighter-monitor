@@ -7,6 +7,7 @@ import {
   formatDisplayFileName,
   formatTimestampLocal,
   renderDailySummary,
+  renderMarketSummaryCards,
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
   updateIndividualAccountMetrics,
@@ -16,17 +17,20 @@ import {
   calculateAccountAverageOi,
   calculateAccountDailyStats,
   calculateHedgeMetrics,
+  calculateMarketHoldingDuration,
+  calculateMarketSummaryStats,
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
   exportHedgeReportToCsv,
   matchHedgeTrades,
+  sortMarketSummaryStats,
 } from "../src/checker/hedge";
 import {
   createPresetDateFilter,
   findPresetById,
   isTradeInDateRange,
 } from "../src/checker/date_filter";
-import type { ParsedTradeView } from "../src/checker/types";
+import type { HedgePair, MarketSummaryStat, ParsedTradeView } from "../src/checker/types";
 
 function mockTrade(overrides: Partial<ParsedTradeView>): ParsedTradeView {
   return {
@@ -2279,6 +2283,491 @@ describe("Hedge Matching Engine", () => {
       expect(selFundingEl.textContent).toBe("+$3.20");
       expect(selFundingEl.className).toContain("text-terminal-emerald");
       expect(selFundingEl.title).toBe("Selected Net Funding: +$3.20");
+    });
+
+    it("displays strictly Robinhood (RH) AVG OI in lead banner instead of sum of both accounts", () => {
+      const avgOiEl = { textContent: "", className: "", title: "" } as HTMLElement;
+      updateHedgeExecutiveMetrics(
+        {
+          rhAccountIndex: null,
+          coreAccountIndex: null,
+          rhTotalTrades: 5,
+          coreTotalTrades: 5,
+          totalPairs: 5,
+          totalHedgedVolumeUsd: 10000,
+          totalNetPnlUsd: 25,
+          totalPricePnlUsd: 30,
+          totalFeesUsd: 5,
+          totalFundingUsd: 0,
+          rhTotalFundingUsd: 0,
+          coreTotalFundingUsd: 0,
+          avgPnlBps: 25,
+          bestPairPnlUsd: 10,
+          worstPairPnlUsd: -2,
+          totalUnhedgedTrades: 0,
+          unhedgedVolumeUsd: 0,
+          unhedgedRhCount: 0,
+          unhedgedCoreCount: 0,
+          firstTradeTime: 1000,
+          lastTradeTime: 2000,
+          rhAvgOiUsd: 16000,
+          coreAvgOiUsd: 15000,
+          totalAvgOiUsd: 16000,
+        },
+        {
+          pairsCount: null,
+          netPnl: null,
+          pnlBps: null,
+          hedgedVolume: null,
+          slippage: null,
+          fees: null,
+          funding: null,
+          unhedgedCount: null,
+          avgOi: avgOiEl,
+        },
+      );
+
+      // Should display $16.0K (RH only), NOT $31.0K (sum of RH and Core)
+      expect(avgOiEl.textContent).toBe("$16.0K");
+      expect(avgOiEl.title).toBe("RH Avg OI: $16.0K (Core: $15.0K)");
+    });
+  });
+
+  describe("Token & Market Summary Breakdown (by Token / Market)", () => {
+    it("calculateMarketHoldingDuration returns 0 when no trades provided", () => {
+      expect(calculateMarketHoldingDuration([])).toBe(0);
+    });
+
+    it("calculateMarketHoldingDuration calculates exact holding time for a simple 1-to-1 open and close", () => {
+      const openTime = 1727863200000;
+      const closeTime = openTime + 30 * 60 * 1000; // 30 minutes later
+      const trades: ParsedTradeView[] = [
+        mockTrade({ tradeId: "1", side: "BUY", size: 1.5, timestampMs: openTime }),
+        mockTrade({ tradeId: "2", side: "SELL", size: 1.5, timestampMs: closeTime }),
+      ];
+
+      const durationMs = calculateMarketHoldingDuration(trades);
+      expect(durationMs).toBe(30 * 60 * 1000);
+    });
+
+    it("calculateMarketHoldingDuration calculates size-weighted holding time when scaling out", () => {
+      const t0 = 1727863200000;
+      const t1 = t0 + 20 * 60 * 1000; // +20 min (sell 1.0)
+      const t2 = t0 + 50 * 60 * 1000; // +50 min (sell 1.0)
+      const trades: ParsedTradeView[] = [
+        mockTrade({ tradeId: "1", side: "BUY", size: 2.0, timestampMs: t0 }),
+        mockTrade({ tradeId: "2", side: "SELL", size: 1.0, timestampMs: t1 }),
+        mockTrade({ tradeId: "3", side: "SELL", size: 1.0, timestampMs: t2 }),
+      ];
+
+      // 1.0 held for 20m, 1.0 held for 50m -> weighted avg = (1*20 + 1*50) / 2 = 35m
+      const durationMs = calculateMarketHoldingDuration(trades);
+      expect(durationMs).toBe(35 * 60 * 1000);
+    });
+
+    it("calculateMarketHoldingDuration isolates subaccounts correctly", () => {
+      const t0 = 1727863200000;
+      const t1 = t0 + 10 * 60 * 1000;
+      const t2 = t0 + 40 * 60 * 1000;
+      const trades: ParsedTradeView[] = [
+        mockTrade({ tradeId: "1", userAccountId: 10, side: "BUY", size: 1.0, timestampMs: t0 }),
+        mockTrade({ tradeId: "2", userAccountId: 20, side: "BUY", size: 1.0, timestampMs: t0 }),
+        mockTrade({ tradeId: "3", userAccountId: 10, side: "SELL", size: 1.0, timestampMs: t1 }), // acc 10 held 10m
+        mockTrade({ tradeId: "4", userAccountId: 20, side: "SELL", size: 1.0, timestampMs: t2 }), // acc 20 held 40m
+      ];
+
+      // Total weighted: 1*10m + 1*40m = 50m / 2 = 25m
+      const durationMs = calculateMarketHoldingDuration(trades);
+      expect(durationMs).toBe(25 * 60 * 1000);
+    });
+
+    it("calculateMarketSummaryStats groups volume, transactions, avg size, and holding duration by token", () => {
+      const t0 = 1727863200000;
+      const t1 = t0 + 15 * 60 * 1000;
+
+      const rhTrades: ParsedTradeView[] = [
+        mockTrade({
+          tradeId: "rh-1",
+          marketId: 1,
+          marketSymbol: "ETH",
+          side: "BUY",
+          size: 2.0,
+          price: 3000,
+          usdValue: 6000,
+          timestampMs: t0,
+        }),
+        mockTrade({
+          tradeId: "rh-2",
+          marketId: 1,
+          marketSymbol: "ETH",
+          side: "SELL",
+          size: 2.0,
+          price: 3010,
+          usdValue: 6020,
+          timestampMs: t1,
+        }),
+        mockTrade({
+          tradeId: "rh-3",
+          marketId: 2,
+          marketSymbol: "BTC",
+          side: "BUY",
+          size: 0.1,
+          price: 60000,
+          usdValue: 6000,
+          timestampMs: t0,
+        }),
+      ];
+
+      const coreTrades: ParsedTradeView[] = [
+        mockTrade({
+          tradeId: "core-1",
+          marketId: 1,
+          marketSymbol: "ETH",
+          side: "SELL",
+          size: 2.0,
+          price: 3000,
+          usdValue: 6000,
+          timestampMs: t0 + 50,
+        }),
+        mockTrade({
+          tradeId: "core-2",
+          marketId: 1,
+          marketSymbol: "ETH",
+          side: "BUY",
+          size: 2.0,
+          price: 3008,
+          usdValue: 6016,
+          timestampMs: t1 + 50,
+        }),
+        mockTrade({
+          tradeId: "core-3",
+          marketId: 2,
+          marketSymbol: "BTC",
+          side: "SELL",
+          size: 0.1,
+          price: 60000,
+          usdValue: 6000,
+          timestampMs: t0 + 50,
+        }),
+      ];
+
+      const matchRes = matchHedgeTrades(rhTrades, coreTrades);
+      expect(matchRes.pairs.length).toBe(3);
+
+      const stats = calculateMarketSummaryStats(
+        matchRes.pairs,
+        matchRes.unhedged,
+        rhTrades,
+        coreTrades,
+      );
+
+      expect(stats.length).toBe(2);
+
+      // ETH has 2 pairs (RH volume: $6000 + $6020 = $12020), BTC has 1 pair (RH volume: $6000)
+      // Sorted by volume descending: ETH first, then BTC
+      const ethStat = stats.find((s) => s.marketSymbol === "ETH")!;
+      expect(ethStat).toBeDefined();
+      expect(ethStat.pairsCount).toBe(2);
+      expect(ethStat.transactionsCount).toBe(2);
+      expect(ethStat.volumeUsd).toBeCloseTo(12020, 0);
+      expect(ethStat.avgVolumeSizeUsd).toBeCloseTo(6010, 0);
+      expect(ethStat.avgHoldingDurationMs).toBe(15 * 60 * 1000);
+
+      const btcStat = stats.find((s) => s.marketSymbol === "BTC")!;
+      expect(btcStat).toBeDefined();
+      expect(btcStat.pairsCount).toBe(1);
+      expect(btcStat.transactionsCount).toBe(1);
+      expect(btcStat.volumeUsd).toBeCloseTo(6000, 0);
+      expect(btcStat.avgVolumeSizeUsd).toBeCloseTo(6000, 0);
+    });
+
+    it("calculateMarketSummaryStats correctly includes unhedged trades in volume and tx counts", () => {
+      const t0 = 1727863200000;
+      const rhTrades: ParsedTradeView[] = [
+        mockTrade({
+          tradeId: "rh-1",
+          marketId: 3,
+          marketSymbol: "SOL",
+          side: "BUY",
+          size: 10,
+          price: 150,
+          usdValue: 1500,
+          timestampMs: t0,
+        }),
+      ];
+
+      // No core trades -> SOL is unhedged
+      const matchRes = matchHedgeTrades(rhTrades, []);
+      expect(matchRes.unhedged.length).toBe(1);
+
+      const stats = calculateMarketSummaryStats(matchRes.pairs, matchRes.unhedged, rhTrades, []);
+
+      expect(stats.length).toBe(1);
+      const solStat = stats[0];
+      expect(solStat.marketSymbol).toBe("SOL");
+      expect(solStat.pairsCount).toBe(0);
+      expect(solStat.unhedgedCount).toBe(1);
+      expect(solStat.transactionsCount).toBe(1);
+      expect(solStat.volumeUsd).toBe(1500);
+      expect(solStat.avgVolumeSizeUsd).toBe(1500);
+    });
+
+    it("renderMarketSummaryCards displays empty state when no stats provided", () => {
+      const container = { innerHTML: "", querySelectorAll: () => [] } as unknown as HTMLElement;
+      renderMarketSummaryCards(container, []);
+      expect(container.innerHTML).toContain("No token activity for selected period");
+    });
+
+    it("renderMarketSummaryCards renders styled token cards with volume, tx count, avg hold and avg size", () => {
+      const container = { innerHTML: "", querySelectorAll: () => [] } as unknown as HTMLElement;
+      const stats: MarketSummaryStat[] = [
+        {
+          marketSymbol: "ETH",
+          volumeUsd: 145000,
+          transactionsCount: 18,
+          avgVolumeSizeUsd: 8055.56,
+          avgHoldingDurationMs: 14 * 60 * 1000 + 22 * 1000,
+          pairsCount: 18,
+          unhedgedCount: 0,
+        },
+      ];
+
+      renderMarketSummaryCards(container, stats);
+
+      const html = container.innerHTML;
+      expect(html).toContain("ETH");
+      expect(html).toContain("18 txs");
+      expect(html).toContain("$145.0K");
+      expect(html).toContain("Avg Hold");
+      expect(html).toContain("14m");
+      expect(html).toContain("Avg Size");
+      expect(html).toContain("$8.1k");
+    });
+
+    it("renderMarketSummaryCards handles click callback and activeMarketFilter highlighting", () => {
+      let clickHandler: (() => void) | null = null;
+      const fakeCard = {
+        getAttribute: (attr: string) => (attr === "data-market" ? "ETH" : null),
+        addEventListener: (event: string, handler: () => void) => {
+          if (event === "click") clickHandler = handler;
+        },
+      };
+
+      const container = {
+        innerHTML: "",
+        querySelectorAll: (_selector: string) => [fakeCard],
+      } as unknown as HTMLElement;
+
+      const stats: MarketSummaryStat[] = [
+        {
+          marketSymbol: "ETH",
+          volumeUsd: 50000,
+          transactionsCount: 5,
+          avgVolumeSizeUsd: 10000,
+          avgHoldingDurationMs: 60000,
+          pairsCount: 5,
+          unhedgedCount: 0,
+        },
+      ];
+
+      let clickedToken = "";
+      renderMarketSummaryCards(container, stats, "ETH", (sym) => {
+        clickedToken = sym;
+      });
+
+      // Active border applied
+      expect(container.innerHTML).toContain("ring-terminal-accent");
+
+      // Verify click callback works
+      expect(clickHandler).not.toBeNull();
+      clickHandler!();
+      expect(clickedToken).toBe("ETH");
+    });
+
+    it("sortMarketSummaryStats sorts correctly by multiple columns and directions", () => {
+      const stats: MarketSummaryStat[] = [
+        {
+          marketSymbol: "SOL",
+          volumeUsd: 15000,
+          transactionsCount: 20,
+          avgVolumeSizeUsd: 750,
+          avgHoldingDurationMs: 30000,
+          pairsCount: 20,
+          unhedgedCount: 0,
+          realizedPnlUsd: 100,
+        },
+        {
+          marketSymbol: "ETH",
+          volumeUsd: 50000,
+          transactionsCount: 5,
+          avgVolumeSizeUsd: 10000,
+          avgHoldingDurationMs: 120000,
+          pairsCount: 5,
+          unhedgedCount: 0,
+          realizedPnlUsd: -50,
+        },
+        {
+          marketSymbol: "BTC",
+          volumeUsd: 30000,
+          transactionsCount: 10,
+          avgVolumeSizeUsd: 3000,
+          avgHoldingDurationMs: 60000,
+          pairsCount: 10,
+          unhedgedCount: 0,
+          realizedPnlUsd: 25,
+        },
+      ];
+
+      // Default: volumeUsd descending
+      const byVolDesc = sortMarketSummaryStats([...stats], "volumeUsd", "desc");
+      expect(byVolDesc.map((s) => s.marketSymbol)).toEqual(["ETH", "BTC", "SOL"]);
+
+      // volumeUsd ascending
+      const byVolAsc = sortMarketSummaryStats([...stats], "volumeUsd", "asc");
+      expect(byVolAsc.map((s) => s.marketSymbol)).toEqual(["SOL", "BTC", "ETH"]);
+
+      // transactionsCount descending
+      const byTxsDesc = sortMarketSummaryStats([...stats], "transactionsCount", "desc");
+      expect(byTxsDesc.map((s) => s.marketSymbol)).toEqual(["SOL", "BTC", "ETH"]);
+
+      // marketSymbol ascending (alphabetical)
+      const bySymAsc = sortMarketSummaryStats([...stats], "marketSymbol", "asc");
+      expect(bySymAsc.map((s) => s.marketSymbol)).toEqual(["BTC", "ETH", "SOL"]);
+
+      // avgHoldingDurationMs descending
+      const byHoldDesc = sortMarketSummaryStats([...stats], "avgHoldingDurationMs", "desc");
+      expect(byHoldDesc.map((s) => s.marketSymbol)).toEqual(["ETH", "BTC", "SOL"]);
+
+      // realizedPnlUsd descending
+      const byPnlDesc = sortMarketSummaryStats([...stats], "realizedPnlUsd", "desc");
+      expect(byPnlDesc.map((s) => s.marketSymbol)).toEqual(["SOL", "BTC", "ETH"]);
+    });
+
+    it("renderMarketSummaryCards displays sort indicators ▲ and ▼ and triggers onSortClick", () => {
+      let headerClickHandler: (() => void) | null = null;
+      const fakeHeader = {
+        getAttribute: (attr: string) => (attr === "data-sort" ? "volumeUsd" : null),
+        addEventListener: (event: string, handler: () => void) => {
+          if (event === "click") headerClickHandler = handler;
+        },
+      };
+
+      const container = {
+        innerHTML: "",
+        querySelectorAll: (selector: string) => (selector === "th[data-sort]" ? [fakeHeader] : []),
+      } as unknown as HTMLElement;
+
+      const stats: MarketSummaryStat[] = [
+        {
+          marketSymbol: "ETH",
+          volumeUsd: 50000,
+          transactionsCount: 5,
+          avgVolumeSizeUsd: 10000,
+          avgHoldingDurationMs: 60000,
+          pairsCount: 5,
+          unhedgedCount: 0,
+        },
+      ];
+
+      let sortedColumn = "";
+      renderMarketSummaryCards(container, stats, null, undefined, "volumeUsd", "desc", (col) => {
+        sortedColumn = col;
+      });
+
+      // Contains descending indicator ▼ on active volumeUsd column
+      expect(container.innerHTML).toContain("▼");
+      expect(container.innerHTML).toContain('data-sort="volumeUsd"');
+
+      // Test click callback
+      expect(headerClickHandler).not.toBeNull();
+      headerClickHandler!();
+      expect(sortedColumn).toBe("volumeUsd");
+
+      // Now test ascending indicator ▲
+      renderMarketSummaryCards(container, stats, null, undefined, "volumeUsd", "asc");
+      expect(container.innerHTML).toContain("▲");
+    });
+
+    it("calculateSelectedHedgeMetrics and updateHedgeSelectionMetrics display correct HUD when market rows are selected", () => {
+      const ethPair1: HedgePair = {
+        id: "hedge-1",
+        marketSymbol: "ETH",
+        matchedSize: 2,
+        rhTradeId: "1",
+        rhSide: "BUY",
+        rhPrice: 3000,
+        rhSize: 2,
+        rhFeeUsd: 1.5,
+        rhTimestampMs: 1000,
+        rhTimeFormatted: "12:00:00",
+        rhTxHash: "0x1",
+        rhRole: "TAKER",
+        coreTradeId: "2",
+        coreSide: "SELL",
+        corePrice: 3010,
+        coreSize: 2,
+        coreFeeUsd: 1.5,
+        coreTimestampMs: 1001,
+        coreTimeFormatted: "12:00:01",
+        coreTxHash: "0x2",
+        coreRole: "MAKER",
+        buyPrice: 3000,
+        sellPrice: 3010,
+        priceDelta: 10,
+        pricePnlUsd: 20,
+        totalFeesUsd: 3,
+        netPnlUsd: 17,
+        notionalUsd: 6010,
+        pnlBps: 28.28,
+        timeDeltaSec: 1,
+        status: "HEDGED",
+      };
+
+      const btcPair: HedgePair = {
+        ...ethPair1,
+        id: "hedge-2",
+        marketSymbol: "BTC",
+        matchedSize: 0.1,
+        rhPrice: 60000,
+        corePrice: 60100,
+        buyPrice: 60000,
+        sellPrice: 60100,
+        priceDelta: 100,
+        pricePnlUsd: 10,
+        notionalUsd: 6005,
+      };
+
+      const allPairs = [ethPair1, btcPair];
+
+      // Simulate selecting ETH market: only ethPair1 is selected
+      const selectedEthPairs = allPairs.filter((p) => p.marketSymbol.toUpperCase() === "ETH");
+      expect(selectedEthPairs.length).toBe(1);
+
+      const metrics = calculateSelectedHedgeMetrics(selectedEthPairs, []);
+      expect(metrics.selectedCount).toBe(1);
+      expect(metrics.pairsCount).toBe(1);
+      expect(metrics.isSingleMarket).toBe(true);
+      expect(metrics.marketSymbol).toBe("ETH");
+      expect(metrics.totalNetPnlUsd).toBe(17);
+
+      const elements = {
+        selectionCard: { classList: { remove: (_c: string) => {}, add: (_c: string) => {} } },
+        countBadge: { textContent: "" },
+        pairsCount: { textContent: "" },
+        volume: { textContent: "" },
+        netPnl: { textContent: "", className: "", title: "" },
+        pnlBps: { textContent: "", className: "" },
+        weightedDelta: { textContent: "", className: "", title: "" },
+        weightedDeltaBps: { textContent: "", className: "" },
+        slippage: { textContent: "" },
+        fees: { textContent: "" },
+        unhedgedCount: { textContent: "" },
+      } as any;
+
+      updateHedgeSelectionMetrics(metrics, elements);
+      expect(elements.countBadge.textContent).toBe("1 row");
+      expect(elements.weightedDelta.title).toContain("(ETH)");
+      expect(elements.netPnl.textContent).toContain("$17.00");
     });
   });
 });

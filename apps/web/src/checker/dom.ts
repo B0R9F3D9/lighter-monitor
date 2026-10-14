@@ -5,6 +5,8 @@ import type {
   HedgePair,
   HedgeSummaryMetrics,
   IndividualAccountMetrics,
+  MarketSummarySortColumn,
+  MarketSummaryStat,
   ParsedTradeView,
   SelectedHedgeMetrics,
   UnhedgedTrade,
@@ -689,12 +691,16 @@ export function updateHedgeExecutiveMetrics(
   }
 
   if (elements.avgOi) {
-    const avgOi = metrics.totalAvgOiUsd ?? (metrics.rhAvgOiUsd ?? 0) + (metrics.coreAvgOiUsd ?? 0);
+    const avgOi = metrics.rhAvgOiUsd ?? metrics.totalAvgOiUsd ?? 0;
     elements.avgOi.textContent = formatMoney(avgOi);
     elements.avgOi.className =
       avgOi > 0
         ? "font-bold text-white tabular-nums"
         : "font-bold text-terminal-muted tabular-nums";
+    if (metrics.rhAvgOiUsd !== undefined) {
+      const coreOi = metrics.coreAvgOiUsd ?? 0;
+      elements.avgOi.title = `RH Avg OI: ${formatMoney(avgOi)}${coreOi > 0 ? ` (Core: ${formatMoney(coreOi)})` : ""}`;
+    }
   }
 }
 
@@ -1111,4 +1117,179 @@ export function formatDisplayFileName(fileName: string, maxLen = 22): string {
   const head = Math.ceil(avail * 0.55);
   const tail = Math.floor(avail * 0.45);
   return `${name.slice(0, head)}...${name.slice(-tail)}${ext}`;
+}
+
+/**
+ * Renders per-token / per-market summary cards showing:
+ * - Volume (formatMoney)
+ * - Number of transactions (transactionsCount)
+ * - Average holding duration (formatCompactDuration)
+ * - Average volume size (formatCompactUsd / formatMoney)
+ * Grouped by token / market for the selected date filter period.
+ */
+export function renderMarketSummaryCards(
+  container: HTMLElement,
+  stats: MarketSummaryStat[],
+  activeMarketFilter?: string | null,
+  onMarketClick?: (marketSymbol: string) => void,
+  sortColumn: MarketSummarySortColumn = "volumeUsd",
+  sortDirection: "asc" | "desc" = "desc",
+  onSortClick?: (column: MarketSummarySortColumn) => void,
+): void {
+  if (!stats || stats.length === 0) {
+    container.innerHTML = `
+      <div class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5">
+        <span class="text-terminal-secondary font-medium">No token activity for selected period</span>
+        <span class="text-[11px] text-terminal-muted">— Select a different date preset or import trade history to view market metrics.</span>
+      </div>
+    `;
+    return;
+  }
+
+  const renderSortIndicator = (col: MarketSummarySortColumn) => {
+    if (sortColumn !== col)
+      return `<span class="sort-indicator text-terminal-accent ml-0.5"></span>`;
+    return `<span class="sort-indicator text-terminal-accent ml-0.5">${sortDirection === "asc" ? "▲" : "▼"}</span>`;
+  };
+
+  const rowsHtml = stats
+    .map((stat, idx) => {
+      const isActive =
+        Boolean(activeMarketFilter) &&
+        activeMarketFilter!.toUpperCase() === stat.marketSymbol.toUpperCase();
+
+      const rowClass = isActive
+        ? "bg-terminal-surfaceHover border-l-2 border-l-terminal-accent ring-1 ring-terminal-accent/40"
+        : "hover:bg-terminal-surfaceHover/80";
+
+      const holdDurationFormatted =
+        stat.avgHoldingDurationMs > 0 ? formatCompactDuration(stat.avgHoldingDurationMs) : "—";
+
+      const avgVolumeSizeFormatted =
+        stat.avgVolumeSizeUsd > 0 ? formatCompactUsd(stat.avgVolumeSizeUsd) : "$0";
+
+      const pnl = stat.realizedPnlUsd ?? 0;
+      const pnlClass =
+        pnl > 0.001
+          ? "text-terminal-emerald font-semibold"
+          : pnl < -0.001
+            ? "text-terminal-coral font-semibold"
+            : "text-terminal-muted";
+      const sign = pnl > 0.0001 ? "+" : "";
+      const pnlFormatted = `${sign}${formatMoney(pnl)}`;
+
+      const tooltipLines = [
+        `Market: ${stat.marketSymbol}`,
+        `Volume (RH): ${formatMoney(stat.volumeUsd)}`,
+        `Transactions: ${stat.transactionsCount} (${stat.pairsCount} hedged pairs, ${stat.unhedgedCount} unhedged)`,
+        `Avg Volume Size: ${formatMoney(stat.avgVolumeSizeUsd)}`,
+        stat.totalTokenSize
+          ? `Total Size: ${formatSmartSize(stat.totalTokenSize)} ${stat.marketSymbol}`
+          : null,
+        stat.avgTokenSize
+          ? `Avg Size: ${formatSmartSize(stat.avgTokenSize)} ${stat.marketSymbol}`
+          : null,
+        `Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}`,
+        stat.realizedPnlUsd !== 0
+          ? `Net PnL: ${stat.realizedPnlUsd && stat.realizedPnlUsd > 0 ? "+" : ""}${formatMoney(stat.realizedPnlUsd)}`
+          : null,
+        "Click to select trades and view summary for this market",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      return `
+        <tr
+          class="border-b border-terminal-borderSubtle/60 transition-colors cursor-pointer select-none text-xs font-mono group ${rowClass}"
+          title="${tooltipLines}"
+          data-market="${stat.marketSymbol}"
+        >
+          <td class="py-2 px-3 text-center text-terminal-muted tabular-nums text-[11px] w-8">
+            ${idx + 1}
+          </td>
+          <td class="py-2 px-3 whitespace-nowrap">
+            <span class="font-bold text-white group-hover:text-terminal-accent transition-colors">
+              ${stat.marketSymbol}
+            </span>
+          </td>
+          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap">
+            ${formatMoney(stat.volumeUsd)}
+          </td>
+          <td class="py-2 px-3 text-right text-white tabular-nums whitespace-nowrap">
+            ${stat.transactionsCount} txs
+          </td>
+          <td class="py-2 px-3 text-right text-terminal-secondary tabular-nums whitespace-nowrap" title="Avg Size: ${formatMoney(stat.avgVolumeSizeUsd)}">
+            ${avgVolumeSizeFormatted}
+          </td>
+          <td class="py-2 px-3 text-right tabular-nums whitespace-nowrap ${stat.avgHoldingDurationMs > 0 ? "text-terminal-accent font-semibold" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}">
+            ${holdDurationFormatted}
+          </td>
+          <td class="py-2 px-3 text-right text-terminal-muted tabular-nums whitespace-nowrap">
+            ${stat.totalTokenSize ? `${formatSmartSize(stat.totalTokenSize)} ${stat.marketSymbol}` : "—"}
+          </td>
+          <td class="py-2 px-3 text-right tabular-nums whitespace-nowrap ${pnlClass}">
+            ${pnlFormatted}
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  container.innerHTML = `
+    <table class="w-full border-collapse text-left text-xs font-mono">
+      <thead>
+        <tr class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] font-mono select-none">
+          <th class="py-2 px-3 font-semibold w-8 text-center">#</th>
+          <th class="py-2 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap" data-sort="marketSymbol">
+            Market ${renderSortIndicator("marketSymbol")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volumeUsd" title="Robinhood (RH) volume over selected period">
+            Volume (RH) ${renderSortIndicator("volumeUsd")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="transactionsCount">
+            Trades ${renderSortIndicator("transactionsCount")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgVolumeSizeUsd" title="Average volume size per transaction">
+            Avg Size ${renderSortIndicator("avgVolumeSizeUsd")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgHoldingDurationMs" title="Average position holding duration (FIFO)">
+            Avg Hold ${renderSortIndicator("avgHoldingDurationMs")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="totalTokenSize" title="Total token base size traded">
+            Token Size ${renderSortIndicator("totalTokenSize")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="realizedPnlUsd" title="Realized price PnL - fees">
+            Net PnL ${renderSortIndicator("realizedPnlUsd")}
+          </th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-terminal-borderSubtle/60">
+        ${rowsHtml}
+      </tbody>
+    </table>
+  `;
+
+  if (onSortClick) {
+    const headers = container.querySelectorAll<HTMLElement>("th[data-sort]");
+    headers.forEach((th) => {
+      th.addEventListener("click", () => {
+        const col = th.getAttribute("data-sort") as MarketSummarySortColumn;
+        if (col) {
+          onSortClick(col);
+        }
+      });
+    });
+  }
+
+  if (onMarketClick) {
+    const rows = container.querySelectorAll<HTMLElement>("tbody tr[data-market]");
+    rows.forEach((row) => {
+      row.addEventListener("click", () => {
+        const sym = row.getAttribute("data-market");
+        if (sym) {
+          onMarketClick(sym);
+        }
+      });
+    });
+  }
 }

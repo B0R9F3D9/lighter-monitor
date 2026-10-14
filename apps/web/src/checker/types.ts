@@ -338,3 +338,25 @@ export interface IndividualAccountMetrics {
   avgOiDetails?: AccountAverageOiResult;
   dailyStats?: AccountDailyStat[];
 }
+
+export interface MarketSummaryStat {
+  marketSymbol: string;
+  volumeUsd: number;
+  transactionsCount: number;
+  avgVolumeSizeUsd: number;
+  avgHoldingDurationMs: number;
+  pairsCount: number;
+  unhedgedCount: number;
+  totalTokenSize?: number;
+  avgTokenSize?: number;
+  realizedPnlUsd?: number;
+}
+
+export type MarketSummarySortColumn =
+  | "marketSymbol"
+  | "volumeUsd"
+  | "transactionsCount"
+  | "avgVolumeSizeUsd"
+  | "avgHoldingDurationMs"
+  | "totalTokenSize"
+  | "realizedPnlUsd";

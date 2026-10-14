@@ -4,6 +4,8 @@ import type {
   HedgeMatchingResult,
   HedgePair,
   HedgeSummaryMetrics,
+  MarketSummarySortColumn,
+  MarketSummaryStat,
   ParsedTradeView,
   SelectedHedgeMetrics,
   UnhedgedTrade,
@@ -1305,5 +1307,280 @@ export function calculateAccountDailyStats(
       realizedPnlUsd,
       totalFeesUsd,
     };
+  });
+}
+
+/**
+ * Calculates average position holding duration (in ms) for trades in a specific market.
+ * Uses FIFO inventory matching between BUY and SELL executions per subaccount:
+ * - When a position is reduced or closed, the holding duration (closeTime - openTime) is accumulated.
+ * - If dateFilter is active, only matches/positions active within the date range are considered.
+ * - If no closed trades exist in the period but open lots exist, open holding duration so far is used.
+ */
+export function calculateMarketHoldingDuration(
+  trades: ParsedTradeView[],
+  dateFilter?: {
+    startTimestampMs?: number | null;
+    endTimestampMs?: number | null;
+    presetId?: string;
+  } | null,
+  nowMs = Date.now(),
+): number {
+  if (!trades || trades.length === 0) return 0;
+
+  const validTrades = trades.filter(
+    (t) => t.timestampMs >= 0 && !isNaN(t.timestampMs) && t.size > 0 && t.price > 0,
+  );
+  if (validTrades.length === 0) return 0;
+
+  const sortedTrades = validTrades.toSorted((a, b) => {
+    if (a.timestampMs !== b.timestampMs) return a.timestampMs - b.timestampMs;
+    const aMicro = a.raw?.transaction_time ?? 0;
+    const bMicro = b.raw?.transaction_time ?? 0;
+    if (aMicro !== bMicro) return aMicro - bMicro;
+    const aId = a.tradeIdNum ?? (Number(a.tradeId) || 0);
+    const bId = b.tradeIdNum ?? (Number(b.tradeId) || 0);
+    return aId - bId;
+  });
+
+  const isSpecificFilter = Boolean(dateFilter && dateFilter.presetId !== "all");
+  const earliestMs = sortedTrades[0].timestampMs;
+  const latestMs = sortedTrades[sortedTrades.length - 1].timestampMs;
+
+  const tStart = isSpecificFilter ? (dateFilter!.startTimestampMs ?? earliestMs) : earliestMs;
+  const tEnd = isSpecificFilter
+    ? (dateFilter!.endTimestampMs ?? Math.max(latestMs, nowMs))
+    : Math.max(latestMs, nowMs);
+
+  const effectiveEnd = Math.min(tEnd, nowMs);
+  const EPSILON = 1e-8;
+
+  // Group trades by subaccount to avoid cross-subaccount position offsetting
+  const subaccountGroups = new Map<string, ParsedTradeView[]>();
+  for (const t of sortedTrades) {
+    const accKey = String(t.userAccountId ?? "default");
+    let list = subaccountGroups.get(accKey);
+    if (!list) {
+      list = [];
+      subaccountGroups.set(accKey, list);
+    }
+    list.push(t);
+  }
+
+  interface Lot {
+    size: number;
+    timestampMs: number;
+    side: "BUY" | "SELL";
+  }
+
+  let totalMatchedDurationWeighted = 0;
+  let totalMatchedSize = 0;
+  let totalOpenDurationWeighted = 0;
+  let totalOpenSize = 0;
+
+  for (const groupTrades of subaccountGroups.values()) {
+    const lots: Lot[] = [];
+
+    for (const t of groupTrades) {
+      let remSize = Math.abs(t.size);
+
+      // Match against opposite side inventory (FIFO)
+      while (lots.length > 0 && lots[0].side !== t.side && remSize > EPSILON) {
+        const head = lots[0];
+        const matchSize = Math.min(remSize, head.size);
+        const openTime = head.timestampMs;
+        const closeTime = t.timestampMs;
+        const dur = Math.max(0, closeTime - openTime);
+
+        const inPeriod =
+          (closeTime >= tStart && closeTime <= tEnd) ||
+          (openTime >= tStart && openTime <= tEnd) ||
+          (openTime < tStart && closeTime > tEnd);
+
+        if (inPeriod) {
+          totalMatchedDurationWeighted += matchSize * dur;
+          totalMatchedSize += matchSize;
+        }
+
+        head.size -= matchSize;
+        remSize -= matchSize;
+
+        if (head.size <= EPSILON) {
+          lots.shift();
+        }
+      }
+
+      if (remSize > EPSILON) {
+        lots.push({
+          size: remSize,
+          timestampMs: t.timestampMs,
+          side: t.side,
+        });
+      }
+    }
+
+    // Process open lots for this subaccount
+    for (const lot of lots) {
+      if (lot.timestampMs <= effectiveEnd) {
+        const openDur = Math.max(0, effectiveEnd - lot.timestampMs);
+        totalOpenDurationWeighted += lot.size * openDur;
+        totalOpenSize += lot.size;
+      }
+    }
+  }
+
+  if (totalMatchedSize > 0) {
+    return Math.round(totalMatchedDurationWeighted / totalMatchedSize);
+  }
+
+  if (totalOpenSize > 0) {
+    return Math.round(totalOpenDurationWeighted / totalOpenSize);
+  }
+
+  return 0;
+}
+
+/**
+ * Groups hedge pairs and unhedged trades by token (market) for the active date period,
+ * computing volume, transactions count, average holding duration, and average volume size.
+ */
+export function calculateMarketSummaryStats(
+  pairs: HedgePair[],
+  unhedged: UnhedgedTrade[],
+  allRhTrades: ParsedTradeView[] = [],
+  allCoreTrades: ParsedTradeView[] = [],
+  dateFilter?: {
+    startTimestampMs?: number | null;
+    endTimestampMs?: number | null;
+    presetId?: string;
+  } | null,
+  nowMs = Date.now(),
+  sortColumn: MarketSummarySortColumn = "volumeUsd",
+  sortDirection: "asc" | "desc" = "desc",
+): MarketSummaryStat[] {
+  const marketMap = new Map<
+    string,
+    {
+      volumeUsd: number;
+      pairsCount: number;
+      unhedgedCount: number;
+      totalTokenSize: number;
+      realizedPnlUsd: number;
+    }
+  >();
+
+  for (const p of pairs) {
+    const sym = (p.marketSymbol || "UNKNOWN").toUpperCase();
+    let m = marketMap.get(sym);
+    if (!m) {
+      m = { volumeUsd: 0, pairsCount: 0, unhedgedCount: 0, totalTokenSize: 0, realizedPnlUsd: 0 };
+      marketMap.set(sym, m);
+    }
+    // Strictly Robinhood volume: matchedSize * rhPrice
+    const rhPrice = p.rhPrice > 0 ? p.rhPrice : p.sellPrice || p.buyPrice || 0;
+    m.volumeUsd += p.matchedSize * rhPrice;
+    m.pairsCount++;
+    m.totalTokenSize += p.matchedSize;
+    m.realizedPnlUsd += p.netPnlUsd;
+  }
+
+  for (const u of unhedged) {
+    // Only count Robinhood trades for volume & transaction counts
+    if (u.network === "RH") {
+      const sym = (u.marketSymbol || "UNKNOWN").toUpperCase();
+      let m = marketMap.get(sym);
+      if (!m) {
+        m = { volumeUsd: 0, pairsCount: 0, unhedgedCount: 0, totalTokenSize: 0, realizedPnlUsd: 0 };
+        marketMap.set(sym, m);
+      }
+      m.volumeUsd += u.usdValue;
+      m.unhedgedCount++;
+      m.totalTokenSize += u.unhedgedSize;
+    }
+  }
+
+  // Pre-group trade histories by market symbol for holding duration calculation
+  const rhByMarket = new Map<string, ParsedTradeView[]>();
+  for (const t of allRhTrades) {
+    const sym = (t.marketSymbol || `#${t.marketId}`).toUpperCase();
+    let list = rhByMarket.get(sym);
+    if (!list) {
+      list = [];
+      rhByMarket.set(sym, list);
+    }
+    list.push(t);
+  }
+
+  const coreByMarket = new Map<string, ParsedTradeView[]>();
+  for (const t of allCoreTrades) {
+    const sym = (t.marketSymbol || `#${t.marketId}`).toUpperCase();
+    let list = coreByMarket.get(sym);
+    if (!list) {
+      list = [];
+      coreByMarket.set(sym, list);
+    }
+    list.push(t);
+  }
+
+  const result: MarketSummaryStat[] = [];
+
+  for (const [sym, data] of marketMap.entries()) {
+    const transactionsCount = data.pairsCount + data.unhedgedCount;
+    const avgVolumeSizeUsd = transactionsCount > 0 ? data.volumeUsd / transactionsCount : 0;
+    const avgTokenSize = transactionsCount > 0 ? data.totalTokenSize / transactionsCount : 0;
+
+    const rhTrades = rhByMarket.get(sym) || [];
+    const coreTrades = coreByMarket.get(sym) || [];
+
+    const rhHold =
+      rhTrades.length > 0 ? calculateMarketHoldingDuration(rhTrades, dateFilter, nowMs) : 0;
+    const coreHold =
+      coreTrades.length > 0 ? calculateMarketHoldingDuration(coreTrades, dateFilter, nowMs) : 0;
+
+    let avgHoldingDurationMs = 0;
+    if (rhHold > 0 && coreHold > 0) {
+      avgHoldingDurationMs = Math.round((rhHold + coreHold) / 2);
+    } else {
+      avgHoldingDurationMs = rhHold > 0 ? rhHold : coreHold;
+    }
+
+    result.push({
+      marketSymbol: sym,
+      volumeUsd: data.volumeUsd,
+      transactionsCount,
+      avgVolumeSizeUsd,
+      avgHoldingDurationMs,
+      pairsCount: data.pairsCount,
+      unhedgedCount: data.unhedgedCount,
+      totalTokenSize: data.totalTokenSize,
+      avgTokenSize,
+      realizedPnlUsd: data.realizedPnlUsd,
+    });
+  }
+
+  return sortMarketSummaryStats(result, sortColumn, sortDirection);
+}
+
+/**
+ * Sorts market summary statistics by the specified column and direction.
+ * Defaults to volumeUsd descending.
+ */
+export function sortMarketSummaryStats(
+  stats: MarketSummaryStat[],
+  sortColumn: MarketSummarySortColumn = "volumeUsd",
+  sortDirection: "asc" | "desc" = "desc",
+): MarketSummaryStat[] {
+  const dir = sortDirection === "asc" ? 1 : -1;
+
+  return stats.toSorted((a, b) => {
+    if (sortColumn === "marketSymbol") {
+      return a.marketSymbol.localeCompare(b.marketSymbol) * dir;
+    }
+    const valA = (a[sortColumn] as number) || 0;
+    const valB = (b[sortColumn] as number) || 0;
+    if (Math.abs(valA - valB) > 0.00001) {
+      return (valA - valB) * dir;
+    }
+    return a.marketSymbol.localeCompare(b.marketSymbol);
   });
 }

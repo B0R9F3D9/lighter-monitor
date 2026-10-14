@@ -333,7 +333,7 @@
             </div>
             <div
               class="hidden sm:block"
-              title="Combined time-weighted average open interest across RH and Core accounts"
+              title="Time-weighted average open interest on Robinhood (RH) over selected period"
             >
               <span class="text-terminal-muted mr-1.5">AVG OI:</span>
               <span id="leadHedgeAvgOi" class="font-bold text-white tabular-nums">$0.00</span>
@@ -514,6 +514,24 @@
               id="leadCoreDailySummary"
               class="border-t border-terminal-borderSubtle/60 pt-1.5 flex items-stretch gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar"
             ></div>
+          </div>
+        </div>
+
+        <!-- 1D. TOKEN / MARKET BREAKDOWN TABLE -->
+        <div
+          id="hedgeMarketSummaryCard"
+          class="bg-terminal-surface border border-terminal-border rounded text-xs font-mono overflow-hidden"
+        >
+          <!-- Token items full-width table -->
+          <div id="hedgeMarketCardsContainer" class="overflow-x-auto no-scrollbar">
+            <div
+              class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5"
+            >
+              <span class="text-terminal-secondary font-medium">No token activity loaded</span>
+              <span class="text-[11px] text-terminal-muted"
+                >— Upload RH and Core files to view metrics by token</span
+              >
+            </div>
           </div>
         </div>
 
