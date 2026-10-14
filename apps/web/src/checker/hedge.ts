@@ -7,6 +7,7 @@ import type {
   MarketSummarySortColumn,
   MarketSummaryStat,
   ParsedTradeView,
+  PositionFundingRecord,
   SelectedHedgeMetrics,
   UnhedgedTrade,
 } from "./types";
@@ -890,15 +891,9 @@ export function calculateAccountAverageOi(
     presetId?: string;
   } | null,
   nowMs = Date.now(),
+  fundingHistory?: PositionFundingRecord[],
 ): AccountAverageOiResult {
-  if (allTrades.length === 0) {
-    return {
-      avgOiUsd: 0,
-      currentOpenOiUsd: 0,
-      holdingDurationMs: 0,
-      periodDurationMs: 0,
-    };
-  }
+  const sortedFunding = (fundingHistory || []).toSorted((a, b) => a.timestamp - b.timestamp);
 
   // Filter out spot trades if any (open interest only applies to perpetual contracts)
   const perpTrades = allTrades.filter(
@@ -910,7 +905,7 @@ export function calculateAccountAverageOi(
       t.price > 0,
   );
 
-  if (perpTrades.length === 0) {
+  if (perpTrades.length === 0 && sortedFunding.length === 0) {
     return {
       avgOiUsd: 0,
       currentOpenOiUsd: 0,
@@ -930,8 +925,9 @@ export function calculateAccountAverageOi(
     return aId - bId;
   });
 
-  const earliestTradeMs = sortedTrades[0].timestampMs;
-  const latestTradeMs = sortedTrades[sortedTrades.length - 1].timestampMs;
+  const earliestTradeMs = sortedTrades.length > 0 ? sortedTrades[0].timestampMs : nowMs;
+  const latestTradeMs =
+    sortedTrades.length > 0 ? sortedTrades[sortedTrades.length - 1].timestampMs : nowMs;
 
   // Group trades by subaccount and market to prevent cross-account position offsetting
   const marketAccountGroups = new Map<string, ParsedTradeView[]>();
@@ -945,6 +941,21 @@ export function calculateAccountAverageOi(
     list.push(t);
   }
 
+  // Also include any markets present in fundingHistory that are not in trades
+  if (sortedFunding.length > 0) {
+    for (const f of sortedFunding) {
+      const exists = Array.from(marketAccountGroups.keys()).some((k) =>
+        k.endsWith(`_${f.market_id}`),
+      );
+      if (!exists) {
+        const key = `default_${f.market_id}`;
+        if (!marketAccountGroups.has(key)) {
+          marketAccountGroups.set(key, []);
+        }
+      }
+    }
+  }
+
   interface TimelineSegment {
     startTime: number;
     endTime: number;
@@ -956,11 +967,85 @@ export function calculateAccountAverageOi(
   const EPSILON = 1e-8;
 
   // Replay trade history for each subaccount/market pair
-  for (const groupTrades of marketAccountGroups.values()) {
+  for (const [groupKey, groupTrades] of marketAccountGroups.entries()) {
+    const parts = groupKey.split("_");
+    const marketIdStr = parts[1];
+    const marketIdNum = Number(marketIdStr);
+
+    const marketFunding = sortedFunding.filter((f) =>
+      !isNaN(marketIdNum) ? f.market_id === marketIdNum : String(f.market_id) === marketIdStr,
+    );
+
     let pos = 0;
     let entryPrice = 0;
     let currentOi = 0;
-    let lastTime = groupTrades[0].timestampMs;
+    let lastTime = groupTrades.length > 0 ? groupTrades[0].timestampMs : nowMs;
+
+    // Check if we have an initial position prior to the first trade from funding_history
+    if (marketFunding.length > 0) {
+      const firstTradeTime = groupTrades.length > 0 ? groupTrades[0].timestampMs : Infinity;
+      const priorFundings = marketFunding.filter((f) => f.timestamp * 1000 <= firstTradeTime);
+
+      if (priorFundings.length > 0) {
+        const earliestRec = priorFundings[0];
+        const latestPriorRec = priorFundings[priorFundings.length - 1];
+        const initSize = Number(latestPriorRec.position_size) || 0;
+        const isLong = latestPriorRec.position_side === "long";
+
+        if (initSize > EPSILON) {
+          pos = isLong ? initSize : -initSize;
+          // Calculate reference price from funding or first trade
+          let fundingPrice = 0;
+          const rate = Math.abs(Number(latestPriorRec.rate) || 0);
+          const change = Math.abs(Number(latestPriorRec.change) || 0);
+          if (initSize > 0 && rate > 1e-12) {
+            fundingPrice = change / (initSize * rate);
+          }
+          entryPrice =
+            fundingPrice > 0
+              ? fundingPrice
+              : groupTrades.length > 0
+                ? groupTrades[0].price
+                : 1;
+          currentOi = Math.abs(pos) * entryPrice;
+
+          // Starting timestamp: use earliest funding record or dateFilter start if applicable
+          let startTimeMs = earliestRec.timestamp * 1000;
+          if (dateFilter?.startTimestampMs && dateFilter.startTimestampMs < startTimeMs) {
+            startTimeMs = dateFilter.startTimestampMs;
+          }
+          lastTime = Math.min(startTimeMs, firstTradeTime);
+        }
+      }
+    }
+
+    if (groupTrades.length === 0 && marketFunding.length > 0) {
+      // Market has funding records but no trades (e.g. position was held throughout without trading)
+      for (let i = 0; i < marketFunding.length; i++) {
+        const f = marketFunding[i];
+        const fTime = f.timestamp * 1000;
+        const nextTime =
+          i + 1 < marketFunding.length
+            ? marketFunding[i + 1].timestamp * 1000
+            : Math.max(fTime + 3600000, nowMs);
+        const fSize = Number(f.position_size) || 0;
+        let fPrice = 0;
+        const fRate = Math.abs(Number(f.rate) || 0);
+        const fChange = Math.abs(Number(f.change) || 0);
+        if (fSize > 0 && fRate > 1e-12) {
+          fPrice = fChange / (fSize * fRate);
+        }
+        const fOi = fSize * (fPrice || 1);
+        if (fOi > 0) {
+          allSegments.push({
+            startTime: fTime,
+            endTime: nextTime,
+            oi: fOi,
+          });
+        }
+      }
+      continue;
+    }
 
     for (const t of groupTrades) {
       const tTime = t.timestampMs;
@@ -994,7 +1079,8 @@ export function calculateAccountAverageOi(
       } else if ((prevPos > 0 && delta > 0) || (prevPos < 0 && delta < 0)) {
         // Adding to position in the same direction: update VWAP entry price
         const totalSize = Math.abs(newPos);
-        entryPrice = (Math.abs(prevPos) * entryPrice + size * price) / totalSize;
+        entryPrice =
+          (Math.abs(prevPos) * (entryPrice || price) + size * price) / totalSize;
         pos = newPos;
       } else {
         // Opposite direction (scale-out / reduction or flip)
@@ -1109,7 +1195,10 @@ export function calculateAccountDailyStats(
     presetId?: string;
   } | null,
   nowMs = Date.now(),
+  fundingHistory?: PositionFundingRecord[],
 ): AccountDailyStat[] {
+  const sortedFunding = (fundingHistory || []).toSorted((a, b) => a.timestamp - b.timestamp);
+
   // Filter out spot trades if any (open interest & position duration apply to perps)
   const perpTrades = allTrades.filter(
     (t) =>
@@ -1203,6 +1292,21 @@ export function calculateAccountDailyStats(
     list.push(t);
   }
 
+  // Also include any markets present in fundingHistory that are not in trades
+  if (sortedFunding.length > 0) {
+    for (const f of sortedFunding) {
+      const exists = Array.from(marketAccountGroups.keys()).some((k) =>
+        k.endsWith(`_${f.market_id}`),
+      );
+      if (!exists) {
+        const key = `default_${f.market_id}`;
+        if (!marketAccountGroups.has(key)) {
+          marketAccountGroups.set(key, []);
+        }
+      }
+    }
+  }
+
   const EPSILON = 1e-8;
 
   interface HoldingInterval {
@@ -1211,9 +1315,48 @@ export function calculateAccountDailyStats(
   }
   const allHoldingIntervals: HoldingInterval[] = [];
 
-  for (const groupTrades of marketAccountGroups.values()) {
+  for (const [groupKey, groupTrades] of marketAccountGroups.entries()) {
+    const parts = groupKey.split("_");
+    const marketIdStr = parts[1];
+    const marketIdNum = Number(marketIdStr);
+
+    const marketFunding = sortedFunding.filter((f) =>
+      !isNaN(marketIdNum) ? f.market_id === marketIdNum : String(f.market_id) === marketIdStr,
+    );
+
     let pos = 0;
     let posOpenTime = 0;
+
+    if (marketFunding.length > 0) {
+      const firstTradeTime = groupTrades.length > 0 ? groupTrades[0].timestampMs : Infinity;
+      const priorFundings = marketFunding.filter((f) => f.timestamp * 1000 <= firstTradeTime);
+
+      if (priorFundings.length > 0) {
+        const earliestRec = priorFundings[0];
+        const latestPriorRec = priorFundings[priorFundings.length - 1];
+        const initSize = Number(latestPriorRec.position_size) || 0;
+        const isLong = latestPriorRec.position_side === "long";
+
+        if (initSize > EPSILON) {
+          pos = isLong ? initSize : -initSize;
+          let startTimeMs = earliestRec.timestamp * 1000;
+          if (dateFilter?.startTimestampMs && dateFilter.startTimestampMs < startTimeMs) {
+            startTimeMs = dateFilter.startTimestampMs;
+          }
+          posOpenTime = Math.min(startTimeMs, firstTradeTime);
+        }
+      }
+    }
+
+    if (groupTrades.length === 0 && marketFunding.length > 0) {
+      const fStart = marketFunding[0].timestamp * 1000;
+      const fEnd = Math.max(
+        marketFunding[marketFunding.length - 1].timestamp * 1000 + 3600000,
+        nowMs,
+      );
+      allHoldingIntervals.push({ start: fStart, end: fEnd });
+      continue;
+    }
 
     for (const t of groupTrades) {
       const prevPos = pos;
@@ -1226,13 +1369,13 @@ export function calculateAccountDailyStats(
         posOpenTime = t.timestampMs;
       } else if (Math.abs(prevPos) > EPSILON && Math.abs(newPos) <= EPSILON) {
         // Closed to flat
-        if (t.timestampMs > posOpenTime) {
+        if (t.timestampMs > posOpenTime && posOpenTime > 0) {
           allHoldingIntervals.push({ start: posOpenTime, end: t.timestampMs });
         }
         posOpenTime = 0;
       } else if ((prevPos > 0 && newPos < 0) || (prevPos < 0 && newPos > 0)) {
         // Flipped position
-        if (t.timestampMs > posOpenTime) {
+        if (t.timestampMs > posOpenTime && posOpenTime > 0) {
           allHoldingIntervals.push({ start: posOpenTime, end: t.timestampMs });
         }
         posOpenTime = t.timestampMs;
@@ -1325,6 +1468,7 @@ export function calculateMarketHoldingDuration(
     presetId?: string;
   } | null,
   nowMs = Date.now(),
+  fundingHistory?: PositionFundingRecord[],
 ): number {
   if (!trades || trades.length === 0) return 0;
 
@@ -1380,6 +1524,32 @@ export function calculateMarketHoldingDuration(
 
   for (const groupTrades of subaccountGroups.values()) {
     const lots: Lot[] = [];
+
+    // Initialize open lots from prior funding if available
+    if (fundingHistory && fundingHistory.length > 0) {
+      const sortedFunding = fundingHistory.toSorted((a, b) => a.timestamp - b.timestamp);
+      const firstTradeTime = groupTrades.length > 0 ? groupTrades[0].timestampMs : Infinity;
+      const priorFundings = sortedFunding.filter((f) => f.timestamp * 1000 <= firstTradeTime);
+
+      if (priorFundings.length > 0) {
+        const earliestRec = priorFundings[0];
+        const latestPrior = priorFundings[priorFundings.length - 1];
+        const initSize = Number(latestPrior.position_size) || 0;
+        const isLong = latestPrior.position_side === "long";
+
+        if (initSize > EPSILON) {
+          let startTimeMs = earliestRec.timestamp * 1000;
+          if (dateFilter?.startTimestampMs && dateFilter.startTimestampMs < startTimeMs) {
+            startTimeMs = dateFilter.startTimestampMs;
+          }
+          lots.push({
+            size: initSize,
+            timestampMs: Math.min(startTimeMs, firstTradeTime),
+            side: isLong ? "BUY" : "SELL",
+          });
+        }
+      }
+    }
 
     for (const t of groupTrades) {
       let remSize = Math.abs(t.size);
@@ -1457,6 +1627,8 @@ export function calculateMarketSummaryStats(
   nowMs = Date.now(),
   sortColumn: MarketSummarySortColumn = "volumeUsd",
   sortDirection: "asc" | "desc" = "desc",
+  rhFundingHistory?: PositionFundingRecord[],
+  coreFundingHistory?: PositionFundingRecord[],
 ): MarketSummaryStat[] {
   const marketMap = new Map<
     string,
@@ -1533,9 +1705,13 @@ export function calculateMarketSummaryStats(
     const coreTrades = coreByMarket.get(sym) || [];
 
     const rhHold =
-      rhTrades.length > 0 ? calculateMarketHoldingDuration(rhTrades, dateFilter, nowMs) : 0;
+      rhTrades.length > 0
+        ? calculateMarketHoldingDuration(rhTrades, dateFilter, nowMs, rhFundingHistory)
+        : 0;
     const coreHold =
-      coreTrades.length > 0 ? calculateMarketHoldingDuration(coreTrades, dateFilter, nowMs) : 0;
+      coreTrades.length > 0
+        ? calculateMarketHoldingDuration(coreTrades, dateFilter, nowMs, coreFundingHistory)
+        : 0;
 
     let avgHoldingDurationMs = 0;
     if (rhHold > 0 && coreHold > 0) {

@@ -1614,6 +1614,91 @@ describe("Hedge Matching Engine", () => {
       expect(res.currentOpenOiUsd).toBe(0);
       expect(res.periodDurationMs).toBe(11 * msPerDay);
     });
+
+    it("correctly uses fundingHistory to restore pre-existing position carried into week", () => {
+      // User entered week with 100 contracts long NVDA ($200 price = $20,000 OI)
+      // Week starts at t0 = 0
+      // First trade in week is at t = 2000 (SELL 100 NVDA to close long)
+      // Without funding history, checker would think user opened a short of -100 from t=2000 to t=10000.
+      // With funding history, checker knows user held 100 long from t=0 to t=2000!
+      const tClose = mockTrade({
+        tradeId: "tClose",
+        marketSymbol: "NVDA",
+        marketId: 15,
+        size: 100,
+        price: 200,
+        side: "SELL",
+        timestampMs: 2000,
+      });
+
+      const fundingHistory = [
+        {
+          timestamp: 0, // t=0s -> 0ms
+          market_id: 15,
+          funding_id: 1,
+          change: "-0.20",
+          rate: "0.00001",
+          position_size: "100.0000",
+          position_side: "long" as const,
+          discount: "0.000000",
+        },
+      ];
+
+      const filter = {
+        startTimestampMs: 0,
+        endTimestampMs: 10000,
+        presetId: "week-9",
+      };
+
+      const res = calculateAccountAverageOi(
+        [tClose],
+        filter,
+        10000,
+        fundingHistory,
+      );
+
+      // Held $20,000 OI from t=0 to t=2000 (2000ms), flat ($0) from t=2000 to t=10000 (8000ms)
+      // Integral = 20,000 * 2000 = 40,000,000
+      // avgOiUsd = 40,000,000 / 10,000 = $4,000
+      expect(res.avgOiUsd).toBe(4000);
+      expect(res.currentOpenOiUsd).toBe(0);
+    });
+
+    it("calculates accurate OI for market held throughout week with 0 trades from fundingHistory", () => {
+      // 0 trades in file, but funding history shows 50 SOL held throughout period
+      const fundingHistory = [
+        {
+          timestamp: 0,
+          market_id: 20,
+          funding_id: 101,
+          change: "-0.10",
+          rate: "0.00001", // mark price = 0.10 / (50 * 0.00001) = 200
+          position_size: "50.0000",
+          position_side: "long" as const,
+          discount: "0.000000",
+        },
+        {
+          timestamp: 5, // 5000ms
+          market_id: 20,
+          funding_id: 102,
+          change: "-0.10",
+          rate: "0.00001",
+          position_size: "50.0000",
+          position_side: "long" as const,
+          discount: "0.000000",
+        },
+      ];
+
+      const filter = {
+        startTimestampMs: 0,
+        endTimestampMs: 10000,
+        presetId: "week-9",
+      };
+
+      const res = calculateAccountAverageOi([], filter, 10000, fundingHistory);
+      // 50 * 200 = 10,000 OI held throughout
+      expect(res.avgOiUsd).toBe(10000);
+    });
   });
 
   describe("Account Daily Summary Breakdown (calculateAccountDailyStats)", () => {

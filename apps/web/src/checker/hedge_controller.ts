@@ -1050,6 +1050,8 @@ export class HedgeController {
       Date.now(),
       this.marketSortColumn,
       this.marketSortDirection,
+      this.rhStitched?.funding_history,
+      this.coreStitched?.funding_history,
     );
 
     renderMarketSummaryCards(
@@ -1154,8 +1156,19 @@ export class HedgeController {
     }
 
     const unhedgedCount = this.unhedgedTrades.filter((u) => u.network === network).length;
-    const oiResult = calculateAccountAverageOi(trades, this.activeHedgeDateFilter);
-    const dailyStats = calculateAccountDailyStats(trades, this.activeHedgeDateFilter);
+    const stitched = isRh ? this.rhStitched : this.coreStitched;
+    const oiResult = calculateAccountAverageOi(
+      trades,
+      this.activeHedgeDateFilter,
+      Date.now(),
+      stitched?.funding_history,
+    );
+    const dailyStats = calculateAccountDailyStats(
+      trades,
+      this.activeHedgeDateFilter,
+      Date.now(),
+      stitched?.funding_history,
+    );
 
     return {
       accountIndex,
