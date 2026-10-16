@@ -292,6 +292,7 @@ export class HedgeController {
       slippage: document.getElementById("leadHedgeSlippage"),
       fees: document.getElementById("leadHedgeFees"),
       funding: document.getElementById("leadHedgeFunding"),
+      withdrawals: document.getElementById("leadHedgeWithdrawals"),
       unhedgedCount: document.getElementById("leadHedgeUnhedgedCount"),
       avgOi: document.getElementById("leadHedgeAvgOi"),
     };
@@ -303,6 +304,7 @@ export class HedgeController {
       realizedPnl: document.getElementById("leadRhRealizedPnl"),
       fees: document.getElementById("leadRhFees"),
       funding: document.getElementById("leadRhFunding"),
+      withdrawals: document.getElementById("leadRhWithdrawals"),
       unhedgedCount: document.getElementById("leadRhUnhedgedCount"),
       avgOi: document.getElementById("leadRhAvgOi"),
       dailySummary: document.getElementById("leadRhDailySummary"),
@@ -315,6 +317,7 @@ export class HedgeController {
       realizedPnl: document.getElementById("leadCoreRealizedPnl"),
       fees: document.getElementById("leadCoreFees"),
       funding: document.getElementById("leadCoreFunding"),
+      withdrawals: document.getElementById("leadCoreWithdrawals"),
       unhedgedCount: document.getElementById("leadCoreUnhedgedCount"),
       avgOi: document.getElementById("leadCoreAvgOi"),
       dailySummary: document.getElementById("leadCoreDailySummary"),
@@ -1020,6 +1023,21 @@ export class HedgeController {
         ).length
       : this.coreRawTrades.length;
 
+    const rhRawWithdrawals = this.rhStitched?.withdrawals || [];
+    const coreRawWithdrawals = this.coreStitched?.withdrawals || [];
+
+    const rhFilteredWithdrawals = this.activeHedgeDateFilter
+      ? rhRawWithdrawals.filter((w) =>
+          isTradeInDateRange(w.timestampMs, this.activeHedgeDateFilter),
+        )
+      : rhRawWithdrawals;
+
+    const coreFilteredWithdrawals = this.activeHedgeDateFilter
+      ? coreRawWithdrawals.filter((w) =>
+          isTradeInDateRange(w.timestampMs, this.activeHedgeDateFilter),
+        )
+      : coreRawWithdrawals;
+
     this.hedgeMetrics = calculateHedgeMetrics(
       this.hedgePairs,
       this.unhedgedTrades,
@@ -1029,6 +1047,10 @@ export class HedgeController {
       coreTradesCount,
       this.rhAccountIndices,
       this.coreAccountIndices,
+      {
+        rhWithdrawals: rhFilteredWithdrawals,
+        coreWithdrawals: coreFilteredWithdrawals,
+      },
     );
 
     this.updateHedgeExecutiveSummary();
@@ -1170,6 +1192,23 @@ export class HedgeController {
       stitched?.funding_history,
     );
 
+    const rawWithdrawals = isRh ? this.rhStitched?.withdrawals : this.coreStitched?.withdrawals;
+    const filteredWithdrawals = (rawWithdrawals || []).filter((w) =>
+      this.activeHedgeDateFilter
+        ? isTradeInDateRange(w.timestampMs, this.activeHedgeDateFilter)
+        : true,
+    );
+    let totalWithdrawalsUsd = 0;
+    let totalWithdrawalFeesUsd = 0;
+    for (const w of filteredWithdrawals) {
+      const statusLower = (w.status || "").toLowerCase();
+      if (statusLower === "failed" || statusLower === "cancelled" || statusLower === "refunded") {
+        continue;
+      }
+      totalWithdrawalsUsd += w.amountUsd ?? (Number(w.amount) || 0);
+      totalWithdrawalFeesUsd += w.feeUsd ?? (Number(w.fee) || 0);
+    }
+
     return {
       accountIndex,
       accountIndices: accountIndices.length > 0 ? accountIndices : undefined,
@@ -1179,6 +1218,9 @@ export class HedgeController {
       realizedPnlUsd,
       totalFeesUsd,
       totalFundingUsd: hasFunding ? totalFundingUsd : null,
+      totalWithdrawalsUsd,
+      totalWithdrawalFeesUsd,
+      withdrawalsCount: filteredWithdrawals.length,
       unhedgedCount,
       avgOiUsd: oiResult.avgOiUsd,
       avgOiDetails: oiResult,

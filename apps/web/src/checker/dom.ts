@@ -558,6 +558,7 @@ export interface HedgeMetricElements {
   slippage: HTMLElement | null;
   fees: HTMLElement | null;
   funding?: HTMLElement | null;
+  withdrawals?: HTMLElement | null;
   unhedgedCount: HTMLElement | null;
   avgOi?: HTMLElement | null;
 }
@@ -568,7 +569,7 @@ export function updateHedgeExecutiveMetrics(
 ): void {
   if (!metrics || (metrics.totalPairs === 0 && metrics.totalUnhedgedTrades === 0)) {
     if (elements.accountsBadge) {
-      elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald">RH</span> <span class="text-terminal-muted font-normal">vs</span> <span class="text-terminal-accent">CORE</span>`;
+      elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald">RH</span> <span class="text-terminal-muted font-normal">VS</span> <span class="text-terminal-accent">CORE</span>`;
     }
     if (elements.pairsCount) elements.pairsCount.textContent = "0";
     if (elements.hedgedVolume) elements.hedgedVolume.textContent = "$0.00";
@@ -578,11 +579,19 @@ export function updateHedgeExecutiveMetrics(
     }
     if (elements.pnlBps) elements.pnlBps.textContent = "(0.0 bps)";
     if (elements.slippage) elements.slippage.textContent = "$0.00";
-    if (elements.fees) elements.fees.textContent = "$0.00";
+    if (elements.fees) {
+      elements.fees.textContent = "$0.00";
+      elements.fees.className = "font-bold text-terminal-muted tabular-nums";
+    }
     if (elements.funding) {
       elements.funding.textContent = "—";
       elements.funding.className = "font-bold text-terminal-muted tabular-nums";
       elements.funding.title = "No funding data";
+    }
+    if (elements.withdrawals) {
+      elements.withdrawals.textContent = "RH: 0 / CORE: 0";
+      elements.withdrawals.className = "font-bold text-terminal-muted tabular-nums";
+      elements.withdrawals.title = "No withdrawals data";
     }
     if (elements.unhedgedCount) elements.unhedgedCount.textContent = "0";
     if (elements.avgOi) {
@@ -605,7 +614,7 @@ export function updateHedgeExecutiveMetrics(
         ? `#${metrics.coreAccountIndex}`
         : "CORE";
   if (elements.accountsBadge) {
-    elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald font-bold">${rhAcc}</span> <span class="text-terminal-muted font-normal">vs</span> <span class="text-terminal-accent font-bold">${coreAcc}</span>`;
+    elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald font-bold">${rhAcc}</span> <span class="text-terminal-muted font-normal">VS</span> <span class="text-terminal-accent font-bold">${coreAcc}</span>`;
   }
 
   if (elements.pairsCount) {
@@ -629,7 +638,9 @@ export function updateHedgeExecutiveMetrics(
     const fund = metrics.totalFundingUsd ?? 0;
     const fundSign = fund > 0.0001 ? "+" : "";
     const slipSign = metrics.totalPricePnlUsd > 0.0001 ? "+" : "";
-    elements.netPnl.title = `Net PnL: ${sign}${formatMoney(metrics.totalNetPnlUsd)} = Slippage: ${slipSign}${formatMoney(metrics.totalPricePnlUsd)} + Funding: ${fundSign}${formatMoney(fund)} - Fees: ${formatFee(metrics.totalFeesUsd)}`;
+    const wFeeTotal = metrics.totalWithdrawalFeesUsd ?? 0;
+    const wStr = wFeeTotal > 0.0001 ? ` - Withdraw Fees: ${formatFee(wFeeTotal)}` : "";
+    elements.netPnl.title = `Net PnL: ${sign}${formatMoney(metrics.totalNetPnlUsd)} = Slippage: ${slipSign}${formatMoney(metrics.totalPricePnlUsd)} + Funding: ${fundSign}${formatMoney(fund)} - Fees: ${formatFee(metrics.totalFeesUsd)}${wStr}`;
   }
 
   if (elements.pnlBps) {
@@ -658,6 +669,23 @@ export function updateHedgeExecutiveMetrics(
 
   if (elements.fees) {
     elements.fees.textContent = formatFee(metrics.totalFeesUsd);
+    elements.fees.className =
+      metrics.totalFeesUsd > 0.0001
+        ? "font-bold text-terminal-coral tabular-nums"
+        : "font-bold text-terminal-muted tabular-nums";
+  }
+
+  if (elements.withdrawals) {
+    const rhCount = metrics.rhWithdrawalsCount ?? 0;
+    const coreCount = metrics.coreWithdrawalsCount ?? 0;
+    const hasAny = rhCount > 0 || coreCount > 0;
+    elements.withdrawals.textContent = `RH: ${rhCount} / CORE: ${coreCount}`;
+    elements.withdrawals.className = hasAny
+      ? "font-bold text-terminal-secondary tabular-nums"
+      : "font-bold text-terminal-muted tabular-nums";
+    const wFeeTotal = metrics.totalWithdrawalFeesUsd ?? 0;
+    const feeStr = wFeeTotal > 0.0001 ? ` · Total Fee: ${formatFee(wFeeTotal)}` : "";
+    elements.withdrawals.title = `Withdrawals: RH: ${rhCount}, Core: ${coreCount}${feeStr}`;
   }
 
   if (elements.funding) {
@@ -711,6 +739,7 @@ export interface IndividualAccountMetricElements {
   realizedPnl: HTMLElement | null;
   fees: HTMLElement | null;
   funding?: HTMLElement | null;
+  withdrawals?: HTMLElement | null;
   unhedgedCount: HTMLElement | null;
   avgOi?: HTMLElement | null;
   dailySummary?: HTMLElement | null;
@@ -814,11 +843,19 @@ export function updateIndividualAccountMetrics(
       elements.realizedPnl.textContent = "$0.00";
       elements.realizedPnl.className = "font-bold text-terminal-muted tabular-nums";
     }
-    if (elements.fees) elements.fees.textContent = "$0.00";
+    if (elements.fees) {
+      elements.fees.textContent = "$0.00";
+      elements.fees.className = "font-bold text-terminal-muted tabular-nums";
+    }
     if (elements.funding) {
       elements.funding.textContent = "—";
       elements.funding.className = "font-bold text-terminal-muted tabular-nums";
       elements.funding.title = "No funding data";
+    }
+    if (elements.withdrawals) {
+      elements.withdrawals.textContent = "0";
+      elements.withdrawals.className = "font-bold text-terminal-muted tabular-nums";
+      elements.withdrawals.title = "No withdrawals data";
     }
     if (elements.unhedgedCount) {
       elements.unhedgedCount.textContent = "0";
@@ -873,6 +910,22 @@ export function updateIndividualAccountMetrics(
 
   if (elements.fees) {
     elements.fees.textContent = formatFee(metrics.totalFeesUsd);
+    elements.fees.className =
+      metrics.totalFeesUsd > 0.0001
+        ? "font-bold text-terminal-coral tabular-nums"
+        : "font-bold text-terminal-muted tabular-nums";
+  }
+
+  if (elements.withdrawals) {
+    const count = metrics.withdrawalsCount ?? 0;
+    elements.withdrawals.textContent = String(count);
+    elements.withdrawals.className =
+      count > 0
+        ? "font-bold text-terminal-secondary tabular-nums"
+        : "font-bold text-terminal-muted tabular-nums";
+    const wFeeTotal = metrics.totalWithdrawalFeesUsd ?? 0;
+    const feeStr = wFeeTotal > 0.0001 ? ` (Fee: ${formatFee(wFeeTotal)})` : "";
+    elements.withdrawals.title = `${metrics.network} Withdrawals: ${count}${feeStr}`;
   }
 
   if (elements.funding) {
@@ -1069,6 +1122,10 @@ export function updateHedgeSelectionMetrics(
 
   if (elements.fees) {
     elements.fees.textContent = formatFee(metrics.totalFeesUsd);
+    elements.fees.className =
+      metrics.totalFeesUsd > 0.0001
+        ? "font-bold text-terminal-coral tabular-nums"
+        : "font-bold text-terminal-muted tabular-nums";
   }
 
   if (elements.funding) {

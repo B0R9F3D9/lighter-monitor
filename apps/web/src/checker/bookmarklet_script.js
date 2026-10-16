@@ -282,10 +282,16 @@
       <span id="lte-auth-badge" style="color:#d29922;font-size:10px;font-weight:600;">Checking auth...</span>
     </div>
 
-    <label id="lte-funding-wrap" style="display:inline-flex;align-items:center;gap:6px;margin:6px 0 8px 0;cursor:pointer;user-select:none;font-size:11px;color:#c9d1d9;">
-      <input type="checkbox" id="lte-funding-chk" checked style="accent-color:#238636;cursor:pointer;margin:0;width:12px;height:12px;">
-      <span>Include funding</span>
-    </label>
+    <div style="display:flex;align-items:center;gap:12px;margin:6px 0 8px 0;">
+      <label id="lte-funding-wrap" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none;font-size:11px;color:#c9d1d9;">
+        <input type="checkbox" id="lte-funding-chk" checked style="accent-color:#238636;cursor:pointer;margin:0;width:12px;height:12px;">
+        <span>Funding</span>
+      </label>
+      <label id="lte-withdrawals-wrap" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none;font-size:11px;color:#c9d1d9;">
+        <input type="checkbox" id="lte-withdrawals-chk" checked style="accent-color:#238636;cursor:pointer;margin:0;width:12px;height:12px;">
+        <span>Withdrawals</span>
+      </label>
+    </div>
 
     <div id="lte-progress-bar-wrap" style="display:none;margin-bottom:8px;background:#21262d;border-radius:2px;height:4px;overflow:hidden;">
       <div id="lte-progress-bar" style="background:#2ea043;height:100%;width:0%;transition:width 0.2s;"></div>
@@ -335,6 +341,8 @@
   const authBadgeSpan = hud.querySelector("#lte-auth-badge");
   const fundingWrap = hud.querySelector("#lte-funding-wrap");
   const fundingChk = hud.querySelector("#lte-funding-chk");
+  const withdrawalsWrap = hud.querySelector("#lte-withdrawals-wrap");
+  const withdrawalsChk = hud.querySelector("#lte-withdrawals-chk");
 
   const actionButtons = [thisWeekBtn, prevWeekBtn, last24hBtn, last100Btn, startBtn];
   for (const btn of actionButtons) {
@@ -583,6 +591,27 @@
     };
   }
 
+  let assetMap = null;
+  async function getAssetMap() {
+    if (assetMap) return assetMap;
+    assetMap = new Map();
+    try {
+      const res = await fetch(apiBase + "/assetDetails");
+      if (res.ok) {
+        const data = await res.json();
+        const list = data?.asset_details || data?.data || [];
+        for (const item of list) {
+          if (item && item.asset_id != null && item.symbol) {
+            assetMap.set(Number(item.asset_id), String(item.symbol));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[Lighter Exporter] Failed to fetch asset details:", e);
+    }
+    return assetMap;
+  }
+
   async function runExport(options) {
     if (isRunning) return;
 
@@ -603,6 +632,7 @@
     const modeLabel = opts.modeLabel || (mode === "last100" ? "Last 100" : "All Trades");
     const isLimit100 = mode === "last100";
     const includeFunding = Boolean(fundingChk && fundingChk.checked);
+    const includeWithdrawals = Boolean(withdrawalsChk && withdrawalsChk.checked);
     const acc = detectedAccount;
     const auth = detectedAuth;
 
@@ -616,6 +646,11 @@
     if (fundingWrap) {
       fundingWrap.style.opacity = "0.6";
       fundingWrap.style.cursor = "default";
+    }
+    if (withdrawalsChk) withdrawalsChk.disabled = true;
+    if (withdrawalsWrap) {
+      withdrawalsWrap.style.opacity = "0.6";
+      withdrawalsWrap.style.cursor = "default";
     }
 
     progressWrap.style.display = "block";
@@ -751,13 +786,18 @@
           currentFetchPromise = null;
         }
 
-        // UI Throttling: Phase 1 (Trades) occupies 0% -> (includeFunding ? 48% : 88%)
+        // UI Throttling: Phase 1 (Trades) occupies 0% -> (both ? 38% : one ? 48% : 88%)
         const now = Date.now();
         if (now - lastUiUpdate > 200) {
           lastUiUpdate = now;
-          const maxPercent = includeFunding ? 48 : 88;
+          const maxPercent =
+            includeFunding && includeWithdrawals
+              ? 38
+              : includeFunding || includeWithdrawals
+                ? 48
+                : 88;
           const estProgress = isLimit100
-            ? Math.min(maxPercent, Math.round((totalTradesCount / 100) * 44) + 4)
+            ? Math.min(maxPercent, Math.round((totalTradesCount / 100) * (maxPercent - 4)) + 4)
             : Math.min(maxPercent, 4 + Math.round((1 - Math.exp(-page / 6)) * (maxPercent - 4)));
           progressBar.style.width = estProgress + "%";
           statusDiv.textContent = isLimit100
@@ -791,9 +831,10 @@
         let accountPositions = null;
         let accountFunding = null;
         const fundingRecords = [];
+        const withdrawalRecords = [];
 
         if (includeFunding) {
-          progressBar.style.width = "50%";
+          progressBar.style.width = "40%";
           statusDiv.style.color = "#8b949e";
           statusDiv.textContent =
             "Trades fetched (" +
@@ -832,7 +873,7 @@
           } catch {}
 
           // Fetch hourly position funding history (requires auth)
-          // Phase 2 (Funding): advances smoothly from 50% up to 96%
+          // Phase 2 (Funding): advances smoothly from 40% up to (includeWithdrawals ? 68% : 96%)
           try {
             let fundCursor = "";
             let fundPage = 0;
@@ -868,9 +909,10 @@
                 fundingRecords.push(item);
               }
 
+              const fundMax = includeWithdrawals ? 68 : 96;
               const fundProgress = Math.min(
-                96,
-                50 + Math.round((1 - Math.exp(-fundPage / 6)) * 46),
+                fundMax,
+                40 + Math.round((1 - Math.exp(-fundPage / 6)) * (fundMax - 40)),
               );
               progressBar.style.width = fundProgress + "%";
               statusDiv.textContent =
@@ -891,13 +933,132 @@
               console.warn("[Lighter Exporter] positionFunding fetch error:", e);
             }
           }
-        } else {
-          progressBar.style.width = "92%";
+        }
+
+        // Fetch withdrawal history (requires auth)
+        // Phase 3 (Withdrawals): advances from (includeFunding ? 68% : 45%) up to 96%
+        if (includeWithdrawals && !isCancelled && !isClosed) {
+          const withdrawStart = includeFunding ? 68 : 45;
+          progressBar.style.width = withdrawStart + "%";
           statusDiv.style.color = "#8b949e";
-          statusDiv.textContent =
-            "Trades fetched (" +
-            totalTradesCount.toLocaleString() +
-            "). Packaging JSON (funding skipped)...";
+          statusDiv.textContent = "Fetching withdrawal history...";
+
+          try {
+            const assets = await getAssetMap();
+            let withdrawCursor = "";
+            let withdrawPage = 0;
+            const maxWithdrawPages = 30; // up to 3,000 withdrawal records
+            while (withdrawPage < maxWithdrawPages && !isCancelled && !isClosed) {
+              withdrawPage++;
+              const withdrawUrl =
+                apiBase +
+                "/withdraw/history?account_index=" +
+                encodeURIComponent(acc) +
+                (withdrawCursor ? "&cursor=" + encodeURIComponent(withdrawCursor) : "");
+              const wRes = await fetchWithRetry(withdrawUrl, fetchOptions).catch(() => null);
+              if (!wRes || !wRes.ok || isCancelled || isClosed) break;
+              const wData = await wRes.json().catch(() => null);
+              if (!wData || (wData.code !== 200 && wData.code !== 0 && wData.code !== undefined))
+                break;
+              const list =
+                wData.withdraw_history ||
+                wData.withdraw_histories ||
+                wData.withdraws ||
+                wData.withdrawals ||
+                wData.data ||
+                (Array.isArray(wData) ? wData : []);
+              if (!Array.isArray(list) || list.length === 0) break;
+
+              let reachedWithdrawCutoff = false;
+              for (let i = 0; i < list.length; i++) {
+                const item = list[i];
+                if (!item) continue;
+                const rawWTs =
+                  item.timestamp_ms ||
+                  item.timestampMs ||
+                  item.timestamp ||
+                  item.created_at ||
+                  item.time;
+                const wTs = rawWTs ? (rawWTs < 1e11 ? rawWTs * 1000 : rawWTs) : 0;
+                if (sinceTimestampMs && wTs && wTs < sinceTimestampMs) {
+                  reachedWithdrawCutoff = true;
+                  continue;
+                }
+                if (untilTimestampMs && wTs && wTs >= untilTimestampMs) {
+                  continue;
+                }
+                const aId = Number(item.asset_id ?? item.assetId ?? 0);
+                const sym =
+                  item.symbol || assets.get(aId) || (aId === 1 ? "USDC" : isRh ? "USDG" : "USDC");
+                const amountNum = Number(item.amount ?? item.usd_amount ?? item.amount_usd ?? 0);
+                const rawFee = item.fee_usd ?? item.fee ?? item.usd_fee ?? item.fee_amount;
+                const feeNum =
+                  rawFee != null && !isNaN(Number(rawFee)) ? Number(rawFee) : undefined;
+                withdrawalRecords.push({
+                  id:
+                    item.id != null
+                      ? String(item.id)
+                      : item.withdraw_id != null
+                        ? String(item.withdraw_id)
+                        : item.tx_hash != null
+                          ? String(item.tx_hash)
+                          : undefined,
+                  amount: item.amount != null ? String(item.amount) : String(amountNum),
+                  amount_usd:
+                    item.amount_usd != null
+                      ? Number(item.amount_usd)
+                      : item.usd_amount != null
+                        ? Number(item.usd_amount)
+                        : amountNum,
+                  timestamp:
+                    item.timestamp != null ? Number(item.timestamp) : Math.floor(wTs / 1000),
+                  timestamp_ms: wTs,
+                  status: item.status ? String(item.status).toLowerCase() : "completed",
+                  type: item.type ? String(item.type).toLowerCase() : "secure",
+                  l1_tx_hash: item.l1_tx_hash || item.tx_hash || item.hash || "",
+                  asset_id: aId,
+                  symbol: sym,
+                  fee:
+                    item.fee != null
+                      ? String(item.fee)
+                      : item.fee_amount != null
+                        ? String(item.fee_amount)
+                        : feeNum != null
+                          ? String(feeNum)
+                          : undefined,
+                  fee_usd:
+                    item.fee_usd != null
+                      ? Number(item.fee_usd)
+                      : item.usd_fee != null
+                        ? Number(item.usd_fee)
+                        : feeNum,
+                });
+              }
+
+              const withdrawProgress = Math.min(
+                96,
+                withdrawStart +
+                  Math.round((1 - Math.exp(-withdrawPage / 4)) * (96 - withdrawStart)),
+              );
+              progressBar.style.width = withdrawProgress + "%";
+              statusDiv.textContent =
+                "Fetching withdrawals: page " +
+                withdrawPage +
+                " (" +
+                withdrawalRecords.length.toLocaleString() +
+                " records)...";
+
+              if (reachedWithdrawCutoff) break;
+
+              const nextCur = wData.next_cursor || wData.cursor;
+              if (!nextCur || nextCur === withdrawCursor) break;
+              withdrawCursor = nextCur;
+            }
+          } catch (e) {
+            if (!isCancelled && !isClosed) {
+              console.warn("[Lighter Exporter] withdraw/history fetch error:", e);
+            }
+          }
         }
 
         if (isClosed || isCancelled) {
@@ -928,6 +1089,7 @@
             positions: accountPositions || undefined,
             funding: accountFunding || undefined,
             funding_history: fundingRecords.length > 0 ? fundingRecords : undefined,
+            withdrawals: withdrawalRecords.length > 0 ? withdrawalRecords : undefined,
           }).slice(0, -1) + ',"trades":[';
 
         tradeChunks[0] = headerJson;
@@ -958,16 +1120,24 @@
 
         const fundCountStr =
           fundingRecords.length > 0
-            ? " & " + fundingRecords.length.toLocaleString() + " funding records"
+            ? " & " + fundingRecords.length.toLocaleString() + " funding"
             : includeFunding
               ? ""
               : " (funding skipped)";
+
+        const withdrawCountStr =
+          withdrawalRecords.length > 0
+            ? " & " + withdrawalRecords.length.toLocaleString() + " withdrawals"
+            : includeWithdrawals
+              ? ""
+              : " (withdrawals skipped)";
 
         if (isLimit100) {
           statusDiv.textContent =
             totalTradesCount.toLocaleString() +
             " recent trades" +
             fundCountStr +
+            withdrawCountStr +
             " exported (" +
             durationSec +
             "s). File downloaded.";
@@ -984,6 +1154,7 @@
             totalTradesCount.toLocaleString() +
             " trades" +
             fundCountStr +
+            withdrawCountStr +
             " exported (" +
             durationSec +
             "s). File downloaded.";
@@ -1007,6 +1178,11 @@
         if (fundingWrap) {
           fundingWrap.style.opacity = "1";
           fundingWrap.style.cursor = "pointer";
+        }
+        if (withdrawalsChk) withdrawalsChk.disabled = false;
+        if (withdrawalsWrap) {
+          withdrawalsWrap.style.opacity = "1";
+          withdrawalsWrap.style.cursor = "pointer";
         }
         await refreshCredentials();
       }

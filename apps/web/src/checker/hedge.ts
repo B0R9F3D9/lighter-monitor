@@ -10,6 +10,7 @@ import type {
   PositionFundingRecord,
   SelectedHedgeMetrics,
   UnhedgedTrade,
+  WithdrawalRecord,
 } from "./types";
 
 interface WorkingTrade {
@@ -540,6 +541,10 @@ export function calculateHedgeMetrics(
   coreTotalTrades: number,
   rhAccountIndices?: number[],
   coreAccountIndices?: number[],
+  withdrawals?: {
+    rhWithdrawals?: WithdrawalRecord[];
+    coreWithdrawals?: WithdrawalRecord[];
+  },
 ): HedgeSummaryMetrics {
   let totalHedgedVolumeUsd = 0;
   let totalNetPnlUsd = 0;
@@ -618,9 +623,37 @@ export function calculateHedgeMetrics(
     }
   }
 
-  // Total Net PnL = Slippage (price delta PnL) + Funding - Fees
+  let rhTotalWithdrawalsUsd = 0;
+  let rhTotalWithdrawalFeesUsd = 0;
+  let rhWithdrawalsCount = 0;
+  if (withdrawals?.rhWithdrawals) {
+    for (const w of withdrawals.rhWithdrawals) {
+      if (w.status === "failed" || w.status === "refunded") continue;
+      rhTotalWithdrawalsUsd += w.amountUsd ?? (Number(w.amount) || 0);
+      rhTotalWithdrawalFeesUsd += w.feeUsd ?? (Number(w.fee) || 0);
+      rhWithdrawalsCount++;
+    }
+  }
+
+  let coreTotalWithdrawalsUsd = 0;
+  let coreTotalWithdrawalFeesUsd = 0;
+  let coreWithdrawalsCount = 0;
+  if (withdrawals?.coreWithdrawals) {
+    for (const w of withdrawals.coreWithdrawals) {
+      if (w.status === "failed" || w.status === "refunded") continue;
+      coreTotalWithdrawalsUsd += w.amountUsd ?? (Number(w.amount) || 0);
+      coreTotalWithdrawalFeesUsd += w.feeUsd ?? (Number(w.fee) || 0);
+      coreWithdrawalsCount++;
+    }
+  }
+
+  const totalWithdrawalsUsd = rhTotalWithdrawalsUsd + coreTotalWithdrawalsUsd;
+  const totalWithdrawalFeesUsd = rhTotalWithdrawalFeesUsd + coreTotalWithdrawalFeesUsd;
+  const withdrawalsCount = rhWithdrawalsCount + coreWithdrawalsCount;
+
+  // Total Net PnL = Slippage (price delta PnL) + Funding - Fees - Withdrawal Fees
   const totalFundingComponent = hasAnyFunding && totalFundingUsd !== null ? totalFundingUsd : 0;
-  totalNetPnlUsd = totalPricePnlUsd + totalFundingComponent - totalFeesUsd;
+  totalNetPnlUsd = totalPricePnlUsd + totalFundingComponent - totalFeesUsd - totalWithdrawalFeesUsd;
 
   const avgPnlBps = totalHedgedVolumeUsd > 0 ? (totalNetPnlUsd / totalHedgedVolumeUsd) * 10000 : 0;
 
@@ -633,6 +666,15 @@ export function calculateHedgeMetrics(
     totalFundingUsd: hasAnyFunding ? totalFundingUsd : null,
     rhTotalFundingUsd: hasAnyFunding ? rhTotalFundingUsd : null,
     coreTotalFundingUsd: hasAnyFunding ? coreTotalFundingUsd : null,
+    totalWithdrawalsUsd,
+    rhTotalWithdrawalsUsd,
+    coreTotalWithdrawalsUsd,
+    totalWithdrawalFeesUsd,
+    rhTotalWithdrawalFeesUsd,
+    coreTotalWithdrawalFeesUsd,
+    withdrawalsCount,
+    rhWithdrawalsCount,
+    coreWithdrawalsCount,
     avgPnlBps,
     bestPairPnlUsd,
     worstPairPnlUsd,
@@ -1002,11 +1044,7 @@ export function calculateAccountAverageOi(
             fundingPrice = change / (initSize * rate);
           }
           entryPrice =
-            fundingPrice > 0
-              ? fundingPrice
-              : groupTrades.length > 0
-                ? groupTrades[0].price
-                : 1;
+            fundingPrice > 0 ? fundingPrice : groupTrades.length > 0 ? groupTrades[0].price : 1;
           currentOi = Math.abs(pos) * entryPrice;
 
           // Starting timestamp: use earliest funding record or dateFilter start if applicable
@@ -1079,8 +1117,7 @@ export function calculateAccountAverageOi(
       } else if ((prevPos > 0 && delta > 0) || (prevPos < 0 && delta < 0)) {
         // Adding to position in the same direction: update VWAP entry price
         const totalSize = Math.abs(newPos);
-        entryPrice =
-          (Math.abs(prevPos) * (entryPrice || price) + size * price) / totalSize;
+        entryPrice = (Math.abs(prevPos) * (entryPrice || price) + size * price) / totalSize;
         pos = newPos;
       } else {
         // Opposite direction (scale-out / reduction or flip)

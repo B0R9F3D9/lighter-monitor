@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { getStaticMarketMap, parseFeeUsd, parseTradeForView } from "../src/checker/api";
+import {
+  getStaticMarketMap,
+  parseFeeUsd,
+  parseImportedTradesJson,
+  parseTradeForView,
+  stitchTradeBatches,
+} from "../src/checker/api";
 import {
   formatCompactDuration,
   formatCompactK,
@@ -30,7 +36,13 @@ import {
   findPresetById,
   isTradeInDateRange,
 } from "../src/checker/date_filter";
-import type { HedgePair, MarketSummaryStat, ParsedTradeView } from "../src/checker/types";
+import type {
+  HedgePair,
+  LighterTrade,
+  MarketSummaryStat,
+  ParsedTradeView,
+  WithdrawalRecord,
+} from "../src/checker/types";
 
 function mockTrade(overrides: Partial<ParsedTradeView>): ParsedTradeView {
   return {
@@ -61,7 +73,7 @@ function createMockIndividualElements() {
     tradesCount: { textContent: "" } as HTMLElement,
     volume: { textContent: "" } as HTMLElement,
     realizedPnl: { textContent: "", className: "" } as HTMLElement,
-    fees: { textContent: "" } as HTMLElement,
+    fees: { textContent: "", className: "" } as HTMLElement,
     funding: { textContent: "", className: "", title: "" } as HTMLElement,
     unhedgedCount: { textContent: "", className: "" } as HTMLElement,
     avgOi: { textContent: "", className: "", title: "" } as HTMLElement,
@@ -1228,6 +1240,7 @@ describe("Hedge Matching Engine", () => {
       expect(els.volume.textContent).toBe("$0.00");
       expect(els.realizedPnl.textContent).toBe("$0.00");
       expect(els.fees.textContent).toBe("$0.00");
+      expect(els.fees.className).toContain("text-terminal-muted");
       expect(els.unhedgedCount.textContent).toBe("0");
       expect(els.avgOi.textContent).toBe("$0.00");
     });
@@ -1255,6 +1268,7 @@ describe("Hedge Matching Engine", () => {
       expect(els.realizedPnl.textContent).toBe("+$145.20");
       expect(els.realizedPnl.className).toContain("text-terminal-emerald");
       expect(els.fees.textContent).toBe("$8.45");
+      expect(els.fees.className).toContain("text-terminal-coral");
       expect(els.unhedgedCount.textContent).toBe("3");
       expect(els.unhedgedCount.className).toContain("text-terminal-coral");
       expect(els.avgOi.textContent).toBe("$12.5K");
@@ -1284,6 +1298,7 @@ describe("Hedge Matching Engine", () => {
       expect(els.realizedPnl.textContent).toBe("-$34.50");
       expect(els.realizedPnl.className).toContain("text-terminal-coral");
       expect(els.fees.textContent).toBe("$2.10");
+      expect(els.fees.className).toContain("text-terminal-coral");
       expect(els.unhedgedCount.textContent).toBe("0");
       expect(els.unhedgedCount.className).toContain("text-terminal-muted");
       expect(els.avgOi.textContent).toBe("$0.00");
@@ -1650,12 +1665,7 @@ describe("Hedge Matching Engine", () => {
         presetId: "week-9",
       };
 
-      const res = calculateAccountAverageOi(
-        [tClose],
-        filter,
-        10000,
-        fundingHistory,
-      );
+      const res = calculateAccountAverageOi([tClose], filter, 10000, fundingHistory);
 
       // Held $20,000 OI from t=0 to t=2000 (2000ms), flat ($0) from t=2000 to t=10000 (8000ms)
       // Integral = 20,000 * 2000 = 40,000,000
@@ -2853,6 +2863,335 @@ describe("Hedge Matching Engine", () => {
       expect(elements.countBadge.textContent).toBe("1 row");
       expect(elements.weightedDelta.title).toContain("(ETH)");
       expect(elements.netPnl.textContent).toContain("$17.00");
+    });
+  });
+
+  describe("Withdrawals Integration in Hedge Checker", () => {
+    it("parseImportedTradesJson correctly parses withdrawals array from JSON", () => {
+      const mockJson = JSON.stringify({
+        network: "rh",
+        account_index: 12345,
+        trades: [
+          {
+            trade_id: 1,
+            market_id: 1,
+            size: 1,
+            price: 100,
+            usd_amount: 100,
+            timestamp: 1720000000,
+            side: "BUY",
+          },
+        ],
+        withdrawals: [
+          {
+            id: "tx-1",
+            amount: "500.00",
+            amount_usd: 500,
+            timestamp: 1720001000,
+            status: "completed",
+            type: "fast",
+            l1_tx_hash: "0xabc123",
+            asset_id: 1,
+            symbol: "USDG",
+            fee: "1.50",
+          },
+          {
+            id: "tx-2",
+            amount: "250.00",
+            timestamp: 1720002000,
+            status: "pending",
+            type: "secure",
+            asset_id: 1,
+          },
+        ],
+      });
+
+      const parsed = parseImportedTradesJson(mockJson, "rh-export.json");
+      expect(parsed.hasWithdrawals).toBe(true);
+      expect(parsed.withdrawals?.length).toBe(2);
+      expect(parsed.withdrawals![0].amountUsd).toBe(500);
+      expect(parsed.withdrawals![0].symbol).toBe("USDG");
+      expect(parsed.withdrawals![0].status).toBe("completed");
+      expect(parsed.withdrawals![0].type).toBe("fast");
+      expect(parsed.withdrawals![1].amountUsd).toBe(250);
+      expect(parsed.withdrawals![1].status).toBe("pending");
+      expect(parsed.withdrawals![1].type).toBe("secure");
+    });
+
+    it("stitchTradeBatches deduplicates withdrawals across multiple batches", () => {
+      const batch1 = {
+        trades: [
+          {
+            trade_id: 1,
+            trade_id_str: "1",
+            market_id: 1,
+            size: 1,
+            price: 100,
+            usd_amount: 100,
+            timestamp: 1720000000,
+            side: "BUY" as const,
+          } as unknown as LighterTrade,
+        ],
+        accountIndex: 123,
+        accountIndices: [123],
+        network: "rh" as const,
+        withdrawals: [
+          {
+            id: "w-1",
+            amount: "100",
+            amountUsd: 100,
+            timestamp: 1720000000,
+            timestampMs: 1720000000000,
+            status: "completed",
+            type: "fast",
+            asset_id: 1,
+            symbol: "USDG",
+          },
+        ],
+      };
+
+      const batch2 = {
+        trades: [
+          {
+            trade_id: 2,
+            trade_id_str: "2",
+            market_id: 1,
+            size: 1,
+            price: 100,
+            usd_amount: 100,
+            timestamp: 1720000100,
+            side: "BUY" as const,
+          } as unknown as LighterTrade,
+        ],
+        accountIndex: 123,
+        accountIndices: [123],
+        network: "rh" as const,
+        withdrawals: [
+          {
+            id: "w-1", // duplicate
+            amount: "100",
+            amountUsd: 100,
+            timestamp: 1720000000,
+            timestampMs: 1720000000000,
+            status: "completed",
+            type: "fast",
+            asset_id: 1,
+            symbol: "USDG",
+          },
+          {
+            id: "w-2",
+            amount: "200",
+            amountUsd: 200,
+            timestamp: 1720005000,
+            timestampMs: 1720005000000,
+            status: "completed",
+            type: "secure",
+            asset_id: 1,
+            symbol: "USDG",
+          },
+        ],
+      };
+
+      const stitched = stitchTradeBatches([batch1, batch2]);
+      expect(stitched.hasWithdrawals).toBe(true);
+      expect(stitched.withdrawals?.length).toBe(2);
+      // Chronological descending: w-2 (1720005000000) should be first, w-1 second
+      expect(stitched.withdrawals![0].id).toBe("w-2");
+      expect(stitched.withdrawals![1].id).toBe("w-1");
+    });
+
+    it("calculateHedgeMetrics subtracts valid withdrawal fees from totalNetPnlUsd and ignores failed/refunded", () => {
+      const pair: HedgePair = {
+        id: "hedge-1",
+        marketSymbol: "ETH",
+        matchedSize: 1,
+        rhTradeId: "rh-1",
+        rhSide: "BUY",
+        rhPrice: 3000,
+        rhSize: 1,
+        rhFeeUsd: 1.5,
+        rhTimestampMs: 1000,
+        rhTimeFormatted: "10:00:00",
+        rhTxHash: "0x1",
+        rhRole: "TAKER",
+        coreTradeId: "core-1",
+        coreSide: "SELL",
+        corePrice: 3010,
+        coreSize: 1,
+        coreFeeUsd: 1.5,
+        coreTimestampMs: 1000,
+        coreTimeFormatted: "10:00:00",
+        coreTxHash: "0x2",
+        coreRole: "MAKER",
+        buyPrice: 3000,
+        sellPrice: 3010,
+        priceDelta: 10,
+        pricePnlUsd: 10, // +$10 slippage
+        totalFeesUsd: 3, // -$3 fees
+        netPnlUsd: 7, // without withdrawals: $7
+        notionalUsd: 3005,
+        pnlBps: 23.29,
+        timeDeltaSec: 0,
+        status: "HEDGED",
+      };
+
+      const rhWithdrawals: WithdrawalRecord[] = [
+        {
+          id: "rh-w-1",
+          amount: "50",
+          amountUsd: 50,
+          fee: "1.5",
+          feeUsd: 1.5,
+          timestamp: 1000,
+          timestampMs: 1000000,
+          status: "completed",
+          type: "fast",
+          asset_id: 1,
+        },
+        {
+          id: "rh-w-2",
+          amount: "100",
+          amountUsd: 100,
+          fee: "2.0",
+          feeUsd: 2.0,
+          timestamp: 2000,
+          timestampMs: 2000000,
+          status: "failed", // Should be ignored
+          type: "fast",
+          asset_id: 1,
+        },
+      ];
+
+      const coreWithdrawals: WithdrawalRecord[] = [
+        {
+          id: "core-w-1",
+          amount: "20",
+          amountUsd: 20,
+          fee: "0.5",
+          feeUsd: 0.5,
+          timestamp: 3000,
+          timestampMs: 3000000,
+          status: "completed",
+          type: "secure",
+          asset_id: 3,
+        },
+        {
+          id: "core-w-2",
+          amount: "30",
+          amountUsd: 30,
+          fee: "1.0",
+          feeUsd: 1.0,
+          timestamp: 4000,
+          timestampMs: 4000000,
+          status: "refunded", // Should be ignored
+          type: "secure",
+          asset_id: 3,
+        },
+      ];
+
+      const metrics = calculateHedgeMetrics([pair], [], 100, 200, 1, 1, [100], [200], {
+        rhWithdrawals,
+        coreWithdrawals,
+      });
+
+      expect(metrics.rhTotalWithdrawalsUsd).toBe(50);
+      expect(metrics.coreTotalWithdrawalsUsd).toBe(20);
+      expect(metrics.totalWithdrawalsUsd).toBe(70);
+      expect(metrics.rhTotalWithdrawalFeesUsd).toBe(1.5);
+      expect(metrics.coreTotalWithdrawalFeesUsd).toBe(0.5);
+      expect(metrics.totalWithdrawalFeesUsd).toBe(2.0);
+      expect(metrics.withdrawalsCount).toBe(2);
+      // Net PnL = Price PnL ($10) + Funding ($0) - Fees ($3) - Withdrawal Fees ($2) = $5
+      expect(metrics.totalNetPnlUsd).toBe(5);
+    });
+
+    it("updateHedgeExecutiveMetrics updates withdrawals with separate RH and Core counts", () => {
+      const elements = {
+        accountsBadge: { innerHTML: "", textContent: "" },
+        pairsCount: { textContent: "" },
+        hedgedVolume: { textContent: "" },
+        netPnl: { textContent: "", className: "", title: "" },
+        slippage: { textContent: "" },
+        fees: { textContent: "" },
+        funding: { textContent: "", className: "", title: "" },
+        withdrawals: { textContent: "", className: "", title: "" },
+        unhedgedCount: { textContent: "" },
+        avgOi: { textContent: "", className: "", title: "" },
+      } as any;
+
+      const mockMetrics = {
+        totalPairs: 1,
+        totalHedgedVolumeUsd: 1000,
+        totalNetPnlUsd: 2,
+        totalPricePnlUsd: 10,
+        totalFeesUsd: 5,
+        totalFundingUsd: null,
+        hasAnyFunding: false,
+        totalWithdrawalsUsd: 70,
+        totalWithdrawalFeesUsd: 3,
+        rhTotalWithdrawalFeesUsd: 2,
+        coreTotalWithdrawalFeesUsd: 1,
+        withdrawalsCount: 3,
+        rhWithdrawalsCount: 2,
+        coreWithdrawalsCount: 1,
+        totalUnhedgedTrades: 0,
+        unhedgedVolumeUsd: 0,
+        unhedgedFeesUsd: 0,
+        unhedgedRealizedPnlUsd: 0,
+        totalVolumeUsd: 1000,
+        overallNetPnlUsd: 2,
+        overallPnlBps: 20,
+        winCount: 1,
+        lossCount: 0,
+        winRatePercent: 100,
+        bestPairPnlUsd: 2,
+        worstPairPnlUsd: 2,
+        avgHoldDurationSec: 0,
+        firstTradeTime: 1000,
+        lastTradeTime: 2000,
+        rhTradesCount: 1,
+        coreTradesCount: 1,
+      } as any;
+
+      updateHedgeExecutiveMetrics(mockMetrics, elements);
+      expect(elements.withdrawals.textContent).toBe("RH: 2 / CORE: 1");
+      expect(elements.withdrawals.title).toContain(
+        "Withdrawals: RH: 2, Core: 1 · Total Fee: $3.00",
+      );
+      expect(elements.netPnl.title).toContain("- Withdraw Fees: $3.00");
+    });
+
+    it("updateIndividualAccountMetrics updates withdrawals with count", () => {
+      const elements = {
+        accountBadge: { textContent: "", className: "" },
+        tradesCount: { textContent: "" },
+        volume: { textContent: "" },
+        realizedPnl: { textContent: "", className: "" },
+        fees: { textContent: "" },
+        funding: { textContent: "", className: "", title: "" },
+        withdrawals: { textContent: "", className: "", title: "" },
+        unhedgedCount: { textContent: "", className: "" },
+        avgOi: { textContent: "", className: "", title: "" },
+        dailySummary: { innerHTML: "" },
+      } as any;
+
+      const mockMetrics = {
+        accountIndex: 31704,
+        network: "RH" as const,
+        tradesCount: 10,
+        totalVolumeUsd: 5000,
+        realizedPnlUsd: 120,
+        totalFeesUsd: 15,
+        totalFundingUsd: null,
+        totalWithdrawalsUsd: 50,
+        totalWithdrawalFeesUsd: 1.5,
+        withdrawalsCount: 2,
+        unhedgedCount: 0,
+      } as any;
+
+      updateIndividualAccountMetrics(mockMetrics, elements);
+      expect(elements.withdrawals.textContent).toBe("2");
+      expect(elements.withdrawals.title).toBe("RH Withdrawals: 2 (Fee: $1.50)");
     });
   });
 });

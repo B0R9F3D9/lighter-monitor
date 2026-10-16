@@ -10,6 +10,7 @@ import type {
   ParsedTradeView,
   PositionFundingRecord,
   StitchedTradesResult,
+  WithdrawalRecord,
 } from "./types";
 
 function getBaseApiUrl(network: CheckerNetwork): string {
@@ -713,6 +714,8 @@ export function stitchTradeBatches(
         network?: CheckerNetwork | null;
         l1Address?: string;
         fileName?: string;
+        funding_history?: PositionFundingRecord[];
+        withdrawals?: WithdrawalRecord[];
       }
   >,
 ): StitchedTradesResult {
@@ -728,6 +731,7 @@ export function stitchTradeBatches(
   const fundingByMarketId = new Map<number, number>();
   const fundingBySymbol = new Map<string, number>();
   const fundingHistoryMap = new Map<string, PositionFundingRecord>();
+  const withdrawalMap = new Map<string, WithdrawalRecord>();
   const fileNames: string[] = [];
 
   for (const batch of batches) {
@@ -777,6 +781,16 @@ export function stitchTradeBatches(
       }
     }
 
+    const bWithdrawals = (batch as any).withdrawals;
+    if (Array.isArray(bWithdrawals) && bWithdrawals.length > 0) {
+      for (const w of bWithdrawals) {
+        const key = w.id ? `id_${w.id}` : `${w.timestampMs}_${w.amount}_${w.asset_id}`;
+        if (!withdrawalMap.has(key)) {
+          withdrawalMap.set(key, w);
+        }
+      }
+    }
+
     for (const t of batch.trades) {
       totalRawTradesCount++;
       const key =
@@ -808,6 +822,10 @@ export function stitchTradeBatches(
   const primaryAccountIndex = accountIndices.length > 0 ? accountIndices[0] : null;
   const fundingHistory =
     fundingHistoryMap.size > 0 ? Array.from(fundingHistoryMap.values()) : undefined;
+  const mergedWithdrawals =
+    withdrawalMap.size > 0
+      ? Array.from(withdrawalMap.values()).toSorted((a, b) => b.timestampMs - a.timestampMs)
+      : undefined;
 
   return {
     trades: mergedTrades,
@@ -824,6 +842,8 @@ export function stitchTradeBatches(
     fundingBySymbol: fundingBySymbol.size > 0 ? fundingBySymbol : undefined,
     funding_history: fundingHistory,
     hasFundingHistory: Boolean(fundingHistory && fundingHistory.length > 0),
+    withdrawals: mergedWithdrawals,
+    hasWithdrawals: Boolean(mergedWithdrawals && mergedWithdrawals.length > 0),
   };
 }
 
@@ -1205,6 +1225,8 @@ export function parseImportedTradesJson(rawText: string, fileName?: string): Imp
   const fundingBySymbol = new Map<string, number>();
   let fundingHistory: PositionFundingRecord[] | undefined = undefined;
   let hasFundingHistory = false;
+  let withdrawals: WithdrawalRecord[] | undefined = undefined;
+  let hasWithdrawals = false;
 
   if (Array.isArray(parsed)) {
     trades = parsed;
@@ -1276,6 +1298,49 @@ export function parseImportedTradesJson(rawText: string, fileName?: string): Imp
     } else if (parsed.summary?.total_funding_usd !== undefined) {
       totalFundingUsd = parseFloat(parsed.summary.total_funding_usd) || 0;
     }
+
+    const rawWithdrawals = parsed.withdrawals || parsed.withdraw_history || parsed.withdraws;
+    if (Array.isArray(rawWithdrawals) && rawWithdrawals.length > 0) {
+      withdrawals = [];
+      for (const w of rawWithdrawals) {
+        if (!w || typeof w !== "object") continue;
+        const rawTs = w.timestamp_ms || w.timestampMs || w.timestamp;
+        const tsMs = normalizeTimestampMs(rawTs);
+        const amountNum = parseFloat(w.amount != null ? String(w.amount) : "0") || 0;
+        const rawFee = w.fee_usd ?? w.feeUsd ?? w.fee ?? w.usd_fee ?? w.fee_amount;
+        const feeNum =
+          rawFee != null && !isNaN(Number(rawFee)) ? parseFloat(String(rawFee)) : undefined;
+        withdrawals.push({
+          id: String(w.id != null ? w.id : `${tsMs}_${amountNum}`),
+          amount: w.amount != null ? String(w.amount) : String(amountNum),
+          amountUsd:
+            w.amount_usd != null
+              ? Number(w.amount_usd)
+              : w.amountUsd != null
+                ? Number(w.amountUsd)
+                : amountNum,
+          timestamp: w.timestamp != null ? Number(w.timestamp) : Math.floor(tsMs / 1000),
+          timestampMs: tsMs,
+          status: String(w.status || "completed").toLowerCase(),
+          type: String(w.type || "secure").toLowerCase(),
+          l1_tx_hash: w.l1_tx_hash || w.l1TxHash || w.tx_hash || "",
+          asset_id: Number(w.asset_id || 0),
+          symbol: w.symbol ? String(w.symbol) : undefined,
+          fee:
+            w.fee != null
+              ? String(w.fee)
+              : w.fee_amount != null
+                ? String(w.fee_amount)
+                : feeNum != null
+                  ? String(feeNum)
+                  : undefined,
+          feeUsd: feeNum,
+        });
+      }
+      if (withdrawals.length > 0) {
+        hasWithdrawals = true;
+      }
+    }
   }
 
   if (trades.length === 0) {
@@ -1339,5 +1404,7 @@ export function parseImportedTradesJson(rawText: string, fileName?: string): Imp
     fundingBySymbol: fundingBySymbol.size > 0 ? fundingBySymbol : undefined,
     funding_history: fundingHistory,
     hasFundingHistory,
+    withdrawals,
+    hasWithdrawals,
   };
 }

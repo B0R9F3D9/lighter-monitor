@@ -72,6 +72,21 @@ export interface AccountFundingSummary {
   bySymbol: Map<string, number>;
 }
 
+export interface WithdrawalRecord {
+  id: string;
+  amount: string | number;
+  amountUsd?: number;
+  timestamp: number;
+  timestampMs: number;
+  status: string; // "completed" | "pending" | "claimable" | "failed" | "refunded"
+  type: string; // "fast" | "secure"
+  l1_tx_hash?: string;
+  asset_id: number;
+  symbol?: string;
+  fee?: string | number;
+  feeUsd?: number;
+}
+
 export interface ImportedTradesResult {
   trades: LighterTrade[];
   accountIndex: number | null;
@@ -89,6 +104,8 @@ export interface ImportedTradesResult {
   fundingBySymbol?: Map<string, number>;
   funding_history?: PositionFundingRecord[];
   hasFundingHistory?: boolean;
+  withdrawals?: WithdrawalRecord[];
+  hasWithdrawals?: boolean;
 }
 
 export interface StitchedTradesResult {
@@ -106,6 +123,8 @@ export interface StitchedTradesResult {
   fundingBySymbol?: Map<string, number>;
   funding_history?: PositionFundingRecord[];
   hasFundingHistory?: boolean;
+  withdrawals?: WithdrawalRecord[];
+  hasWithdrawals?: boolean;
 }
 
 export interface CheckerSummaryMetrics {
@@ -278,6 +297,15 @@ export interface HedgeSummaryMetrics {
   totalFundingUsd?: number | null;
   rhTotalFundingUsd?: number | null;
   coreTotalFundingUsd?: number | null;
+  totalWithdrawalsUsd?: number;
+  rhTotalWithdrawalsUsd?: number;
+  coreTotalWithdrawalsUsd?: number;
+  totalWithdrawalFeesUsd?: number;
+  rhTotalWithdrawalFeesUsd?: number;
+  coreTotalWithdrawalFeesUsd?: number;
+  withdrawalsCount?: number;
+  rhWithdrawalsCount?: number;
+  coreWithdrawalsCount?: number;
   avgPnlBps: number;
   bestPairPnlUsd: number;
   worstPairPnlUsd: number;
@@ -333,6 +361,9 @@ export interface IndividualAccountMetrics {
   realizedPnlUsd: number;
   totalFeesUsd: number;
   totalFundingUsd?: number | null;
+  totalWithdrawalsUsd?: number;
+  totalWithdrawalFeesUsd?: number;
+  withdrawalsCount?: number;
   unhedgedCount: number;
   avgOiUsd?: number;
   avgOiDetails?: AccountAverageOiResult;
