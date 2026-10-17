@@ -76,28 +76,28 @@ function getSideCount(side: OrderBookLevel[] | FlatOrderBookSide): number {
 }
 
 export function findOptimalSize(
-  rhAsks: OrderBookLevel[] | FlatOrderBookSide,
-  coreBids: OrderBookLevel[] | FlatOrderBookSide,
   rhBids: OrderBookLevel[] | FlatOrderBookSide,
   coreAsks: OrderBookLevel[] | FlatOrderBookSide,
+  rhAsks: OrderBookLevel[] | FlatOrderBookSide,
+  coreBids: OrderBookLevel[] | FlatOrderBookSide,
   midPrice: number,
   mode: DynamicSizeMode = "min_burn",
   maxCapUsd: number = 50000,
 ): number {
   if (
     midPrice <= 0 ||
-    getSideCount(rhAsks) === 0 ||
-    getSideCount(coreBids) === 0 ||
     getSideCount(rhBids) === 0 ||
-    getSideCount(coreAsks) === 0
+    getSideCount(coreAsks) === 0 ||
+    getSideCount(rhAsks) === 0 ||
+    getSideCount(coreBids) === 0
   ) {
     return 10000;
   }
 
-  const d0 = getSideDepth(rhAsks);
-  const d1 = getSideDepth(coreBids);
-  const d2 = getSideDepth(rhBids);
-  const d3 = getSideDepth(coreAsks);
+  const d0 = getSideDepth(rhBids);
+  const d1 = getSideDepth(coreAsks);
+  const d2 = getSideDepth(rhAsks);
+  const d3 = getSideDepth(coreBids);
 
   let maxAvail = d0 < d1 ? d0 : d1;
   if (d2 < maxAvail) maxAvail = d2;
@@ -106,21 +106,21 @@ export function findOptimalSize(
   const upperLimit = Math.min(maxAvail, maxCapUsd > 0 ? maxCapUsd : 50000);
   if (upperLimit < 500) return Math.max(100, Math.floor(upperLimit));
 
-  const rhBestAsk = getBestPrice(rhAsks);
-  const coreBestBid = getBestPrice(coreBids);
   const rhBestBid = getBestPrice(rhBids);
   const coreBestAsk = getBestPrice(coreAsks);
+  const rhBestAsk = getBestPrice(rhAsks);
+  const coreBestBid = getBestPrice(coreBids);
 
-  const rawEntryDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
-  const rawExitDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
+  const rawEntryDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
+  const rawExitDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
   const rawSpreadBps = (rawEntryDragBps + rawExitDragBps) / 2;
 
   const l1Depth = Math.floor(
     Math.min(
-      getL1DepthUsd(rhAsks),
-      getL1DepthUsd(coreBids),
       getL1DepthUsd(rhBids),
       getL1DepthUsd(coreAsks),
+      getL1DepthUsd(rhAsks),
+      getL1DepthUsd(coreBids),
     ),
   );
 
@@ -151,15 +151,15 @@ export function findOptimalSize(
     const s = scratchCandidates[i]!;
     const q = s / midPrice;
 
-    if (!fastSimFillInto(staticSimEntryRh, rhAsks, q)) break;
-    if (!fastSimFillInto(staticSimEntryCore, coreBids, q)) break;
-    if (!fastSimFillInto(staticSimExitRh, rhBids, q)) break;
-    if (!fastSimFillInto(staticSimExitCore, coreAsks, q)) break;
+    if (!fastSimFillInto(staticSimEntryRh, rhBids, q)) break;
+    if (!fastSimFillInto(staticSimEntryCore, coreAsks, q)) break;
+    if (!fastSimFillInto(staticSimExitRh, rhAsks, q)) break;
+    if (!fastSimFillInto(staticSimExitCore, coreBids, q)) break;
 
     hasCompletedSim = true;
 
-    const entryLossUsd = staticSimEntryRh.totalCostUsd - staticSimEntryCore.totalCostUsd;
-    const exitLossUsd = staticSimExitCore.totalCostUsd - staticSimExitRh.totalCostUsd;
+    const entryLossUsd = staticSimEntryCore.totalCostUsd - staticSimEntryRh.totalCostUsd;
+    const exitLossUsd = staticSimExitRh.totalCostUsd - staticSimExitCore.totalCostUsd;
     const costUsd = entryLossUsd + exitLossUsd;
 
     if (costUsd <= 0) {
@@ -352,7 +352,7 @@ export function calculateMarketMetrics(
 
   const isDynamic = dynamicMode !== "none";
   const optimalSizeUsd = isDynamic
-    ? findOptimalSize(rhAsks, coreBids, rhBids, coreAsks, midPrice, dynamicMode, maxCapUsd)
+    ? findOptimalSize(rhBids, coreAsks, rhAsks, coreBids, midPrice, dynamicMode, maxCapUsd)
     : targetUsd;
   const effectiveTargetUsd = optimalSizeUsd;
 
@@ -367,10 +367,12 @@ export function calculateMarketMetrics(
   const res = target ?? createEmptyMetrics(m.symbol);
 
   // 4-Leg VWAP fills directly into pre-allocated legs!
-  simulateFillBaseInto(res.legs.entryRh, rhAsks, baseQty, true);
-  simulateFillBaseInto(res.legs.entryCore, coreBids, baseQty, false);
-  simulateFillBaseInto(res.legs.exitRh, rhBids, baseQty, false);
-  simulateFillBaseInto(res.legs.exitCore, coreAsks, baseQty, true);
+  // Entry: SHORT on RH (sell taker into rhBids), LONG on Core (buy taker into coreAsks)
+  simulateFillBaseInto(res.legs.entryRh, rhBids, baseQty, false);
+  simulateFillBaseInto(res.legs.entryCore, coreAsks, baseQty, true);
+  // Exit: CLOSE RH (buy taker into rhAsks), CLOSE Core (sell taker into coreBids)
+  simulateFillBaseInto(res.legs.exitRh, rhAsks, baseQty, true);
+  simulateFillBaseInto(res.legs.exitCore, coreBids, baseQty, false);
 
   const simEntryRh = res.legs.entryRh;
   const simEntryCore = res.legs.entryCore;
@@ -378,21 +380,21 @@ export function calculateMarketMetrics(
   const simExitCore = res.legs.exitCore;
 
   // Theoretical top-of-book spread
-  const rawEntryDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
-  const rawExitDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
+  const rawEntryDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
+  const rawExitDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
   const rawSpreadBps = (rawEntryDragBps + rawExitDragBps) / 2;
 
   // Real VWAP drag in bps
-  const vwapEntryDragBps = ((simEntryRh.avgPrice - simEntryCore.avgPrice) / midPrice) * 10000;
-  const vwapExitDragBps = ((simExitCore.avgPrice - simExitRh.avgPrice) / midPrice) * 10000;
+  const vwapEntryDragBps = ((simEntryCore.avgPrice - simEntryRh.avgPrice) / midPrice) * 10000;
+  const vwapExitDragBps = ((simExitRh.avgPrice - simExitCore.avgPrice) / midPrice) * 10000;
   const rawVwapDragBps = (vwapEntryDragBps + vwapExitDragBps) / 2;
   const slippageBps = rawVwapDragBps - rawSpreadBps;
 
   if (isNaN(rawVwapDragBps) || !isFinite(rawVwapDragBps)) return null;
 
   // Instant Entry Drag ($) vs Exit Drag ($)
-  const entryLossUsd = simEntryRh.totalCostUsd - simEntryCore.totalCostUsd;
-  const exitLossUsd = simExitCore.totalCostUsd - simExitRh.totalCostUsd;
+  const entryLossUsd = simEntryCore.totalCostUsd - simEntryRh.totalCostUsd;
+  const exitLossUsd = simExitRh.totalCostUsd - simExitCore.totalCostUsd;
 
   // Real Round-Trip Dollar Loss: Sum of Entry Loss + Exit Loss
   const costUsd = entryLossUsd + exitLossUsd;

@@ -370,16 +370,58 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     // Base quantity: $10,000 / $100 = 100 base units
     expect(metrics.baseQty).toBe(100.0);
 
-    // Entry: Buy RH at 100.10 ($10,010), Sell Core at 99.95 ($9,995) -> Loss = $15.00
+    // Entry: Short RH at 99.90 ($9,990), Long Core at 100.05 ($10,005) -> Loss = $15.00
     expect(metrics.entryLossUsd).toBeCloseTo(15.0, 2);
 
-    // Exit: Buy Core at 100.05 ($10,005), Sell RH at 99.90 ($9,990) -> Loss = $15.00
+    // Exit: Close RH Buy at 100.10 ($10,010), Close Core Sell at 99.95 ($9,995) -> Loss = $15.00
     expect(metrics.exitLossUsd).toBeCloseTo(15.0, 2);
 
     // Real round-trip loss: $15 + $15 = $30.00
     expect(metrics.rawCostUsd).toBeCloseTo(30.0, 2);
     expect(metrics.costUsd).toBeCloseTo(30.0, 2);
     expect(metrics.status).toBe("READY");
+  });
+
+  it("calculates asymmetric entry and exit when shorting premium RH and longing discount Core", () => {
+    // RH: Ask 102.10, Bid 101.90 (Mid 102.0)
+    // Core: Ask 100.05, Bid 99.95 (Mid 100.0)
+    const rhBook: OrderBook = {
+      marketId: 1,
+      asks: new Map([[102.1, 100]]),
+      bids: new Map([[101.9, 100]]),
+      isSnapshotReceived: true,
+      lastUpdatedTs: Date.now(),
+      offset: 1,
+    };
+    const coreBook: OrderBook = {
+      marketId: 2,
+      asks: new Map([[100.05, 100]]),
+      bids: new Map([[99.95, 100]]),
+      isSnapshotReceived: true,
+      lastUpdatedTs: Date.now(),
+      offset: 1,
+    };
+
+    const now = Date.now();
+    const metrics = calculateMarketMetrics(dummyMarket, 10100, coreBook, rhBook, now, now);
+    expect(metrics).not.toBeNull();
+    if (!metrics) return;
+
+    // Mid: (102 + 100) / 2 = 101.0 -> 100 base units for $10,100
+    expect(metrics.midPrice).toBe(101.0);
+    expect(metrics.baseQty).toBeCloseTo(100.0, 2);
+
+    // Entry: Sell 100 RH @ 101.90 ($10,190), Buy 100 Core @ 100.05 ($10,005)
+    // Entry Loss = CostCore ($10,005) - RecvRH ($10,190) = -$185.00 (profited on entry!)
+    expect(metrics.entryLossUsd).toBeCloseTo(-185.0, 2);
+
+    // Exit: Buy 100 RH @ 102.10 ($10,210), Sell 100 Core @ 99.95 ($9,995)
+    // Exit Loss = CostRH ($10,210) - RecvCore ($9,995) = +$215.00
+    expect(metrics.exitLossUsd).toBeCloseTo(215.0, 2);
+
+    // Total RT loss = -$185 + $215 = $30.00
+    expect(metrics.rawCostUsd).toBeCloseTo(30.0, 2);
+    expect(metrics.costUsd).toBeCloseTo(30.0, 2);
   });
 
   it("calculates instant real-time rawCostUsd through getMetrics and derives consistent bps and entry/exit loss", () => {
@@ -481,10 +523,10 @@ describe("Spread Terminal: Dynamic Position Sizing (Min Burn vs Max Vol)", () =>
 
     // min_burn should NOT sweep into Level 2 because unit cost worsens!
     const minBurnSize = findOptimalSize(
-      rhAsks,
-      coreBids,
       rhBids,
       coreAsks,
+      rhAsks,
+      coreBids,
       100.0,
       "min_burn",
       30000,
@@ -492,7 +534,7 @@ describe("Spread Terminal: Dynamic Position Sizing (Min Burn vs Max Vol)", () =>
     expect(minBurnSize).toBeLessThanOrEqual(10000);
 
     // max_vol will accept higher slippage to maximize position volume
-    const maxVolSize = findOptimalSize(rhAsks, coreBids, rhBids, coreAsks, 100.0, "max_vol", 30000);
+    const maxVolSize = findOptimalSize(rhBids, coreAsks, rhAsks, coreBids, 100.0, "max_vol", 30000);
     expect(maxVolSize).toBeGreaterThan(minBurnSize);
   });
 
@@ -503,7 +545,7 @@ describe("Spread Terminal: Dynamic Position Sizing (Min Burn vs Max Vol)", () =>
     const coreAsks = [{ price: 100.05, totalBase: 1000, totalUsd: 100050 }];
 
     // Cap at $15,000 even though book has $100K depth
-    const optSize = findOptimalSize(rhAsks, coreBids, rhBids, coreAsks, 100.0, "min_burn", 15000);
+    const optSize = findOptimalSize(rhBids, coreAsks, rhAsks, coreBids, 100.0, "min_burn", 15000);
     expect(optSize).toBeLessThanOrEqual(15000);
   });
 
@@ -513,7 +555,7 @@ describe("Spread Terminal: Dynamic Position Sizing (Min Burn vs Max Vol)", () =>
     const rhBids = [{ price: 99.9, totalBase: 2, totalUsd: 199.8 }];
     const coreAsks = [{ price: 100.1, totalBase: 2, totalUsd: 200.2 }];
 
-    const optSize = findOptimalSize(rhAsks, coreBids, rhBids, coreAsks, 100.0, "min_burn", 20000);
+    const optSize = findOptimalSize(rhBids, coreAsks, rhAsks, coreBids, 100.0, "min_burn", 20000);
     expect(optSize).toBeLessThanOrEqual(500);
     expect(optSize).toBeGreaterThanOrEqual(100);
   });

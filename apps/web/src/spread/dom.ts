@@ -414,31 +414,31 @@ export function createDetailRowElement(
 
         <!-- 4 Leg Cards (4 vertical blocks) -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 min-w-0">
-          <!-- Leg 1: RH LONG -->
-          <div class="bg-terminal-surface border border-terminal-emerald/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
-            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-emerald">
-              <span>LEG 1: RH LONG</span>
-              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-emeraldMuted border border-terminal-emerald/30">Buy Ask</span>
+          <!-- Leg 1: RH SHORT -->
+          <div class="bg-terminal-surface border border-terminal-coral/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
+            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-coral">
+              <span>LEG 1: RH SHORT</span>
+              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-coralMuted border border-terminal-coral/30">Sell Bid</span>
             </div>
             <div class="text-[10px] space-y-0.5 text-terminal-secondary">
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL1Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL1Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL1Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL1Slip" class="text-terminal-emerald tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL1Slip" class="text-terminal-coral tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL1Swept" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Depth:</span> <span id="dtlL1Depth" class="tabular-nums shrink-0"></span></div>
             </div>
           </div>
 
-          <!-- Leg 2: CORE SHORT -->
-          <div class="bg-terminal-surface border border-terminal-coral/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
-            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-coral">
-              <span>LEG 2: CORE SHORT</span>
-              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-coralMuted border border-terminal-coral/30">Sell Bid</span>
+          <!-- Leg 2: CORE LONG -->
+          <div class="bg-terminal-surface border border-terminal-emerald/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
+            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-emerald">
+              <span>LEG 2: CORE LONG</span>
+              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-emeraldMuted border border-terminal-emerald/30">Buy Ask</span>
             </div>
             <div class="text-[10px] space-y-0.5 text-terminal-secondary">
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL2Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL2Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL2Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL2Slip" class="text-terminal-coral tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL2Slip" class="text-terminal-emerald tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL2Swept" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Depth:</span> <span id="dtlL2Depth" class="tabular-nums shrink-0"></span></div>
             </div>
@@ -448,10 +448,10 @@ export function createDetailRowElement(
           <div class="bg-terminal-surface border border-terminal-border p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
             <div class="flex items-center justify-between text-[10px] font-bold text-terminal-secondary">
               <span>LEG 3: CLOSE RH</span>
-              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Sell Bid</span>
+              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Buy Ask</span>
             </div>
             <div class="text-[10px] space-y-0.5 text-terminal-secondary">
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL3Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL3Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL3Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL3Slip" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL3Swept" class="tabular-nums shrink-0"></span></div>
@@ -463,10 +463,10 @@ export function createDetailRowElement(
           <div class="bg-terminal-surface border border-terminal-border p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
             <div class="flex items-center justify-between text-[10px] font-bold text-terminal-secondary">
               <span>LEG 4: CLOSE CORE</span>
-              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Buy Ask</span>
+              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Sell Bid</span>
             </div>
             <div class="text-[10px] space-y-0.5 text-terminal-secondary">
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL4Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL4Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL4Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL4Slip" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL4Swept" class="tabular-nums shrink-0"></span></div>
@@ -638,29 +638,29 @@ export function updateDetailRow(
   setTextIfChanged(c.dtlExit, formatMoney(r.exitLossUsd));
   setTextIfChanged(c.dtlExitDrag, `(${formatBps(r.exitDragBps, true)})`);
 
-  // Leg 1: RH LONG
-  setTextIfChanged(c.dtlL1Top, formatPrice(l.rhBestAsk));
+  // Leg 1: RH SHORT
+  setTextIfChanged(c.dtlL1Top, formatPrice(l.rhBestBid));
   setTextIfChanged(c.dtlL1Fill, formatPrice(l.entryRh.avgPrice));
   setTextIfChanged(c.dtlL1Slip, formatBps(l.entryRh.slippageBps, true));
   setTextIfChanged(c.dtlL1Swept, String(l.entryRh.levelsSwept));
   setTextIfChanged(c.dtlL1Depth, formatMoney(l.entryRh.totalAvailableUsd));
 
-  // Leg 2: CORE SHORT
-  setTextIfChanged(c.dtlL2Top, formatPrice(l.coreBestBid));
+  // Leg 2: CORE LONG
+  setTextIfChanged(c.dtlL2Top, formatPrice(l.coreBestAsk));
   setTextIfChanged(c.dtlL2Fill, formatPrice(l.entryCore.avgPrice));
   setTextIfChanged(c.dtlL2Slip, formatBps(l.entryCore.slippageBps, true));
   setTextIfChanged(c.dtlL2Swept, String(l.entryCore.levelsSwept));
   setTextIfChanged(c.dtlL2Depth, formatMoney(l.entryCore.totalAvailableUsd));
 
   // Leg 3: CLOSE RH
-  setTextIfChanged(c.dtlL3Top, formatPrice(l.rhBestBid));
+  setTextIfChanged(c.dtlL3Top, formatPrice(l.rhBestAsk));
   setTextIfChanged(c.dtlL3Fill, formatPrice(l.exitRh.avgPrice));
   setTextIfChanged(c.dtlL3Slip, formatBps(l.exitRh.slippageBps, true));
   setTextIfChanged(c.dtlL3Swept, String(l.exitRh.levelsSwept));
   setTextIfChanged(c.dtlL3Depth, formatMoney(l.exitRh.totalAvailableUsd));
 
   // Leg 4: CLOSE CORE
-  setTextIfChanged(c.dtlL4Top, formatPrice(l.coreBestAsk));
+  setTextIfChanged(c.dtlL4Top, formatPrice(l.coreBestBid));
   setTextIfChanged(c.dtlL4Fill, formatPrice(l.exitCore.avgPrice));
   setTextIfChanged(c.dtlL4Slip, formatBps(l.exitCore.slippageBps, true));
   setTextIfChanged(c.dtlL4Swept, String(l.exitCore.levelsSwept));
