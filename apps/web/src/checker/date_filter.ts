@@ -317,15 +317,6 @@ export function isTradeInDateRange(
 }
 
 /**
- * Formats a short readable label for the active date filter.
- */
-export function formatDateRangeFilterLabel(filter: ActiveDateFilter): string {
-  if (filter.presetId === "all") return "All Time";
-  if (filter.weekNumber) return `Week ${filter.weekNumber}`;
-  return filter.label;
-}
-
-/**
  * Populates a select dropdown with formatted preset options and optgroups.
  */
 export function populatePresetSelect(
@@ -374,68 +365,4 @@ export function populatePresetSelect(
   selectEl.appendChild(optCustom);
 
   selectEl.value = selectedId;
-}
-
-/**
- * Renders the 20-week campaign grid inside a modal with status badges and click handlers.
- */
-export function renderPromoWeeksGrid(
-  containerEl: HTMLElement,
-  onSelectWeek: (preset: DateRangePreset) => void,
-  activePresetId?: string,
-  nowMs = Date.now(),
-): void {
-  containerEl.innerHTML = "";
-  const weeks = getRobinhoodPromoWeeks(nowMs);
-  const frag = document.createDocumentFragment();
-
-  for (const w of weeks) {
-    const card = document.createElement("div");
-    const isActive = activePresetId === w.id;
-    const isCurrent = w.status === "current";
-    const isCompleted = w.status === "completed";
-
-    let borderClass = "border-terminal-border hover:border-terminal-accent/70";
-    let bgClass = "bg-terminal-bg/70 hover:bg-terminal-surface";
-    let badgeHtml = "";
-
-    if (isActive) {
-      borderClass = "border-terminal-accent ring-1 ring-terminal-accent";
-      bgClass = "bg-terminal-accent/15";
-    }
-
-    if (isCurrent) {
-      badgeHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-terminal-emerald/20 text-terminal-emerald border border-terminal-emerald/40 uppercase tracking-wider">CURRENT</span>`;
-    } else if (isCompleted) {
-      badgeHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-terminal-surface text-terminal-muted border border-terminal-border uppercase tracking-wider">COMPLETED</span>`;
-    } else {
-      badgeHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium text-terminal-muted/60 uppercase tracking-wider">UPCOMING</span>`;
-    }
-
-    card.className = `p-2.5 rounded border ${borderClass} ${bgClass} transition cursor-pointer select-none flex flex-col justify-between gap-1.5`;
-    card.innerHTML = `
-      <div class="flex items-center justify-between gap-2">
-        <div class="flex items-center gap-1.5">
-          <span class="font-bold text-white text-xs">${w.shortLabel}</span>
-          <span class="text-terminal-secondary text-[11px] font-semibold">Week ${w.weekNumber}</span>
-        </div>
-        ${badgeHtml}
-      </div>
-      <div class="text-[11px] text-terminal-muted tabular-nums">
-        ${w.startDateFormatted} 00:00 → ${w.endDateFormatted} 00:00 UTC
-      </div>
-      <div class="text-[10px] text-terminal-muted/80 flex items-center justify-between pt-0.5 border-t border-terminal-borderSubtle">
-        <span>Snapshot: Fri 00:00 UTC</span>
-        <span class="text-terminal-accent font-semibold text-[10px]">Select &rarr;</span>
-      </div>
-    `;
-
-    card.addEventListener("click", () => {
-      onSelectWeek(w);
-    });
-
-    frag.appendChild(card);
-  }
-
-  containerEl.appendChild(frag);
 }

@@ -1,12 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  calculateTradeMetrics,
-  formatTimestampUtc,
-  normalizeTimestampMs,
-  parseTradeForView,
-  prepareExportPayload,
-  resolveAccountIndex,
-} from "../src/checker/api";
+import { formatTimestampUtc, normalizeTimestampMs, parseTradeForView } from "../src/checker/api";
 import type { LighterTrade } from "../src/checker/types";
 
 describe("Checker: API & Calculations", () => {
@@ -66,21 +59,6 @@ describe("Checker: API & Calculations", () => {
     expect(formatted).toBe("2024-10-02 00:00:00");
   });
 
-  it("calculateTradeMetrics calculates exact volume, PnL, counts and fees", () => {
-    const metrics = calculateTradeMetrics(mockTrades, 12345);
-
-    expect(metrics.totalTrades).toBe(2);
-    expect(metrics.totalVolumeUsd).toBe(6500.0);
-    expect(metrics.totalRealizedPnl).toBe(124.75); // 150.25 + (-25.50)
-    expect(metrics.buyTradesCount).toBe(1);
-    expect(metrics.sellTradesCount).toBe(1);
-    expect(metrics.takerTradesCount).toBe(1); // trade 1
-    expect(metrics.makerTradesCount).toBe(1); // trade 2
-    expect(metrics.uniqueMarketsCount).toBe(2);
-    expect(metrics.firstTradeTime).toBe(1727827200000);
-    expect(metrics.lastTradeTime).toBe(1727830800000);
-  });
-
   it("parseTradeForView parses buyer trade as BUY, TAKER with positive PnL", () => {
     const marketMap = new Map<number, string>([[1, "ETH-PERP"]]);
     const parsed = parseTradeForView(mockTrades[0], 12345, marketMap);
@@ -107,34 +85,17 @@ describe("Checker: API & Calculations", () => {
     expect(parsed.realizedPnl).toBe(-25.5);
   });
 
-  it("resolveAccountIndex parses numeric strings correctly", async () => {
-    const res = await resolveAccountIndex("rh", "12345");
-    expect(res.accountIndex).toBe(12345);
-  });
-
-  it("resolveAccountIndex throws on empty or invalid input", async () => {
-    expect(resolveAccountIndex("rh", "")).rejects.toThrow("Please enter an Account Index");
-    expect(resolveAccountIndex("rh", "invalid-id")).rejects.toThrow("Invalid account format");
-  });
-
-  it("prepareExportPayload generates structured export JSON with metadata and optional truncation", () => {
-    const payload = prepareExportPayload(mockTrades, "rh", 12345, undefined, true, 150000);
-
-    expect(payload.version).toBe("1.0");
-    expect(payload.network).toBe("rh");
-    expect(payload.account_index).toBe(12345);
-    expect(payload.total_trades).toBe(2);
-    expect(payload.truncated).toBe(true);
-    expect(payload.row_cap).toBe(150000);
-    expect(payload.summary.total_volume_usd).toBe(6500.0);
-    expect(payload.summary.total_realized_pnl_usd).toBe(124.75);
-    expect(payload.trades.length).toBe(2);
-  });
-
   it("parseImportedTradesJson parses truncation flags correctly", async () => {
     const { parseImportedTradesJson } = await import("../src/checker/api");
-    const payload = prepareExportPayload(mockTrades, "rh", 12345, undefined, true, 150000);
-    const jsonStr = JSON.stringify(payload);
+    const testPayload = {
+      version: "1.0",
+      network: "rh",
+      account_index: 12345,
+      truncated: true,
+      row_cap: 150000,
+      trades: mockTrades,
+    };
+    const jsonStr = JSON.stringify(testPayload);
 
     const parsed = parseImportedTradesJson(jsonStr);
     expect(parsed.isTruncated).toBe(true);
@@ -143,8 +104,13 @@ describe("Checker: API & Calculations", () => {
 
   it("parseImportedTradesJson cleanly handles UTF-8 BOM prefix without errors", async () => {
     const { parseImportedTradesJson } = await import("../src/checker/api");
-    const payload = prepareExportPayload(mockTrades, "rh", 12345);
-    const jsonWithBom = "\uFEFF" + JSON.stringify(payload);
+    const testPayload = {
+      version: "1.0",
+      network: "rh",
+      account_index: 12345,
+      trades: mockTrades,
+    };
+    const jsonWithBom = "\uFEFF" + JSON.stringify(testPayload);
 
     const parsed = parseImportedTradesJson(jsonWithBom);
     expect(parsed.trades.length).toBe(2);
@@ -265,61 +231,6 @@ describe("Checker: API & Calculations", () => {
     expect(result.unhedged.length).toBe(0);
     // 5,000 trades matched in under 150ms thanks to O(N+M) sliding window (instead of seconds)
     expect(elapsed).toBeLessThan(150);
-  });
-
-  it("attributeFundingToTrades attributes account position funding proportionally to trades", async () => {
-    const { attributeFundingToTrades } = await import("../src/checker/api");
-
-    const trades: any[] = [
-      {
-        marketSymbol: "NVDA",
-        usdValue: 1000,
-        fundingUsd: 0,
-      },
-      {
-        marketSymbol: "NVDA",
-        usdValue: 3000,
-        fundingUsd: 0,
-      },
-      {
-        marketSymbol: "BTC",
-        usdValue: 5000,
-        fundingUsd: 0,
-      },
-    ];
-
-    const fundingSummary = {
-      totalFundingUsd: -4.0,
-      byMarketUsd: {
-        NVDA: -4.0, // trader paid $4.00 funding total on NVDA
-        BTC: 10.0, // trader received $10.00 funding on BTC
-      },
-    };
-
-    attributeFundingToTrades(trades, fundingSummary);
-
-    // NVDA total notional is 4000. Trade 1 has 1000/4000 = 25% -> -1.0
-    expect(trades[0].fundingUsd).toBeCloseTo(-1.0, 4);
-    // Trade 2 has 3000/4000 = 75% -> -3.0
-    expect(trades[1].fundingUsd).toBeCloseTo(-3.0, 4);
-    // BTC trade has 100% of BTC -> 10.0
-    expect(trades[2].fundingUsd).toBeCloseTo(10.0, 4);
-  });
-
-  it("calculateTradeMetrics sums totalFundingUsd across trades", () => {
-    const tradesWithFunding: LighterTrade[] = [
-      {
-        ...mockTrades[0],
-        total_funding_paid_out: "-1.50",
-      },
-      {
-        ...mockTrades[1],
-        funding: 0.5,
-      },
-    ];
-
-    const metrics = calculateTradeMetrics(tradesWithFunding, 12345);
-    expect(metrics.totalFundingUsd).toBeCloseTo(-1.0, 4);
   });
 
   it("processTradesFundingHistory correctly accumulates funding and assigns proportionally to position close", async () => {

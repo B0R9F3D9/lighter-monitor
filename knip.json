@@ -10,7 +10,6 @@
     "apps/web/src/spread/main.ts",
     "apps/web/src/analytics/main.ts",
     "apps/web/src/checker/main.ts",
-    "apps/web/src/checker/hedge_main.ts",
     "apps/web/src/checker/bookmarklet_script.js"
   ],
   "project": [

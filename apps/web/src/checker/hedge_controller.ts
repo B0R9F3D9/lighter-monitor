@@ -99,15 +99,6 @@ export class HedgeController {
   private btnCloseExportModal: HTMLElement | null = null;
   private btnDismissExportModal: HTMLElement | null = null;
 
-  // Notification Status Card
-  private statusCard: HTMLElement | null = null;
-  private statusDot: HTMLElement | null = null;
-  private statusText: HTMLElement | null = null;
-  private statusCountdown: HTMLElement | null = null;
-  private btnCloseStatus: HTMLElement | null = null;
-  private statusTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  private countdownIntervalId: ReturnType<typeof setInterval> | null = null;
-
   // Dropzones & File inputs
   private dropzoneRh: HTMLElement | null = null;
   private dropzoneCore: HTMLElement | null = null;
@@ -267,13 +258,6 @@ export class HedgeController {
     this.btnOpenExportHelpHedge = document.getElementById("btnOpenExportHelpHedge");
     this.btnCloseExportModal = document.getElementById("btnCloseExportModal");
     this.btnDismissExportModal = document.getElementById("btnDismissExportModal");
-
-    // Notification Status Card
-    this.statusCard = document.getElementById("statusCard");
-    this.statusDot = document.getElementById("statusDot");
-    this.statusText = document.getElementById("statusText");
-    this.statusCountdown = document.getElementById("statusCountdown");
-    this.btnCloseStatus = document.getElementById("btnCloseStatus");
 
     // Dual Dropzones
     this.dropzoneRh = document.getElementById("dropzoneRh");
@@ -474,12 +458,6 @@ export class HedgeController {
     this.btnSubmitPasteJson?.addEventListener("click", () => this.handlePasteSubmit());
     this.pasteModal?.addEventListener("click", (e) => {
       if (e.target === this.pasteModal) this.closePasteModal();
-    });
-
-    // Notification close
-    this.btnCloseStatus?.addEventListener("click", () => {
-      this.clearStatusTimers();
-      this.statusCard?.classList.add("hidden");
     });
 
     // Dual Dropzones
@@ -703,10 +681,7 @@ export class HedgeController {
 
   public handlePasteSubmit(): void {
     const rawText = this.textareaPasteJson?.value?.trim() || "";
-    if (!rawText) {
-      this.showStatusError("No JSON text provided.");
-      return;
-    }
+    if (!rawText) return;
 
     this.uploadSessionId++;
     try {
@@ -731,7 +706,7 @@ export class HedgeController {
       this.closePasteModal();
       this.applyHedgeBatches();
     } catch (err: any) {
-      this.showStatusError(`Failed to parse pasted JSON: ${err.message || String(err)}`);
+      console.error("Failed to parse pasted JSON:", err);
     }
   }
 
@@ -755,9 +730,6 @@ export class HedgeController {
             this.coreBatches = [...this.coreBatches, parsed];
           }
           this.applyHedgeBatches();
-          this.showStatusSuccess(
-            `Added ${parsed.trades.length} trades to ${slot === "rh" ? "RH" : "Core"} from clipboard.`,
-          );
           return;
         }
       }
@@ -784,7 +756,6 @@ export class HedgeController {
         file.type === "";
 
       if (!isJson) {
-        this.showStatusError(`Skipped "${file.name}": not a valid .json file.`);
         continue;
       }
 
@@ -793,12 +764,10 @@ export class HedgeController {
         if (sessionId !== this.uploadSessionId) return;
 
         if (!/\S/.test(text)) {
-          this.showStatusError(`Skipped "${file.name}": file is empty.`);
           continue;
         }
 
-        this.showStatusSuccess(`Parsing "${file.name}"...`);
-        // Yield to event loop to keep UI responsive with large files and allow browser to paint status
+        // Yield to event loop to keep UI responsive with large files
         await new Promise((r) => setTimeout(r, 0));
         if (sessionId !== this.uploadSessionId) return;
 
@@ -824,7 +793,7 @@ export class HedgeController {
         }
       } catch (err: any) {
         if (sessionId === this.uploadSessionId) {
-          this.showStatusError(`Error reading "${file.name}": ${err.message || String(err)}`);
+          console.error(`Error reading "${file.name}":`, err);
         }
       }
     }
@@ -914,26 +883,6 @@ export class HedgeController {
       this.recalculateAndRenderHedge();
       this.hedgeEmptyStatePanel?.classList.add("hidden");
       this.hedgeLoadedToolbar?.classList.remove("hidden");
-
-      const rhAccStr =
-        this.rhAccountIndices.length > 0
-          ? this.rhAccountIndices.map((a) => `#${a}`).join(", ")
-          : `${this.rhAccountIndex ?? "--"}`;
-      const coreAccStr =
-        this.coreAccountIndices.length > 0
-          ? this.coreAccountIndices.map((a) => `#${a}`).join(", ")
-          : `${this.coreAccountIndex ?? "--"}`;
-      this.showStatusSuccess(
-        `Hedge audit ready: matched ${this.allHedgePairs.length} pairs between RH (${rhAccStr}) and Core (${coreAccStr}).`,
-      );
-    } else if (this.rhRawTrades.length > 0) {
-      this.showStatusSuccess(
-        `Loaded RH: ${this.rhRawTrades.length} trades across ${this.rhBatches.length} file(s). Now add your Core file(s).`,
-      );
-    } else if (this.coreRawTrades.length > 0) {
-      this.showStatusSuccess(
-        `Loaded Core: ${this.coreRawTrades.length} trades across ${this.coreBatches.length} file(s). Now add your RH file(s).`,
-      );
     }
   }
 
@@ -1796,66 +1745,5 @@ export class HedgeController {
           ? `Export CSV (${this.selectedHedgeRowIds.size})`
           : "Export CSV";
     }
-  }
-
-  // ==========================================
-  // NOTIFICATIONS
-  // ==========================================
-
-  private clearStatusTimers(): void {
-    if (this.statusTimeoutId) {
-      clearTimeout(this.statusTimeoutId);
-      this.statusTimeoutId = null;
-    }
-    if (this.countdownIntervalId) {
-      clearInterval(this.countdownIntervalId);
-      this.countdownIntervalId = null;
-    }
-  }
-
-  private showStatusSuccess(message: string, durationMs = 5000): void {
-    this.clearStatusTimers();
-    if (!this.statusCard) return;
-
-    this.statusCard.className =
-      "bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono transition-all duration-150";
-    if (this.statusDot) this.statusDot.className = "w-2 h-2 rounded-full bg-terminal-emerald";
-    if (this.statusText) {
-      this.statusText.textContent = message;
-      this.statusText.className = "text-white font-medium";
-    }
-
-    let remainingSec = Math.ceil(durationMs / 1000);
-    if (this.statusCountdown) this.statusCountdown.textContent = `${remainingSec}s`;
-
-    this.countdownIntervalId = setInterval(() => {
-      remainingSec -= 1;
-      if (this.statusCountdown) {
-        this.statusCountdown.textContent = remainingSec > 0 ? `${remainingSec}s` : "";
-      }
-    }, 1000);
-
-    this.statusTimeoutId = setTimeout(() => {
-      this.clearStatusTimers();
-      this.statusCard?.classList.add("hidden");
-    }, durationMs);
-
-    this.statusCard.classList.remove("hidden");
-  }
-
-  private showStatusError(errorMsg: string): void {
-    this.clearStatusTimers();
-    if (!this.statusCard) return;
-
-    this.statusCard.className =
-      "bg-terminal-coral/10 border border-terminal-coral/40 rounded p-3 text-xs font-mono transition-all duration-150";
-    if (this.statusDot) this.statusDot.className = "w-2 h-2 rounded-full bg-terminal-coral";
-    if (this.statusText) {
-      this.statusText.textContent = errorMsg;
-      this.statusText.className = "text-terminal-coral font-medium";
-    }
-    if (this.statusCountdown) this.statusCountdown.textContent = "";
-
-    this.statusCard.classList.remove("hidden");
   }
 }

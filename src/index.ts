@@ -5,10 +5,7 @@ import {
   HUB_HTML_HASH,
   SPREAD_HTML_HASH,
   ANALYTICS_HTML_HASH,
-  CHECKER_SOLO_HTML_HASH,
-  CHECKER_HEDGE_HTML_HASH,
   CHECKER_HTML_HASH,
-  HEDGE_HTML_HASH,
 } from "../apps/web/src/version";
 
 /**
@@ -29,13 +26,14 @@ async function serveLocalBunAsset(request: Request): Promise<Response | null> {
   } else if (pathname === "/analytics" || pathname === "/analytics/") {
     pathname = "/analytics.html";
   } else if (pathname === "/checker" || pathname === "/checker/") {
-    return Response.redirect(new URL("/checker/solo", request.url).toString(), 302);
-  } else if (pathname === "/hedge" || pathname === "/hedge/") {
-    return Response.redirect(new URL("/checker/hedge", request.url).toString(), 302);
-  } else if (pathname === "/checker/solo" || pathname === "/checker/solo/") {
-    pathname = "/checker/solo.html";
-  } else if (pathname === "/checker/hedge" || pathname === "/checker/hedge/") {
-    pathname = "/checker/hedge.html";
+    pathname = "/checker.html";
+  } else if (
+    pathname === "/checker/solo" ||
+    pathname === "/checker/solo/" ||
+    pathname === "/checker/hedge" ||
+    pathname === "/checker/hedge/"
+  ) {
+    return Response.redirect(new URL("/checker", request.url).toString(), 302);
   } else if (pathname.includes("/assets/")) {
     pathname = pathname.slice(pathname.indexOf("/assets/"));
   }
@@ -71,13 +69,15 @@ export default {
 
     const isGetOrHead = request.method === "GET" || request.method === "HEAD";
 
-    // Clean URL redirects for Checker sub-routes (/checker -> /checker/solo, /hedge -> /checker/hedge)
+    // Clean URL redirects for legacy Checker sub-routes (/checker/solo, /checker/hedge, /hedge -> /checker)
     if (isGetOrHead) {
-      if (url.pathname === "/checker" || url.pathname === "/checker/") {
-        return Response.redirect(new URL("/checker/solo", request.url).toString(), 302);
-      }
-      if (url.pathname === "/hedge" || url.pathname === "/hedge/") {
-        return Response.redirect(new URL("/checker/hedge", request.url).toString(), 302);
+      if (
+        url.pathname === "/checker/solo" ||
+        url.pathname === "/checker/solo/" ||
+        url.pathname === "/checker/hedge" ||
+        url.pathname === "/checker/hedge/"
+      ) {
+        return Response.redirect(new URL("/checker", request.url).toString(), 302);
       }
     }
 
@@ -95,10 +95,7 @@ export default {
               version: APP_VERSION,
               spreadHash: SPREAD_HTML_HASH,
               analyticsHash: ANALYTICS_HTML_HASH,
-              checkerSoloHash: CHECKER_SOLO_HTML_HASH,
-              checkerHedgeHash: CHECKER_HEDGE_HTML_HASH,
               checkerHash: CHECKER_HTML_HASH,
-              hedgeHash: HEDGE_HTML_HASH,
               hubHash: HUB_HTML_HASH,
               timestamp: Date.now(),
             });

@@ -103,7 +103,7 @@
                 >Analytics</a
               >
               <a
-                href="/checker/solo"
+                href="/checker"
                 class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-bold transition no-underline shadow-xs border border-terminal-border"
                 >Checker</a
               >
@@ -112,26 +112,6 @@
 
           <!-- Desktop Controls & Mode Switcher (Hidden on mobile & medium < lg) -->
           <div class="hidden lg:flex items-center gap-2.5 text-xs font-mono">
-            <!-- Mode Switcher (Solo / Hedge) -->
-            <div
-              class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-xs font-mono"
-            >
-              <a
-                id="modeBtnSolo"
-                href="/checker/solo"
-                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition select-none no-underline bg-transparent"
-              >
-                Solo
-              </a>
-              <a
-                id="modeBtnHedge"
-                href="/checker/hedge"
-                class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-bold transition select-none no-underline border border-terminal-border shadow-xs"
-              >
-                Hedge
-              </a>
-            </div>
-
             <div
               class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
             >
@@ -218,34 +198,11 @@
               <span class="font-bold">Analytics</span>
             </a>
             <a
-              href="/checker/solo"
+              href="/checker"
               class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border bg-terminal-surface text-white font-bold transition no-underline shadow-xs text-center"
             >
               <span class="w-1.5 h-1.5 rounded-full bg-terminal-amber shrink-0"></span>
               <span class="font-bold">Checker</span>
-            </a>
-          </div>
-        </div>
-
-        <!-- Mode Section (Solo / Hedge) -->
-        <div class="space-y-1">
-          <div
-            class="text-[10px] uppercase font-mono tracking-wider text-terminal-muted px-1 py-0.5 font-semibold"
-          >
-            Mode
-          </div>
-          <div class="grid grid-cols-2 gap-1.5 font-mono text-xs">
-            <a
-              href="/checker/solo"
-              class="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
-            >
-              Solo
-            </a>
-            <a
-              href="/checker/hedge"
-              class="flex items-center justify-center gap-1.5 px-2 py-1.5 rounded border border-terminal-border bg-terminal-surface text-white font-bold transition no-underline text-center shadow-xs"
-            >
-              Hedge
             </a>
           </div>
         </div>
@@ -279,30 +236,6 @@
 
     <!-- MAIN VIEWPORT -->
     <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 space-y-2.5">
-      <!-- SHARED STATUS NOTIFICATION CARD -->
-      <div
-        id="statusCard"
-        class="hidden bg-terminal-surface border border-terminal-border rounded p-3 text-xs font-mono transition-all duration-150"
-      >
-        <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <span id="statusDot" class="w-2 h-2 rounded-full bg-terminal-emerald"></span>
-            <span id="statusText" class="text-white font-medium">Ready</span>
-          </div>
-          <div class="flex items-center gap-2 shrink-0">
-            <span id="statusCountdown" class="text-[11px] text-terminal-muted tabular-nums"></span>
-            <button
-              id="btnCloseStatus"
-              type="button"
-              class="text-terminal-muted hover:text-white text-xs cursor-pointer select-none px-1"
-              title="Dismiss notification"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      </div>
-
       <!-- HEDGE CHECKER CONTENT (RH vs CORE) -->
       <div id="hedgeViewWrapper" class="space-y-2.5">
         <!-- 1. HEDGE SUMMARY LEAD STRIP -->
@@ -1326,6 +1259,6 @@
     </div>
 
     <!-- MODULE ENTRY POINT -->
-    <script type="module" src="/src/checker/hedge_main.ts"></script>
+    <script type="module" src="/src/checker/main.ts"></script>
   </body>
 </html>

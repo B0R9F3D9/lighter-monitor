@@ -93,8 +93,7 @@ await build({
         index: path.resolve(webDir, "app/index.html"),
         spread: path.resolve(webDir, "app/spread.html"),
         analytics: path.resolve(webDir, "app/analytics.html"),
-        checkerSolo: path.resolve(webDir, "app/checker/solo.html"),
-        checkerHedge: path.resolve(webDir, "app/checker/hedge.html"),
+        checker: path.resolve(webDir, "app/checker.html"),
       },
     },
   },
@@ -134,8 +133,7 @@ async function readHtmlFile(filePath: string, maxRetries = 10): Promise<string> 
 const rawHubHtml = await readHtmlFile(path.resolve(outDir, "index.html"));
 const rawSpreadHtml = await readHtmlFile(path.resolve(outDir, "spread.html"));
 const rawAnalyticsHtml = await readHtmlFile(path.resolve(outDir, "analytics.html"));
-const rawCheckerSoloHtml = await readHtmlFile(path.resolve(outDir, "checker/solo.html"));
-const rawCheckerHedgeHtml = await readHtmlFile(path.resolve(outDir, "checker/hedge.html"));
+const rawCheckerHtml = await readHtmlFile(path.resolve(outDir, "checker.html"));
 
 const minifiedHubHtml = await minify(injectVersionMeta(rawHubHtml, buildVersion), minifyConfig);
 const minifiedSpreadHtml = await minify(
@@ -146,20 +144,15 @@ const minifiedAnalyticsHtml = await minify(
   injectVersionMeta(rawAnalyticsHtml, buildVersion),
   minifyConfig,
 );
-const minifiedCheckerSoloHtml = await minify(
-  injectVersionMeta(rawCheckerSoloHtml, buildVersion),
-  minifyConfig,
-);
-const minifiedCheckerHedgeHtml = await minify(
-  injectVersionMeta(rawCheckerHedgeHtml, buildVersion),
+const minifiedCheckerHtml = await minify(
+  injectVersionMeta(rawCheckerHtml, buildVersion),
   minifyConfig,
 );
 
 fs.writeFileSync(path.resolve(outDir, "index.html"), minifiedHubHtml, "utf-8");
 fs.writeFileSync(path.resolve(outDir, "spread.html"), minifiedSpreadHtml, "utf-8");
 fs.writeFileSync(path.resolve(outDir, "analytics.html"), minifiedAnalyticsHtml, "utf-8");
-fs.writeFileSync(path.resolve(outDir, "checker/solo.html"), minifiedCheckerSoloHtml, "utf-8");
-fs.writeFileSync(path.resolve(outDir, "checker/hedge.html"), minifiedCheckerHedgeHtml, "utf-8");
+fs.writeFileSync(path.resolve(outDir, "checker.html"), minifiedCheckerHtml, "utf-8");
 
 const hubHtmlHash = crypto.createHash("sha256").update(minifiedHubHtml).digest("hex").slice(0, 10);
 const spreadHtmlHash = crypto
@@ -172,14 +165,9 @@ const analyticsHtmlHash = crypto
   .update(minifiedAnalyticsHtml)
   .digest("hex")
   .slice(0, 10);
-const checkerSoloHtmlHash = crypto
+const checkerHtmlHash = crypto
   .createHash("sha256")
-  .update(minifiedCheckerSoloHtml)
-  .digest("hex")
-  .slice(0, 10);
-const checkerHedgeHtmlHash = crypto
-  .createHash("sha256")
-  .update(minifiedCheckerHedgeHtml)
+  .update(minifiedCheckerHtml)
   .digest("hex")
   .slice(0, 10);
 
@@ -188,10 +176,10 @@ export const APP_VERSION = ${JSON.stringify(buildVersion)};
 export const HUB_HTML_HASH = ${JSON.stringify(hubHtmlHash)};
 export const SPREAD_HTML_HASH = ${JSON.stringify(spreadHtmlHash)};
 export const ANALYTICS_HTML_HASH = ${JSON.stringify(analyticsHtmlHash)};
-export const CHECKER_SOLO_HTML_HASH = ${JSON.stringify(checkerSoloHtmlHash)};
-export const CHECKER_HEDGE_HTML_HASH = ${JSON.stringify(checkerHedgeHtmlHash)};
-export const CHECKER_HTML_HASH = ${JSON.stringify(checkerSoloHtmlHash)};
-export const HEDGE_HTML_HASH = ${JSON.stringify(checkerHedgeHtmlHash)};
+export const CHECKER_HTML_HASH = ${JSON.stringify(checkerHtmlHash)};
+export const CHECKER_SOLO_HTML_HASH = ${JSON.stringify(checkerHtmlHash)};
+export const CHECKER_HEDGE_HTML_HASH = ${JSON.stringify(checkerHtmlHash)};
+export const HEDGE_HTML_HASH = ${JSON.stringify(checkerHtmlHash)};
 `;
 
 const versionJsonContent = JSON.stringify(
@@ -200,10 +188,7 @@ const versionJsonContent = JSON.stringify(
     hubHash: hubHtmlHash,
     spreadHash: spreadHtmlHash,
     analyticsHash: analyticsHtmlHash,
-    checkerSoloHash: checkerSoloHtmlHash,
-    checkerHedgeHash: checkerHedgeHtmlHash,
-    checkerHash: checkerSoloHtmlHash,
-    hedgeHash: checkerHedgeHtmlHash,
+    checkerHash: checkerHtmlHash,
     timestamp: Date.now(),
   },
   null,
@@ -217,8 +202,7 @@ fs.writeFileSync(path.resolve(outDir, "version.json"), versionJsonContent, "utf-
 console.log("✓ Hub Router HTML minified:", minifiedHubHtml.length, "bytes");
 console.log("✓ Spread HTML minified:", minifiedSpreadHtml.length, "bytes");
 console.log("✓ Analytics HTML minified:", minifiedAnalyticsHtml.length, "bytes");
-console.log("✓ Solo Checker HTML minified:", minifiedCheckerSoloHtml.length, "bytes");
-console.log("✓ Hedge Checker HTML minified:", minifiedCheckerHedgeHtml.length, "bytes");
+console.log("✓ Checker HTML minified:", minifiedCheckerHtml.length, "bytes");
 console.log(
   versionChanged
     ? "✓ Generated apps/web/src/version.ts"

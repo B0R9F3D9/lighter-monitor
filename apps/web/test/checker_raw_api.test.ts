@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import {
-  calculateTradeMetrics,
   detectUserAccounts,
   parseImportedTradesJson,
   parseTradeForView,
@@ -255,13 +254,10 @@ describe("Raw Lighter API Ingestion & Multi-Account Stitching", () => {
     expect(view201.side).toBe("SELL");
     expect(view201.realizedPnl).toBeCloseTo(12.5, 2);
 
-    // Summary metrics across all accounts:
-    const metrics = calculateTradeMetrics(stitched.trades, stitched.accountIndices);
-    expect(metrics.totalTrades).toBe(2);
-    expect(metrics.totalVolumeUsd).toBe(2500); // 1000 + 1500
-    expect(metrics.totalRealizedPnl).toBeCloseTo(20.75, 2); // 12.50 + 8.25
-    expect(metrics.buyTradesCount).toBe(1);
-    expect(metrics.sellTradesCount).toBe(1);
+    // Summary assertions across all accounts:
+    expect(stitched.trades.length).toBe(2);
+    expect(views.reduce((acc, v) => acc + v.usdValue, 0)).toBe(2500);
+    expect(views.reduce((acc, v) => acc + v.realizedPnl, 0)).toBeCloseTo(20.75, 2);
   });
 
   it("matches hedges between multi-account stitched RH stream and Core stream", () => {

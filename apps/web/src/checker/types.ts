@@ -56,22 +56,6 @@ export interface PositionFundingRecord {
   discount?: string | number;
 }
 
-export interface AccountPositionFunding {
-  marketId: number;
-  symbol: string;
-  positionSize: number;
-  totalFundingPaidOut: number; // positive = earned/inflow, negative = paid/outflow
-}
-
-export interface AccountFundingSummary {
-  accountIndex: number;
-  network: CheckerNetwork;
-  totalFundingPaidOut: number;
-  positions: AccountPositionFunding[];
-  byMarketId: Map<number, number>;
-  bySymbol: Map<string, number>;
-}
-
 export interface WithdrawalRecord {
   id: string;
   amount: string | number;
@@ -127,23 +111,6 @@ export interface StitchedTradesResult {
   hasWithdrawals?: boolean;
 }
 
-export interface CheckerSummaryMetrics {
-  totalTrades: number;
-  totalVolumeUsd: number;
-  totalRealizedPnl: number;
-  totalFeesUsd: number;
-  totalFundingUsd?: number | null;
-  hasFundingHistory?: boolean;
-  makerTradesCount: number;
-  takerTradesCount: number;
-  buyTradesCount: number;
-  sellTradesCount: number;
-  firstTradeTime: number | null;
-  lastTradeTime: number | null;
-  uniqueMarketsCount: number;
-  accountIndices?: number[];
-}
-
 export interface ParsedTradeView {
   raw: LighterTrade;
   tradeId: string;
@@ -168,36 +135,6 @@ export interface ParsedTradeView {
   fillsCount?: number;
   tradeIdNum?: number;
   searchIndex?: string;
-}
-
-export interface ExportPayload {
-  version: "1.0";
-  exported_at: string;
-  exported_at_unix: number;
-  network: CheckerNetwork;
-  network_name: string;
-  account_index: number;
-  account_indices?: number[];
-  l1_address?: string;
-  total_trades: number;
-  truncated?: boolean;
-  row_cap?: number;
-  positions?: any[];
-  total_funding_paid_out?: number;
-  funding_history?: PositionFundingRecord[];
-  summary: {
-    total_volume_usd: number;
-    total_realized_pnl_usd: number;
-    total_fees_usd: number;
-    total_funding_usd?: number | null;
-    buy_trades_count: number;
-    sell_trades_count: number;
-    maker_trades_count: number;
-    taker_trades_count: number;
-    first_trade_time_utc: string | null;
-    last_trade_time_utc: string | null;
-  };
-  trades: LighterTrade[];
 }
 
 export interface HedgePair {
