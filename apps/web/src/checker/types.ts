@@ -391,3 +391,11 @@ export type MarketSummarySortColumn =
   | "avgHoldingDurationMs"
   | "totalTokenSize"
   | "realizedPnlUsd";
+
+export type WeeklyPointsSortColumn =
+  | "weekNumber"
+  | "dateRange"
+  | "points"
+  | "volPerPoint"
+  | "oiPerPoint"
+  | "costPerPoint";

@@ -1,4 +1,5 @@
 import { formatFee, formatMoney, formatPrice } from "../shared/formatters";
+import { calculateWeeklyPointsAnalysis, type WeekActivityStats } from "./hedge";
 import type {
   AccountDailyStat,
   CheckerSummaryMetrics,
@@ -10,6 +11,7 @@ import type {
   ParsedTradeView,
   SelectedHedgeMetrics,
   UnhedgedTrade,
+  WeeklyPointsSortColumn,
 } from "./types";
 
 function formatSmartSize(size: number): string {
@@ -1278,7 +1280,7 @@ export function renderMarketSummaryCards(
           <td class="py-2 px-3 text-right text-terminal-secondary tabular-nums whitespace-nowrap" title="Avg Size: ${formatMoney(stat.avgVolumeSizeUsd)}">
             ${avgVolumeSizeFormatted}
           </td>
-          <td class="py-2 px-3 text-right tabular-nums whitespace-nowrap ${stat.avgHoldingDurationMs > 0 ? "text-terminal-accent font-semibold" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}">
+          <td class="py-2 px-3 text-right tabular-nums whitespace-nowrap ${stat.avgHoldingDurationMs > 0 ? "text-terminal-secondary" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}">
             ${holdDurationFormatted}
           </td>
           <td class="py-2 px-3 text-right text-terminal-muted tabular-nums whitespace-nowrap">
@@ -1349,4 +1351,441 @@ export function renderMarketSummaryCards(
       });
     });
   }
+}
+
+function formatUnitPointPrice(p: number | undefined | null): string {
+  if (p === undefined || p === null || isNaN(p) || p <= 0) return "$0.00";
+  if (p < 0.0001) return "$" + p.toFixed(6);
+  return formatPrice(p);
+}
+
+export interface WeeklyPointsElements {
+  container: HTMLElement | null;
+  title: HTMLElement | null;
+  inputPoints: HTMLInputElement | null;
+  volPerPoint: HTMLElement | null;
+  oiPerPoint: HTMLElement | null;
+  costPerPoint: HTMLElement | null;
+  feesPerPoint: HTMLElement | null;
+  ratePer1k: HTMLElement | null;
+}
+
+export function updateWeeklyPointsCard(
+  weekNumber: number | null | undefined,
+  metrics: {
+    rhVolumeUsd: number;
+    rhAvgOiUsd: number;
+    totalNetPnlUsd: number;
+    totalFeesUsd: number;
+  } | null,
+  points: number | null | undefined,
+  elements: WeeklyPointsElements,
+): void {
+  if (!weekNumber || weekNumber <= 0 || !metrics) {
+    elements.container?.classList.add("hidden");
+    return;
+  }
+
+  elements.container?.classList.remove("hidden");
+  if (elements.title) {
+    elements.title.textContent = `Week ${weekNumber}:`;
+  }
+
+  const analysis = calculateWeeklyPointsAnalysis(metrics, points);
+
+  if (analysis.volPerPoint === null) {
+    if (elements.volPerPoint) elements.volPerPoint.textContent = "--";
+    if (elements.oiPerPoint) elements.oiPerPoint.textContent = "--";
+    if (elements.costPerPoint) {
+      elements.costPerPoint.textContent = "--";
+      elements.costPerPoint.className = "font-bold text-terminal-muted tabular-nums";
+      elements.costPerPoint.title = "Point price based on net PnL (-Net PnL / Points)";
+    }
+    if (elements.feesPerPoint) elements.feesPerPoint.textContent = "--";
+    if (elements.ratePer1k) elements.ratePer1k.textContent = "--";
+    return;
+  }
+
+  // Volume per point
+  if (elements.volPerPoint) {
+    elements.volPerPoint.textContent =
+      analysis.volPerPoint !== null && analysis.volPerPoint > 0
+        ? formatMoney(analysis.volPerPoint)
+        : "$0.00";
+    elements.volPerPoint.title = `Robinhood volume per point: ${formatMoney(metrics.rhVolumeUsd)} / ${points?.toLocaleString()} pts`;
+  }
+
+  // Average OI per point
+  if (elements.oiPerPoint) {
+    elements.oiPerPoint.textContent =
+      analysis.oiPerPoint !== null && analysis.oiPerPoint > 0
+        ? analysis.oiPerPoint >= 1
+          ? formatMoney(analysis.oiPerPoint)
+          : formatUnitPointPrice(analysis.oiPerPoint)
+        : "$0.00";
+    elements.oiPerPoint.title = `Average open interest per point: ${formatMoney(metrics.rhAvgOiUsd)} / ${points?.toLocaleString()} pts`;
+  }
+
+  // Cost per point (Price)
+  if (elements.costPerPoint) {
+    if (Math.abs(metrics.totalNetPnlUsd) <= 0.0001 || analysis.costPerPoint === null) {
+      elements.costPerPoint.textContent = "$0.0000";
+      elements.costPerPoint.className = "font-bold text-terminal-muted tabular-nums";
+      elements.costPerPoint.title = "Net hedge PnL was $0.00";
+    } else if (analysis.isProfitable) {
+      elements.costPerPoint.textContent = `+${formatUnitPointPrice(analysis.costPerPoint)}`;
+      elements.costPerPoint.className = "font-bold text-terminal-emerald tabular-nums";
+      elements.costPerPoint.title = `Net profit per point: +${formatMoney(metrics.totalNetPnlUsd)} / ${points?.toLocaleString()} pts`;
+    } else {
+      elements.costPerPoint.textContent = formatUnitPointPrice(analysis.costPerPoint);
+      elements.costPerPoint.className = "font-bold text-white tabular-nums";
+      elements.costPerPoint.title = `Net cost per point: ${formatMoney(metrics.totalNetPnlUsd)} / ${points?.toLocaleString()} pts`;
+    }
+  }
+
+  // Fees per point
+  if (elements.feesPerPoint) {
+    elements.feesPerPoint.textContent =
+      analysis.feesPerPoint !== null && analysis.feesPerPoint > 0
+        ? formatUnitPointPrice(analysis.feesPerPoint)
+        : "$0.00";
+    elements.feesPerPoint.title = `Total fees per point: ${formatFee(metrics.totalFeesUsd)} / ${points?.toLocaleString()} pts`;
+  }
+
+  // Rate (pts / $1k RH volume)
+  if (elements.ratePer1k) {
+    if (analysis.ratePer1kVol !== null) {
+      const r = analysis.ratePer1kVol;
+      const formatted = r >= 10 ? r.toFixed(1) : r >= 1 ? r.toFixed(2) : r.toFixed(3);
+      elements.ratePer1k.textContent = formatted;
+      elements.ratePer1k.title = `Points per $1,000 RH volume: (${points?.toLocaleString()} / ${formatMoney(metrics.rhVolumeUsd)}) * 1,000`;
+    } else {
+      elements.ratePer1k.textContent = "--";
+      elements.ratePer1k.title = "No RH volume recorded for this week";
+    }
+  }
+}
+
+function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (m) => {
+    switch (m) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return m;
+    }
+  });
+}
+
+export interface WeeklyPointsMultiElements {
+  container: HTMLElement | null;
+  count: HTMLElement | null;
+  grid: HTMLElement | null;
+}
+
+function getWeekMetricStrings(stats: WeekActivityStats): {
+  volStr: string;
+  volTitle: string;
+  oiStr: string;
+  oiTitle: string;
+  priceStr: string;
+  priceCls: string;
+  priceTitle: string;
+} {
+  const analysis = stats.analysis;
+  const pts = stats.points;
+
+  if (analysis.volPerPoint === null) {
+    return {
+      volStr: "--",
+      volTitle: "Enter points to calculate volume per point",
+      oiStr: "--",
+      oiTitle: "Enter points to calculate average open interest per point",
+      priceStr: "--",
+      priceCls: "font-bold text-terminal-muted tabular-nums",
+      priceTitle: "Enter points to calculate point price",
+    };
+  }
+
+  const volStr =
+    analysis.volPerPoint !== null && analysis.volPerPoint > 0
+      ? formatMoney(analysis.volPerPoint)
+      : "$0.00";
+  const volTitle = `Robinhood volume per point: ${formatMoney(stats.rhVolumeUsd)} / ${pts?.toLocaleString()} pts`;
+
+  const oiStr =
+    analysis.oiPerPoint !== null && analysis.oiPerPoint > 0
+      ? analysis.oiPerPoint >= 1
+        ? formatMoney(analysis.oiPerPoint)
+        : formatUnitPointPrice(analysis.oiPerPoint)
+      : "$0.00";
+  const oiTitle = `Average open interest per point: ${formatMoney(stats.rhAvgOiUsd)} / ${pts?.toLocaleString()} pts`;
+
+  let priceStr = "$0.0000";
+  let priceCls = "font-bold text-terminal-muted tabular-nums";
+  let priceTitle = "Net hedge PnL was $0.00";
+
+  if (Math.abs(stats.totalNetPnlUsd) > 0.0001 && analysis.costPerPoint !== null) {
+    if (analysis.isProfitable) {
+      priceStr = `+${formatUnitPointPrice(analysis.costPerPoint)}`;
+      priceCls = "font-bold text-terminal-emerald tabular-nums";
+      priceTitle = `Net profit per point: +${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
+    } else {
+      priceStr = formatUnitPointPrice(analysis.costPerPoint);
+      priceCls = "font-bold text-white tabular-nums";
+      priceTitle = `Net cost per point: ${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
+    }
+  }
+
+  return {
+    volStr,
+    volTitle,
+    oiStr,
+    oiTitle,
+    priceStr,
+    priceCls,
+    priceTitle,
+  };
+}
+
+function updateWeeklyPointsTableRow(
+  rowEl: HTMLElement,
+  stats: WeekActivityStats,
+  activeWeekNumber: number | null,
+): void {
+  const isActive = activeWeekNumber === stats.weekNumber;
+  if (isActive) {
+    rowEl.classList.remove("hover:bg-terminal-surfaceHover/80");
+    rowEl.classList.add("bg-white/10", "hover:bg-white/[0.13]");
+  } else {
+    rowEl.classList.remove("bg-white/10", "hover:bg-white/[0.13]");
+    rowEl.classList.add("hover:bg-terminal-surfaceHover/80");
+  }
+
+  const input = rowEl.querySelector<HTMLInputElement>("input");
+  const isInputActive = typeof document !== "undefined" && document.activeElement === input;
+  if (input && !isInputActive) {
+    input.value = stats.points ? String(stats.points) : "";
+  }
+
+  const values = getWeekMetricStrings(stats);
+  const elVol = rowEl.querySelector<HTMLElement>(".val-vol");
+  if (elVol) {
+    elVol.textContent = values.volStr;
+    if (elVol.parentElement) elVol.parentElement.title = values.volTitle;
+  }
+  const elOi = rowEl.querySelector<HTMLElement>(".val-oi");
+  if (elOi) {
+    elOi.textContent = values.oiStr;
+    if (elOi.parentElement) elOi.parentElement.title = values.oiTitle;
+  }
+  const elPrice = rowEl.querySelector<HTMLElement>(".val-price");
+  if (elPrice) {
+    elPrice.textContent = values.priceStr;
+    elPrice.className = `val-price ${values.priceCls}`;
+    if (elPrice.parentElement) elPrice.parentElement.title = values.priceTitle;
+  }
+}
+
+export function renderWeeklyPointsTable(
+  container: HTMLElement,
+  statsList: WeekActivityStats[],
+  activeWeekNumber: number | null,
+  onPointsChange: (weekNum: number, value: string) => void,
+  onSelectWeek: (weekNum: number) => void,
+  sortColumn: WeeklyPointsSortColumn = "weekNumber",
+  sortDirection: "asc" | "desc" = "asc",
+  onSortClick?: (column: WeeklyPointsSortColumn) => void,
+): void {
+  if (!statsList || statsList.length === 0) {
+    container.innerHTML = `
+      <div class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5">
+        <span class="text-terminal-secondary font-medium">No weekly points data loaded</span>
+        <span class="text-[11px] text-terminal-muted">— Upload RH and Core files to view weekly point metrics.</span>
+      </div>
+    `;
+    return;
+  }
+
+  const currentSortCol = container.getAttribute?.("data-sort-col");
+  const currentSortDir = container.getAttribute?.("data-sort-dir");
+  const isSortMatch = currentSortCol === sortColumn && currentSortDir === sortDirection;
+
+  const existingRows = container.querySelectorAll<HTMLElement>("tr[data-week]");
+  const existingWeeks = Array.from(existingRows).map((r) => Number(r.dataset.week));
+  const targetWeeks = statsList.map((s) => s.weekNumber);
+  const canReuseDom =
+    isSortMatch &&
+    existingRows.length === targetWeeks.length &&
+    existingWeeks.every((w, i) => w === targetWeeks[i]);
+
+  if (canReuseDom) {
+    existingRows.forEach((rowEl, idx) => {
+      const stats = statsList[idx];
+      updateWeeklyPointsTableRow(rowEl, stats, activeWeekNumber);
+    });
+    return;
+  }
+
+  container.setAttribute?.("data-sort-col", sortColumn);
+  container.setAttribute?.("data-sort-dir", sortDirection);
+
+  const renderSortIndicator = (col: WeeklyPointsSortColumn) => {
+    if (sortColumn !== col)
+      return `<span class="sort-indicator text-terminal-accent ml-0.5"></span>`;
+    return `<span class="sort-indicator text-terminal-accent ml-0.5">${sortDirection === "asc" ? "▲" : "▼"}</span>`;
+  };
+
+  const rowsHtml = statsList
+    .map((stats, idx) => {
+      const isActive = activeWeekNumber === stats.weekNumber;
+      const values = getWeekMetricStrings(stats);
+      const rowClass = isActive
+        ? "bg-white/10 hover:bg-white/[0.13]"
+        : "hover:bg-terminal-surfaceHover/80";
+
+      return `
+        <tr
+          class="border-b border-terminal-borderSubtle/60 transition-colors cursor-pointer select-none text-xs font-mono group ${rowClass}"
+          data-week="${stats.weekNumber}"
+          title="Click to filter trades by Week ${stats.weekNumber}"
+        >
+          <td class="py-2 px-3 text-center text-terminal-muted tabular-nums text-[11px] w-8">
+            ${idx + 1}
+          </td>
+          <td class="py-2 px-3 whitespace-nowrap">
+            <span class="font-bold text-white transition-colors">
+              Week ${stats.weekNumber}
+            </span>
+          </td>
+          <td class="py-2 px-3 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]">
+            ${escapeHtml(stats.dateRangeFormatted)}
+          </td>
+          <td class="py-1 px-3 text-center whitespace-nowrap">
+            <input
+              type="text"
+              inputmode="decimal"
+              data-week="${stats.weekNumber}"
+              value="${stats.points ? String(stats.points) : ""}"
+              placeholder="0"
+              class="hedge-points-table-input h-6 w-20 px-1.5 bg-terminal-bg border border-terminal-border hover:border-terminal-muted focus:border-terminal-accent rounded text-white font-mono text-xs focus:outline-none transition tabular-nums text-right select-text cursor-text"
+              title="Enter points received for Week ${stats.weekNumber}"
+            />
+          </td>
+          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.volTitle}">
+            <span class="val-vol">${values.volStr}</span>
+          </td>
+          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.oiTitle}">
+            <span class="val-oi">${values.oiStr}</span>
+          </td>
+          <td class="py-2 px-3 text-right font-bold tabular-nums whitespace-nowrap" title="${values.priceTitle}">
+            <span class="val-price ${values.priceCls}">${values.priceStr}</span>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  container.innerHTML = `
+    <table class="w-full border-collapse text-left text-xs font-mono">
+      <thead>
+        <tr class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] font-mono select-none">
+          <th class="py-2 px-3 font-semibold w-8 text-center">#</th>
+          <th class="py-2 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="weekNumber">
+            Week ${renderSortIndicator("weekNumber")}
+          </th>
+          <th class="py-2 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="dateRange">
+            Dates ${renderSortIndicator("dateRange")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-center cursor-pointer hover:text-white whitespace-nowrap" data-sort="points">
+            Points ${renderSortIndicator("points")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volPerPoint" title="Robinhood trading volume per point">
+            Vol / Point ${renderSortIndicator("volPerPoint")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="oiPerPoint" title="Time-weighted average open interest per point">
+            Avg OI / Point ${renderSortIndicator("oiPerPoint")}
+          </th>
+          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="costPerPoint" title="Point price based on net PnL (-Net PnL / Points)">
+            Point Price ${renderSortIndicator("costPerPoint")}
+          </th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-terminal-borderSubtle/60">
+        ${rowsHtml}
+      </tbody>
+    </table>
+  `;
+
+  if (onSortClick) {
+    const headers = container.querySelectorAll<HTMLElement>("th[data-sort]");
+    headers.forEach((th) => {
+      th.addEventListener("click", () => {
+        const col = th.getAttribute("data-sort") as WeeklyPointsSortColumn;
+        if (col) {
+          onSortClick(col);
+        }
+      });
+    });
+  }
+
+  const rowEls = container.querySelectorAll<HTMLElement>("tr[data-week]");
+  rowEls.forEach((rowEl) => {
+    const weekNum = Number(rowEl.dataset.week);
+    rowEl.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).tagName !== "INPUT") {
+        onSelectWeek(weekNum);
+      }
+    });
+
+    const input = rowEl.querySelector<HTMLInputElement>("input");
+    if (input) {
+      input.addEventListener("input", (e) => {
+        e.stopPropagation();
+        onPointsChange(weekNum, input.value);
+      });
+      input.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+    }
+  });
+}
+
+export function renderWeeklyPointsMultiGrid(
+  elements: WeeklyPointsMultiElements,
+  statsList: WeekActivityStats[],
+  activeWeekNumber: number | null,
+  onPointsChange: (weekNum: number, value: string) => void,
+  onSelectWeek: (weekNum: number) => void,
+  sortColumn: WeeklyPointsSortColumn = "weekNumber",
+  sortDirection: "asc" | "desc" = "asc",
+  onSortClick?: (column: WeeklyPointsSortColumn) => void,
+): void {
+  if (!elements.container || !elements.grid) return;
+  if (!statsList || statsList.length === 0) {
+    elements.container.classList.add("hidden");
+    return;
+  }
+  elements.container.classList.remove("hidden");
+  if (elements.count) {
+    elements.count.textContent = `(${statsList.length} weeks active)`;
+  }
+  renderWeeklyPointsTable(
+    elements.grid,
+    statsList,
+    activeWeekNumber,
+    onPointsChange,
+    onSelectWeek,
+    sortColumn,
+    sortDirection,
+    onSortClick,
+  );
 }

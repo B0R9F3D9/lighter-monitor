@@ -26,6 +26,7 @@ import {
   type IndividualAccountMetricElements,
   renderHedgeTable,
   renderMarketSummaryCards,
+  renderWeeklyPointsTable,
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
   updateIndividualAccountMetrics,
@@ -38,7 +39,9 @@ import {
   calculateSelectedHedgeMetrics,
   computeRangeSelection,
   exportHedgeReportToCsv,
+  getParticipatingWeeksStats,
   matchHedgeTrades,
+  sortWeeklyPointsStats,
 } from "./hedge";
 import type {
   HedgePair,
@@ -50,6 +53,7 @@ import type {
   ParsedTradeView,
   StitchedTradesResult,
   UnhedgedTrade,
+  WeeklyPointsSortColumn,
 } from "./types";
 
 export class HedgeController {
@@ -149,6 +153,13 @@ export class HedgeController {
     fees: null,
     unhedgedCount: null,
   };
+
+  private weeklyPointsTableCard: HTMLElement | null = null;
+  private weeklyPointsTableContainer: HTMLElement | null = null;
+  private weeklyPointsSortColumn: WeeklyPointsSortColumn = "weekNumber";
+  private weeklyPointsSortDirection: "asc" | "desc" = "asc";
+  private rhIndividualMetrics: IndividualAccountMetrics | null = null;
+  private coreIndividualMetrics: IndividualAccountMetrics | null = null;
 
   private hedgeEmptyStatePanel: HTMLElement | null = null;
   private hedgeLoadedToolbar: HTMLElement | null = null;
@@ -411,6 +422,10 @@ export class HedgeController {
     // Token / Market Summary Elements
     this.hedgeMarketSummaryCard = document.getElementById("hedgeMarketSummaryCard");
     this.hedgeMarketCardsContainer = document.getElementById("hedgeMarketCardsContainer");
+
+    // Weekly Points Analysis Table Elements
+    this.weeklyPointsTableCard = document.getElementById("hedgeWeeklyPointsTableCard");
+    this.weeklyPointsTableContainer = document.getElementById("hedgeWeeklyPointsTableContainer");
   }
 
   private handleBookmarkletClick(e: MouseEvent): void {
@@ -1058,6 +1073,7 @@ export class HedgeController {
     this.applyHedgeFilter();
     this.updateHedgeDateFilterUi();
     this.onHedgeSelectionChanged();
+    this.renderWeeklyPointsAnalysis();
   }
 
   private updateHedgeMarketSummary(): void {
@@ -1139,6 +1155,8 @@ export class HedgeController {
   private updateHedgeExecutiveSummary(): void {
     const rhMetrics = this.computeIndividualAccountMetrics("RH");
     const coreMetrics = this.computeIndividualAccountMetrics("CORE");
+    this.rhIndividualMetrics = rhMetrics;
+    this.coreIndividualMetrics = coreMetrics;
 
     if (this.hedgeMetrics) {
       this.hedgeMetrics.rhAvgOiUsd = rhMetrics.avgOiUsd;
@@ -1149,6 +1167,132 @@ export class HedgeController {
     updateHedgeExecutiveMetrics(this.hedgeMetrics, this.hedgeMetricElements);
     updateIndividualAccountMetrics(rhMetrics, this.rhMetricElements);
     updateIndividualAccountMetrics(coreMetrics, this.coreMetricElements);
+  }
+
+  private handleWeeklyPointsChange(weekNum: number, rawValue: string): void {
+    const trimmed = rawValue.replace(/,/g, "").trim();
+    if (trimmed) {
+      try {
+        localStorage.setItem(`lighter_hedge_points_w${weekNum}`, trimmed);
+      } catch {}
+    } else {
+      try {
+        localStorage.removeItem(`lighter_hedge_points_w${weekNum}`);
+      } catch {}
+    }
+    this.renderWeeklyPointsAnalysis();
+  }
+
+  private handleWeeklyPointsRowClick(weekNum: number): void {
+    const currentWeek = this.activeHedgeDateFilter?.weekNumber;
+    if (currentWeek === weekNum) {
+      if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
+      this.activeHedgeDateFilter = null;
+    } else {
+      if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = `week-${weekNum}`;
+      const preset = findPresetById(`week-${weekNum}`);
+      if (preset) {
+        this.activeHedgeDateFilter = createPresetDateFilter(preset);
+      }
+    }
+    this.applyHedgeDateFilter();
+  }
+
+  private handleWeeklyPointsHeaderSort(column: WeeklyPointsSortColumn): void {
+    if (this.weeklyPointsSortColumn === column) {
+      this.weeklyPointsSortDirection = this.weeklyPointsSortDirection === "asc" ? "desc" : "asc";
+    } else {
+      this.weeklyPointsSortColumn = column;
+      this.weeklyPointsSortDirection =
+        column === "weekNumber" || column === "dateRange" ? "asc" : "desc";
+    }
+    this.renderWeeklyPointsAnalysis();
+  }
+
+  private renderWeeklyPointsAnalysis(): void {
+    if (!this.weeklyPointsTableContainer) return;
+
+    const hasTrades =
+      this.allHedgePairs.length > 0 ||
+      this.allUnhedgedTrades.length > 0 ||
+      this.rhParsedTrades.length > 0;
+
+    if (!hasTrades) {
+      renderWeeklyPointsTable(
+        this.weeklyPointsTableContainer,
+        [],
+        null,
+        () => {},
+        () => {},
+      );
+      return;
+    }
+
+    const pointsByWeek: Record<number, number | null> = {};
+    for (let w = 1; w <= 20; w++) {
+      try {
+        const raw = localStorage.getItem(`lighter_hedge_points_w${w}`);
+        if (raw) {
+          const parsed = parseFloat(raw.replace(/,/g, "").trim());
+          if (!isNaN(parsed) && parsed > 0) {
+            pointsByWeek[w] = parsed;
+          }
+        }
+      } catch {}
+    }
+
+    const rhAccQuery =
+      this.rhAccountIndices.length > 0 ? this.rhAccountIndices[0] : (this.rhAccountIndex ?? null);
+    const coreAccQuery =
+      this.coreAccountIndices.length > 0
+        ? this.coreAccountIndices[0]
+        : (this.coreAccountIndex ?? null);
+
+    const participating = getParticipatingWeeksStats({
+      allHedgePairs: this.allHedgePairs,
+      allUnhedgedTrades: this.allUnhedgedTrades,
+      rhParsedTrades: this.rhParsedTrades,
+      coreParsedTrades: this.coreParsedTrades,
+      rhAccountIndex: rhAccQuery,
+      coreAccountIndex: coreAccQuery,
+      rhAccountIndices: this.rhAccountIndices,
+      coreAccountIndices: this.coreAccountIndices,
+      rhFundingHistory: this.rhStitched?.funding_history,
+      rhWithdrawals: this.rhStitched?.withdrawals,
+      coreWithdrawals: this.coreStitched?.withdrawals,
+      nowMs: Date.now(),
+      pointsByWeek,
+    });
+
+    if (participating.length === 0) {
+      renderWeeklyPointsTable(
+        this.weeklyPointsTableContainer,
+        [],
+        null,
+        () => {},
+        () => {},
+      );
+      return;
+    }
+
+    const activeWeekNumber = this.activeHedgeDateFilter?.weekNumber ?? null;
+
+    const sortedParticipating = sortWeeklyPointsStats(
+      participating,
+      this.weeklyPointsSortColumn,
+      this.weeklyPointsSortDirection,
+    );
+
+    renderWeeklyPointsTable(
+      this.weeklyPointsTableContainer,
+      sortedParticipating,
+      activeWeekNumber,
+      (wNum, val) => this.handleWeeklyPointsChange(wNum, val),
+      (wNum) => this.handleWeeklyPointsRowClick(wNum),
+      this.weeklyPointsSortColumn,
+      this.weeklyPointsSortDirection,
+      (clickedCol) => this.handleWeeklyPointsHeaderSort(clickedCol),
+    );
   }
 
   private computeIndividualAccountMetrics(network: "RH" | "CORE"): IndividualAccountMetrics {
@@ -1475,6 +1619,11 @@ export class HedgeController {
     this.activeMarketFilter = null;
     this.marketSortColumn = "volumeUsd";
     this.marketSortDirection = "desc";
+    this.rhIndividualMetrics = null;
+    this.coreIndividualMetrics = null;
+    this.weeklyPointsSortColumn = "weekNumber";
+    this.weeklyPointsSortDirection = "asc";
+    this.renderWeeklyPointsAnalysis();
     if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
     if (this.inputCustomHedgeDateFrom) this.inputCustomHedgeDateFrom.value = "";
     if (this.inputCustomHedgeDateTo) this.inputCustomHedgeDateTo.value = "";

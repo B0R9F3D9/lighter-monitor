@@ -1,3 +1,4 @@
+import { formatShortMonthDay, getRobinhoodPromoWeeks, type DateRangePreset } from "./date_filter";
 import type {
   AccountAverageOiResult,
   AccountDailyStat,
@@ -10,6 +11,7 @@ import type {
   PositionFundingRecord,
   SelectedHedgeMetrics,
   UnhedgedTrade,
+  WeeklyPointsSortColumn,
   WithdrawalRecord,
 } from "./types";
 
@@ -1796,4 +1798,299 @@ export function sortMarketSummaryStats(
     }
     return a.marketSymbol.localeCompare(b.marketSymbol);
   });
+}
+
+/**
+ * Sorts weekly points statistics by the specified column and direction.
+ * Defaults to weekNumber ascending.
+ */
+export function sortWeeklyPointsStats(
+  stats: WeekActivityStats[],
+  sortColumn: WeeklyPointsSortColumn = "weekNumber",
+  sortDirection: "asc" | "desc" = "asc",
+): WeekActivityStats[] {
+  const dir = sortDirection === "asc" ? 1 : -1;
+
+  return stats.toSorted((a, b) => {
+    if (sortColumn === "weekNumber") {
+      return (a.weekNumber - b.weekNumber) * dir;
+    }
+
+    if (sortColumn === "dateRange") {
+      return (a.startTimestampMs - b.startTimestampMs) * dir || (a.weekNumber - b.weekNumber) * dir;
+    }
+
+    if (sortColumn === "points") {
+      const aVal = a.points !== null && a.points !== undefined && a.points > 0 ? a.points : null;
+      const bVal = b.points !== null && b.points !== undefined && b.points > 0 ? b.points : null;
+      if (aVal === null && bVal === null) return a.weekNumber - b.weekNumber;
+      if (aVal === null) return 1;
+      if (bVal === null) return -1;
+      if (Math.abs(aVal - bVal) > 0.00001) {
+        return (aVal - bVal) * dir;
+      }
+      return a.weekNumber - b.weekNumber;
+    }
+
+    if (sortColumn === "volPerPoint") {
+      const aVal = a.analysis.volPerPoint;
+      const bVal = b.analysis.volPerPoint;
+      if (aVal === null && bVal === null) return a.weekNumber - b.weekNumber;
+      if (aVal === null) return 1;
+      if (bVal === null) return -1;
+      if (Math.abs(aVal - bVal) > 0.00001) {
+        return (aVal - bVal) * dir;
+      }
+      return a.weekNumber - b.weekNumber;
+    }
+
+    if (sortColumn === "oiPerPoint") {
+      const aVal = a.analysis.oiPerPoint;
+      const bVal = b.analysis.oiPerPoint;
+      if (aVal === null && bVal === null) return a.weekNumber - b.weekNumber;
+      if (aVal === null) return 1;
+      if (bVal === null) return -1;
+      if (Math.abs(aVal - bVal) > 0.00001) {
+        return (aVal - bVal) * dir;
+      }
+      return a.weekNumber - b.weekNumber;
+    }
+
+    if (sortColumn === "costPerPoint") {
+      const getEffectiveCost = (item: WeekActivityStats): number | null => {
+        if (item.analysis.costPerPoint === null) return null;
+        return item.analysis.isProfitable
+          ? -item.analysis.costPerPoint
+          : item.analysis.costPerPoint;
+      };
+      const aVal = getEffectiveCost(a);
+      const bVal = getEffectiveCost(b);
+      if (aVal === null && bVal === null) return a.weekNumber - b.weekNumber;
+      if (aVal === null) return 1;
+      if (bVal === null) return -1;
+      if (Math.abs(aVal - bVal) > 0.00001) {
+        return (aVal - bVal) * dir;
+      }
+      return a.weekNumber - b.weekNumber;
+    }
+
+    return a.weekNumber - b.weekNumber;
+  });
+}
+
+export interface WeeklyPointsAnalysisResult {
+  volPerPoint: number | null;
+  oiPerPoint: number | null;
+  costPerPoint: number | null;
+  isProfitable: boolean;
+  feesPerPoint: number | null;
+  ratePer1kVol: number | null;
+}
+
+/**
+ * Calculates unit metrics for a specific promo week based on user-entered points.
+ * - Volume per point: RH volume / points
+ * - Average OI per point: RH avg OI / points
+ * - Point cost / profit: Math.abs(netPnl) / points
+ * - Fees per point: Total fees / points
+ * - Rate: points per $1,000 RH volume
+ */
+export function calculateWeeklyPointsAnalysis(
+  metrics: {
+    rhVolumeUsd: number;
+    rhAvgOiUsd: number;
+    totalNetPnlUsd: number;
+    totalFeesUsd: number;
+  },
+  points: number | null | undefined,
+): WeeklyPointsAnalysisResult {
+  if (points === null || points === undefined || isNaN(points) || points <= 0) {
+    return {
+      volPerPoint: null,
+      oiPerPoint: null,
+      costPerPoint: null,
+      isProfitable: false,
+      feesPerPoint: null,
+      ratePer1kVol: null,
+    };
+  }
+
+  const volPerPoint = metrics.rhVolumeUsd > 0 ? metrics.rhVolumeUsd / points : 0;
+  const oiPerPoint = metrics.rhAvgOiUsd > 0 ? metrics.rhAvgOiUsd / points : 0;
+  const isProfitable = metrics.totalNetPnlUsd > 0.0001;
+  const costPerPoint = Math.abs(metrics.totalNetPnlUsd) / points;
+  const feesPerPoint = metrics.totalFeesUsd > 0 ? metrics.totalFeesUsd / points : 0;
+  const ratePer1kVol = metrics.rhVolumeUsd > 0 ? (points / metrics.rhVolumeUsd) * 1000 : null;
+
+  return {
+    volPerPoint,
+    oiPerPoint,
+    costPerPoint,
+    isProfitable,
+    feesPerPoint,
+    ratePer1kVol,
+  };
+}
+
+export interface WeekActivityStats {
+  weekNumber: number;
+  presetId: string;
+  label: string;
+  shortLabel: string;
+  dateRangeFormatted: string;
+  startTimestampMs: number;
+  endTimestampMs: number;
+  tradesCount: number;
+  rhVolumeUsd: number;
+  rhAvgOiUsd: number;
+  totalNetPnlUsd: number;
+  totalFeesUsd: number;
+  points: number | null;
+  analysis: WeeklyPointsAnalysisResult;
+}
+
+export interface ParticipatingWeeksParams {
+  allHedgePairs: HedgePair[];
+  allUnhedgedTrades: UnhedgedTrade[];
+  rhParsedTrades: ParsedTradeView[];
+  coreParsedTrades: ParsedTradeView[];
+  rhAccountIndex: number | null;
+  coreAccountIndex: number | null;
+  rhAccountIndices?: number[];
+  coreAccountIndices?: number[];
+  rhFundingHistory?: PositionFundingRecord[];
+  rhWithdrawals?: WithdrawalRecord[];
+  coreWithdrawals?: WithdrawalRecord[];
+  nowMs?: number;
+  pointsByWeek?: Record<number, number | null>;
+}
+
+export function calculateWeekActivityStats(
+  weekPreset: DateRangePreset,
+  params: ParticipatingWeeksParams,
+): WeekActivityStats | null {
+  const startTimestampMs = weekPreset.startTimestampMs;
+  const endTimestampMs = weekPreset.endTimestampMs;
+  if (!startTimestampMs || !endTimestampMs || !weekPreset.weekNumber) {
+    return null;
+  }
+
+  const weekRhTrades = params.rhParsedTrades.filter(
+    (t) => t.timestampMs >= startTimestampMs && t.timestampMs < endTimestampMs,
+  );
+  const weekCoreTrades = params.coreParsedTrades.filter(
+    (t) => t.timestampMs >= startTimestampMs && t.timestampMs < endTimestampMs,
+  );
+  const weekPairs = params.allHedgePairs.filter(
+    (p) => p.rhTimestampMs >= startTimestampMs && p.rhTimestampMs < endTimestampMs,
+  );
+  const weekUnhedged = params.allUnhedgedTrades.filter(
+    (u) => u.timestampMs >= startTimestampMs && u.timestampMs < endTimestampMs,
+  );
+
+  const hasActivity =
+    weekRhTrades.length > 0 ||
+    weekPairs.length > 0 ||
+    weekUnhedged.length > 0 ||
+    weekCoreTrades.length > 0;
+
+  if (!hasActivity) {
+    return null;
+  }
+
+  const tradesCount =
+    weekRhTrades.length > 0 ? weekRhTrades.length : weekPairs.length + weekUnhedged.length;
+
+  let rhVolumeUsd = 0;
+  if (weekRhTrades.length > 0) {
+    for (const t of weekRhTrades) rhVolumeUsd += t.usdValue || 0;
+  } else {
+    for (const p of weekPairs) rhVolumeUsd += p.rhPrice * p.matchedSize || 0;
+    for (const u of weekUnhedged) {
+      if (u.network === "RH") rhVolumeUsd += u.usdValue || 0;
+    }
+  }
+
+  const oiRes = calculateAccountAverageOi(
+    params.rhParsedTrades,
+    {
+      startTimestampMs,
+      endTimestampMs,
+      presetId: weekPreset.id,
+    },
+    params.nowMs ?? Date.now(),
+    params.rhFundingHistory,
+  );
+  const rhAvgOiUsd = oiRes.avgOiUsd ?? 0;
+
+  const weekRhWithdrawals = (params.rhWithdrawals || []).filter(
+    (w) => w.timestampMs >= startTimestampMs && w.timestampMs < endTimestampMs,
+  );
+  const weekCoreWithdrawals = (params.coreWithdrawals || []).filter(
+    (w) => w.timestampMs >= startTimestampMs && w.timestampMs < endTimestampMs,
+  );
+
+  const hedgeMetrics = calculateHedgeMetrics(
+    weekPairs,
+    weekUnhedged,
+    params.rhAccountIndex,
+    params.coreAccountIndex,
+    weekRhTrades.length,
+    weekCoreTrades.length,
+    params.rhAccountIndices,
+    params.coreAccountIndices,
+    {
+      rhWithdrawals: weekRhWithdrawals,
+      coreWithdrawals: weekCoreWithdrawals,
+    },
+  );
+
+  const totalNetPnlUsd = hedgeMetrics.totalNetPnlUsd;
+  const totalFeesUsd = hedgeMetrics.totalFeesUsd;
+  const points = params.pointsByWeek?.[weekPreset.weekNumber] ?? null;
+
+  const analysis = calculateWeeklyPointsAnalysis(
+    {
+      rhVolumeUsd,
+      rhAvgOiUsd,
+      totalNetPnlUsd,
+      totalFeesUsd,
+    },
+    points,
+  );
+
+  const startD = new Date(startTimestampMs);
+  const endD = new Date(endTimestampMs);
+  const dateRangeFormatted = `${formatShortMonthDay(startD)} – ${formatShortMonthDay(endD)}`;
+
+  return {
+    weekNumber: weekPreset.weekNumber,
+    presetId: weekPreset.id,
+    label: weekPreset.label,
+    shortLabel: weekPreset.shortLabel,
+    dateRangeFormatted,
+    startTimestampMs,
+    endTimestampMs,
+    tradesCount,
+    rhVolumeUsd,
+    rhAvgOiUsd,
+    totalNetPnlUsd,
+    totalFeesUsd,
+    points,
+    analysis,
+  };
+}
+
+export function getParticipatingWeeksStats(params: ParticipatingWeeksParams): WeekActivityStats[] {
+  const promoWeeks = getRobinhoodPromoWeeks(params.nowMs);
+  const results: WeekActivityStats[] = [];
+
+  for (const w of promoWeeks) {
+    const stats = calculateWeekActivityStats(w, params);
+    if (stats) {
+      results.push(stats);
+    }
+  }
+
+  return results;
 }

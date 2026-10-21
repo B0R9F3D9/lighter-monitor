@@ -490,20 +490,42 @@
           </div>
         </div>
 
-        <!-- 1D. TOKEN / MARKET BREAKDOWN TABLE -->
-        <div
-          id="hedgeMarketSummaryCard"
-          class="bg-terminal-surface border border-terminal-border rounded text-xs font-mono overflow-hidden"
-        >
-          <!-- Token items full-width table -->
-          <div id="hedgeMarketCardsContainer" class="overflow-x-auto no-scrollbar">
-            <div
-              class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5"
-            >
-              <span class="text-terminal-secondary font-medium">No token activity loaded</span>
-              <span class="text-[11px] text-terminal-muted"
-                >— Upload RH and Core files to view metrics by token</span
+        <!-- 1D. BREAKDOWN TABLES (TOKENS & WEEKLY POINTS) -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-2 items-start">
+          <!-- Token / Market Breakdown Table -->
+          <div
+            id="hedgeMarketSummaryCard"
+            class="bg-terminal-surface border border-terminal-border rounded text-xs font-mono overflow-hidden"
+          >
+            <!-- Token items full-width table -->
+            <div id="hedgeMarketCardsContainer" class="overflow-x-auto no-scrollbar">
+              <div
+                class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5"
               >
+                <span class="text-terminal-secondary font-medium">No token activity loaded</span>
+                <span class="text-[11px] text-terminal-muted"
+                  >— Upload RH and Core files to view metrics by token</span
+                >
+              </div>
+            </div>
+          </div>
+
+          <!-- Weekly Points Analysis Table -->
+          <div
+            id="hedgeWeeklyPointsTableCard"
+            class="bg-terminal-surface border border-terminal-border rounded text-xs font-mono overflow-hidden"
+          >
+            <div id="hedgeWeeklyPointsTableContainer" class="overflow-x-auto no-scrollbar">
+              <div
+                class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5"
+              >
+                <span class="text-terminal-secondary font-medium"
+                  >No weekly points data loaded</span
+                >
+                <span class="text-[11px] text-terminal-muted"
+                  >— Upload RH and Core files to view weekly point metrics</span
+                >
+              </div>
             </div>
           </div>
         </div>

@@ -17,6 +17,11 @@ import {
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
   updateIndividualAccountMetrics,
+  updateWeeklyPointsCard,
+  renderWeeklyPointsTable,
+  renderWeeklyPointsMultiGrid,
+  type WeeklyPointsElements,
+  type WeeklyPointsMultiElements,
 } from "../src/checker/dom";
 import {
   aggregateTradesByOrder,
@@ -26,14 +31,20 @@ import {
   calculateMarketHoldingDuration,
   calculateMarketSummaryStats,
   calculateSelectedHedgeMetrics,
+  calculateWeekActivityStats,
+  calculateWeeklyPointsAnalysis,
   computeRangeSelection,
   exportHedgeReportToCsv,
+  getParticipatingWeeksStats,
   matchHedgeTrades,
   sortMarketSummaryStats,
+  sortWeeklyPointsStats,
+  type WeekActivityStats,
 } from "../src/checker/hedge";
 import {
   createPresetDateFilter,
   findPresetById,
+  getRobinhoodPromoWeeks,
   isTradeInDateRange,
 } from "../src/checker/date_filter";
 import type {
@@ -41,6 +52,7 @@ import type {
   LighterTrade,
   MarketSummaryStat,
   ParsedTradeView,
+  WeeklyPointsSortColumn,
   WithdrawalRecord,
 } from "../src/checker/types";
 
@@ -2672,6 +2684,8 @@ describe("Hedge Matching Engine", () => {
 
       // Active row selection style applied (matching trades table)
       expect(container.innerHTML).toContain("bg-white/10");
+      // Avg Hold text color uses text-terminal-secondary (gray), not cyan/blue accent
+      expect(container.innerHTML).not.toContain("text-terminal-accent font-semibold");
 
       // Verify click callback works
       expect(clickHandler).not.toBeNull();
@@ -3192,6 +3206,617 @@ describe("Hedge Matching Engine", () => {
       updateIndividualAccountMetrics(mockMetrics, elements);
       expect(elements.withdrawals.textContent).toBe("2");
       expect(elements.withdrawals.title).toBe("RH Withdrawals: 2 (Fee: $1.50)");
+    });
+  });
+
+  describe("Weekly Points Analysis", () => {
+    const baseMetrics = {
+      rhVolumeUsd: 100000,
+      rhAvgOiUsd: 5000,
+      totalNetPnlUsd: -50,
+      totalFeesUsd: 35,
+    };
+
+    it("returns nulls when points is null, undefined, 0, or negative", () => {
+      expect(calculateWeeklyPointsAnalysis(baseMetrics, null)).toEqual({
+        volPerPoint: null,
+        oiPerPoint: null,
+        costPerPoint: null,
+        isProfitable: false,
+        feesPerPoint: null,
+        ratePer1kVol: null,
+      });
+
+      expect(calculateWeeklyPointsAnalysis(baseMetrics, undefined).volPerPoint).toBeNull();
+      expect(calculateWeeklyPointsAnalysis(baseMetrics, 0).volPerPoint).toBeNull();
+      expect(calculateWeeklyPointsAnalysis(baseMetrics, -100).volPerPoint).toBeNull();
+      expect(calculateWeeklyPointsAnalysis(baseMetrics, NaN).volPerPoint).toBeNull();
+    });
+
+    it("calculates exact unit metrics for user-entered points", () => {
+      const res = calculateWeeklyPointsAnalysis(baseMetrics, 1000);
+      expect(res.volPerPoint).toBe(100); // $100k / 1k = $100
+      expect(res.oiPerPoint).toBe(5); // $5k / 1k = $5
+      expect(res.costPerPoint).toBe(0.05); // $50 / 1k = $0.05
+      expect(res.isProfitable).toBe(false);
+      expect(res.feesPerPoint).toBe(0.035); // $35 / 1k = $0.035
+      expect(res.ratePer1kVol).toBe(10); // (1000 / 100000) * 1000 = 10 pts / $1k
+    });
+
+    it("flags positive net PnL as profitable", () => {
+      const profitMetrics = {
+        ...baseMetrics,
+        totalNetPnlUsd: 25,
+      };
+      const res = calculateWeeklyPointsAnalysis(profitMetrics, 500);
+      expect(res.isProfitable).toBe(true);
+      expect(res.costPerPoint).toBe(0.05); // $25 / 500 = $0.05
+    });
+
+    it("handles zero volume and zero OI gracefully", () => {
+      const zeroMetrics = {
+        rhVolumeUsd: 0,
+        rhAvgOiUsd: 0,
+        totalNetPnlUsd: 0,
+        totalFeesUsd: 0,
+      };
+      const res = calculateWeeklyPointsAnalysis(zeroMetrics, 100);
+      expect(res.volPerPoint).toBe(0);
+      expect(res.oiPerPoint).toBe(0);
+      expect(res.costPerPoint).toBe(0);
+      expect(res.feesPerPoint).toBe(0);
+      expect(res.ratePer1kVol).toBeNull();
+    });
+
+    it("updates DOM elements via updateWeeklyPointsCard properly", () => {
+      const classList = {
+        classes: new Set<string>(["hidden"]),
+        add(c: string) {
+          this.classes.add(c);
+        },
+        remove(c: string) {
+          this.classes.delete(c);
+        },
+        contains(c: string) {
+          return this.classes.has(c);
+        },
+      };
+
+      const elements: WeeklyPointsElements = {
+        container: { classList } as any,
+        title: { textContent: "" } as HTMLElement,
+        inputPoints: { value: "" } as HTMLInputElement,
+        volPerPoint: { textContent: "", title: "" } as HTMLElement,
+        oiPerPoint: { textContent: "", title: "" } as HTMLElement,
+        costPerPoint: { textContent: "", className: "", title: "" } as HTMLElement,
+        feesPerPoint: { textContent: "", title: "" } as HTMLElement,
+        ratePer1k: { textContent: "", title: "" } as HTMLElement,
+      };
+
+      // 1. Should hide when weekNumber is null or 0
+      updateWeeklyPointsCard(null, baseMetrics, 1000, elements);
+      expect(classList.contains("hidden")).toBe(true);
+
+      updateWeeklyPointsCard(0, baseMetrics, 1000, elements);
+      expect(classList.contains("hidden")).toBe(true);
+
+      // 2. Should show when weekNumber is valid, but show placeholders when no points entered
+      updateWeeklyPointsCard(3, baseMetrics, null, elements);
+      expect(classList.contains("hidden")).toBe(false);
+      expect(elements.title?.textContent).toBe("Week 3:");
+      expect(elements.volPerPoint?.textContent).toBe("--");
+      expect(elements.costPerPoint?.textContent).toBe("--");
+      expect(elements.costPerPoint?.className).toContain("text-terminal-muted");
+
+      // 3. Should calculate and populate values when points entered (loss case)
+      updateWeeklyPointsCard(3, baseMetrics, 1000, elements);
+      expect(elements.volPerPoint?.textContent).toBe("$100.00");
+      expect(elements.oiPerPoint?.textContent).toBe("$5.00");
+      expect(elements.costPerPoint?.textContent).toBe("$0.0500");
+      expect(elements.costPerPoint?.className).toContain("text-white");
+      expect(elements.feesPerPoint?.textContent).toBe("$0.0350");
+      expect(elements.ratePer1k?.textContent).toBe("10.0");
+
+      // 4. Should populate profit case with + and emerald color
+      const profitMetrics = { ...baseMetrics, totalNetPnlUsd: 12.5 };
+      updateWeeklyPointsCard(3, profitMetrics, 1000, elements);
+      expect(elements.costPerPoint?.textContent).toBe("+$0.0125");
+      expect(elements.costPerPoint?.className).toContain("text-terminal-emerald");
+
+      // 5. Should handle tiny micro point prices with high precision
+      const microMetrics = { ...baseMetrics, totalNetPnlUsd: -0.05 };
+      updateWeeklyPointsCard(3, microMetrics, 1000, elements);
+      expect(elements.costPerPoint?.textContent).toBe("$0.000050");
+    });
+
+    it("getParticipatingWeeksStats detects only promo weeks with user trade activity", () => {
+      const promoWeeks = getRobinhoodPromoWeeks();
+      const w1 = promoWeeks[0];
+      const w2 = promoWeeks[1];
+
+      const tradeW1: ParsedTradeView = {
+        tradeId: "t1",
+        userAccountId: 100,
+        marketSymbol: "ETH",
+        side: "BUY",
+        price: 2500,
+        size: 2,
+        usdValue: 5000,
+        fee: 5,
+        timestampMs: w1.startTimestampMs! + 1000,
+        timeFormatted: "",
+        txHash: "0x1",
+        isMaker: true,
+      } as any;
+
+      const tradeW2: ParsedTradeView = {
+        tradeId: "t2",
+        userAccountId: 100,
+        marketSymbol: "ETH",
+        side: "SELL",
+        price: 2600,
+        size: 2,
+        usdValue: 5200,
+        fee: 5,
+        timestampMs: w2.startTimestampMs! + 5000,
+        timeFormatted: "",
+        txHash: "0x2",
+        isMaker: false,
+      } as any;
+
+      const params = {
+        allHedgePairs: [],
+        allUnhedgedTrades: [],
+        rhParsedTrades: [tradeW1, tradeW2],
+        coreParsedTrades: [],
+        rhAccountIndex: 100,
+        coreAccountIndex: null,
+        nowMs: w2.endTimestampMs! + 10000,
+        pointsByWeek: {
+          1: 1000,
+          2: 2000,
+        },
+      };
+
+      const participating = getParticipatingWeeksStats(params);
+      expect(participating.length).toBe(2);
+      expect(participating[0].weekNumber).toBe(1);
+      expect(participating[0].rhVolumeUsd).toBe(5000);
+      expect(participating[0].points).toBe(1000);
+      expect(participating[0].analysis.volPerPoint).toBe(5);
+
+      expect(participating[1].weekNumber).toBe(2);
+      expect(participating[1].rhVolumeUsd).toBe(5200);
+      expect(participating[1].points).toBe(2000);
+      expect(participating[1].analysis.volPerPoint).toBe(2.6);
+    });
+
+    it("getParticipatingWeeksStats returns empty array when no trades match promo weeks", () => {
+      const outsideTrade: ParsedTradeView = {
+        tradeId: "t-old",
+        userAccountId: 100,
+        marketSymbol: "ETH",
+        side: "BUY",
+        price: 2500,
+        size: 1,
+        usdValue: 2500,
+        fee: 2.5,
+        timestampMs: Date.parse("2025-01-01T00:00:00Z"),
+        timeFormatted: "",
+        txHash: "0xold",
+        isMaker: true,
+      } as any;
+
+      const participating = getParticipatingWeeksStats({
+        allHedgePairs: [],
+        allUnhedgedTrades: [],
+        rhParsedTrades: [outsideTrade],
+        coreParsedTrades: [],
+        rhAccountIndex: 100,
+        coreAccountIndex: null,
+      });
+
+      expect(participating.length).toBe(0);
+    });
+
+    it("renderWeeklyPointsTable renders table rows, handles events, and reuses DOM", () => {
+      const containerClassList = new Set<string>(["hidden"]);
+      const container = {
+        classList: {
+          add: (c: string) => containerClassList.add(c),
+          remove: (c: string) => containerClassList.delete(c),
+          contains: (c: string) => containerClassList.has(c),
+        },
+      } as any;
+
+      const count = { textContent: "" } as HTMLElement;
+
+      const rowClickListeners: Record<number, (e: any) => void> = {};
+      const inputListeners: Record<number, (e: any) => void> = {};
+      let renderedHtml = "";
+
+      const makeRowMock = (weekNum: number) => {
+        const classNames = new Set<string>(["hover:bg-terminal-surfaceHover/80"]);
+        const inputObj = {
+          value: "",
+          addEventListener: (event: string, handler: any) => {
+            if (event === "input") inputListeners[weekNum] = handler;
+          },
+        };
+        const metricEl = { textContent: "", className: "", parentElement: { title: "" } };
+
+        return {
+          dataset: { week: String(weekNum) },
+          get className() {
+            return Array.from(classNames).join(" ");
+          },
+          classList: {
+            add: (...classes: string[]) => classes.forEach((c) => classNames.add(c)),
+            remove: (...classes: string[]) => classes.forEach((c) => classNames.delete(c)),
+            contains: (c: string) => classNames.has(c),
+          },
+          addEventListener: (event: string, handler: any) => {
+            if (event === "click") rowClickListeners[weekNum] = handler;
+          },
+          querySelector: (sel: string) => {
+            if (sel === "input") return inputObj;
+            return metricEl;
+          },
+        };
+      };
+
+      let existingMockRows: any[] = [];
+      const attrs = new Map<string, string>();
+
+      const tableContainer = {
+        get innerHTML() {
+          return renderedHtml;
+        },
+        set innerHTML(val: string) {
+          renderedHtml = val;
+          existingMockRows = [makeRowMock(1), makeRowMock(2)];
+        },
+        getAttribute: (name: string) => attrs.get(name) ?? null,
+        setAttribute: (name: string, val: string) => attrs.set(name, val),
+        querySelectorAll: (selector: string) => {
+          if (selector === "tr[data-week]") {
+            return existingMockRows;
+          }
+          return [];
+        },
+      } as any;
+
+      const elements: WeeklyPointsMultiElements = {
+        container,
+        count,
+        grid: tableContainer,
+      };
+
+      const promoWeeks = getRobinhoodPromoWeeks();
+      const statsList: WeekActivityStats[] = [
+        {
+          weekNumber: 1,
+          presetId: "week-1",
+          label: "Week 1",
+          shortLabel: "W1",
+          dateRangeFormatted: "Aug 10 – Aug 21",
+          startTimestampMs: promoWeeks[0].startTimestampMs!,
+          endTimestampMs: promoWeeks[0].endTimestampMs!,
+          tradesCount: 10,
+          rhVolumeUsd: 100000,
+          rhAvgOiUsd: 5000,
+          totalNetPnlUsd: -50,
+          totalFeesUsd: 35,
+          points: 1000,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 100000, rhAvgOiUsd: 5000, totalNetPnlUsd: -50, totalFeesUsd: 35 },
+            1000,
+          ),
+        },
+        {
+          weekNumber: 2,
+          presetId: "week-2",
+          label: "Week 2",
+          shortLabel: "W2",
+          dateRangeFormatted: "Aug 21 – Aug 28",
+          startTimestampMs: promoWeeks[1].startTimestampMs!,
+          endTimestampMs: promoWeeks[1].endTimestampMs!,
+          tradesCount: 15,
+          rhVolumeUsd: 200000,
+          rhAvgOiUsd: 10000,
+          totalNetPnlUsd: 100,
+          totalFeesUsd: 50,
+          points: null,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 200000, rhAvgOiUsd: 10000, totalNetPnlUsd: 100, totalFeesUsd: 50 },
+            null,
+          ),
+        },
+      ];
+
+      let selectedWeek: number | null = null;
+      let changedWeek: number | null = null;
+      let changedVal: string | null = null;
+
+      // 1. Initial render using renderWeeklyPointsTable directly
+      renderWeeklyPointsTable(
+        tableContainer,
+        statsList,
+        1,
+        (w, v) => {
+          changedWeek = w;
+          changedVal = v;
+        },
+        (w) => {
+          selectedWeek = w;
+        },
+      );
+
+      expect(renderedHtml).toContain("<table");
+      expect(renderedHtml).toContain("Week 1");
+      expect(renderedHtml).toContain("Week 2");
+      expect(renderedHtml).toContain("Vol / Point");
+      expect(renderedHtml).toContain("Avg OI / Point");
+      expect(renderedHtml).toContain("Point Price");
+      expect(renderedHtml).toContain("$100.00"); // Vol / Pt for W1
+      expect(renderedHtml).not.toContain("Fees:");
+      expect(renderedHtml).not.toContain("Rate:");
+      // Input width reduced to w-20
+      expect(renderedHtml).toContain("w-20");
+      expect(renderedHtml).not.toContain("w-24");
+      // Price for cost/loss should be text-white, NOT text-terminal-coral
+      expect(renderedHtml).toContain("text-white tabular-nums");
+      expect(renderedHtml).not.toContain("text-terminal-coral");
+
+      // Test row click triggering onSelectWeek
+      rowClickListeners[2]?.({ target: { tagName: "TD" } });
+      expect(Number(selectedWeek)).toBe(2);
+
+      // Test input event triggering onPointsChange
+      existingMockRows[1].querySelector("input").value = "3500";
+      inputListeners[2]?.({ stopPropagation: () => {} });
+      expect(Number(changedWeek)).toBe(2);
+      expect(String(changedVal)).toBe("3500");
+
+      // 2. Test DOM reuse when updating statsList
+      const row0Before = existingMockRows[0];
+      const updatedStatsList = [...statsList];
+      updatedStatsList[0] = {
+        ...updatedStatsList[0],
+        points: 2000,
+        analysis: calculateWeeklyPointsAnalysis(
+          { rhVolumeUsd: 100000, rhAvgOiUsd: 5000, totalNetPnlUsd: -50, totalFeesUsd: 35 },
+          2000,
+        ),
+      };
+
+      renderWeeklyPointsTable(
+        tableContainer,
+        updatedStatsList,
+        2,
+        () => {},
+        () => {},
+      );
+
+      expect(existingMockRows[0]).toBe(row0Before); // Reused same DOM element!
+      expect(existingMockRows[1].classList.contains("bg-white/10")).toBe(true);
+
+      // 3. Test compatibility helper renderWeeklyPointsMultiGrid
+      renderWeeklyPointsMultiGrid(
+        elements,
+        statsList,
+        null,
+        () => {},
+        () => {},
+      );
+      expect(container.classList.contains("hidden")).toBe(false);
+      expect(count.textContent).toBe("(2 weeks active)");
+
+      // 4. Test single week rendering always uses table
+      const singleWeekStats: WeekActivityStats[] = [statsList[0]];
+      let singleHtml = "";
+      const singleContainer = {
+        get innerHTML() {
+          return singleHtml;
+        },
+        set innerHTML(val: string) {
+          singleHtml = val;
+        },
+        querySelectorAll: () => [],
+        getAttribute: () => null,
+        setAttribute: () => {},
+      } as any;
+      renderWeeklyPointsTable(
+        singleContainer,
+        singleWeekStats,
+        1,
+        () => {},
+        () => {},
+      );
+      expect(singleHtml).toContain("<table");
+      expect(singleHtml).toContain("Week 1");
+      expect(singleHtml).not.toContain("Week 2");
+    });
+
+    it("sortWeeklyPointsStats sorts properly by columns and handles null points", () => {
+      const promoWeeks = getRobinhoodPromoWeeks();
+      const statsList: WeekActivityStats[] = [
+        {
+          weekNumber: 3,
+          presetId: "week-3",
+          label: "Week 3",
+          shortLabel: "W3",
+          dateRangeFormatted: "Aug 28 – Sep 04",
+          startTimestampMs: promoWeeks[2].startTimestampMs!,
+          endTimestampMs: promoWeeks[2].endTimestampMs!,
+          tradesCount: 10,
+          rhVolumeUsd: 300000,
+          rhAvgOiUsd: 15000,
+          totalNetPnlUsd: -150,
+          totalFeesUsd: 50,
+          points: 1000,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 300000, rhAvgOiUsd: 15000, totalNetPnlUsd: -150, totalFeesUsd: 50 },
+            1000,
+          ), // vol: 300, oi: 15, cost: 0.15
+        },
+        {
+          weekNumber: 1,
+          presetId: "week-1",
+          label: "Week 1",
+          shortLabel: "W1",
+          dateRangeFormatted: "Aug 10 – Aug 21",
+          startTimestampMs: promoWeeks[0].startTimestampMs!,
+          endTimestampMs: promoWeeks[0].endTimestampMs!,
+          tradesCount: 10,
+          rhVolumeUsd: 100000,
+          rhAvgOiUsd: 5000,
+          totalNetPnlUsd: -50,
+          totalFeesUsd: 35,
+          points: 1000,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 100000, rhAvgOiUsd: 5000, totalNetPnlUsd: -50, totalFeesUsd: 35 },
+            1000,
+          ), // vol: 100, oi: 5, cost: 0.05
+        },
+        {
+          weekNumber: 2,
+          presetId: "week-2",
+          label: "Week 2",
+          shortLabel: "W2",
+          dateRangeFormatted: "Aug 21 – Aug 28",
+          startTimestampMs: promoWeeks[1].startTimestampMs!,
+          endTimestampMs: promoWeeks[1].endTimestampMs!,
+          tradesCount: 15,
+          rhVolumeUsd: 200000,
+          rhAvgOiUsd: 10000,
+          totalNetPnlUsd: 100,
+          totalFeesUsd: 50,
+          points: null,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 200000, rhAvgOiUsd: 10000, totalNetPnlUsd: 100, totalFeesUsd: 50 },
+            null,
+          ), // null points
+        },
+      ];
+
+      // Sort by weekNumber asc (default)
+      const byWeekAsc = sortWeeklyPointsStats([...statsList], "weekNumber", "asc");
+      expect(byWeekAsc.map((s) => s.weekNumber)).toEqual([1, 2, 3]);
+
+      // Sort by weekNumber desc
+      const byWeekDesc = sortWeeklyPointsStats([...statsList], "weekNumber", "desc");
+      expect(byWeekDesc.map((s) => s.weekNumber)).toEqual([3, 2, 1]);
+
+      // Sort by volPerPoint desc (300, 100, then null)
+      const byVolDesc = sortWeeklyPointsStats([...statsList], "volPerPoint", "desc");
+      expect(byVolDesc.map((s) => s.weekNumber)).toEqual([3, 1, 2]);
+
+      // Sort by volPerPoint asc (100, 300, then null at bottom)
+      const byVolAsc = sortWeeklyPointsStats([...statsList], "volPerPoint", "asc");
+      expect(byVolAsc.map((s) => s.weekNumber)).toEqual([1, 3, 2]);
+
+      // Sort by costPerPoint desc (0.15, 0.05, then null)
+      const byCostDesc = sortWeeklyPointsStats([...statsList], "costPerPoint", "desc");
+      expect(byCostDesc.map((s) => s.weekNumber)).toEqual([3, 1, 2]);
+
+      // Sort by costPerPoint asc (0.05, 0.15, then null at bottom)
+      const byCostAsc = sortWeeklyPointsStats([...statsList], "costPerPoint", "asc");
+      expect(byCostAsc.map((s) => s.weekNumber)).toEqual([1, 3, 2]);
+    });
+
+    it("renderWeeklyPointsTable renders sort indicators and handles header click", () => {
+      const promoWeeks = getRobinhoodPromoWeeks();
+      const statsList: WeekActivityStats[] = [
+        {
+          weekNumber: 1,
+          presetId: "week-1",
+          label: "Week 1",
+          shortLabel: "W1",
+          dateRangeFormatted: "Aug 10 – Aug 21",
+          startTimestampMs: promoWeeks[0].startTimestampMs!,
+          endTimestampMs: promoWeeks[0].endTimestampMs!,
+          tradesCount: 10,
+          rhVolumeUsd: 100000,
+          rhAvgOiUsd: 5000,
+          totalNetPnlUsd: -50,
+          totalFeesUsd: 35,
+          points: 1000,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 100000, rhAvgOiUsd: 5000, totalNetPnlUsd: -50, totalFeesUsd: 35 },
+            1000,
+          ),
+        },
+      ];
+
+      let sortColClicked: WeeklyPointsSortColumn | null = null;
+      let html = "";
+      const headerListeners: Record<string, () => void> = {};
+
+      const fakeContainer = {
+        get innerHTML() {
+          return html;
+        },
+        set innerHTML(val: string) {
+          html = val;
+        },
+        getAttribute: () => null,
+        setAttribute: () => {},
+        querySelectorAll: (sel: string) => {
+          if (sel === "th[data-sort]") {
+            const cols: WeeklyPointsSortColumn[] = [
+              "weekNumber",
+              "dateRange",
+              "points",
+              "volPerPoint",
+              "oiPerPoint",
+              "costPerPoint",
+            ];
+            return cols.map((col) => ({
+              getAttribute: (attr: string) => (attr === "data-sort" ? col : null),
+              addEventListener: (ev: string, handler: any) => {
+                if (ev === "click") headerListeners[col] = handler;
+              },
+            }));
+          }
+          return [];
+        },
+      } as any;
+
+      renderWeeklyPointsTable(
+        fakeContainer,
+        statsList,
+        null,
+        () => {},
+        () => {},
+        "volPerPoint",
+        "desc",
+        (col) => {
+          sortColClicked = col;
+        },
+      );
+
+      // Verify that sort indicator ▼ is present
+      expect(html).toContain("▼");
+      expect(html).toContain('data-sort="volPerPoint"');
+
+      // Click on costPerPoint header
+      headerListeners["costPerPoint"]?.();
+      expect(sortColClicked as string | null).toBe("costPerPoint");
+    });
+
+    it("calculateWeekActivityStats returns null if no trades occurred in week", () => {
+      const promoWeeks = getRobinhoodPromoWeeks();
+      const w1 = promoWeeks[0];
+      const stats = calculateWeekActivityStats(w1, {
+        allHedgePairs: [],
+        allUnhedgedTrades: [],
+        rhParsedTrades: [],
+        coreParsedTrades: [],
+        rhAccountIndex: null,
+        coreAccountIndex: null,
+      });
+      expect(stats).toBeNull();
     });
   });
 });

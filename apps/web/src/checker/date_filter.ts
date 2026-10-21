@@ -50,7 +50,7 @@ const MONTH_NAMES = [
   "Dec",
 ];
 
-function formatShortMonthDay(d: Date): string {
+export function formatShortMonthDay(d: Date): string {
   return `${MONTH_NAMES[d.getUTCMonth()]} ${pad2(d.getUTCDate())}`;
 }
 
