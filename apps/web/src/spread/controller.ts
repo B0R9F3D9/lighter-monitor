@@ -1,9 +1,9 @@
 import type { MarketInfo, MarketMetrics, RowDomCache, SimFillResult, TerminalState } from "./types";
-import { CONFIG, NON_EQUITY_SYMBOLS, STORAGE_KEYS } from "./config";
+import { CONFIG, STORAGE_KEYS } from "./config";
 import { getMetrics } from "./metrics";
 import { getOrCreateBook, updateBookFromWs } from "./orderbook";
 import { WebSocketManager, type WsOrderBookData } from "./ws";
-import { initFontSelector } from "../shared";
+import { initFontSelector, registerTokens, isEquitySymbol } from "../shared";
 import {
   createRowElement,
   applyRowMetricsToDom,
@@ -309,7 +309,7 @@ export class TerminalController {
     const now = performance.now();
 
     for (const m of this.state.markets.values()) {
-      if (this.state.filterEquities && NON_EQUITY_SYMBOLS.has(m.symbol)) continue;
+      if (this.state.filterEquities && !isEquitySymbol(m.symbol)) continue;
       if (this.state.minLeverageFilter > 0 && m.leverageNum < this.state.minLeverageFilter)
         continue;
       if (
@@ -527,9 +527,11 @@ export class TerminalController {
     this.fetchInFlight = true;
 
     try {
-      const [coreRes, rhRes] = await Promise.all([
+      const [coreRes, rhRes, rhTokRes, coreTokRes] = await Promise.all([
         fetch(`${CONFIG.CORE_API_URL}/orderBookDetails`),
         fetch(`${CONFIG.RH_API_URL}/orderBookDetails`),
+        fetch(`${CONFIG.RH_API_URL}/tokenlist`).catch(() => null),
+        fetch(`${CONFIG.CORE_API_URL}/tokenlist`).catch(() => null),
       ]);
 
       if (!coreRes.ok || !rhRes.ok) {
@@ -538,19 +540,42 @@ export class TerminalController {
         return;
       }
 
+      if (rhTokRes?.ok) {
+        try {
+          const rhTokJson = await rhTokRes.json();
+          if (Array.isArray(rhTokJson.tokens)) {
+            registerTokens(rhTokJson.tokens);
+          }
+        } catch (e) {
+          console.warn("Failed to parse RH tokenlist:", e);
+        }
+      }
+
+      if (coreTokRes?.ok) {
+        try {
+          const coreTokJson = await coreTokRes.json();
+          if (Array.isArray(coreTokJson.tokens)) {
+            registerTokens(coreTokJson.tokens);
+          }
+        } catch (e) {
+          console.warn("Failed to parse Core tokenlist:", e);
+        }
+      }
+
       const [coreJson, rhJson] = await Promise.all([coreRes.json(), rhRes.json()]);
 
-      const coreMap = new Map();
+      const coreMap = new Map<string, any>();
       for (const m of coreJson.order_book_details || []) {
-        if (m.status === "active" && !m.is_frozen) {
-          coreMap.set(m.symbol, m);
+        if (m.symbol && m.status === "active" && !m.is_frozen) {
+          coreMap.set(m.symbol.toUpperCase().trim(), m);
         }
       }
 
       const map = new Map<string, MarketInfo>();
       for (const rm of rhJson.order_book_details || []) {
-        if (rm.status !== "active" || rm.is_frozen) continue;
-        const cm = coreMap.get(rm.symbol);
+        if (!rm.symbol || rm.status !== "active" || rm.is_frozen) continue;
+        const sym = rm.symbol.toUpperCase().trim();
+        const cm = coreMap.get(sym);
         if (!cm) continue;
 
         this.marketIdToSymbol.core.set(cm.market_id, rm.symbol);
@@ -774,7 +799,7 @@ export class TerminalController {
     } else {
       eqBtn.className =
         "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer whitespace-nowrap text-center";
-      eqBtn.textContent = "All Markets";
+      eqBtn.textContent = "All Tokens";
     }
   }
 

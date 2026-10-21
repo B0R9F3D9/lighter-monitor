@@ -16,6 +16,14 @@ import { simulateFillBase, simulateFillBaseInto, fastSimFillInto } from "../src/
 import type { FastSimResult } from "../src/spread/simulation";
 import { calculateMarketMetrics, findOptimalSize, getMetrics } from "../src/spread/metrics";
 import { STORAGE_KEYS } from "../src/spread/config";
+import {
+  registerTokens,
+  isEquitySymbol,
+  isCryptoSymbol,
+  isNonEquitySymbol,
+  getTokenImageUrl,
+  type ApiTokenInfo,
+} from "../src/shared";
 import type { MarketInfo, OrderBook, SimFillResult, TerminalState } from "../src/spread/types";
 
 describe("Spread Terminal: Formatters", () => {
@@ -779,5 +787,141 @@ describe("Spread Terminal: High-Throughput & Zero-Allocation Hot Path", () => {
   it("includes sort persistence keys in STORAGE_KEYS", () => {
     expect(STORAGE_KEYS.SORT_COLUMN).toBe("terminal_sort_column");
     expect(STORAGE_KEYS.SORT_DIRECTION).toBe("terminal_sort_direction");
+  });
+});
+
+describe("Spread Terminal: Dynamic Token List & All Tokens Filter", () => {
+  it("dynamically categorizes tokens without hardcoded tickers from tokenlist API", () => {
+    const apiTokens: ApiTokenInfo[] = [
+      {
+        symbol: "TSLA",
+        asset_type: "RWA",
+        categories: ["STOCK"],
+        logo: "tsla",
+        logo_extension: "png",
+      },
+      {
+        symbol: "BTC",
+        asset_type: "CRYPTO",
+        categories: ["MAJOR", "LAYER_1"],
+        logo: "btc",
+        logo_extension: "png",
+      },
+      {
+        symbol: "SPY",
+        asset_type: "RWA",
+        categories: ["ETF", "MAJOR"],
+        logo: "spy",
+        logo_extension: "png",
+      },
+      {
+        symbol: "XAU",
+        asset_type: "RWA",
+        categories: ["COMMODITIES", "MAJOR"],
+        logo: "xau",
+        logo_extension: "png",
+      },
+      {
+        symbol: "NEWCOIN",
+        asset_type: "CRYPTO",
+        categories: ["MEMES"],
+        logo: "newcoin",
+        logo_extension: "png",
+      },
+      {
+        symbol: "NEWSTOCK",
+        asset_type: "RWA",
+        categories: ["STOCK"],
+        logo: "newstock",
+        logo_extension: "webp",
+      },
+    ];
+
+    registerTokens(apiTokens);
+
+    // Stocks
+    expect(isEquitySymbol("TSLA")).toBe(true);
+    expect(isEquitySymbol("NEWSTOCK")).toBe(true);
+    expect(isNonEquitySymbol("TSLA")).toBe(false);
+
+    // Non-stocks
+    expect(isEquitySymbol("BTC")).toBe(false);
+    expect(isEquitySymbol("SPY")).toBe(false);
+    expect(isEquitySymbol("XAU")).toBe(false);
+    expect(isEquitySymbol("NEWCOIN")).toBe(false);
+
+    expect(isNonEquitySymbol("BTC")).toBe(true);
+    expect(isNonEquitySymbol("SPY")).toBe(true);
+    expect(isNonEquitySymbol("XAU")).toBe(true);
+    expect(isNonEquitySymbol("NEWCOIN")).toBe(true);
+
+    expect(isCryptoSymbol("BTC")).toBe(true);
+    expect(isCryptoSymbol("NEWCOIN")).toBe(true);
+    expect(isCryptoSymbol("TSLA")).toBe(false);
+
+    // Dynamic logos
+    expect(getTokenImageUrl("NEWSTOCK")).toBe("https://assets.lighter.xyz/fe/token/newstock.webp");
+    expect(getTokenImageUrl("NEWCOIN")).toBe("https://assets.lighter.xyz/fe/token/newcoin.png");
+  });
+
+  it("retains all tokens from both exchanges when filterEquities is false (All Tokens mode)", () => {
+    const commonMarkets = [
+      { symbol: "AAPL" },
+      { symbol: "BTC" },
+      { symbol: "ETH" },
+      { symbol: "NVDA" },
+      { symbol: "SPY" },
+      { symbol: "XAU" },
+      { symbol: "NEWCOIN" },
+    ];
+
+    // Filter simulation with filterEquities = false (All Tokens)
+    const filterEquities = false;
+    const displayed = commonMarkets.filter((m) => {
+      if (filterEquities && !isEquitySymbol(m.symbol)) return false;
+      return true;
+    });
+
+    // All 7 common tokens are displayed!
+    expect(displayed.length).toBe(7);
+    expect(displayed.map((m) => m.symbol)).toEqual([
+      "AAPL",
+      "BTC",
+      "ETH",
+      "NVDA",
+      "SPY",
+      "XAU",
+      "NEWCOIN",
+    ]);
+  });
+
+  it("filters out non-equities when filterEquities is true (Stocks Only mode)", () => {
+    registerTokens([
+      { symbol: "AAPL", asset_type: "RWA", categories: ["STOCK"] },
+      { symbol: "NVDA", asset_type: "RWA", categories: ["STOCK"] },
+      { symbol: "BTC", asset_type: "CRYPTO", categories: ["MAJOR"] },
+      { symbol: "ETH", asset_type: "CRYPTO", categories: ["MAJOR"] },
+      { symbol: "SPY", asset_type: "RWA", categories: ["ETF"] },
+      { symbol: "XAU", asset_type: "RWA", categories: ["COMMODITIES"] },
+      { symbol: "NEWCOIN", asset_type: "CRYPTO", categories: ["MEMES"] },
+    ]);
+
+    const commonMarkets = [
+      { symbol: "AAPL" },
+      { symbol: "BTC" },
+      { symbol: "ETH" },
+      { symbol: "NVDA" },
+      { symbol: "SPY" },
+      { symbol: "XAU" },
+      { symbol: "NEWCOIN" },
+    ];
+
+    const filterEquities = true;
+    const displayed = commonMarkets.filter((m) => {
+      if (filterEquities && !isEquitySymbol(m.symbol)) return false;
+      return true;
+    });
+
+    expect(displayed.map((m) => m.symbol)).toEqual(["AAPL", "NVDA"]);
   });
 });

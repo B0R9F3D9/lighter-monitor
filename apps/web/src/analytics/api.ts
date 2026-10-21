@@ -1,10 +1,5 @@
-import { CONFIG, NON_EQUITY_SYMBOLS } from "../shared";
-import {
-  alignCandlesToBasisPoints,
-  calculateQuantStats,
-  calculateRollingBands,
-  registerTokenLogos,
-} from "./math";
+import { CONFIG, registerTokens, isEquitySymbol } from "../shared";
+import { alignCandlesToBasisPoints, calculateQuantStats, calculateRollingBands } from "./math";
 import type {
   AnalyticsMarketPair,
   BasisPoint,
@@ -44,7 +39,7 @@ export async function fetchMarketPairs(): Promise<AnalyticsMarketPair[]> {
     try {
       const tokJson = await tokenlistRes.json();
       if (Array.isArray(tokJson.tokens)) {
-        registerTokenLogos(tokJson.tokens);
+        registerTokens(tokJson.tokens);
       }
     } catch {}
   }
@@ -134,7 +129,7 @@ export async function fetchMarketPairs(): Promise<AnalyticsMarketPair[]> {
       coreMarketId: cm.market_id,
       leverage: `${minLev}x`,
       leverageNum: minLev,
-      isEquity: !NON_EQUITY_SYMBOLS.has(rm.symbol),
+      isEquity: isEquitySymbol(rm.symbol),
       rh: rhStats,
       core: coreStats,
       // Default: Robinhood (RH) stats

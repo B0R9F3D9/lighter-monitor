@@ -2,32 +2,91 @@
  * Shared token logos and symbol helpers for Lighter markets.
  */
 
-export const CRYPTO_SYMBOLS: ReadonlySet<string> = new Set([
-  "BTC",
-  "ETH",
-  "SOL",
-  "XRP",
-  "SUI",
-  "NEAR",
-  "HYPE",
-  "ZEC",
-  "CASHCAT",
-  "PONS",
-  "VVV",
-  "LIT",
-  "BE",
-  "ANSEM",
-]);
+export interface ApiTokenInfo {
+  symbol: string;
+  name?: string;
+  logo?: string;
+  logo_extension?: string;
+  market?: string;
+  asset_type?: string;
+  categories?: string[];
+  is_allowed_mainnet?: boolean;
+  is_asset_allowed_mainnet?: boolean;
+}
 
-const COMMODITY_SYMBOLS: ReadonlySet<string> = new Set(["XAU", "XAG", "USO", "SLV"]);
+export const CRYPTO_SYMBOLS: Set<string> = new Set();
+export const NON_EQUITY_SYMBOLS: Set<string> = new Set();
+export const EQUITY_SYMBOLS: Set<string> = new Set();
 
-const INDEX_ETF_SYMBOLS: ReadonlySet<string> = new Set(["SPY", "QQQ", "SOXL", "SPCX", "SGOV"]);
+const dynamicTokenMetadata = new Map<string, ApiTokenInfo>();
+const dynamicTokenLogos = new Map<string, string>();
 
-export const NON_EQUITY_SYMBOLS: ReadonlySet<string> = new Set([
-  ...CRYPTO_SYMBOLS,
-  ...COMMODITY_SYMBOLS,
-  ...INDEX_ETF_SYMBOLS,
-]);
+export function registerTokenLogos(
+  tokens: Array<{ symbol: string; logo?: string; logo_extension?: string }>,
+): void {
+  for (const t of tokens) {
+    if (!t.symbol || !t.logo) continue;
+    const ext = t.logo_extension || "png";
+    const url = `https://assets.lighter.xyz/fe/token/${t.logo}.${ext}`;
+    const rawSym = t.symbol.toUpperCase().trim();
+    dynamicTokenLogos.set(rawSym, url);
+    if (rawSym.includes("/")) {
+      dynamicTokenLogos.set(rawSym.split("/")[0]!, url);
+    }
+  }
+}
+
+export function registerTokens(tokens: ApiTokenInfo[]): void {
+  registerTokenLogos(tokens);
+
+  for (const t of tokens) {
+    if (!t.symbol) continue;
+    const rawSym = t.symbol.toUpperCase().trim();
+    const sym = rawSym.includes("/") ? rawSym.split("/")[0]! : rawSym;
+
+    dynamicTokenMetadata.set(sym, t);
+
+    const isStock =
+      t.categories?.includes("STOCK") ||
+      (t.asset_type === "RWA" &&
+        !t.categories?.includes("ETF") &&
+        !t.categories?.includes("COMMODITIES"));
+
+    if (isStock) {
+      EQUITY_SYMBOLS.add(sym);
+      NON_EQUITY_SYMBOLS.delete(sym);
+    } else {
+      NON_EQUITY_SYMBOLS.add(sym);
+      EQUITY_SYMBOLS.delete(sym);
+    }
+
+    const isCrypto =
+      t.asset_type === "CRYPTO" ||
+      (!isStock && t.categories?.some((c) => ["LAYER_1", "LAYER_2", "MEMES", "DEFI"].includes(c)));
+
+    if (isCrypto) {
+      CRYPTO_SYMBOLS.add(sym);
+    }
+  }
+}
+
+export function isEquitySymbol(symbol: string): boolean {
+  const sym = symbol.toUpperCase().trim();
+  const baseSym = sym.includes("/") ? sym.split("/")[0]! : sym;
+  return EQUITY_SYMBOLS.has(baseSym);
+}
+
+export function isNonEquitySymbol(symbol: string): boolean {
+  const sym = symbol.toUpperCase().trim();
+  const baseSym = sym.includes("/") ? sym.split("/")[0]! : sym;
+  return NON_EQUITY_SYMBOLS.has(baseSym);
+}
+
+export function isCryptoSymbol(symbol: string): boolean {
+  const sym = symbol.toUpperCase().trim();
+  const baseSym = sym.includes("/") ? sym.split("/")[0]! : sym;
+  return CRYPTO_SYMBOLS.has(baseSym);
+}
 
 export function getTokenIcon(symbol: string): string {
   const sym = symbol.toUpperCase();
@@ -65,72 +124,20 @@ export function formatMarketPrice(p: number | undefined | null): string {
   return p.toFixed(4);
 }
 
-const OFFICIAL_TOKEN_LOGOS: Record<string, string> = {
-  AAPL: "https://assets.lighter.xyz/fe/token/aapl.png",
-  AI: "https://assets.lighter.xyz/fe/token/ai.png",
-  AMD: "https://assets.lighter.xyz/fe/token/amd.png",
-  AMZN: "https://assets.lighter.xyz/fe/token/amzn.png",
-  ANSEM: "https://assets.lighter.xyz/fe/token/ansem.png",
-  ANTHROPIC: "https://assets.lighter.xyz/fe/token/anthropic.png",
-  BABA: "https://assets.lighter.xyz/fe/token/baba.png",
-  BE: "https://assets.lighter.xyz/fe/token/be.png",
-  BTC: "https://assets.lighter.xyz/fe/token/btc.png",
-  CASHCAT: "https://assets.lighter.xyz/fe/token/cashcat.png",
-  COIN: "https://assets.lighter.xyz/fe/token/coinbase.png",
-  CRCL: "https://assets.lighter.xyz/fe/token/crcl.png",
-  CRWV: "https://assets.lighter.xyz/fe/token/crwv.png",
-  ETH: "https://assets.lighter.xyz/fe/token/eth.png",
-  GOOGL: "https://assets.lighter.xyz/fe/token/googl.png",
-  HYPE: "https://assets.lighter.xyz/fe/token/hype.png",
-  INTC: "https://assets.lighter.xyz/fe/token/intc.png",
-  LIT: "https://assets.lighter.xyz/fe/token/lit.png",
-  META: "https://assets.lighter.xyz/fe/token/meta.png",
-  MSFT: "https://assets.lighter.xyz/fe/token/msft.png",
-  MU: "https://assets.lighter.xyz/fe/token/mu.png",
-  NEAR: "https://assets.lighter.xyz/fe/token/near.png",
-  NVDA: "https://assets.lighter.xyz/fe/token/nvda.png",
-  OPENAI: "https://assets.lighter.xyz/fe/token/openai.png",
-  ORCL: "https://assets.lighter.xyz/fe/token/orcl.png",
-  PLTR: "https://assets.lighter.xyz/fe/token/pltr.png",
-  PONS: "https://assets.lighter.xyz/fe/token/pons.png",
-  QQQ: "https://assets.lighter.xyz/fe/token/qqq.png",
-  SHEIN: "https://assets.lighter.xyz/fe/token/shein.png",
+const KNOWN_TOKEN_LOGOS: Record<string, string> = {
   SKHY: "https://assets.lighter.xyz/fe/token/skhynix.png",
-  SNDK: "https://assets.lighter.xyz/fe/token/sndk.png",
-  SOL: "https://assets.lighter.xyz/fe/token/sol.png",
-  SOXL: "https://assets.lighter.xyz/fe/token/soxl.png",
-  SPCX: "https://assets.lighter.xyz/fe/token/spcx.png",
-  SPY: "https://assets.lighter.xyz/fe/token/spy.png",
-  SUI: "https://assets.lighter.xyz/fe/token/sui.png",
-  TSLA: "https://assets.lighter.xyz/fe/token/tsla.png",
-  TSM: "https://assets.lighter.xyz/fe/token/tsm.png",
-  VVV: "https://assets.lighter.xyz/fe/token/vvv.png",
-  XAG: "https://assets.lighter.xyz/fe/token/xag.png",
-  XAU: "https://assets.lighter.xyz/fe/token/xau.png",
-  XRP: "https://assets.lighter.xyz/fe/token/xrp.png",
+  COIN: "https://assets.lighter.xyz/fe/token/coinbase.png",
   ZEC: "https://assets.lighter.xyz/fe/token/zcash.png",
 };
 
-const dynamicTokenLogos = new Map<string, string>();
-
-export function registerTokenLogos(
-  tokens: Array<{ symbol: string; logo?: string; logo_extension?: string }>,
-): void {
-  for (const t of tokens) {
-    if (!t.symbol || !t.logo) continue;
-    const ext = t.logo_extension || "png";
-    const url = `https://assets.lighter.xyz/fe/token/${t.logo}.${ext}`;
-    dynamicTokenLogos.set(t.symbol.toUpperCase(), url);
-  }
-}
-
 export function getTokenImageUrl(symbol: string): string {
-  const sym = symbol.toUpperCase();
-  if (dynamicTokenLogos.has(sym)) {
-    return dynamicTokenLogos.get(sym)!;
+  const sym = symbol.toUpperCase().trim();
+  const baseSym = sym.includes("/") ? sym.split("/")[0]! : sym;
+  if (dynamicTokenLogos.has(baseSym)) {
+    return dynamicTokenLogos.get(baseSym)!;
   }
-  if (OFFICIAL_TOKEN_LOGOS[sym]) {
-    return OFFICIAL_TOKEN_LOGOS[sym];
+  if (KNOWN_TOKEN_LOGOS[baseSym]) {
+    return KNOWN_TOKEN_LOGOS[baseSym];
   }
-  return `https://assets.lighter.xyz/fe/token/${sym.toLowerCase()}.png`;
+  return `https://assets.lighter.xyz/fe/token/${baseSym.toLowerCase()}.png`;
 }

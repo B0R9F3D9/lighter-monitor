@@ -24,7 +24,7 @@ import type {
   RawCandle,
   TimeframeId,
 } from "./types";
-import { CONFIG, CRYPTO_SYMBOLS, formatMoney, initFontSelector } from "../shared";
+import { CONFIG, isCryptoSymbol, formatMoney, initFontSelector } from "../shared";
 
 export type SortField = "volume" | "oi" | "change" | "price" | "symbol";
 export type SortDirection = "asc" | "desc";
@@ -625,7 +625,7 @@ export class AnalyticsController {
   private getFilteredPairs(): AnalyticsMarketPair[] {
     const list = this.pairs.filter((p) => {
       if (this.activeCategory === "equities" && !p.isEquity) return false;
-      if (this.activeCategory === "crypto" && !CRYPTO_SYMBOLS.has(p.symbol)) return false;
+      if (this.activeCategory === "crypto" && !isCryptoSymbol(p.symbol)) return false;
       if (this.activeCategory === "favorites" && !this.favorites.has(p.symbol)) return false;
 
       if (this.searchQuery) {
