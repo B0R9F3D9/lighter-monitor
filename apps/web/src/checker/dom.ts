@@ -1,5 +1,10 @@
 import { formatFee, formatMoney, formatPrice } from "../shared/formatters";
-import { calculateWeeklyPointsAnalysis, type WeekActivityStats } from "./hedge";
+import {
+  calculateWeeklyPointsAnalysis,
+  calculateWeeklyPointsTotalStats,
+  type WeekActivityStats,
+  type WeeklyPointsTotalStats,
+} from "./hedge";
 import type {
   AccountDailyStat,
   CheckerSummaryMetrics,
@@ -1491,7 +1496,10 @@ export interface WeeklyPointsMultiElements {
   grid: HTMLElement | null;
 }
 
-function getWeekMetricStrings(stats: WeekActivityStats): {
+function getWeekMetricStrings(
+  stats: WeekActivityStats | WeeklyPointsTotalStats,
+  isTotal = false,
+): {
   volStr: string;
   volTitle: string;
   oiStr: string;
@@ -1506,12 +1514,18 @@ function getWeekMetricStrings(stats: WeekActivityStats): {
   if (analysis.volPerPoint === null) {
     return {
       volStr: "--",
-      volTitle: "Enter points to calculate volume per point",
+      volTitle: isTotal
+        ? "Enter points in any week above to calculate total volume per point"
+        : "Enter points to calculate volume per point",
       oiStr: "--",
-      oiTitle: "Enter points to calculate average open interest per point",
+      oiTitle: isTotal
+        ? "Enter points in any week above to calculate total average open interest per point"
+        : "Enter points to calculate average open interest per point",
       priceStr: "--",
       priceCls: "font-bold text-terminal-muted tabular-nums",
-      priceTitle: "Enter points to calculate point price",
+      priceTitle: isTotal
+        ? "Enter points in any week above to calculate total point price"
+        : "Enter points to calculate point price",
     };
   }
 
@@ -1519,7 +1533,9 @@ function getWeekMetricStrings(stats: WeekActivityStats): {
     analysis.volPerPoint !== null && analysis.volPerPoint > 0
       ? formatMoney(analysis.volPerPoint)
       : "$0.00";
-  const volTitle = `Robinhood volume per point: ${formatMoney(stats.rhVolumeUsd)} / ${pts?.toLocaleString()} pts`;
+  const volTitle = isTotal
+    ? `Total Robinhood volume per point: ${formatMoney(stats.rhVolumeUsd)} / ${pts?.toLocaleString()} pts`
+    : `Robinhood volume per point: ${formatMoney(stats.rhVolumeUsd)} / ${pts?.toLocaleString()} pts`;
 
   const oiStr =
     analysis.oiPerPoint !== null && analysis.oiPerPoint > 0
@@ -1527,21 +1543,27 @@ function getWeekMetricStrings(stats: WeekActivityStats): {
         ? formatMoney(analysis.oiPerPoint)
         : formatUnitPointPrice(analysis.oiPerPoint)
       : "$0.00";
-  const oiTitle = `Average open interest per point: ${formatMoney(stats.rhAvgOiUsd)} / ${pts?.toLocaleString()} pts`;
+  const oiTitle = isTotal
+    ? `Total average open interest per point: ${formatMoney(stats.rhAvgOiUsd)} total weekly OI / ${pts?.toLocaleString()} pts`
+    : `Average open interest per point: ${formatMoney(stats.rhAvgOiUsd)} / ${pts?.toLocaleString()} pts`;
 
   let priceStr = "$0.0000";
   let priceCls = "font-bold text-terminal-muted tabular-nums";
-  let priceTitle = "Net hedge PnL was $0.00";
+  let priceTitle = isTotal ? "Total net hedge PnL was $0.00" : "Net hedge PnL was $0.00";
 
   if (Math.abs(stats.totalNetPnlUsd) > 0.0001 && analysis.costPerPoint !== null) {
     if (analysis.isProfitable) {
       priceStr = `+${formatUnitPointPrice(analysis.costPerPoint)}`;
       priceCls = "font-bold text-terminal-emerald tabular-nums";
-      priceTitle = `Net profit per point: +${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
+      priceTitle = isTotal
+        ? `Total net profit per point: +${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`
+        : `Net profit per point: +${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
     } else {
       priceStr = formatUnitPointPrice(analysis.costPerPoint);
       priceCls = "font-bold text-white tabular-nums";
-      priceTitle = `Net cost per point: ${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
+      priceTitle = isTotal
+        ? `Total net cost per point: ${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`
+        : `Net cost per point: ${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
     }
   }
 
@@ -1554,6 +1576,48 @@ function getWeekMetricStrings(stats: WeekActivityStats): {
     priceCls,
     priceTitle,
   };
+}
+
+function updateWeeklyPointsTotalRow(
+  totalRowEl: HTMLElement,
+  totalStats: WeeklyPointsTotalStats,
+  activeWeekNumber: number | null,
+): void {
+  const isTotalActive = activeWeekNumber === null;
+  if (isTotalActive) {
+    totalRowEl.classList.remove("hover:bg-terminal-surfaceHover/80");
+    totalRowEl.classList.add("bg-white/[0.08]", "hover:bg-white/[0.12]");
+  } else {
+    totalRowEl.classList.remove("bg-white/[0.08]", "hover:bg-white/[0.12]");
+    totalRowEl.classList.add("hover:bg-terminal-surfaceHover/80");
+  }
+
+  const elPoints = totalRowEl.querySelector<HTMLElement>(".val-total-points");
+  if (elPoints) {
+    elPoints.textContent = totalStats.points ? totalStats.points.toLocaleString() : "--";
+    elPoints.title = totalStats.points
+      ? `Total points: ${totalStats.points.toLocaleString()} pts across all weeks`
+      : "No points entered for any week";
+  }
+
+  const values = getWeekMetricStrings(totalStats, true);
+
+  const elVol = totalRowEl.querySelector<HTMLElement>(".val-vol");
+  if (elVol) {
+    elVol.textContent = values.volStr;
+    if (elVol.parentElement) elVol.parentElement.title = values.volTitle;
+  }
+  const elOi = totalRowEl.querySelector<HTMLElement>(".val-oi");
+  if (elOi) {
+    elOi.textContent = values.oiStr;
+    if (elOi.parentElement) elOi.parentElement.title = values.oiTitle;
+  }
+  const elPrice = totalRowEl.querySelector<HTMLElement>(".val-price");
+  if (elPrice) {
+    elPrice.textContent = values.priceStr;
+    elPrice.className = `val-price ${values.priceCls}`;
+    if (elPrice.parentElement) elPrice.parentElement.title = values.priceTitle;
+  }
 }
 
 function updateWeeklyPointsTableRow(
@@ -1615,6 +1679,8 @@ export function renderWeeklyPointsTable(
     return;
   }
 
+  const totalStats = calculateWeeklyPointsTotalStats(statsList);
+
   const currentSortCol = container.getAttribute?.("data-sort-col");
   const currentSortDir = container.getAttribute?.("data-sort-dir");
   const isSortMatch = currentSortCol === sortColumn && currentSortDir === sortDirection;
@@ -1632,6 +1698,16 @@ export function renderWeeklyPointsTable(
       const stats = statsList[idx];
       updateWeeklyPointsTableRow(rowEl, stats, activeWeekNumber);
     });
+
+    if (totalStats) {
+      const totalRowEl =
+        typeof container.querySelector === "function"
+          ? container.querySelector<HTMLElement>("tr[data-total-row]")
+          : null;
+      if (totalRowEl) {
+        updateWeeklyPointsTotalRow(totalRowEl, totalStats, activeWeekNumber);
+      }
+    }
     return;
   }
 
@@ -1694,6 +1770,61 @@ export function renderWeeklyPointsTable(
     })
     .join("");
 
+  let tfootHtml = "";
+  if (totalStats) {
+    const isTotalActive = activeWeekNumber === null;
+    const totalRowClass = isTotalActive
+      ? "bg-white/[0.08] hover:bg-white/[0.12]"
+      : "hover:bg-terminal-surfaceHover/80";
+
+    const totalValues = getWeekMetricStrings(totalStats, true);
+    const totalPointsStr = totalStats.points ? totalStats.points.toLocaleString() : "--";
+    const totalPointsTitle = totalStats.points
+      ? `Total points: ${totalStats.points.toLocaleString()} pts across all weeks`
+      : "No points entered for any week";
+
+    tfootHtml = `
+      <tfoot class="border-t-2 border-terminal-border bg-terminal-surface font-semibold select-none">
+        <tr
+          class="transition-colors cursor-pointer text-xs font-mono group ${totalRowClass}"
+          data-total-row="true"
+          title="Click to view trades across all weeks"
+        >
+          <td class="py-2 px-3 text-center text-terminal-accent font-bold tabular-nums text-xs w-8">
+            Σ
+          </td>
+          <td class="py-2 px-3 whitespace-nowrap">
+            <span class="font-bold text-white transition-colors">
+              Total
+            </span>
+          </td>
+          <td class="py-2 px-3 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]" title="${escapeHtml(totalStats.dateRangeFormatted)} (${statsList.length} weeks)">
+            ${escapeHtml(totalStats.dateRangeFormatted)}
+          </td>
+          <td class="py-1 px-3 text-center whitespace-nowrap">
+            <div class="flex items-center justify-center">
+              <span
+                class="val-total-points inline-flex items-center justify-end h-6 w-20 px-1.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-xs tabular-nums text-right font-bold"
+                title="${totalPointsTitle}"
+              >
+                ${totalPointsStr}
+              </span>
+            </div>
+          </td>
+          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.volTitle}">
+            <span class="val-vol">${totalValues.volStr}</span>
+          </td>
+          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.oiTitle}">
+            <span class="val-oi">${totalValues.oiStr}</span>
+          </td>
+          <td class="py-2 px-3 text-right font-bold tabular-nums whitespace-nowrap" title="${totalValues.priceTitle}">
+            <span class="val-price ${totalValues.priceCls}">${totalValues.priceStr}</span>
+          </td>
+        </tr>
+      </tfoot>
+    `;
+  }
+
   container.innerHTML = `
     <table class="w-full border-collapse text-left text-xs font-mono">
       <thead>
@@ -1722,6 +1853,7 @@ export function renderWeeklyPointsTable(
       <tbody class="divide-y divide-terminal-borderSubtle/60">
         ${rowsHtml}
       </tbody>
+      ${tfootHtml}
     </table>
   `;
 
@@ -1757,6 +1889,16 @@ export function renderWeeklyPointsTable(
       });
     }
   });
+
+  const totalRowEl =
+    typeof container.querySelector === "function"
+      ? container.querySelector<HTMLElement>("tr[data-total-row]")
+      : null;
+  if (totalRowEl) {
+    totalRowEl.addEventListener("click", () => {
+      onSelectWeek(0);
+    });
+  }
 }
 
 export function renderWeeklyPointsMultiGrid(

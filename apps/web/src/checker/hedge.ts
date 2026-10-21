@@ -2094,3 +2094,82 @@ export function getParticipatingWeeksStats(params: ParticipatingWeeksParams): We
 
   return results;
 }
+
+export interface WeeklyPointsTotalStats {
+  tradesCount: number;
+  rhVolumeUsd: number;
+  rhAvgOiUsd: number;
+  totalNetPnlUsd: number;
+  totalFeesUsd: number;
+  points: number | null;
+  analysis: WeeklyPointsAnalysisResult;
+  minStartTimestampMs: number;
+  maxEndTimestampMs: number;
+  dateRangeFormatted: string;
+}
+
+export function calculateWeeklyPointsTotalStats(
+  statsList: WeekActivityStats[],
+): WeeklyPointsTotalStats | null {
+  if (!statsList || statsList.length === 0) {
+    return null;
+  }
+
+  let tradesCount = 0;
+  let rhVolumeUsd = 0;
+  let rhAvgOiUsd = 0;
+  let totalNetPnlUsd = 0;
+  let totalFeesUsd = 0;
+  let totalPoints = 0;
+  let hasAnyPoints = false;
+  let minStart = Infinity;
+  let maxEnd = -Infinity;
+
+  for (const s of statsList) {
+    tradesCount += s.tradesCount || 0;
+    rhVolumeUsd += s.rhVolumeUsd || 0;
+    rhAvgOiUsd += s.rhAvgOiUsd || 0;
+    totalNetPnlUsd += s.totalNetPnlUsd || 0;
+    totalFeesUsd += s.totalFeesUsd || 0;
+    if (s.points !== null && s.points !== undefined && !isNaN(s.points) && s.points > 0) {
+      totalPoints += s.points;
+      hasAnyPoints = true;
+    }
+    if (s.startTimestampMs && s.startTimestampMs < minStart) {
+      minStart = s.startTimestampMs;
+    }
+    if (s.endTimestampMs && s.endTimestampMs > maxEnd) {
+      maxEnd = s.endTimestampMs;
+    }
+  }
+
+  const points = hasAnyPoints ? totalPoints : null;
+
+  const analysis = calculateWeeklyPointsAnalysis(
+    {
+      rhVolumeUsd,
+      rhAvgOiUsd,
+      totalNetPnlUsd,
+      totalFeesUsd,
+    },
+    points,
+  );
+
+  const dateRangeFormatted =
+    minStart !== Infinity && maxEnd !== -Infinity
+      ? `${formatShortMonthDay(new Date(minStart))} – ${formatShortMonthDay(new Date(maxEnd))}`
+      : "";
+
+  return {
+    tradesCount,
+    rhVolumeUsd,
+    rhAvgOiUsd,
+    totalNetPnlUsd,
+    totalFeesUsd,
+    points,
+    analysis,
+    minStartTimestampMs: minStart !== Infinity ? minStart : 0,
+    maxEndTimestampMs: maxEnd !== -Infinity ? maxEnd : 0,
+    dateRangeFormatted,
+  };
+}

@@ -1185,7 +1185,7 @@ export class HedgeController {
 
   private handleWeeklyPointsRowClick(weekNum: number): void {
     const currentWeek = this.activeHedgeDateFilter?.weekNumber;
-    if (currentWeek === weekNum) {
+    if (weekNum <= 0 || currentWeek === weekNum) {
       if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
       this.activeHedgeDateFilter = null;
     } else {

@@ -33,6 +33,7 @@ import {
   calculateSelectedHedgeMetrics,
   calculateWeekActivityStats,
   calculateWeeklyPointsAnalysis,
+  calculateWeeklyPointsTotalStats,
   computeRangeSelection,
   exportHedgeReportToCsv,
   getParticipatingWeeksStats,
@@ -3817,6 +3818,205 @@ describe("Hedge Matching Engine", () => {
         coreAccountIndex: null,
       });
       expect(stats).toBeNull();
+    });
+
+    it("calculateWeeklyPointsTotalStats calculates aggregate metrics across all active weeks", () => {
+      expect(calculateWeeklyPointsTotalStats([])).toBeNull();
+
+      const promoWeeks = getRobinhoodPromoWeeks();
+      const statsList: WeekActivityStats[] = [
+        {
+          weekNumber: 1,
+          presetId: "week-1",
+          label: "Week 1",
+          shortLabel: "W1",
+          dateRangeFormatted: "Aug 10 – Aug 21",
+          startTimestampMs: promoWeeks[0].startTimestampMs!,
+          endTimestampMs: promoWeeks[0].endTimestampMs!,
+          tradesCount: 10,
+          rhVolumeUsd: 100000,
+          rhAvgOiUsd: 5000,
+          totalNetPnlUsd: -50,
+          totalFeesUsd: 35,
+          points: 1000,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 100000, rhAvgOiUsd: 5000, totalNetPnlUsd: -50, totalFeesUsd: 35 },
+            1000,
+          ),
+        },
+        {
+          weekNumber: 2,
+          presetId: "week-2",
+          label: "Week 2",
+          shortLabel: "W2",
+          dateRangeFormatted: "Aug 21 – Aug 28",
+          startTimestampMs: promoWeeks[1].startTimestampMs!,
+          endTimestampMs: promoWeeks[1].endTimestampMs!,
+          tradesCount: 20,
+          rhVolumeUsd: 200000,
+          rhAvgOiUsd: 10000,
+          totalNetPnlUsd: -100,
+          totalFeesUsd: 65,
+          points: 2000,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 200000, rhAvgOiUsd: 10000, totalNetPnlUsd: -100, totalFeesUsd: 65 },
+            2000,
+          ),
+        },
+      ];
+
+      const totals = calculateWeeklyPointsTotalStats(statsList);
+      expect(totals).not.toBeNull();
+      expect(totals!.tradesCount).toBe(30);
+      expect(totals!.rhVolumeUsd).toBe(300000);
+      expect(totals!.rhAvgOiUsd).toBe(15000);
+      expect(totals!.totalNetPnlUsd).toBe(-150);
+      expect(totals!.totalFeesUsd).toBe(100);
+      expect(totals!.points).toBe(3000);
+      expect(totals!.dateRangeFormatted).toContain("Aug 10");
+      expect(totals!.dateRangeFormatted).toContain("Aug 28");
+
+      // Per-point aggregate analysis:
+      // Vol / Point: $300k / 3k pts = $100
+      expect(totals!.analysis.volPerPoint).toBe(100);
+      // Avg OI / Point: $15k / 3k pts = $5
+      expect(totals!.analysis.oiPerPoint).toBe(5);
+      // Point Price: $150 loss / 3k pts = $0.05
+      expect(totals!.analysis.costPerPoint).toBe(0.05);
+      expect(totals!.analysis.isProfitable).toBe(false);
+      // Rate: 3k pts / 300k vol * 1000 = 10 pts / $1k
+      expect(totals!.analysis.ratePer1kVol).toBe(10);
+    });
+
+    it("calculateWeeklyPointsTotalStats handles null points gracefully and flags profit", () => {
+      const promoWeeks = getRobinhoodPromoWeeks();
+      const statsList: WeekActivityStats[] = [
+        {
+          weekNumber: 1,
+          presetId: "week-1",
+          label: "Week 1",
+          shortLabel: "W1",
+          dateRangeFormatted: "Aug 10 – Aug 21",
+          startTimestampMs: promoWeeks[0].startTimestampMs!,
+          endTimestampMs: promoWeeks[0].endTimestampMs!,
+          tradesCount: 5,
+          rhVolumeUsd: 50000,
+          rhAvgOiUsd: 2000,
+          totalNetPnlUsd: 100, // profit
+          totalFeesUsd: 10,
+          points: null,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 50000, rhAvgOiUsd: 2000, totalNetPnlUsd: 100, totalFeesUsd: 10 },
+            null,
+          ),
+        },
+      ];
+
+      const noPointsTotal = calculateWeeklyPointsTotalStats(statsList);
+      expect(noPointsTotal!.points).toBeNull();
+      expect(noPointsTotal!.analysis.volPerPoint).toBeNull();
+      expect(noPointsTotal!.analysis.costPerPoint).toBeNull();
+
+      // Now with profit points
+      statsList[0].points = 500;
+      const profitTotal = calculateWeeklyPointsTotalStats(statsList);
+      expect(profitTotal!.points).toBe(500);
+      expect(profitTotal!.analysis.isProfitable).toBe(true);
+      expect(profitTotal!.analysis.costPerPoint).toBe(0.2); // $100 / 500 = $0.20
+    });
+
+    it("renderWeeklyPointsTable renders total row in tfoot and handles total row click", () => {
+      const promoWeeks = getRobinhoodPromoWeeks();
+      const statsList: WeekActivityStats[] = [
+        {
+          weekNumber: 1,
+          presetId: "week-1",
+          label: "Week 1",
+          shortLabel: "W1",
+          dateRangeFormatted: "Aug 10 – Aug 21",
+          startTimestampMs: promoWeeks[0].startTimestampMs!,
+          endTimestampMs: promoWeeks[0].endTimestampMs!,
+          tradesCount: 10,
+          rhVolumeUsd: 100000,
+          rhAvgOiUsd: 5000,
+          totalNetPnlUsd: -50,
+          totalFeesUsd: 35,
+          points: 1000,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 100000, rhAvgOiUsd: 5000, totalNetPnlUsd: -50, totalFeesUsd: 35 },
+            1000,
+          ),
+        },
+        {
+          weekNumber: 2,
+          presetId: "week-2",
+          label: "Week 2",
+          shortLabel: "W2",
+          dateRangeFormatted: "Aug 21 – Aug 28",
+          startTimestampMs: promoWeeks[1].startTimestampMs!,
+          endTimestampMs: promoWeeks[1].endTimestampMs!,
+          tradesCount: 20,
+          rhVolumeUsd: 200000,
+          rhAvgOiUsd: 10000,
+          totalNetPnlUsd: -100,
+          totalFeesUsd: 65,
+          points: 2000,
+          analysis: calculateWeeklyPointsAnalysis(
+            { rhVolumeUsd: 200000, rhAvgOiUsd: 10000, totalNetPnlUsd: -100, totalFeesUsd: 65 },
+            2000,
+          ),
+        },
+      ];
+
+      let selectedWeekNum: number | null = null;
+      let totalRowClickHandler: (() => void) | null = null;
+      let renderedHtml = "";
+
+      const fakeContainer = {
+        get innerHTML() {
+          return renderedHtml;
+        },
+        set innerHTML(val: string) {
+          renderedHtml = val;
+        },
+        getAttribute: () => null,
+        setAttribute: () => {},
+        querySelectorAll: () => [],
+        querySelector: (sel: string) => {
+          if (sel === "tr[data-total-row]") {
+            return {
+              addEventListener: (ev: string, handler: any) => {
+                if (ev === "click") totalRowClickHandler = handler;
+              },
+            };
+          }
+          return null;
+        },
+      } as any;
+
+      renderWeeklyPointsTable(
+        fakeContainer,
+        statsList,
+        1,
+        () => {},
+        (wNum) => {
+          selectedWeekNum = wNum;
+        },
+      );
+
+      // Verify Total row in tfoot
+      expect(renderedHtml).toContain("<tfoot");
+      expect(renderedHtml).toContain('data-total-row="true"');
+      expect(renderedHtml).toContain("Total");
+      expect(renderedHtml).toContain("Σ");
+      expect(renderedHtml).toContain("val-total-points");
+      expect(renderedHtml).toContain("3,000"); // 1000 + 2000 points
+      expect(renderedHtml).toContain("$100.00"); // $300k / 3k pts = $100
+
+      // Click on total row
+      expect(totalRowClickHandler).not.toBeNull();
+      totalRowClickHandler!();
+      expect(Number(selectedWeekNum)).toBe(0); // Selects 0 (resets to all weeks)
     });
   });
 });
