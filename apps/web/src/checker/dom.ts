@@ -358,7 +358,7 @@ export function updateHedgeExecutiveMetrics(
     }
     if (elements.withdrawals) {
       elements.withdrawals.textContent = "RH: 0 / CORE: 0";
-      elements.withdrawals.className = "font-bold text-terminal-muted tabular-nums";
+      elements.withdrawals.className = "font-bold text-white tabular-nums";
       elements.withdrawals.title = "No withdrawals data";
     }
     if (elements.unhedgedCount) elements.unhedgedCount.textContent = "0";
@@ -446,11 +446,8 @@ export function updateHedgeExecutiveMetrics(
   if (elements.withdrawals) {
     const rhCount = metrics.rhWithdrawalsCount ?? 0;
     const coreCount = metrics.coreWithdrawalsCount ?? 0;
-    const hasAny = rhCount > 0 || coreCount > 0;
     elements.withdrawals.textContent = `RH: ${rhCount} / CORE: ${coreCount}`;
-    elements.withdrawals.className = hasAny
-      ? "font-bold text-terminal-secondary tabular-nums"
-      : "font-bold text-terminal-muted tabular-nums";
+    elements.withdrawals.className = "font-bold text-white tabular-nums";
     const wFeeTotal = metrics.totalWithdrawalFeesUsd ?? 0;
     const feeStr = wFeeTotal > 0.0001 ? ` · Total Fee: ${formatFee(wFeeTotal)}` : "";
     elements.withdrawals.title = `Withdrawals: RH: ${rhCount}, Core: ${coreCount}${feeStr}`;
@@ -622,7 +619,7 @@ export function updateIndividualAccountMetrics(
     }
     if (elements.withdrawals) {
       elements.withdrawals.textContent = "0";
-      elements.withdrawals.className = "font-bold text-terminal-muted tabular-nums";
+      elements.withdrawals.className = "font-bold text-white tabular-nums";
       elements.withdrawals.title = "No withdrawals data";
     }
     if (elements.unhedgedCount) {
@@ -687,10 +684,7 @@ export function updateIndividualAccountMetrics(
   if (elements.withdrawals) {
     const count = metrics.withdrawalsCount ?? 0;
     elements.withdrawals.textContent = String(count);
-    elements.withdrawals.className =
-      count > 0
-        ? "font-bold text-terminal-secondary tabular-nums"
-        : "font-bold text-terminal-muted tabular-nums";
+    elements.withdrawals.className = "font-bold text-white tabular-nums";
     const wFeeTotal = metrics.totalWithdrawalFeesUsd ?? 0;
     const feeStr = wFeeTotal > 0.0001 ? ` (Fee: ${formatFee(wFeeTotal)})` : "";
     elements.withdrawals.title = `${metrics.network} Withdrawals: ${count}${feeStr}`;
