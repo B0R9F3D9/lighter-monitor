@@ -62,7 +62,7 @@ export function formatCompactK(val: number | undefined | null): string {
 function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTMLTableRowElement {
   const tr = document.createElement("tr");
   const baseClass =
-    "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text cursor-pointer";
+    "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-none cursor-pointer";
   tr.className = isSelected ? `${baseClass} bg-white/10 hover:bg-white/[0.13]` : baseClass;
   tr.dataset.id = pair.id;
   tr.dataset.index = index.toString();
@@ -187,7 +187,7 @@ function createUnhedgedRow(
   const tr = document.createElement("tr");
   const id = trade.id || `unhedged-${trade.network}-${trade.tradeId}`;
   const baseClass =
-    "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text cursor-pointer";
+    "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-none cursor-pointer";
   tr.className = isSelected
     ? `${baseClass} bg-white/10 hover:bg-white/[0.13]`
     : `${baseClass} bg-terminal-coral/5`;
@@ -266,8 +266,9 @@ export function renderHedgeTable(
   pairs: HedgePair[],
   unhedged: UnhedgedTrade[],
   filterMode: "all" | "unhedged" = "all",
-  limit = 250,
+  limit = 100,
   selectedIds: Set<string> = new Set(),
+  onLoadMore?: () => void,
 ): void {
   container.innerHTML = "";
 
@@ -278,7 +279,7 @@ export function renderHedgeTable(
     const emptyRow = document.createElement("tr");
     emptyRow.innerHTML = `
       <td colspan="13" class="py-12 text-center text-terminal-muted">
-        <div class="flex flex-col items-center justify-center gap-1.5">
+        <div class="flex flex-col items-center justify-center gap-1.5 font-sans">
           <span class="text-terminal-secondary font-medium">No hedge pairs to display</span>
           <span class="text-[11px] text-terminal-muted">Configure Read-Only tokens above and click "Sync New Data" to compare and audit your hedge efficiency.</span>
         </div>
@@ -306,11 +307,39 @@ export function renderHedgeTable(
 
   if (totalItems > limit) {
     const noticeRow = document.createElement("tr");
+    noticeRow.className = "load-more-row select-none";
+    const remaining = totalItems - limit;
+    const addCount = Math.min(100, remaining);
     noticeRow.innerHTML = `
-      <td colspan="13" class="py-2.5 text-center text-[11px] text-terminal-secondary bg-terminal-surface/40">
-        Showing first ${limit} of ${totalItems} records. Export CSV to analyze the complete dataset.
+      <td colspan="13" class="py-3 px-4 text-center bg-terminal-surface/30 border-t border-terminal-borderSubtle">
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-2.5 text-xs font-sans">
+          <span class="text-terminal-muted text-[11px]">
+            Showing <span class="font-mono text-terminal-secondary">${limit}</span> of <span class="font-mono text-terminal-secondary">${totalItems.toLocaleString()}</span> records
+          </span>
+          <button
+            type="button"
+            id="btnLoadMoreHedge"
+            data-action="load-more"
+            class="px-3 py-1 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-primary hover:text-white transition cursor-pointer select-none text-xs font-medium inline-flex items-center gap-1.5 shadow-xs hover:bg-terminal-surface active:scale-95"
+            title="Load ${addCount} more records"
+          >
+            <svg class="w-3.5 h-3.5 text-terminal-muted shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span>Show More (+${addCount})</span>
+          </button>
+        </div>
       </td>
     `;
+    if (onLoadMore) {
+      const btn = noticeRow.querySelector<HTMLButtonElement>("#btnLoadMoreHedge");
+      if (btn) {
+        btn.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          onLoadMore();
+        });
+      }
+    }
     frag.appendChild(noticeRow);
   }
 
@@ -337,7 +366,7 @@ export function updateHedgeExecutiveMetrics(
 ): void {
   if (!metrics || (metrics.totalPairs === 0 && metrics.totalUnhedgedTrades === 0)) {
     if (elements.accountsBadge) {
-      elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald">RH</span> <span class="text-terminal-muted font-normal">VS</span> <span class="text-terminal-accent">CORE</span>`;
+      elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald font-bold">RH</span> <span class="text-terminal-muted font-normal">vs</span> <span class="text-terminal-accent font-bold">Core</span>`;
     }
     if (elements.pairsCount) elements.pairsCount.textContent = "0";
     if (elements.hedgedVolume) elements.hedgedVolume.textContent = "$0.00";
@@ -382,7 +411,7 @@ export function updateHedgeExecutiveMetrics(
         ? `#${metrics.coreAccountIndex}`
         : "CORE";
   if (elements.accountsBadge) {
-    elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald font-bold">${rhAcc}</span> <span class="text-terminal-muted font-normal">VS</span> <span class="text-terminal-accent font-bold">${coreAcc}</span>`;
+    elements.accountsBadge.innerHTML = `<span class="text-terminal-emerald font-bold">${rhAcc}</span> <span class="text-terminal-muted font-normal">vs</span> <span class="text-terminal-accent font-bold">${coreAcc}</span>`;
   }
 
   if (elements.pairsCount) {
@@ -536,19 +565,40 @@ export function formatCompactUsd(num: number | undefined | null): string {
   return "$" + Math.round(abs);
 }
 
-export function renderDailySummary(
-  container: HTMLElement,
-  dailyStats: AccountDailyStat[] | undefined,
-  network: "RH" | "CORE" = "RH",
-): void {
-  if (!dailyStats || dailyStats.length === 0) {
-    container.innerHTML = "";
+export function updateScrollMask(container: HTMLElement | null | undefined): void {
+  if (!container || !container.classList) return;
+  const scrollLeft = container.scrollLeft ?? 0;
+  const scrollWidth = container.scrollWidth ?? 0;
+  const clientWidth = container.clientWidth ?? 0;
+  const maxScroll = scrollWidth - clientWidth;
+
+  container.classList.remove("scroll-mask-left", "scroll-mask-right", "scroll-mask-both");
+
+  if (maxScroll <= 2) {
     return;
   }
 
-  const isRh = network === "RH";
-  const accentColor = isRh ? "text-terminal-emerald" : "text-terminal-accent";
-  const hoverBorder = isRh ? "hover:border-terminal-emerald/60" : "hover:border-terminal-accent/60";
+  const hasLeft = scrollLeft > 3;
+  const hasRight = scrollLeft < maxScroll - 3;
+
+  if (hasLeft && hasRight) {
+    container.classList.add("scroll-mask-both");
+  } else if (hasLeft) {
+    container.classList.add("scroll-mask-left");
+  } else if (hasRight) {
+    container.classList.add("scroll-mask-right");
+  }
+}
+
+export function renderDailySummary(
+  container: HTMLElement,
+  dailyStats: AccountDailyStat[] | undefined,
+): void {
+  if (!dailyStats || dailyStats.length === 0) {
+    container.innerHTML = "";
+    updateScrollMask(container);
+    return;
+  }
 
   const html = dailyStats
     .map((day) => {
@@ -572,34 +622,38 @@ export function renderDailySummary(
         .join("\n");
 
       const colClass = hasActivity
-        ? `flex-1 min-w-[56px] sm:min-w-[62px] py-1 px-1 rounded flex flex-col items-center justify-between text-center bg-terminal-bg/80 border border-terminal-border/80 ${hoverBorder} transition-colors cursor-default`
+        ? `flex-1 min-w-[56px] sm:min-w-[62px] py-1 px-1 rounded flex flex-col items-center justify-between text-center bg-terminal-bg/80 border border-terminal-border/80 hover:border-terminal-muted transition-colors cursor-default`
         : `flex-1 min-w-[56px] sm:min-w-[62px] py-1 px-1 rounded flex flex-col items-center justify-between text-center bg-terminal-bg/20 border border-terminal-borderSubtle/40 opacity-40 cursor-default`;
 
-      return `<div class="${colClass}" title="${tooltipLines}"><div class="flex items-center justify-center gap-0.5 mb-1 leading-none whitespace-nowrap"><span class="text-[10px] font-bold ${hasActivity ? accentColor : "text-terminal-muted"} tracking-tight uppercase leading-none">${day.dayOfWeek.toUpperCase()}</span><span class="text-[8.5px] sm:text-[9px] text-terminal-muted leading-none">(${day.shortDate})</span></div><div class="flex flex-col items-center gap-0.5 w-full leading-none"><span class="text-[9px] ${day.avgHoldingDurationMs > 0 ? accentColor : "text-terminal-muted"} tabular-nums leading-none">${compactHold}</span><span class="text-[9px] ${day.totalVolumeUsd > 0 ? "text-terminal-secondary" : "text-terminal-muted"} tabular-nums leading-none">${compactVol}</span></div></div>`;
+      return `<div class="${colClass}" title="${tooltipLines}"><div class="flex items-center justify-center gap-0.5 mb-1 leading-none whitespace-nowrap"><span class="text-[10px] font-semibold ${hasActivity ? "text-terminal-secondary" : "text-terminal-muted"} tracking-tight uppercase leading-none font-sans">${day.dayOfWeek.toUpperCase()}</span><span class="text-[8.5px] sm:text-[9px] text-terminal-muted leading-none font-sans">(${day.shortDate})</span></div><div class="flex flex-col items-center gap-0.5 w-full leading-none"><span class="text-[9px] ${day.avgHoldingDurationMs > 0 ? "text-white font-medium" : "text-terminal-muted"} tabular-nums leading-none font-mono">${compactHold}</span><span class="text-[9px] ${day.totalVolumeUsd > 0 ? "text-terminal-secondary" : "text-terminal-muted"} tabular-nums leading-none font-mono">${compactVol}</span></div></div>`;
     })
     .join("");
 
   container.innerHTML = html;
+  updateScrollMask(container);
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => updateScrollMask(container));
+  }
 }
 
 export function updateIndividualAccountMetrics(
   metrics: IndividualAccountMetrics | null,
   elements: IndividualAccountMetricElements,
 ): void {
-  const isRh = metrics?.network === "RH";
-  const activeColor = isRh ? "text-terminal-emerald" : "text-terminal-accent";
-
   if (!metrics || metrics.tradesCount === 0) {
     if (elements.accountBadge) {
       if (metrics?.accountIndices && metrics.accountIndices.length > 1) {
         elements.accountBadge.textContent = metrics.accountIndices.map((a) => `#${a}`).join(", ");
-        elements.accountBadge.className = `font-bold text-sm tracking-tight ${activeColor}`;
+        elements.accountBadge.className =
+          "font-mono font-bold text-sm tracking-tight text-white select-text cursor-text";
       } else if (metrics?.accountIndex) {
         elements.accountBadge.textContent = `#${metrics.accountIndex}`;
-        elements.accountBadge.className = `font-bold text-sm tracking-tight ${activeColor}`;
+        elements.accountBadge.className =
+          "font-mono font-bold text-sm tracking-tight text-white select-text cursor-text";
       } else {
         elements.accountBadge.textContent = "--";
-        elements.accountBadge.className = "font-bold text-sm tracking-tight text-terminal-muted";
+        elements.accountBadge.className =
+          "font-mono font-bold text-sm tracking-tight text-terminal-muted select-text cursor-text";
       }
     }
     if (elements.tradesCount) elements.tradesCount.textContent = "0";
@@ -633,7 +687,7 @@ export function updateIndividualAccountMetrics(
     }
     if (elements.dailySummary) {
       if (metrics?.dailyStats && metrics.dailyStats.length > 0) {
-        renderDailySummary(elements.dailySummary, metrics.dailyStats, metrics.network);
+        renderDailySummary(elements.dailySummary, metrics.dailyStats);
       } else {
         elements.dailySummary.innerHTML = "";
       }
@@ -649,7 +703,8 @@ export function updateIndividualAccountMetrics(
     } else {
       elements.accountBadge.textContent = "--";
     }
-    elements.accountBadge.className = `font-bold text-sm tracking-tight ${activeColor}`;
+    elements.accountBadge.className =
+      "font-mono font-bold text-sm tracking-tight text-white select-text cursor-text";
   }
 
   if (elements.tradesCount) {
@@ -751,7 +806,7 @@ export function updateIndividualAccountMetrics(
 
   if (elements.dailySummary) {
     if (metrics.dailyStats && metrics.dailyStats.length > 0) {
-      renderDailySummary(elements.dailySummary, metrics.dailyStats, metrics.network);
+      renderDailySummary(elements.dailySummary, metrics.dailyStats);
     } else {
       elements.dailySummary.innerHTML = "";
     }
@@ -761,7 +816,7 @@ export function updateIndividualAccountMetrics(
 export interface HedgeSelectionMetricElements {
   selectionCard: HTMLElement | null;
   countBadge: HTMLElement | null;
-  pairsCount: HTMLElement | null;
+  pairsCount?: HTMLElement | null;
   volume: HTMLElement | null;
   netPnl: HTMLElement | null;
   pnlBps: HTMLElement | null;
@@ -770,7 +825,7 @@ export interface HedgeSelectionMetricElements {
   slippage: HTMLElement | null;
   fees: HTMLElement | null;
   funding?: HTMLElement | null;
-  unhedgedCount: HTMLElement | null;
+  unhedgedCount?: HTMLElement | null;
 }
 
 export function updateHedgeSelectionMetrics(
@@ -789,8 +844,7 @@ export function updateHedgeSelectionMetrics(
   }
 
   if (elements.countBadge) {
-    const text = metrics.selectedCount === 1 ? "1 row" : `${metrics.selectedCount} rows`;
-    elements.countBadge.textContent = text;
+    elements.countBadge.textContent = String(metrics.selectedCount);
   }
 
   if (elements.pairsCount) {
@@ -827,17 +881,18 @@ export function updateHedgeSelectionMetrics(
   if (elements.weightedDeltaBps) {
     if (metrics.pairsCount === 0) {
       elements.weightedDeltaBps.textContent = "";
-      elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-1";
+      elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-0.5";
     } else {
       const bps = metrics.weightedPriceDeltaBps;
       const sign = bps > 0.001 ? "+" : "";
       elements.weightedDeltaBps.textContent = `(${sign}${bps.toFixed(2)} bps)`;
       if (bps > 0.01) {
-        elements.weightedDeltaBps.className = "text-[10px] text-terminal-emerald tabular-nums ml-1";
+        elements.weightedDeltaBps.className =
+          "text-[10px] text-terminal-emerald tabular-nums ml-0.5";
       } else if (bps < -0.01) {
-        elements.weightedDeltaBps.className = "text-[10px] text-terminal-coral tabular-nums ml-1";
+        elements.weightedDeltaBps.className = "text-[10px] text-terminal-coral tabular-nums ml-0.5";
       } else {
-        elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-1";
+        elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-0.5";
       }
     }
   }
@@ -862,11 +917,11 @@ export function updateHedgeSelectionMetrics(
     const sign = metrics.avgPnlBps > 0.001 ? "+" : "";
     elements.pnlBps.textContent = `(${sign}${metrics.avgPnlBps.toFixed(2)} bps)`;
     if (metrics.avgPnlBps > 0.01) {
-      elements.pnlBps.className = "text-[10px] text-terminal-emerald tabular-nums ml-1";
+      elements.pnlBps.className = "text-[10px] text-terminal-emerald tabular-nums ml-0.5";
     } else if (metrics.avgPnlBps < -0.01) {
-      elements.pnlBps.className = "text-[10px] text-terminal-coral tabular-nums ml-1";
+      elements.pnlBps.className = "text-[10px] text-terminal-coral tabular-nums ml-0.5";
     } else {
-      elements.pnlBps.className = "text-[10px] text-terminal-muted tabular-nums ml-1";
+      elements.pnlBps.className = "text-[10px] text-terminal-muted tabular-nums ml-0.5";
     }
   }
 
@@ -1035,7 +1090,7 @@ export function renderMarketSummaryCards(
             ${formatMoney(stat.volumeUsd)}
           </td>
           <td class="h-8 py-0 px-3 text-right text-white tabular-nums whitespace-nowrap">
-            ${stat.transactionsCount} txs
+            ${stat.transactionsCount} <span class="text-terminal-muted text-[10px] font-normal font-sans">txs</span>
           </td>
           <td class="h-8 py-0 px-3 text-right text-terminal-secondary tabular-nums whitespace-nowrap" title="Avg Size: ${formatMoney(stat.avgVolumeSizeUsd)}">
             ${avgVolumeSizeFormatted}
@@ -1044,7 +1099,7 @@ export function renderMarketSummaryCards(
             ${holdDurationFormatted}
           </td>
           <td class="h-8 py-0 px-3 text-right text-terminal-muted tabular-nums whitespace-nowrap">
-            ${stat.totalTokenSize ? `${formatSmartSize(stat.totalTokenSize)} ${stat.marketSymbol}` : "—"}
+            ${stat.totalTokenSize ? `<span class="text-terminal-primary">${formatSmartSize(stat.totalTokenSize)}</span> <span class="text-terminal-muted text-[10px] font-sans">${stat.marketSymbol}</span>` : "—"}
           </td>
           <td class="h-8 py-0 px-3 text-right tabular-nums whitespace-nowrap ${pnlClass}">
             ${pnlFormatted}
@@ -1096,7 +1151,7 @@ export function renderMarketSummaryCards(
   container.innerHTML = `
     <table class="w-full h-full border-collapse text-left text-xs font-mono">
       <thead>
-        <tr class="h-8 border-b border-terminal-border bg-terminal-surface/95 text-terminal-muted text-[11px] font-mono select-none sticky top-0 z-10 backdrop-blur-xs">
+        <tr class="h-8 border-b border-terminal-border bg-terminal-surface/95 text-terminal-muted text-[11px] select-none sticky top-0 z-10 backdrop-blur-xs font-sans">
           <th class="h-8 py-0 px-3 font-semibold w-8 text-center">#</th>
           <th class="h-8 py-0 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap" data-sort="marketSymbol">
             Market ${renderSortIndicator("marketSymbol")}
@@ -1124,7 +1179,7 @@ export function renderMarketSummaryCards(
       <tbody class="divide-y divide-terminal-borderSubtle/60">
         ${rowsHtml}
         <tr class="h-full border-0 pointer-events-none spacer-row">
-          <td colspan="8" class="p-0 border-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:10px_10px] opacity-70"></td>
+          <td colspan="8" class="p-0 border-0 bg-transparent"></td>
         </tr>
       </tbody>
       <tfoot class="border-t border-terminal-border bg-terminal-surface font-semibold select-none sticky bottom-0 z-10">
@@ -1145,7 +1200,7 @@ export function renderMarketSummaryCards(
             ${formatMoney(totalVolumeUsd)}
           </td>
           <td class="h-8 py-0 px-3 text-right text-white tabular-nums whitespace-nowrap">
-            ${totalTransactions} txs
+            ${totalTransactions} <span class="text-terminal-muted text-[10px] font-normal font-sans">txs</span>
           </td>
           <td class="h-8 py-0 px-3 text-right text-terminal-secondary tabular-nums whitespace-nowrap" title="Avg Size: ${formatMoney(overallAvgVolumeSizeUsd)}">
             ${overallAvgVolumeSizeUsd > 0 ? formatCompactUsd(overallAvgVolumeSizeUsd) : "$0"}
@@ -1587,15 +1642,20 @@ export function renderWeeklyPointsTable(
             ${escapeHtml(stats.dateRangeFormatted)}
           </td>
           <td class="h-8 py-0 px-3 text-center whitespace-nowrap">
-            <input
-              type="text"
-              inputmode="decimal"
-              data-week="${stats.weekNumber}"
-              value="${stats.points ? String(stats.points) : ""}"
-              placeholder="0"
-              class="hedge-points-table-input h-6 w-20 px-1.5 py-0 bg-terminal-bg border border-terminal-border hover:border-terminal-muted focus:border-terminal-accent rounded text-white font-mono text-xs focus:outline-none transition tabular-nums text-right select-text cursor-text leading-none"
-              title="Enter points received for Week ${stats.weekNumber}"
-            />
+            <div class="relative inline-flex items-center group/pts justify-center">
+              <input
+                type="text"
+                inputmode="decimal"
+                data-week="${stats.weekNumber}"
+                value="${stats.points ? String(stats.points) : ""}"
+                placeholder="—"
+                class="hedge-points-table-input h-6 w-20 px-1 py-0 bg-transparent hover:bg-terminal-bg/60 border border-transparent hover:border-terminal-border focus:border-terminal-accent focus:bg-terminal-bg rounded text-white font-mono text-xs focus:outline-none transition tabular-nums text-right select-text cursor-text leading-none font-bold"
+                title="Click to edit points received for Week ${stats.weekNumber}"
+              />
+              <svg class="w-2.5 h-2.5 text-terminal-muted opacity-0 group-hover/pts:opacity-60 pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+              </svg>
+            </div>
           </td>
           <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.volTitle}">
             <span class="val-vol">${values.volStr}</span>
@@ -1645,7 +1705,7 @@ export function renderWeeklyPointsTable(
           <td class="h-8 py-0 px-3 text-center whitespace-nowrap">
             <div class="flex items-center justify-center">
               <span
-                class="val-total-points inline-flex items-center justify-end h-6 w-20 px-1.5 py-0 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-xs tabular-nums text-right font-bold leading-none"
+                class="val-total-points inline-flex items-center justify-end h-6 w-20 px-1.5 py-0 text-white font-mono text-xs tabular-nums text-right font-bold leading-none"
                 title="${totalPointsTitle}"
               >
                 ${totalPointsStr}
@@ -1669,7 +1729,7 @@ export function renderWeeklyPointsTable(
   container.innerHTML = `
     <table class="w-full h-full border-collapse text-left text-xs font-mono">
       <thead>
-        <tr class="h-8 border-b border-terminal-border bg-terminal-surface/95 text-terminal-muted text-[11px] font-mono select-none sticky top-0 z-10 backdrop-blur-xs">
+        <tr class="h-8 border-b border-terminal-border bg-terminal-surface/95 text-terminal-muted text-[11px] select-none sticky top-0 z-10 backdrop-blur-xs font-sans">
           <th class="h-8 py-0 px-3 font-semibold w-8 text-center">#</th>
           <th class="h-8 py-0 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="weekNumber">
             Week ${renderSortIndicator("weekNumber")}
@@ -1694,7 +1754,7 @@ export function renderWeeklyPointsTable(
       <tbody class="divide-y divide-terminal-borderSubtle/60">
         ${rowsHtml}
         <tr class="h-full border-0 pointer-events-none spacer-row">
-          <td colspan="7" class="p-0 border-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:10px_10px] opacity-70"></td>
+          <td colspan="7" class="p-0 border-0 bg-transparent"></td>
         </tr>
       </tbody>
       ${tfootHtml}

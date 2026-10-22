@@ -12,10 +12,12 @@ import {
   formatDisplayFileName,
   formatTimestampLocal,
   renderDailySummary,
+  renderHedgeTable,
   renderMarketSummaryCards,
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
   updateIndividualAccountMetrics,
+  updateScrollMask,
   updateWeeklyPointsCard,
   renderWeeklyPointsTable,
   renderWeeklyPointsMultiGrid,
@@ -1274,7 +1276,7 @@ describe("Hedge Matching Engine", () => {
       );
 
       expect(els.accountBadge.textContent).toBe("#31704");
-      expect(els.accountBadge.className).toContain("text-terminal-emerald");
+      expect(els.accountBadge.className).toContain("text-white");
       expect(els.tradesCount.textContent).toBe("42");
       expect(els.volume.textContent).toBe("$125.0K");
       expect(els.realizedPnl.textContent).toBe("+$145.20");
@@ -1305,7 +1307,7 @@ describe("Hedge Matching Engine", () => {
       );
 
       expect(els.accountBadge.textContent).toBe("#749329, #749330");
-      expect(els.accountBadge.className).toContain("text-terminal-accent");
+      expect(els.accountBadge.className).toContain("text-white");
       expect(els.tradesCount.textContent).toBe("15");
       expect(els.realizedPnl.textContent).toBe("-$34.50");
       expect(els.realizedPnl.className).toContain("text-terminal-coral");
@@ -2022,7 +2024,7 @@ describe("Hedge Matching Engine", () => {
         },
       ];
 
-      renderDailySummary(container, stats, "RH");
+      renderDailySummary(container, stats);
       expect(container.innerHTML).toContain("FRI");
       expect(container.innerHTML).toContain("(21/08)");
       expect(container.innerHTML).toContain("SAT");
@@ -2070,7 +2072,7 @@ describe("Hedge Matching Engine", () => {
       expect(els.dailySummary.innerHTML).not.toContain("trd");
       expect(els.dailySummary.innerHTML).not.toContain("Trades:");
       expect(els.dailySummary.innerHTML).toContain("1m");
-      expect(els.dailySummary.innerHTML).toContain("text-terminal-accent");
+      expect(els.dailySummary.innerHTML).toContain("text-terminal-secondary");
     });
   });
 
@@ -2643,7 +2645,8 @@ describe("Hedge Matching Engine", () => {
 
       const html = container.innerHTML;
       expect(html).toContain("ETH");
-      expect(html).toContain("18 txs");
+      expect(html).toContain("18");
+      expect(html).toContain("txs");
       expect(html).toContain("$145.0K");
       expect(html).toContain("Avg Hold");
       expect(html).toContain("14m");
@@ -2707,7 +2710,8 @@ describe("Hedge Matching Engine", () => {
       expect(renderedHtml).toContain("Total (2)");
       expect(renderedHtml).toContain("Σ");
       expect(renderedHtml).toContain("$150.0K"); // 100k + 50k
-      expect(renderedHtml).toContain("15 txs"); // 10 + 5
+      expect(renderedHtml).toContain("15");
+      expect(renderedHtml).toContain("txs");
       expect(renderedHtml).toContain("spacer-row");
       expect(renderedHtml).toContain("-$100.00"); // -150 + 50
 
@@ -2940,7 +2944,7 @@ describe("Hedge Matching Engine", () => {
       } as any;
 
       updateHedgeSelectionMetrics(metrics, elements);
-      expect(elements.countBadge.textContent).toBe("1 row");
+      expect(elements.countBadge.textContent).toBe("1");
       expect(elements.weightedDelta.title).toContain("(ETH)");
       expect(elements.netPnl.textContent).toContain("$17.00");
     });
@@ -4077,4 +4081,250 @@ describe("Hedge Matching Engine", () => {
       expect(Number(selectedWeekNum)).toBe(0); // Selects 0 (resets to all weeks)
     });
   });
+
+  describe("renderHedgeTable and Pagination with Show More", () => {
+    it("renders table with default 100 limit and shows 'Show More' button when pairs exceed limit", () => {
+      const cleanup = setupMockHedgeDocument();
+      try {
+        const pairs: HedgePair[] = Array.from({ length: 150 }, (_, i) => ({
+          id: `pair-${i}`,
+          marketSymbol: "ETH",
+          matchedSize: 1,
+          rhTradeId: `${100 + i}`,
+          rhSide: "BUY",
+          rhPrice: 3000,
+          rhTimestampMs: 1700000000000 + i * 1000,
+          rhAccountIndex: "31704",
+          coreTradeId: `${200 + i}`,
+          coreSide: "SELL",
+          corePrice: 3000,
+          coreTimestampMs: 1700000000100 + i * 1000,
+          coreAccountIndex: "749329",
+          roundTripDurationMs: 100,
+          timeDeltaSec: 0.1,
+          status: "HEDGED",
+          priceDeltaUsd: 0,
+          priceDeltaBps: 0,
+          slippageUsd: 0,
+          totalFeesUsd: 1.5,
+          netRealizedPnlUsd: -1.5,
+          pnlBps: -0.5,
+        })) as unknown as HedgePair[];
+
+        const tbody = (globalThis as any).document.createElement("tbody");
+        let loadMoreCalled = false;
+        renderHedgeTable(tbody, pairs, [], "all", 100, new Set(), () => {
+          loadMoreCalled = true;
+        });
+
+        // 100 trade rows + 1 pagination button row = 101 rows
+        expect(tbody.children.length).toBe(101);
+        const loadMoreBtn = tbody.querySelector("#btnLoadMoreHedge");
+        expect(loadMoreBtn).not.toBeNull();
+        expect(loadMoreBtn!.textContent).toContain("Show More (+50)");
+
+        loadMoreBtn!.click();
+        expect(loadMoreCalled).toBe(true);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it("does not render 'Show More' button when records are within limit", () => {
+      const cleanup = setupMockHedgeDocument();
+      try {
+        const pairs: HedgePair[] = Array.from({ length: 40 }, (_, i) => ({
+          id: `pair-${i}`,
+          marketSymbol: "BTC",
+          matchedSize: 0.1,
+          rhTradeId: `${100 + i}`,
+          rhSide: "BUY",
+          rhPrice: 60000,
+          rhTimestampMs: 1700000000000 + i * 1000,
+          rhAccountIndex: "31704",
+          coreTradeId: `${200 + i}`,
+          coreSide: "SELL",
+          corePrice: 60000,
+          coreTimestampMs: 1700000000100 + i * 1000,
+          coreAccountIndex: "749329",
+          roundTripDurationMs: 100,
+          timeDeltaSec: 0.1,
+          status: "HEDGED",
+          priceDeltaUsd: 0,
+          priceDeltaBps: 0,
+          slippageUsd: 0,
+          totalFeesUsd: 3,
+          netRealizedPnlUsd: -3,
+          pnlBps: -0.5,
+        })) as unknown as HedgePair[];
+
+        const tbody = (globalThis as any).document.createElement("tbody");
+        renderHedgeTable(tbody, pairs, [], "all", 100, new Set());
+        expect(tbody.children.length).toBe(40);
+        expect(tbody.querySelector("#btnLoadMoreHedge")).toBeNull();
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe("updateScrollMask dynamic gradient edge masks", () => {
+    it("safely handles null or elements without classList", () => {
+      expect(() => updateScrollMask(null)).not.toThrow();
+      expect(() => updateScrollMask({} as any)).not.toThrow();
+    });
+
+    it("applies no mask when scrollWidth <= clientWidth", () => {
+      const classes = new Set<string>(["scroll-mask-right"]);
+      const fakeEl = {
+        scrollLeft: 0,
+        scrollWidth: 500,
+        clientWidth: 500,
+        classList: {
+          add: (c: string) => classes.add(c),
+          remove: (...cs: string[]) => cs.forEach((c) => classes.delete(c)),
+          contains: (c: string) => classes.has(c),
+        },
+      } as unknown as HTMLElement;
+
+      updateScrollMask(fakeEl);
+      expect(classes.has("scroll-mask-left")).toBe(false);
+      expect(classes.has("scroll-mask-right")).toBe(false);
+      expect(classes.has("scroll-mask-both")).toBe(false);
+    });
+
+    it("applies scroll-mask-right when at initial scrollLeft 0 with overflow", () => {
+      const classes = new Set<string>();
+      const fakeEl = {
+        scrollLeft: 0,
+        scrollWidth: 800,
+        clientWidth: 400,
+        classList: {
+          add: (c: string) => classes.add(c),
+          remove: (...cs: string[]) => cs.forEach((c) => classes.delete(c)),
+          contains: (c: string) => classes.has(c),
+        },
+      } as unknown as HTMLElement;
+
+      updateScrollMask(fakeEl);
+      expect(classes.has("scroll-mask-right")).toBe(true);
+      expect(classes.has("scroll-mask-left")).toBe(false);
+      expect(classes.has("scroll-mask-both")).toBe(false);
+    });
+
+    it("applies scroll-mask-both when scrolled into the middle with overflow on both sides", () => {
+      const classes = new Set<string>();
+      const fakeEl = {
+        scrollLeft: 100,
+        scrollWidth: 800,
+        clientWidth: 400,
+        classList: {
+          add: (c: string) => classes.add(c),
+          remove: (...cs: string[]) => cs.forEach((c) => classes.delete(c)),
+          contains: (c: string) => classes.has(c),
+        },
+      } as unknown as HTMLElement;
+
+      updateScrollMask(fakeEl);
+      expect(classes.has("scroll-mask-both")).toBe(true);
+      expect(classes.has("scroll-mask-left")).toBe(false);
+      expect(classes.has("scroll-mask-right")).toBe(false);
+    });
+
+    it("applies scroll-mask-left when scrolled to the end", () => {
+      const classes = new Set<string>();
+      const fakeEl = {
+        scrollLeft: 400,
+        scrollWidth: 800,
+        clientWidth: 400,
+        classList: {
+          add: (c: string) => classes.add(c),
+          remove: (...cs: string[]) => cs.forEach((c) => classes.delete(c)),
+          contains: (c: string) => classes.has(c),
+        },
+      } as unknown as HTMLElement;
+
+      updateScrollMask(fakeEl);
+      expect(classes.has("scroll-mask-left")).toBe(true);
+      expect(classes.has("scroll-mask-right")).toBe(false);
+      expect(classes.has("scroll-mask-both")).toBe(false);
+    });
+  });
 });
+
+function createFakeElement(tagName: string) {
+  const listeners: Record<string, Function[]> = {};
+  const children: any[] = [];
+  let htmlVal = "";
+  let cachedButton: any = null;
+  const el: any = {
+    tagName: tagName.toUpperCase(),
+    className: "",
+    get innerHTML() {
+      return htmlVal;
+    },
+    set innerHTML(val: string) {
+      htmlVal = val;
+    },
+    dataset: {} as Record<string, string>,
+    children,
+    appendChild: (child: any) => {
+      if (child.isFragment) {
+        children.push(...child.children);
+      } else {
+        children.push(child);
+      }
+    },
+    addEventListener: (evt: string, fn: Function) => {
+      listeners[evt] = listeners[evt] || [];
+      listeners[evt].push(fn);
+    },
+    click: () => {
+      listeners["click"]?.forEach((fn) => fn({ preventDefault: () => {} }));
+    },
+    querySelector: (sel: string) => {
+      if (sel === "#btnLoadMoreHedge" && htmlVal.includes('id="btnLoadMoreHedge"')) {
+        if (!cachedButton) {
+          const btnListeners: Record<string, Function[]> = {};
+          cachedButton = {
+            textContent: htmlVal,
+            addEventListener: (evt: string, fn: Function) => {
+              btnListeners[evt] = btnListeners[evt] || [];
+              btnListeners[evt].push(fn);
+            },
+            click: () => {
+              btnListeners["click"]?.forEach((fn) => fn({ preventDefault: () => {} }));
+            },
+          };
+        }
+        return cachedButton;
+      }
+      for (const child of children) {
+        const found = child.querySelector?.(sel);
+        if (found) return found;
+      }
+      return null;
+    },
+    querySelectorAll: () => [],
+  };
+  return el;
+}
+
+function setupMockHedgeDocument() {
+  const originalDoc = (globalThis as any).document;
+  (globalThis as any).document = {
+    createElement: (tag: string) => createFakeElement(tag),
+    createDocumentFragment: () => {
+      const children: any[] = [];
+      return {
+        isFragment: true,
+        children,
+        appendChild: (child: any) => children.push(child),
+      };
+    },
+  };
+
+  return () => {
+    (globalThis as any).document = originalDoc;
+  };
+}

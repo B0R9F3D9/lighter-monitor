@@ -33,6 +33,7 @@ import {
   updateHedgeExecutiveMetrics,
   updateHedgeSelectionMetrics,
   updateIndividualAccountMetrics,
+  updateScrollMask,
 } from "./dom";
 import {
   calculateAccountAverageOi,
@@ -196,6 +197,7 @@ export class HedgeController {
   private checkAllHedge: HTMLInputElement | null = null;
 
   // Row selection & HUD metrics
+  private hedgeDisplayLimit = 100;
   private selectedHedgeRowIds = new Set<string>();
   private lastClickedHedgeRowId: string | null = null;
   private lastClickedHedgeRowState = true;
@@ -498,6 +500,7 @@ export class HedgeController {
     // Search and filters with 150ms debounce
     this.inputHedgeSearch?.addEventListener("input", (e) => {
       this.hedgeSearchQuery = (e.target as HTMLInputElement).value.trim().toLowerCase();
+      this.hedgeDisplayLimit = 100;
       if (
         this.activeMarketFilter &&
         this.activeMarketFilter.toLowerCase() !== this.hedgeSearchQuery
@@ -513,6 +516,26 @@ export class HedgeController {
       }, 150);
     });
 
+    // Daily summary ribbon horizontal scroll listener for dynamic edge masks
+    this.rhMetricElements.dailySummary?.addEventListener(
+      "scroll",
+      () => updateScrollMask(this.rhMetricElements.dailySummary),
+      { passive: true },
+    );
+    this.coreMetricElements.dailySummary?.addEventListener(
+      "scroll",
+      () => updateScrollMask(this.coreMetricElements.dailySummary),
+      { passive: true },
+    );
+    window.addEventListener(
+      "resize",
+      () => {
+        updateScrollMask(this.rhMetricElements.dailySummary);
+        updateScrollMask(this.coreMetricElements.dailySummary);
+      },
+      { passive: true },
+    );
+
     this.tabBtnHedgeAll?.addEventListener("click", () => this.switchHedgeFilterTab("all"));
     this.tabBtnHedgeUnhedged?.addEventListener("click", () =>
       this.switchHedgeFilterTab("unhedged"),
@@ -525,6 +548,12 @@ export class HedgeController {
 
     // Selection
     this.checkAllHedge?.addEventListener("click", () => this.toggleSelectAllVisibleHedge());
+    this.hedgeTableBody?.addEventListener("mousedown", (e) => {
+      // Prevent browser native text selection when Shift+Clicking rows
+      if (e.shiftKey) {
+        e.preventDefault();
+      }
+    });
     this.hedgeTableBody?.addEventListener("click", (e) => this.handleHedgeTableClick(e));
     this.btnDeselectAllHedge?.addEventListener("click", () => {
       this.selectedHedgeRowIds.clear();
@@ -1238,6 +1267,7 @@ export class HedgeController {
   }
 
   private applyHedgeDateFilter(): void {
+    this.hedgeDisplayLimit = 100;
     if (this.activeHedgeDateFilter) {
       this.hedgePairs = this.allHedgePairs.filter((p) =>
         isTradeInDateRange(p.rhTimestampMs, this.activeHedgeDateFilter),
@@ -1650,8 +1680,12 @@ export class HedgeController {
         this.filteredHedgePairs,
         this.filteredUnhedgedTrades,
         this.hedgeFilterTab,
-        250,
+        this.hedgeDisplayLimit,
         this.selectedHedgeRowIds,
+        () => {
+          this.hedgeDisplayLimit += 100;
+          this.applyHedgeFilter();
+        },
       );
       this.updateHeaderCheckboxState();
     }
@@ -1663,16 +1697,16 @@ export class HedgeController {
       const total = (showPairs ? this.hedgePairs.length : 0) + this.unhedgedTrades.length;
 
       if (q && total > 0) {
-        this.hedgeCountNotice.textContent = `Showing ${count} of ${total} records`;
-        this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium";
+        this.hedgeCountNotice.textContent = `Showing ${Math.min(this.hedgeDisplayLimit, count)} of ${total} records`;
+        this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium font-mono";
       } else if (this.activeHedgeDateFilter && this.activeHedgeDateFilter.presetId !== "all") {
         const allTotal =
           (showPairs ? this.allHedgePairs.length : 0) + this.allUnhedgedTrades.length;
-        this.hedgeCountNotice.textContent = `Showing ${total} of ${allTotal} in range`;
-        this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium";
+        this.hedgeCountNotice.textContent = `Showing ${Math.min(this.hedgeDisplayLimit, total)} of ${allTotal} in range`;
+        this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium font-mono";
       } else if (total > 0) {
         this.hedgeCountNotice.textContent = `${this.hedgePairs.length} pairs hedged`;
-        this.hedgeCountNotice.className = "text-[11px] text-terminal-muted";
+        this.hedgeCountNotice.className = "text-[11px] text-terminal-muted font-mono";
       } else {
         this.hedgeCountNotice.textContent = "";
       }
@@ -1681,6 +1715,7 @@ export class HedgeController {
 
   private switchHedgeFilterTab(tab: "all" | "unhedged"): void {
     this.hedgeFilterTab = tab;
+    this.hedgeDisplayLimit = 100;
     if (tab === "all") {
       this.tabBtnHedgeAll?.classList.add("bg-terminal-surface", "text-white", "font-semibold");
       this.tabBtnHedgeAll?.classList.remove("text-terminal-muted");
@@ -1702,6 +1737,7 @@ export class HedgeController {
   private switchHedgeAggregateMode(mode: "aggregated" | "raw"): void {
     if (this.hedgeAggregateMode === mode) return;
     this.hedgeAggregateMode = mode;
+    this.hedgeDisplayLimit = 100;
 
     if (mode === "aggregated") {
       this.btnHedgeModeAggregated?.classList.add(
@@ -1802,6 +1838,18 @@ export class HedgeController {
 
   private handleHedgeTableClick(e: MouseEvent): void {
     const target = e.target as HTMLElement;
+
+    // Check if clicking "Load more" button
+    const loadMoreBtn = target.closest<HTMLButtonElement>(
+      "#btnLoadMoreHedge, [data-action='load-more']",
+    );
+    if (loadMoreBtn) {
+      e.preventDefault();
+      this.hedgeDisplayLimit += 100;
+      this.applyHedgeFilter();
+      return;
+    }
+
     const row = target.closest("tr[data-id]") as HTMLTableRowElement | null;
     if (!row || !row.dataset.id) return;
 
@@ -1810,6 +1858,9 @@ export class HedgeController {
 
     if (e.shiftKey) {
       e.preventDefault();
+      if (typeof window !== "undefined" && window.getSelection) {
+        window.getSelection()?.removeAllRanges();
+      }
       this.handleHedgeRangeSelection(rowId);
       return;
     }

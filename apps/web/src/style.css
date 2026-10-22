@@ -3,26 +3,31 @@
 @source "../app";
 
 @theme {
-  --color-terminal-bg: #0b0c0e;
-  --color-terminal-surface: #121417;
-  --color-terminal-surfaceHover: #181b20;
-  --color-terminal-surface-hover: #181b20;
-  --color-terminal-border: #1f2328;
-  --color-terminal-borderSubtle: #16191d;
-  --color-terminal-border-subtle: #16191d;
-  --color-terminal-muted: #6e7681;
-  --color-terminal-secondary: #8b949e;
-  --color-terminal-primary: #f0f6fc;
-  --color-terminal-emerald: #2ea043;
-  --color-terminal-emeraldMuted: rgba(46, 160, 67, 0.12);
-  --color-terminal-emerald-muted: rgba(46, 160, 67, 0.12);
-  --color-terminal-coral: #f85149;
-  --color-terminal-coralMuted: rgba(248, 81, 73, 0.12);
-  --color-terminal-coral-muted: rgba(248, 81, 73, 0.12);
+  /* Clean graphite zinc without cold blue tint */
+  --color-terminal-bg: #09090b; /* Deep page background */
+  --color-terminal-surface: #111113; /* Card surface */
+  --color-terminal-surfaceHover: #18181b; /* Row / card hover */
+  --color-terminal-surface-hover: #18181b;
+  --color-terminal-border: #222226; /* Clean container borders */
+  --color-terminal-borderSubtle: #18181b; /* Table row dividers */
+  --color-terminal-border-subtle: #18181b;
+
+  /* 3 distinct text contrast tiers */
+  --color-terminal-muted: #63636e; /* Tier 3: Labels (Vol:, Fees:, #, txs) */
+  --color-terminal-secondary: #a1a1aa; /* Tier 2: Secondary data (dates, details) */
+  --color-terminal-primary: #fafafa; /* Tier 1: Primary numbers, tickers, values */
+
+  /* Semantic financial colors */
+  --color-terminal-emerald: #10b981;
+  --color-terminal-emeraldMuted: rgba(16, 185, 129, 0.12);
+  --color-terminal-emerald-muted: rgba(16, 185, 129, 0.12);
+  --color-terminal-coral: #f43f5e;
+  --color-terminal-coralMuted: rgba(244, 63, 94, 0.12);
+  --color-terminal-coral-muted: rgba(244, 63, 94, 0.12);
   --color-terminal-amber: #f59e0b;
   --color-terminal-amberMuted: rgba(245, 158, 11, 0.12);
   --color-terminal-amber-muted: rgba(245, 158, 11, 0.12);
-  --color-terminal-accent: #58a6ff;
+  --color-terminal-accent: #3b82f6;
   --color-terminal-purple: #a855f7;
   --color-terminal-purpleMuted: rgba(168, 85, 247, 0.12);
   --color-terminal-purple-muted: rgba(168, 85, 247, 0.12);
@@ -37,14 +42,14 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0b0c0e;
+  background: #09090b;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1f2328;
+  background: #222226;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #6e7681;
+  background: #63636e;
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -59,10 +64,10 @@
   position: sticky;
   left: 0;
   z-index: 10;
-  background-color: #0b0c0e;
+  background-color: #09090b;
 }
 tr:hover .sticky-symbol {
-  background-color: #181b20;
+  background-color: #18181b;
 }
 
 button:focus,
@@ -177,22 +182,25 @@ body {
   --font-selected: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
+/* Base interface font (buttons, labels, navigation, headings, table headers) */
 body,
-#terminalTable,
-#terminalTable th,
-#terminalTable td,
-#topRankCard,
 header,
 main,
 footer,
 button,
-input,
 select,
-.font-mono {
-  font-family: var(--font-selected) !important;
+th {
+  font-family: var(--font-selected);
 }
 
-.tabular-nums {
+/* Strictly monospace font for numbers, tabular data, tickers, hashes, tokens and codes */
+.font-mono,
+.tabular-nums,
+#terminalTable td,
+#hedgeTableBody td,
+input[type="password"],
+input[type="text"] {
+  font-family: "JetBrains Mono", monospace !important;
   font-variant-numeric: tabular-nums;
 }
 
@@ -203,8 +211,8 @@ select,
   width: 13px;
   height: 13px;
   border-radius: 2px;
-  border: 1px solid #30363d;
-  background-color: #0b0c0e;
+  border: 1px solid #27272a;
+  background-color: #09090b;
   outline: none;
   cursor: pointer;
   display: inline-flex;
@@ -221,13 +229,13 @@ select,
 }
 
 .hedge-cb:hover {
-  border-color: #8b949e;
-  background-color: #161b22;
+  border-color: #71717a;
+  background-color: #18181b;
 }
 
 .hedge-cb:checked {
-  background-color: #21262d;
-  border-color: #8b949e;
+  background-color: #27272a;
+  border-color: #71717a;
 }
 
 .hedge-cb:checked::after {
@@ -235,15 +243,15 @@ select,
   display: block;
   width: 3.5px;
   height: 6.5px;
-  border: solid #f0f6fc;
+  border: solid #fafafa;
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
   margin-top: -1.5px;
 }
 
 .hedge-cb:indeterminate {
-  background-color: #21262d;
-  border-color: #8b949e;
+  background-color: #27272a;
+  border-color: #71717a;
 }
 
 .hedge-cb:indeterminate::after {
@@ -251,12 +259,93 @@ select,
   display: block;
   width: 6px;
   height: 1.5px;
-  background-color: #f0f6fc;
+  background-color: #fafafa;
   border-radius: 1px;
 }
 
 .hedge-cb:focus-visible {
-  border-color: #8b949e;
+  border-color: #71717a;
+}
+
+/* Smooth edge mask gradient for horizontal scroll ribbons */
+.scroll-mask-right {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 28px), transparent 100%);
+}
+
+.scroll-mask-left {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, black 28px, black 100%);
+  mask-image: linear-gradient(to right, transparent 0, black 28px, black 100%);
+}
+
+.scroll-mask-both {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 28px,
+    black calc(100% - 28px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 28px,
+    black calc(100% - 28px),
+    transparent 100%
+  );
+}
+
+/* Floating Sticky Selection Bar */
+.floating-selection-bar {
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 1rem !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  box-shadow:
+    0 12px 32px -4px rgba(0, 0, 0, 0.7),
+    0 4px 12px -2px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  animation: selectionBarSlideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (max-width: 899px) {
+  .floating-selection-bar {
+    flex-wrap: wrap !important;
+    gap: 0.5rem !important;
+  }
+  .floating-selection-bar .selection-metrics-row {
+    width: 100% !important;
+    justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+}
+
+@media (min-width: 900px) {
+  .floating-selection-bar {
+    flex-wrap: nowrap !important;
+  }
+  .floating-selection-bar .selection-metrics-row {
+    flex-wrap: nowrap !important;
+    justify-content: flex-end !important;
+  }
+}
+
+@keyframes selectionBarSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Hedge trades table rows: clean pointer cursor and text selection prevention */
+#hedgeTableBody tr {
+  user-select: none;
+  cursor: pointer;
 }
 
 /* Dropzone active drag states */
