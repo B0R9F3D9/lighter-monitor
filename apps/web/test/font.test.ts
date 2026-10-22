@@ -70,6 +70,9 @@ describe("Shared Font Management", () => {
           setProperty: (prop: string, val: string) => {
             styleProps[prop] = val;
           },
+          removeProperty: (prop: string) => {
+            delete styleProps[prop];
+          },
           getPropertyValue: (prop: string) => styleProps[prop] || "",
         },
       },

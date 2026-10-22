@@ -1282,7 +1282,7 @@ describe("Hedge Matching Engine", () => {
       expect(els.realizedPnl.textContent).toBe("+$145.20");
       expect(els.realizedPnl.className).toContain("text-terminal-emerald");
       expect(els.fees.textContent).toBe("$8.45");
-      expect(els.fees.className).toContain("text-terminal-coral");
+      expect(els.fees.className).toContain("text-white");
       expect(els.unhedgedCount.textContent).toBe("3");
       expect(els.unhedgedCount.className).toContain("text-terminal-coral");
       expect(els.avgOi.textContent).toBe("$12.5K");
@@ -1312,7 +1312,7 @@ describe("Hedge Matching Engine", () => {
       expect(els.realizedPnl.textContent).toBe("-$34.50");
       expect(els.realizedPnl.className).toContain("text-terminal-coral");
       expect(els.fees.textContent).toBe("$2.10");
-      expect(els.fees.className).toContain("text-terminal-coral");
+      expect(els.fees.className).toContain("text-white");
       expect(els.unhedgedCount.textContent).toBe("0");
       expect(els.unhedgedCount.className).toContain("text-terminal-muted");
       expect(els.avgOi.textContent).toBe("$0.00");
@@ -2267,7 +2267,7 @@ describe("Hedge Matching Engine", () => {
       );
 
       expect(els.funding.textContent).toBe("+$4.56");
-      expect(els.funding.className).toContain("text-terminal-emerald");
+      expect(els.funding.className).toContain("text-white");
       expect(els.funding.title).toContain("RH Net funding received: +$4.56");
 
       // Case 2: Negative funding (paid expense)
@@ -2286,7 +2286,7 @@ describe("Hedge Matching Engine", () => {
       );
 
       expect(els.funding.textContent).toBe("-$12.34");
-      expect(els.funding.className).toContain("text-terminal-coral");
+      expect(els.funding.className).toContain("text-white");
       expect(els.funding.title).toContain("CORE Net funding paid: -$12.34");
 
       // Case 3: Zero funding
@@ -2349,7 +2349,7 @@ describe("Hedge Matching Engine", () => {
       );
 
       expect(execFundingEl.textContent).toBe("-$1.75");
-      expect(execFundingEl.className).toContain("text-terminal-coral");
+      expect(execFundingEl.className).toContain("text-white");
       expect(execFundingEl.title).toBe("Net Funding: -$1.75 (RH: -$2.50 / Core: +$0.75)");
 
       // Selection Floating Card
@@ -2390,7 +2390,7 @@ describe("Hedge Matching Engine", () => {
       );
 
       expect(selFundingEl.textContent).toBe("+$3.20");
-      expect(selFundingEl.className).toContain("text-terminal-emerald");
+      expect(selFundingEl.className).toContain("text-white");
       expect(selFundingEl.title).toBe("Selected Net Funding: +$3.20");
     });
 

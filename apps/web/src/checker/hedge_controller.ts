@@ -1920,10 +1920,19 @@ export class HedgeController {
         const cb = r.querySelector<HTMLInputElement>("input.hedge-row-cb");
         const isSelected = this.selectedHedgeRowIds.has(id);
         if (cb) cb.checked = isSelected;
+        const firstCell = r.cells[0];
         if (isSelected) {
           r.classList.add("bg-white/10", "hover:bg-white/[0.13]");
+          if (firstCell) {
+            firstCell.classList.remove("border-l-transparent");
+            firstCell.classList.add("border-l-terminal-accent");
+          }
         } else {
           r.classList.remove("bg-white/10", "hover:bg-white/[0.13]");
+          if (firstCell) {
+            firstCell.classList.remove("border-l-terminal-accent");
+            firstCell.classList.add("border-l-transparent");
+          }
         }
       }
     }

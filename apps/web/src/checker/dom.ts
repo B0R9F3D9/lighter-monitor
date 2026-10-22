@@ -76,9 +76,9 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
 
   let priceDeltaHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
   if (pair.priceDelta > 0.0001) {
-    priceDeltaHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${formatPrice(pair.priceDelta)}</span>`;
+    priceDeltaHtml = `<span class="text-terminal-secondary font-medium tabular-nums">+${formatPrice(pair.priceDelta)}</span>`;
   } else if (pair.priceDelta < -0.0001) {
-    priceDeltaHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${formatPrice(pair.priceDelta)}</span>`;
+    priceDeltaHtml = `<span class="text-terminal-secondary font-medium tabular-nums">${formatPrice(pair.priceDelta)}</span>`;
   }
 
   let netPnlStr = "$0.00";
@@ -92,13 +92,10 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
   }
 
   let slippageStr = "$0.00";
-  let slippageColor = "text-terminal-muted";
   if (pair.pricePnlUsd > 0.0001) {
     slippageStr = `+${formatMoney(pair.pricePnlUsd)}`;
-    slippageColor = "text-terminal-emerald";
   } else if (pair.pricePnlUsd < -0.0001) {
     slippageStr = formatMoney(pair.pricePnlUsd);
-    slippageColor = "text-terminal-coral";
   }
 
   const statusBadge =
@@ -119,9 +116,9 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
   let fundingTooltip = "No funding history available";
   if (totalFund !== null && totalFund !== undefined) {
     if (totalFund > 0.0001) {
-      fundingHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${formatMoney(totalFund)}</span>`;
+      fundingHtml = `<span class="text-white tabular-nums">+${formatMoney(totalFund)}</span>`;
     } else if (totalFund < -0.0001) {
-      fundingHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${formatMoney(totalFund)}</span>`;
+      fundingHtml = `<span class="text-white tabular-nums">${formatMoney(totalFund)}</span>`;
     } else {
       fundingHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
     }
@@ -137,7 +134,7 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
   }
 
   tr.innerHTML = `
-    <td class="py-1.5 px-2 text-center w-7">
+    <td class="py-1.5 px-2 text-center w-7 border-l-2 ${isSelected ? "border-l-terminal-accent" : "border-l-transparent"}">
       <input
         type="checkbox"
         class="hedge-row-cb hedge-cb"
@@ -166,11 +163,11 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
       <span class="text-terminal-muted text-[10px] font-normal ml-1">(${notionalK})</span>
     </td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap">${priceDeltaHtml}</td>
-    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${formatFee(pair.totalFeesUsd)}</td>
+    <td class="py-1.5 px-2 text-right text-white text-[11px] tabular-nums">${formatFee(pair.totalFeesUsd)}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap text-[11px]" title="${fundingTooltip}">${fundingHtml}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap" title="Net Hedge PnL: ${netPnlStr} (${pair.pnlBps.toFixed(2)} bps) | Gross Slippage: ${slippageStr} | Fees: ${formatFee(pair.totalFeesUsd)}">
       <span class="${netPnlColor} font-bold tabular-nums">${netPnlStr}</span>
-      <span class="${slippageColor} text-[10px] tabular-nums font-normal ml-1">(${slippageStr})</span>
+      <span class="text-terminal-muted text-[10px] tabular-nums font-normal ml-1">(${slippageStr})</span>
     </td>
     <td class="py-1.5 px-2 text-right text-terminal-muted text-[11px] tabular-nums">${timeDeltaStr}</td>
     <td class="py-1.5 px-2 text-center whitespace-nowrap">${statusBadge}</td>
@@ -218,9 +215,9 @@ function createUnhedgedRow(
   let uFundingTooltip = `${trade.network} Funding: —`;
   if (uFund !== null && uFund !== undefined) {
     if (uFund > 0.0001) {
-      uFundingHtml = `<span class="text-terminal-emerald font-semibold tabular-nums">+${formatMoney(uFund)}</span>`;
+      uFundingHtml = `<span class="text-white tabular-nums">+${formatMoney(uFund)}</span>`;
     } else if (uFund < -0.0001) {
-      uFundingHtml = `<span class="text-terminal-coral font-semibold tabular-nums">${formatMoney(uFund)}</span>`;
+      uFundingHtml = `<span class="text-white tabular-nums">${formatMoney(uFund)}</span>`;
     } else {
       uFundingHtml = `<span class="text-terminal-muted tabular-nums">$0.00</span>`;
     }
@@ -228,7 +225,7 @@ function createUnhedgedRow(
   }
 
   tr.innerHTML = `
-    <td class="py-1.5 px-2 text-center w-7">
+    <td class="py-1.5 px-2 text-center w-7 border-l-2 ${isSelected ? "border-l-terminal-accent" : "border-l-transparent"}">
       <input
         type="checkbox"
         class="hedge-row-cb hedge-cb"
@@ -249,7 +246,7 @@ function createUnhedgedRow(
       <span class="text-terminal-muted text-[10px] font-normal ml-1">(${notionalK})</span>
     </td>
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
-    <td class="py-1.5 px-2 text-right text-terminal-secondary text-[11px] tabular-nums">${formatFee(trade.feeUsd)}</td>
+    <td class="py-1.5 px-2 text-right text-white text-[11px] tabular-nums">${formatFee(trade.feeUsd)}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap text-[11px]" title="${uFundingTooltip}">${uFundingHtml}</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted font-bold">--</td>
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
@@ -455,20 +452,17 @@ export function updateHedgeExecutiveMetrics(
   if (elements.slippage) {
     const sign = metrics.totalPricePnlUsd > 0.0001 ? "+" : "";
     elements.slippage.textContent = `${sign}${formatMoney(metrics.totalPricePnlUsd)}`;
-    if (metrics.totalPricePnlUsd > 0.001) {
-      elements.slippage.className = "font-bold text-terminal-emerald tabular-nums";
-    } else if (metrics.totalPricePnlUsd < -0.001) {
-      elements.slippage.className = "font-bold text-terminal-coral tabular-nums";
-    } else {
-      elements.slippage.className = "font-bold text-terminal-secondary tabular-nums";
-    }
+    elements.slippage.className =
+      metrics.totalPricePnlUsd !== 0
+        ? "font-bold text-white tabular-nums"
+        : "font-bold text-terminal-muted tabular-nums";
   }
 
   if (elements.fees) {
     elements.fees.textContent = formatFee(metrics.totalFeesUsd);
     elements.fees.className =
       metrics.totalFeesUsd > 0.0001
-        ? "font-bold text-terminal-coral tabular-nums"
+        ? "font-bold text-white tabular-nums"
         : "font-bold text-terminal-muted tabular-nums";
   }
 
@@ -493,13 +487,10 @@ export function updateHedgeExecutiveMetrics(
       const coreFunding = metrics.coreTotalFundingUsd ?? 0;
       const sign = totalFunding > 0 ? "+" : "";
       elements.funding.textContent = `${sign}${formatMoney(totalFunding)}`;
-      if (totalFunding > 0.001) {
-        elements.funding.className = "font-bold text-terminal-emerald tabular-nums";
-      } else if (totalFunding < -0.001) {
-        elements.funding.className = "font-bold text-terminal-coral tabular-nums";
-      } else {
-        elements.funding.className = "font-bold text-terminal-muted tabular-nums";
-      }
+      elements.funding.className =
+        totalFunding !== 0
+          ? "font-bold text-white tabular-nums"
+          : "font-bold text-terminal-muted tabular-nums";
       elements.funding.title = `Net Funding: ${totalFunding >= 0 ? "+" : ""}${formatMoney(totalFunding)} (RH: ${rhFunding >= 0 ? "+" : ""}${formatMoney(rhFunding)} / Core: ${coreFunding >= 0 ? "+" : ""}${formatMoney(coreFunding)})`;
     }
   }
@@ -732,7 +723,7 @@ export function updateIndividualAccountMetrics(
     elements.fees.textContent = formatFee(metrics.totalFeesUsd);
     elements.fees.className =
       metrics.totalFeesUsd > 0.0001
-        ? "font-bold text-terminal-coral tabular-nums"
+        ? "font-bold text-white tabular-nums"
         : "font-bold text-terminal-muted tabular-nums";
   }
 
@@ -755,10 +746,10 @@ export function updateIndividualAccountMetrics(
       const sign = funding > 0 ? "+" : "";
       elements.funding.textContent = `${sign}${formatMoney(funding)}`;
       if (funding > 0.001) {
-        elements.funding.className = "font-bold text-terminal-emerald tabular-nums";
+        elements.funding.className = "font-bold text-white tabular-nums";
         elements.funding.title = `${metrics.network} Net funding received: +${formatMoney(funding)}`;
       } else if (funding < -0.001) {
-        elements.funding.className = "font-bold text-terminal-coral tabular-nums";
+        elements.funding.className = "font-bold text-white tabular-nums";
         elements.funding.title = `${metrics.network} Net funding paid: ${formatMoney(funding)}`;
       } else {
         elements.funding.className = "font-bold text-terminal-muted tabular-nums";
@@ -864,13 +855,7 @@ export function updateHedgeSelectionMetrics(
       const delta = metrics.weightedPriceDelta;
       const sign = delta > 0.0001 ? "+" : "";
       elements.weightedDelta.textContent = `${sign}${formatPrice(delta)}`;
-      if (delta > 0.0001) {
-        elements.weightedDelta.className = "font-bold text-terminal-emerald tabular-nums";
-      } else if (delta < -0.0001) {
-        elements.weightedDelta.className = "font-bold text-terminal-coral tabular-nums";
-      } else {
-        elements.weightedDelta.className = "font-bold text-terminal-muted tabular-nums";
-      }
+      elements.weightedDelta.className = "font-bold text-terminal-secondary tabular-nums";
 
       const marketLabel =
         metrics.isSingleMarket && metrics.marketSymbol ? ` (${metrics.marketSymbol})` : "";
@@ -886,14 +871,7 @@ export function updateHedgeSelectionMetrics(
       const bps = metrics.weightedPriceDeltaBps;
       const sign = bps > 0.001 ? "+" : "";
       elements.weightedDeltaBps.textContent = `(${sign}${bps.toFixed(2)} bps)`;
-      if (bps > 0.01) {
-        elements.weightedDeltaBps.className =
-          "text-[10px] text-terminal-emerald tabular-nums ml-0.5";
-      } else if (bps < -0.01) {
-        elements.weightedDeltaBps.className = "text-[10px] text-terminal-coral tabular-nums ml-0.5";
-      } else {
-        elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-0.5";
-      }
+      elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-0.5";
     }
   }
 
@@ -928,20 +906,17 @@ export function updateHedgeSelectionMetrics(
   if (elements.slippage) {
     const sign = metrics.totalPricePnlUsd > 0.0001 ? "+" : "";
     elements.slippage.textContent = `${sign}${formatMoney(metrics.totalPricePnlUsd)}`;
-    if (metrics.totalPricePnlUsd > 0.001) {
-      elements.slippage.className = "font-bold text-terminal-emerald tabular-nums";
-    } else if (metrics.totalPricePnlUsd < -0.001) {
-      elements.slippage.className = "font-bold text-terminal-coral tabular-nums";
-    } else {
-      elements.slippage.className = "font-bold text-terminal-secondary tabular-nums";
-    }
+    elements.slippage.className =
+      metrics.totalPricePnlUsd !== 0
+        ? "font-bold text-terminal-secondary tabular-nums"
+        : "font-bold text-terminal-muted tabular-nums";
   }
 
   if (elements.fees) {
     elements.fees.textContent = formatFee(metrics.totalFeesUsd);
     elements.fees.className =
       metrics.totalFeesUsd > 0.0001
-        ? "font-bold text-terminal-coral tabular-nums"
+        ? "font-bold text-white tabular-nums"
         : "font-bold text-terminal-muted tabular-nums";
   }
 
@@ -954,16 +929,11 @@ export function updateHedgeSelectionMetrics(
       const funding = metrics.totalFundingUsd;
       const sign = funding > 0 ? "+" : "";
       elements.funding.textContent = `${sign}${formatMoney(funding)}`;
-      if (funding > 0.001) {
-        elements.funding.className = "font-bold text-terminal-emerald tabular-nums";
-        elements.funding.title = `Selected Net Funding: +${formatMoney(funding)}`;
-      } else if (funding < -0.001) {
-        elements.funding.className = "font-bold text-terminal-coral tabular-nums";
-        elements.funding.title = `Selected Net Funding: ${formatMoney(funding)}`;
-      } else {
-        elements.funding.className = "font-bold text-terminal-muted tabular-nums";
-        elements.funding.title = "Selected Net Funding: $0.00";
-      }
+      elements.funding.className =
+        funding !== 0
+          ? "font-bold text-white tabular-nums"
+          : "font-bold text-terminal-muted tabular-nums";
+      elements.funding.title = `Selected Net Funding: ${sign}${formatMoney(funding)}`;
     }
   }
 

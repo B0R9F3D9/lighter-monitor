@@ -29,7 +29,9 @@
               ? '"JetBrains Mono", monospace'
               : `"${f}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
           document.documentElement.style.setProperty("--font-selected", stack);
-          document.documentElement.style.setProperty("--font-sans", stack);
+          if (f !== "JetBrains Mono") {
+            document.documentElement.style.setProperty("--font-sans", stack);
+          }
           if (f !== "Inter" && f !== "JetBrains Mono") {
             const link = document.createElement("link");
             link.id = "gfont-" + f.toLowerCase().replace(/\s+/g, "-");

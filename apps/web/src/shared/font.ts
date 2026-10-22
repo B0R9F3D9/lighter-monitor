@@ -78,7 +78,13 @@ export function applyFont(fontName: string): void {
 
   if (typeof document !== "undefined") {
     document.documentElement.style.setProperty("--font-selected", stack);
-    document.documentElement.style.setProperty("--font-sans", stack);
+    if (font !== "JetBrains Mono") {
+      document.documentElement.style.setProperty("--font-sans", stack);
+    } else if (typeof (document.documentElement.style as any).removeProperty === "function") {
+      (document.documentElement.style as any).removeProperty("--font-sans");
+    } else {
+      document.documentElement.style.setProperty("--font-sans", "");
+    }
     if (document.body) {
       document.body.style.fontFamily = stack;
     }
