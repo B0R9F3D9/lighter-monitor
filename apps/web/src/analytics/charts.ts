@@ -45,6 +45,26 @@ export interface ChartSyncContext {
   resize: () => void;
 }
 
+export const CHART_PALETTE = {
+  background: "#0B0C0E",
+  textColor: "#8B949E",
+  gridLine: "#16191D",
+  crosshair: "#484F58",
+  crosshairLabelBg: "#181B20",
+  border: "#1F2328",
+  borderSubtle: "#30363D",
+  white: "#FFFFFF",
+  accent: "#58A6FF",
+  accentFillHigh: "rgba(88, 166, 255, 0.12)",
+  accentFillLow: "rgba(88, 166, 255, 0.02)",
+  emerald: "#2EA043",
+  emeraldFillHigh: "rgba(46, 160, 67, 0.12)",
+  emeraldFillLow: "rgba(46, 160, 67, 0.02)",
+  neutralLine: "#21262D",
+  bandOuter: "rgba(139, 148, 158, 0.35)",
+  bandSma: "rgba(110, 118, 129, 0.45)",
+} as const;
+
 export function initAnalyticsCharts(
   priceContainer: HTMLElement,
   basisContainer: HTMLElement,
@@ -55,8 +75,8 @@ export function initAnalyticsCharts(
 
   const commonOptions = {
     layout: {
-      background: { type: ColorType.Solid, color: "#0B0C0E" },
-      textColor: "#8B949E",
+      background: { type: ColorType.Solid, color: CHART_PALETTE.background },
+      textColor: CHART_PALETTE.textColor,
       fontFamily: getFontStack(getSavedFont()),
       fontSize: 11,
     },
@@ -78,25 +98,25 @@ export function initAnalyticsCharts(
       },
     },
     grid: {
-      vertLines: { color: "#16191D" },
-      horzLines: { color: "#16191D" },
+      vertLines: { color: CHART_PALETTE.gridLine },
+      horzLines: { color: CHART_PALETTE.gridLine },
     },
     crosshair: {
       vertLine: {
-        color: "#484F58",
+        color: CHART_PALETTE.crosshair,
         width: 1 as const,
         style: LineStyle.Dashed,
-        labelBackgroundColor: "#181B20",
+        labelBackgroundColor: CHART_PALETTE.crosshairLabelBg,
       },
       horzLine: {
-        color: "#484F58",
+        color: CHART_PALETTE.crosshair,
         width: 1 as const,
         style: LineStyle.Dashed,
-        labelBackgroundColor: "#181B20",
+        labelBackgroundColor: CHART_PALETTE.crosshairLabelBg,
       },
     },
     timeScale: {
-      borderColor: "#1F2328",
+      borderColor: CHART_PALETTE.border,
       timeVisible: true,
       secondsVisible: false,
       tickMarkFormatter: (time: Time, tickMarkType: TickMarkType) => {
@@ -131,7 +151,7 @@ export function initAnalyticsCharts(
       },
     },
     rightPriceScale: {
-      borderColor: "#1F2328",
+      borderColor: CHART_PALETTE.border,
     },
   };
 
@@ -143,7 +163,7 @@ export function initAnalyticsCharts(
     crosshair: {
       ...commonOptions.crosshair,
       horzLine: {
-        color: "#30363D",
+        color: CHART_PALETTE.borderSubtle,
         width: 1 as const,
         style: LineStyle.Dashed,
         labelVisible: false, // The price scale badges are driven dynamically by RH & Core hovered prices
@@ -152,7 +172,7 @@ export function initAnalyticsCharts(
   });
 
   const rhSeries = priceChart.addSeries(LineSeries, {
-    color: "#58A6FF",
+    color: CHART_PALETTE.accent,
     lineWidth: 2,
     lastValueVisible: false,
     priceLineVisible: false,
@@ -160,7 +180,7 @@ export function initAnalyticsCharts(
   });
 
   const coreSeries = priceChart.addSeries(LineSeries, {
-    color: "#8B949E",
+    color: CHART_PALETTE.textColor,
     lineWidth: 2,
     lastValueVisible: false,
     priceLineVisible: false,
@@ -170,26 +190,26 @@ export function initAnalyticsCharts(
   // Dedicated dynamic price lines for RH and Core prices on the right price scale
   const rhPriceLine = rhSeries.createPriceLine({
     price: 0,
-    color: "#58A6FF",
+    color: CHART_PALETTE.accent,
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
     lineVisible: true,
     axisLabelVisible: true,
     title: "RH",
-    axisLabelColor: "#58A6FF",
-    axisLabelTextColor: "#0B0C0E",
+    axisLabelColor: CHART_PALETTE.accent,
+    axisLabelTextColor: CHART_PALETTE.background,
   });
 
   const corePriceLine = coreSeries.createPriceLine({
     price: 0,
-    color: "#8B949E",
+    color: CHART_PALETTE.textColor,
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
     lineVisible: true,
     axisLabelVisible: true,
     title: "Core",
-    axisLabelColor: "#30363D",
-    axisLabelTextColor: "#FFFFFF",
+    axisLabelColor: CHART_PALETTE.borderSubtle,
+    axisLabelTextColor: CHART_PALETTE.white,
   });
 
   // 2. Basis & Spread Sub-Chart (Bottom)
@@ -200,7 +220,7 @@ export function initAnalyticsCharts(
     crosshair: {
       ...commonOptions.crosshair,
       horzLine: {
-        color: "#30363D",
+        color: CHART_PALETTE.borderSubtle,
         width: 1 as const,
         style: LineStyle.Dashed,
         labelVisible: false, // The price scale badges are driven dynamically by hovered basis
@@ -211,12 +231,12 @@ export function initAnalyticsCharts(
   // BaselineSeries: above 0 (RH expensive) is slate/accent, below 0 (RH discount) is emerald green
   const basisSeries = basisChart.addSeries(BaselineSeries, {
     baseValue: { type: "price", price: 0 },
-    topLineColor: "#58A6FF",
-    topFillColor1: "rgba(88, 166, 255, 0.12)",
-    topFillColor2: "rgba(88, 166, 255, 0.02)",
-    bottomLineColor: "#2EA043",
-    bottomFillColor1: "rgba(46, 160, 67, 0.02)",
-    bottomFillColor2: "rgba(46, 160, 67, 0.12)",
+    topLineColor: CHART_PALETTE.accent,
+    topFillColor1: CHART_PALETTE.accentFillHigh,
+    topFillColor2: CHART_PALETTE.accentFillLow,
+    bottomLineColor: CHART_PALETTE.emerald,
+    bottomFillColor1: CHART_PALETTE.emeraldFillLow,
+    bottomFillColor2: CHART_PALETTE.emeraldFillHigh,
     lineWidth: 2,
     lastValueVisible: false,
     priceLineVisible: false,
@@ -226,19 +246,19 @@ export function initAnalyticsCharts(
   // Dedicated dynamic price line for Basis on the right price scale (matches top chart hover badge)
   const basisPriceLine = basisSeries.createPriceLine({
     price: 0,
-    color: "#58A6FF",
+    color: CHART_PALETTE.accent,
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
     lineVisible: true,
     axisLabelVisible: true,
     title: "Basis",
-    axisLabelColor: "#58A6FF",
-    axisLabelTextColor: "#0B0C0E",
+    axisLabelColor: CHART_PALETTE.accent,
+    axisLabelTextColor: CHART_PALETTE.background,
   });
 
   // Dispersion bands (clean, without titles that clutter canvas; hidden by default for maximum clarity)
   const upperBandSeries = basisChart.addSeries(LineSeries, {
-    color: "rgba(139, 148, 158, 0.35)",
+    color: CHART_PALETTE.bandOuter,
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
     lastValueVisible: false,
@@ -247,7 +267,7 @@ export function initAnalyticsCharts(
   });
 
   const smaSeries = basisChart.addSeries(LineSeries, {
-    color: "rgba(110, 118, 129, 0.45)",
+    color: CHART_PALETTE.bandSma,
     lineWidth: 1,
     lineStyle: LineStyle.Solid,
     lastValueVisible: false,
@@ -256,7 +276,7 @@ export function initAnalyticsCharts(
   });
 
   const lowerBandSeries = basisChart.addSeries(LineSeries, {
-    color: "rgba(139, 148, 158, 0.35)",
+    color: CHART_PALETTE.bandOuter,
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
     lastValueVisible: false,
@@ -267,13 +287,13 @@ export function initAnalyticsCharts(
   // Zero Reference Line in Basis Sub-chart (clean Parity anchor)
   basisSeries.createPriceLine({
     price: 0,
-    color: "#21262D",
+    color: CHART_PALETTE.neutralLine,
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
     axisLabelVisible: true,
     title: "0.00",
-    axisLabelColor: "#21262D",
-    axisLabelTextColor: "#8B949E",
+    axisLabelColor: CHART_PALETTE.neutralLine,
+    axisLabelTextColor: CHART_PALETTE.textColor,
   });
 
   let isSyncing = false;
@@ -368,8 +388,8 @@ export function initAnalyticsCharts(
         price: p.basisUsd,
         axisLabelVisible: true,
         lineVisible: true,
-        axisLabelColor: isDiscount ? "#2EA043" : "#58A6FF",
-        axisLabelTextColor: isDiscount ? "#FFFFFF" : "#0B0C0E",
+        axisLabelColor: isDiscount ? CHART_PALETTE.emerald : CHART_PALETTE.accent,
+        axisLabelTextColor: isDiscount ? CHART_PALETTE.white : CHART_PALETTE.background,
       });
     } else {
       basisPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });

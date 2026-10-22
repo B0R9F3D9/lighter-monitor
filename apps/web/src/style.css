@@ -6,14 +6,33 @@
   --container-8xl: 100rem;
   --blur-2xs: 1px;
 
+  /* Shorthand color aliases */
+  --color-primary: #fafafa;
+  --color-secondary: #a1a1aa;
+  --color-muted: #63636e;
+  --color-bg: #09090b;
+  --color-surface: #111113;
+  --color-surface-hover: #18181b;
+  --color-surface-elevated: #16181d;
+  --color-border: #222226;
+  --color-border-subtle: #18181b;
+
   /* Clean graphite zinc without cold blue tint */
   --color-terminal-bg: #09090b; /* Deep page background */
   --color-terminal-surface: #111113; /* Card surface */
   --color-terminal-surfaceHover: #18181b; /* Row / card hover */
   --color-terminal-surface-hover: #18181b;
+  --color-terminal-surface-elevated: #16181d;
+  --color-terminal-surfaceElevated: #16181d;
   --color-terminal-border: #222226; /* Clean container borders */
   --color-terminal-borderSubtle: #18181b; /* Table row dividers */
   --color-terminal-border-subtle: #18181b;
+
+  /* Form control & interactive component tokens */
+  --color-terminal-control-border: #27272a;
+  --color-terminal-control-border-hover: #71717a;
+  --color-terminal-control-bg: #09090b;
+  --color-terminal-control-bg-active: #27272a;
 
   /* 3 distinct text contrast tiers */
   --color-terminal-muted: #63636e; /* Tier 3: Labels (Vol:, Fees:, #, txs) */
@@ -31,6 +50,8 @@
   --color-terminal-amberMuted: rgba(245, 158, 11, 0.12);
   --color-terminal-amber-muted: rgba(245, 158, 11, 0.12);
   --color-terminal-accent: #3b82f6;
+  --color-terminal-accentMuted: rgba(59, 130, 246, 0.12);
+  --color-terminal-accent-muted: rgba(59, 130, 246, 0.12);
   --color-terminal-purple: #a855f7;
   --color-terminal-purpleMuted: rgba(168, 85, 247, 0.12);
   --color-terminal-purple-muted: rgba(168, 85, 247, 0.12);
@@ -45,14 +66,14 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #09090b;
+  background: var(--color-terminal-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: #222226;
+  background: var(--color-terminal-border);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #63636e;
+  background: var(--color-terminal-muted);
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -67,10 +88,10 @@
   position: sticky;
   left: 0;
   z-index: 10;
-  background-color: #09090b;
+  background-color: var(--color-terminal-bg);
 }
 tr:hover .sticky-symbol {
-  background-color: #18181b;
+  background-color: var(--color-terminal-surfaceHover);
 }
 
 button:focus,
@@ -214,8 +235,8 @@ input[type="text"] {
   width: 13px;
   height: 13px;
   border-radius: 2px;
-  border: 1px solid #27272a;
-  background-color: #09090b;
+  border: 1px solid var(--color-terminal-control-border);
+  background-color: var(--color-terminal-control-bg);
   outline: none;
   cursor: pointer;
   display: inline-flex;
@@ -232,13 +253,13 @@ input[type="text"] {
 }
 
 .hedge-cb:hover {
-  border-color: #71717a;
-  background-color: #18181b;
+  border-color: var(--color-terminal-control-border-hover);
+  background-color: var(--color-terminal-surfaceHover);
 }
 
 .hedge-cb:checked {
-  background-color: #27272a;
-  border-color: #71717a;
+  background-color: var(--color-terminal-control-bg-active);
+  border-color: var(--color-terminal-control-border-hover);
 }
 
 .hedge-cb:checked::after {
@@ -246,15 +267,15 @@ input[type="text"] {
   display: block;
   width: 3.5px;
   height: 6.5px;
-  border: solid #fafafa;
+  border: solid var(--color-terminal-primary);
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
   margin-top: -1.5px;
 }
 
 .hedge-cb:indeterminate {
-  background-color: #27272a;
-  border-color: #71717a;
+  background-color: var(--color-terminal-control-bg-active);
+  border-color: var(--color-terminal-control-border-hover);
 }
 
 .hedge-cb:indeterminate::after {
@@ -262,12 +283,12 @@ input[type="text"] {
   display: block;
   width: 6px;
   height: 1.5px;
-  background-color: #fafafa;
+  background-color: var(--color-terminal-primary);
   border-radius: 1px;
 }
 
 .hedge-cb:focus-visible {
-  border-color: #71717a;
+  border-color: var(--color-terminal-control-border-hover);
 }
 
 /* Smooth edge mask gradient for horizontal scroll ribbons */
@@ -322,22 +343,6 @@ input[type="text"] {
 #hedgeTableBody tr {
   user-select: none;
   cursor: pointer;
-}
-
-/* Dropzone active drag states */
-.dropzone-active-rh {
-  border-color: var(--color-terminal-accent) !important;
-  background-color: rgba(88, 166, 255, 0.12) !important;
-}
-
-.dropzone-active-core {
-  border-color: var(--color-terminal-emerald) !important;
-  background-color: rgba(46, 160, 67, 0.12) !important;
-}
-
-.dropzone-active-rh *,
-.dropzone-active-core * {
-  pointer-events: none;
 }
 
 /* Mobile Navigation Panel animation */
