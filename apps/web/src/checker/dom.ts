@@ -1376,59 +1376,45 @@ function getWeekMetricStrings(
   const analysis = stats.analysis;
   const pts = stats.points;
 
-  if (analysis.volPerPoint === null) {
-    return {
-      volStr: "--",
-      volTitle: isTotal
-        ? "Enter points in any week above to calculate total volume per point"
-        : "Enter points to calculate volume per point",
-      oiStr: "--",
-      oiTitle: isTotal
-        ? "Enter points in any week above to calculate total average open interest per point"
-        : "Enter points to calculate average open interest per point",
-      priceStr: "--",
-      priceCls: "font-bold text-terminal-muted tabular-nums",
-      priceTitle: isTotal
-        ? "Enter points in any week above to calculate total point price"
-        : "Enter points to calculate point price",
-    };
-  }
-
-  const volStr =
-    analysis.volPerPoint !== null && analysis.volPerPoint > 0
-      ? formatMoney(analysis.volPerPoint)
-      : "$0.00";
+  const volStr = stats.rhVolumeUsd > 0 ? formatMoney(stats.rhVolumeUsd) : "$0.00";
   const volTitle = isTotal
-    ? `Total Robinhood volume per point: ${formatMoney(stats.rhVolumeUsd)} / ${pts?.toLocaleString()} pts`
-    : `Robinhood volume per point: ${formatMoney(stats.rhVolumeUsd)} / ${pts?.toLocaleString()} pts`;
+    ? `Total Robinhood volume: ${formatMoney(stats.rhVolumeUsd)}`
+    : `Robinhood volume for Week: ${formatMoney(stats.rhVolumeUsd)}`;
 
-  const oiStr =
-    analysis.oiPerPoint !== null && analysis.oiPerPoint > 0
-      ? analysis.oiPerPoint >= 1
-        ? formatMoney(analysis.oiPerPoint)
-        : formatUnitPointPrice(analysis.oiPerPoint)
-      : "$0.00";
+  const oiVal =
+    isTotal && "avgWeeklyOiUsd" in stats && typeof stats.avgWeeklyOiUsd === "number"
+      ? stats.avgWeeklyOiUsd
+      : stats.rhAvgOiUsd;
+  const oiStr = oiVal > 0 ? formatMoney(oiVal) : "$0.00";
   const oiTitle = isTotal
-    ? `Total average open interest per point: ${formatMoney(stats.rhAvgOiUsd)} total weekly OI / ${pts?.toLocaleString()} pts`
-    : `Average open interest per point: ${formatMoney(stats.rhAvgOiUsd)} / ${pts?.toLocaleString()} pts`;
+    ? `Average weekly open interest: ${formatMoney(oiVal)}${"weeksCount" in stats && stats.weeksCount ? ` (across ${stats.weeksCount} weeks)` : ""} | Cumulative: ${formatMoney(stats.rhAvgOiUsd)}`
+    : `Time-weighted average open interest: ${formatMoney(stats.rhAvgOiUsd)}`;
 
-  let priceStr = "$0.0000";
+  let priceStr = "--";
   let priceCls = "font-bold text-terminal-muted tabular-nums";
-  let priceTitle = isTotal ? "Total net hedge PnL was $0.00" : "Net hedge PnL was $0.00";
+  let priceTitle = isTotal
+    ? "Enter points in any week above to calculate total point price"
+    : "Enter points to calculate point price";
 
-  if (Math.abs(stats.totalNetPnlUsd) > 0.0001 && analysis.costPerPoint !== null) {
-    if (analysis.isProfitable) {
-      priceStr = `+${formatUnitPointPrice(analysis.costPerPoint)}`;
-      priceCls = "font-bold text-terminal-emerald tabular-nums";
-      priceTitle = isTotal
-        ? `Total net profit per point: +${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`
-        : `Net profit per point: +${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
+  if (analysis.costPerPoint !== null) {
+    if (Math.abs(stats.totalNetPnlUsd) > 0.0001) {
+      if (analysis.isProfitable) {
+        priceStr = `+${formatUnitPointPrice(analysis.costPerPoint)}`;
+        priceCls = "font-bold text-terminal-emerald tabular-nums";
+        priceTitle = isTotal
+          ? `Total net profit per point: +${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`
+          : `Net profit per point: +${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
+      } else {
+        priceStr = formatUnitPointPrice(analysis.costPerPoint);
+        priceCls = "font-bold text-white tabular-nums";
+        priceTitle = isTotal
+          ? `Total net cost per point: ${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`
+          : `Net cost per point: ${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
+      }
     } else {
-      priceStr = formatUnitPointPrice(analysis.costPerPoint);
-      priceCls = "font-bold text-white tabular-nums";
-      priceTitle = isTotal
-        ? `Total net cost per point: ${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`
-        : `Net cost per point: ${formatMoney(stats.totalNetPnlUsd)} / ${pts?.toLocaleString()} pts`;
+      priceStr = "$0.0000";
+      priceCls = "font-bold text-terminal-muted tabular-nums";
+      priceTitle = isTotal ? "Total net hedge PnL was $0.00" : "Net hedge PnL was $0.00";
     }
   }
 
@@ -1709,11 +1695,11 @@ export function renderWeeklyPointsTable(
           <th class="h-8 py-0 px-3 font-semibold text-center cursor-pointer hover:text-white whitespace-nowrap" data-sort="points">
             Points ${renderSortIndicator("points")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volPerPoint" title="Robinhood trading volume per point">
-            Vol / Point ${renderSortIndicator("volPerPoint")}
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volume" title="Robinhood trading volume for the week">
+            Vol ${renderSortIndicator("volume")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="oiPerPoint" title="Time-weighted average open interest per point">
-            Avg OI / Point ${renderSortIndicator("oiPerPoint")}
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgOi" title="Time-weighted average open interest for the week">
+            Avg OI ${renderSortIndicator("avgOi")}
           </th>
           <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="costPerPoint" title="Point price based on net PnL (-Net PnL / Points)">
             Point Price ${renderSortIndicator("costPerPoint")}

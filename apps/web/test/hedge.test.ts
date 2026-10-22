@@ -3759,10 +3759,11 @@ describe("Hedge Matching Engine", () => {
       expect(renderedHtml).toContain("<table");
       expect(renderedHtml).toContain("Week 1");
       expect(renderedHtml).toContain("Week 2");
-      expect(renderedHtml).toContain("Vol / Point");
-      expect(renderedHtml).toContain("Avg OI / Point");
+      expect(renderedHtml).toContain("Vol");
+      expect(renderedHtml).toContain("Avg OI");
       expect(renderedHtml).toContain("Point Price");
-      expect(renderedHtml).toContain("$100.00"); // Vol / Pt for W1
+      expect(renderedHtml).toContain("$100.0K"); // Volume for W1
+      expect(renderedHtml).toContain("$5.0K"); // Avg OI for W1
       expect(renderedHtml).not.toContain("Fees:");
       expect(renderedHtml).not.toContain("Rate:");
       // Input width reduced to w-20
@@ -3912,13 +3913,21 @@ describe("Hedge Matching Engine", () => {
       const byWeekDesc = sortWeeklyPointsStats([...statsList], "weekNumber", "desc");
       expect(byWeekDesc.map((s) => s.weekNumber)).toEqual([3, 2, 1]);
 
-      // Sort by volPerPoint desc (300, 100, then null)
-      const byVolDesc = sortWeeklyPointsStats([...statsList], "volPerPoint", "desc");
-      expect(byVolDesc.map((s) => s.weekNumber)).toEqual([3, 1, 2]);
+      // Sort by volume desc (300k, 200k, 100k)
+      const byVolumeDesc = sortWeeklyPointsStats([...statsList], "volume", "desc");
+      expect(byVolumeDesc.map((s) => s.weekNumber)).toEqual([3, 2, 1]);
 
-      // Sort by volPerPoint asc (100, 300, then null at bottom)
-      const byVolAsc = sortWeeklyPointsStats([...statsList], "volPerPoint", "asc");
-      expect(byVolAsc.map((s) => s.weekNumber)).toEqual([1, 3, 2]);
+      // Sort by volume asc (100k, 200k, 300k)
+      const byVolumeAsc = sortWeeklyPointsStats([...statsList], "volume", "asc");
+      expect(byVolumeAsc.map((s) => s.weekNumber)).toEqual([1, 2, 3]);
+
+      // Sort by avgOi desc (15k, 10k, 5k)
+      const byOiDesc = sortWeeklyPointsStats([...statsList], "avgOi", "desc");
+      expect(byOiDesc.map((s) => s.weekNumber)).toEqual([3, 2, 1]);
+
+      // Sort by avgOi asc (5k, 10k, 15k)
+      const byOiAsc = sortWeeklyPointsStats([...statsList], "avgOi", "asc");
+      expect(byOiAsc.map((s) => s.weekNumber)).toEqual([1, 2, 3]);
 
       // Sort by costPerPoint desc (0.15, 0.05, then null)
       const byCostDesc = sortWeeklyPointsStats([...statsList], "costPerPoint", "desc");
@@ -3972,8 +3981,8 @@ describe("Hedge Matching Engine", () => {
               "weekNumber",
               "dateRange",
               "points",
-              "volPerPoint",
-              "oiPerPoint",
+              "volume",
+              "avgOi",
               "costPerPoint",
             ];
             return cols.map((col) => ({
@@ -3993,7 +4002,7 @@ describe("Hedge Matching Engine", () => {
         null,
         () => {},
         () => {},
-        "volPerPoint",
+        "volume",
         "desc",
         (col) => {
           sortColClicked = col;
@@ -4002,7 +4011,7 @@ describe("Hedge Matching Engine", () => {
 
       // Verify that sort indicator ▼ is present
       expect(html).toContain("▼");
-      expect(html).toContain('data-sort="volPerPoint"');
+      expect(html).toContain('data-sort="volume"');
 
       // Click on costPerPoint header
       headerListeners["costPerPoint"]?.();
@@ -4214,7 +4223,8 @@ describe("Hedge Matching Engine", () => {
       expect(renderedHtml).toContain("Σ");
       expect(renderedHtml).toContain("val-total-points");
       expect(renderedHtml).toContain("3,000"); // 1000 + 2000 points
-      expect(renderedHtml).toContain("$100.00"); // $300k / 3k pts = $100
+      expect(renderedHtml).toContain("$300.0K"); // $100k + $200k = $300k total volume
+      expect(renderedHtml).toContain("$7.5K"); // ($5k + $10k) / 2 = $7.5k average weekly OI
 
       // Click on total row
       expect(totalRowClickHandler).not.toBeNull();

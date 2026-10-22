@@ -1832,24 +1832,18 @@ export function sortWeeklyPointsStats(
       return a.weekNumber - b.weekNumber;
     }
 
-    if (sortColumn === "volPerPoint") {
-      const aVal = a.analysis.volPerPoint;
-      const bVal = b.analysis.volPerPoint;
-      if (aVal === null && bVal === null) return a.weekNumber - b.weekNumber;
-      if (aVal === null) return 1;
-      if (bVal === null) return -1;
+    if (sortColumn === "volume") {
+      const aVal = a.rhVolumeUsd;
+      const bVal = b.rhVolumeUsd;
       if (Math.abs(aVal - bVal) > 0.00001) {
         return (aVal - bVal) * dir;
       }
       return a.weekNumber - b.weekNumber;
     }
 
-    if (sortColumn === "oiPerPoint") {
-      const aVal = a.analysis.oiPerPoint;
-      const bVal = b.analysis.oiPerPoint;
-      if (aVal === null && bVal === null) return a.weekNumber - b.weekNumber;
-      if (aVal === null) return 1;
-      if (bVal === null) return -1;
+    if (sortColumn === "avgOi") {
+      const aVal = a.rhAvgOiUsd;
+      const bVal = b.rhAvgOiUsd;
       if (Math.abs(aVal - bVal) > 0.00001) {
         return (aVal - bVal) * dir;
       }
@@ -2097,8 +2091,10 @@ export function getParticipatingWeeksStats(params: ParticipatingWeeksParams): We
 
 export interface WeeklyPointsTotalStats {
   tradesCount: number;
+  weeksCount: number;
   rhVolumeUsd: number;
   rhAvgOiUsd: number;
+  avgWeeklyOiUsd: number;
   totalNetPnlUsd: number;
   totalFeesUsd: number;
   points: number | null;
@@ -2144,6 +2140,8 @@ export function calculateWeeklyPointsTotalStats(
   }
 
   const points = hasAnyPoints ? totalPoints : null;
+  const weeksCount = statsList.length;
+  const avgWeeklyOiUsd = weeksCount > 0 ? rhAvgOiUsd / weeksCount : 0;
 
   const analysis = calculateWeeklyPointsAnalysis(
     {
@@ -2162,8 +2160,10 @@ export function calculateWeeklyPointsTotalStats(
 
   return {
     tradesCount,
+    weeksCount,
     rhVolumeUsd,
     rhAvgOiUsd,
+    avgWeeklyOiUsd,
     totalNetPnlUsd,
     totalFeesUsd,
     points,

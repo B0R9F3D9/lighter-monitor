@@ -365,6 +365,6 @@ export type WeeklyPointsSortColumn =
   | "weekNumber"
   | "dateRange"
   | "points"
-  | "volPerPoint"
-  | "oiPerPoint"
+  | "volume"
+  | "avgOi"
   | "costPerPoint";
