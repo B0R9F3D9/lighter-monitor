@@ -855,7 +855,7 @@ export function updateHedgeSelectionMetrics(
       const delta = metrics.weightedPriceDelta;
       const sign = delta > 0.0001 ? "+" : "";
       elements.weightedDelta.textContent = `${sign}${formatPrice(delta)}`;
-      elements.weightedDelta.className = "font-bold text-terminal-secondary tabular-nums";
+      elements.weightedDelta.className = "font-bold text-white tabular-nums";
 
       const marketLabel =
         metrics.isSingleMarket && metrics.marketSymbol ? ` (${metrics.marketSymbol})` : "";
@@ -866,12 +866,14 @@ export function updateHedgeSelectionMetrics(
   if (elements.weightedDeltaBps) {
     if (metrics.pairsCount === 0) {
       elements.weightedDeltaBps.textContent = "";
-      elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-0.5";
+      elements.weightedDeltaBps.className =
+        "text-[10px] text-terminal-secondary tabular-nums ml-0.5";
     } else {
       const bps = metrics.weightedPriceDeltaBps;
       const sign = bps > 0.001 ? "+" : "";
       elements.weightedDeltaBps.textContent = `(${sign}${bps.toFixed(2)} bps)`;
-      elements.weightedDeltaBps.className = "text-[10px] text-terminal-muted tabular-nums ml-0.5";
+      elements.weightedDeltaBps.className =
+        "text-[10px] text-terminal-secondary tabular-nums ml-0.5";
     }
   }
 
@@ -906,10 +908,7 @@ export function updateHedgeSelectionMetrics(
   if (elements.slippage) {
     const sign = metrics.totalPricePnlUsd > 0.0001 ? "+" : "";
     elements.slippage.textContent = `${sign}${formatMoney(metrics.totalPricePnlUsd)}`;
-    elements.slippage.className =
-      metrics.totalPricePnlUsd !== 0
-        ? "font-bold text-terminal-secondary tabular-nums"
-        : "font-bold text-terminal-muted tabular-nums";
+    elements.slippage.className = "font-bold text-white tabular-nums";
   }
 
   if (elements.fees) {

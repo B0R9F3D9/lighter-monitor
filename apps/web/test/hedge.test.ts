@@ -2946,6 +2946,11 @@ describe("Hedge Matching Engine", () => {
       updateHedgeSelectionMetrics(metrics, elements);
       expect(elements.countBadge.textContent).toBe("1");
       expect(elements.weightedDelta.title).toContain("(ETH)");
+      expect(elements.weightedDelta.className).toBe("font-bold text-white tabular-nums");
+      expect(elements.weightedDeltaBps.className).toBe(
+        "text-[10px] text-terminal-secondary tabular-nums ml-0.5",
+      );
+      expect(elements.slippage.className).toBe("font-bold text-white tabular-nums");
       expect(elements.netPnl.textContent).toContain("$17.00");
     });
   });

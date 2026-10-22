@@ -987,7 +987,7 @@
         <!-- 1C. HEDGE SELECTED ROWS FLOATING BAR (Sticky Bottom Action Layer) -->
         <div
           id="hedgeSelectionCard"
-          class="hidden fixed bottom-4 inset-x-0 mx-auto z-40 max-w-4xl w-[calc(100%-2rem)] bg-[#16181d]/95 backdrop-blur-md border border-white/15 ring-1 ring-black/80 shadow-[0_16px_48px_rgba(0,0,0,0.9)] rounded-lg px-3.5 py-2 flex items-center justify-between text-xs transition-all floating-selection-bar min-w-0"
+          class="hidden fixed bottom-4 inset-x-0 mx-auto z-40 max-w-4xl w-[calc(100%-2rem)] bg-[#16181d]/95 backdrop-blur-md border border-white/15 ring-1 ring-black/80 shadow-[0_16px_48px_rgba(0,0,0,0.9)] rounded-lg px-3.5 py-2 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 text-xs transition-all floating-selection-bar min-w-0"
         >
           <div class="flex items-center gap-2 shrink-0">
             <button
@@ -1012,7 +1012,7 @@
           <!-- Inline metrics for selected rows -->
           <div
             id="hedgeSelectionMetricsGroup"
-            class="selection-metrics-row flex items-center gap-x-2 sm:gap-x-3 gap-y-1 text-[11px] min-w-0"
+            class="flex flex-wrap items-center justify-start md:justify-end gap-x-2.5 sm:gap-x-3.5 gap-y-1 w-full md:w-auto text-[11px] min-w-0"
           >
             <div class="whitespace-nowrap">
               <span class="text-terminal-muted mr-0.5 font-sans">Vol:</span>
@@ -1030,12 +1030,12 @@
               >
               <span
                 id="selectedWeightedDelta"
-                class="font-mono font-bold text-terminal-muted tabular-nums select-text cursor-text"
+                class="font-mono font-bold text-white tabular-nums select-text cursor-text"
                 >$0.00</span
               >
               <span
                 id="selectedWeightedDeltaBps"
-                class="font-mono text-[10px] text-terminal-muted tabular-nums ml-0.5 select-text cursor-text"
+                class="font-mono text-[10px] text-terminal-secondary tabular-nums ml-0.5 select-text cursor-text"
                 >(0.0 bps)</span
               >
             </div>
@@ -1046,11 +1046,6 @@
                 class="font-mono font-bold text-terminal-muted tabular-nums select-text cursor-text"
                 >$0.00</span
               >
-              <span
-                id="selectedPnlBps"
-                class="font-mono text-[10px] text-terminal-muted tabular-nums ml-0.5 select-text cursor-text"
-                >(0.0 bps)</span
-              >
             </div>
             <div class="whitespace-nowrap">
               <span class="text-terminal-muted mr-0.5 font-sans" title="Execution slippage"
@@ -1058,7 +1053,7 @@
               >
               <span
                 id="selectedSlippage"
-                class="font-mono font-bold text-terminal-secondary tabular-nums select-text cursor-text"
+                class="font-mono font-bold text-white tabular-nums select-text cursor-text"
                 >$0.00</span
               >
             </div>
