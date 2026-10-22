@@ -1,4 +1,5 @@
 import { formatFee, formatMoney, formatPrice } from "../shared/formatters";
+import { formatShortMonthDay } from "./date_filter";
 import {
   calculateWeeklyPointsAnalysis,
   calculateWeeklyPointsTotalStats,
@@ -1369,6 +1370,9 @@ function getWeekMetricStrings(
   volTitle: string;
   oiStr: string;
   oiTitle: string;
+  netPnlStr: string;
+  netPnlCls: string;
+  netPnlTitle: string;
   priceStr: string;
   priceCls: string;
   priceTitle: string;
@@ -1389,6 +1393,27 @@ function getWeekMetricStrings(
   const oiTitle = isTotal
     ? `Average weekly open interest: ${formatMoney(oiVal)}${"weeksCount" in stats && stats.weeksCount ? ` (across ${stats.weeksCount} weeks)` : ""} | Cumulative: ${formatMoney(stats.rhAvgOiUsd)}`
     : `Time-weighted average open interest: ${formatMoney(stats.rhAvgOiUsd)}`;
+
+  const pnl = stats.totalNetPnlUsd;
+  let netPnlStr = "$0.00";
+  let netPnlCls = "font-bold text-terminal-muted tabular-nums";
+  let netPnlTitle = isTotal ? "Total net hedge PnL was $0.00" : "Net hedge PnL was $0.00";
+
+  if (Math.abs(pnl) > 0.0001) {
+    if (pnl < -0.0001) {
+      netPnlStr = formatMoney(pnl);
+      netPnlCls = "font-bold text-terminal-coral tabular-nums";
+      netPnlTitle = isTotal
+        ? `Total net PnL: ${formatMoney(pnl)}`
+        : `Weekly net PnL: ${formatMoney(pnl)}`;
+    } else {
+      netPnlStr = `+${formatMoney(pnl)}`;
+      netPnlCls = "font-bold text-terminal-emerald tabular-nums";
+      netPnlTitle = isTotal
+        ? `Total net PnL: +${formatMoney(pnl)}`
+        : `Weekly net PnL: +${formatMoney(pnl)}`;
+    }
+  }
 
   let priceStr = "--";
   let priceCls = "font-bold text-terminal-muted tabular-nums";
@@ -1423,6 +1448,9 @@ function getWeekMetricStrings(
     volTitle,
     oiStr,
     oiTitle,
+    netPnlStr,
+    netPnlCls,
+    netPnlTitle,
     priceStr,
     priceCls,
     priceTitle,
@@ -1463,6 +1491,12 @@ function updateWeeklyPointsTotalRow(
     elOi.textContent = values.oiStr;
     if (elOi.parentElement) elOi.parentElement.title = values.oiTitle;
   }
+  const elNetPnl = totalRowEl.querySelector<HTMLElement>(".val-net-pnl");
+  if (elNetPnl) {
+    elNetPnl.textContent = values.netPnlStr;
+    elNetPnl.className = `val-net-pnl ${values.netPnlCls}`;
+    if (elNetPnl.parentElement) elNetPnl.parentElement.title = values.netPnlTitle;
+  }
   const elPrice = totalRowEl.querySelector<HTMLElement>(".val-price");
   if (elPrice) {
     elPrice.textContent = values.priceStr;
@@ -1501,6 +1535,12 @@ function updateWeeklyPointsTableRow(
   if (elOi) {
     elOi.textContent = values.oiStr;
     if (elOi.parentElement) elOi.parentElement.title = values.oiTitle;
+  }
+  const elNetPnl = rowEl.querySelector<HTMLElement>(".val-net-pnl");
+  if (elNetPnl) {
+    elNetPnl.textContent = values.netPnlStr;
+    elNetPnl.className = `val-net-pnl ${values.netPnlCls}`;
+    if (elNetPnl.parentElement) elNetPnl.parentElement.title = values.netPnlTitle;
   }
   const elPrice = rowEl.querySelector<HTMLElement>(".val-price");
   if (elPrice) {
@@ -1585,18 +1625,18 @@ export function renderWeeklyPointsTable(
           data-week="${stats.weekNumber}"
           title="Click to filter trades by Week ${stats.weekNumber}"
         >
-          <td class="h-8 py-0 px-3 text-center text-terminal-muted tabular-nums text-[11px] w-8">
+          <td class="h-8 py-0 px-2 text-center text-terminal-muted tabular-nums text-[11px] w-7">
             ${idx + 1}
           </td>
-          <td class="h-8 py-0 px-3 whitespace-nowrap">
+          <td class="h-8 py-0 px-2 whitespace-nowrap">
             <span class="font-bold text-white transition-colors">
               Week ${stats.weekNumber}
             </span>
           </td>
-          <td class="h-8 py-0 px-3 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]">
+          <td class="h-8 py-0 px-2 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]" title="${formatShortMonthDay(new Date(stats.startTimestampMs))} – ${formatShortMonthDay(new Date(stats.endTimestampMs))}">
             ${escapeHtml(stats.dateRangeFormatted)}
           </td>
-          <td class="h-8 py-0 px-3 text-center whitespace-nowrap">
+          <td class="h-8 py-0 px-2 text-center whitespace-nowrap">
             <div class="relative inline-flex items-center group/pts justify-center">
               <input
                 type="text"
@@ -1612,13 +1652,16 @@ export function renderWeeklyPointsTable(
               </svg>
             </div>
           </td>
-          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.volTitle}">
+          <td class="h-8 py-0 px-2 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.volTitle}">
             <span class="val-vol">${values.volStr}</span>
           </td>
-          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.oiTitle}">
+          <td class="h-8 py-0 px-2 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.oiTitle}">
             <span class="val-oi">${values.oiStr}</span>
           </td>
-          <td class="h-8 py-0 px-3 text-right font-bold tabular-nums whitespace-nowrap" title="${values.priceTitle}">
+          <td class="h-8 py-0 px-2 text-right font-bold tabular-nums whitespace-nowrap" title="${values.netPnlTitle}">
+            <span class="val-net-pnl ${values.netPnlCls}">${values.netPnlStr}</span>
+          </td>
+          <td class="h-8 py-0 px-2 text-right font-bold tabular-nums whitespace-nowrap" title="${values.priceTitle}">
             <span class="val-price ${values.priceCls}">${values.priceStr}</span>
           </td>
         </tr>
@@ -1646,18 +1689,18 @@ export function renderWeeklyPointsTable(
           data-total-row="true"
           title="Click to view trades across all weeks"
         >
-          <td class="h-8 py-0 px-3 text-center text-terminal-accent font-bold tabular-nums text-xs w-8">
+          <td class="h-8 py-0 px-2 text-center text-terminal-accent font-bold tabular-nums text-xs w-7">
             Σ
           </td>
-          <td class="h-8 py-0 px-3 whitespace-nowrap">
+          <td class="h-8 py-0 px-2 whitespace-nowrap">
             <span class="font-bold text-white transition-colors">
               Total
             </span>
           </td>
-          <td class="h-8 py-0 px-3 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]" title="${escapeHtml(totalStats.dateRangeFormatted)} (${statsList.length} weeks)">
+          <td class="h-8 py-0 px-2 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]" title="${formatShortMonthDay(new Date(totalStats.minStartTimestampMs))} – ${formatShortMonthDay(new Date(totalStats.maxEndTimestampMs))} (${statsList.length} weeks)">
             ${escapeHtml(totalStats.dateRangeFormatted)}
           </td>
-          <td class="h-8 py-0 px-3 text-center whitespace-nowrap">
+          <td class="h-8 py-0 px-2 text-center whitespace-nowrap">
             <div class="flex items-center justify-center">
               <span
                 class="val-total-points inline-flex items-center justify-end h-6 w-20 px-1.5 py-0 text-white font-mono text-xs tabular-nums text-right font-bold leading-none"
@@ -1667,13 +1710,16 @@ export function renderWeeklyPointsTable(
               </span>
             </div>
           </td>
-          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.volTitle}">
+          <td class="h-8 py-0 px-2 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.volTitle}">
             <span class="val-vol">${totalValues.volStr}</span>
           </td>
-          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.oiTitle}">
+          <td class="h-8 py-0 px-2 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.oiTitle}">
             <span class="val-oi">${totalValues.oiStr}</span>
           </td>
-          <td class="h-8 py-0 px-3 text-right font-bold tabular-nums whitespace-nowrap" title="${totalValues.priceTitle}">
+          <td class="h-8 py-0 px-2 text-right font-bold tabular-nums whitespace-nowrap" title="${totalValues.netPnlTitle}">
+            <span class="val-net-pnl ${totalValues.netPnlCls}">${totalValues.netPnlStr}</span>
+          </td>
+          <td class="h-8 py-0 px-2 text-right font-bold tabular-nums whitespace-nowrap" title="${totalValues.priceTitle}">
             <span class="val-price ${totalValues.priceCls}">${totalValues.priceStr}</span>
           </td>
         </tr>
@@ -1685,23 +1731,26 @@ export function renderWeeklyPointsTable(
     <table class="w-full h-full border-collapse text-left text-xs font-mono">
       <thead>
         <tr class="h-8 border-b border-terminal-border bg-terminal-surface/95 text-terminal-muted text-[11px] select-none sticky top-0 z-10 backdrop-blur-xs font-sans">
-          <th class="h-8 py-0 px-3 font-semibold w-8 text-center">#</th>
-          <th class="h-8 py-0 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="weekNumber">
+          <th class="h-8 py-0 px-2 font-semibold w-7 text-center">#</th>
+          <th class="h-8 py-0 px-2 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="weekNumber">
             Week ${renderSortIndicator("weekNumber")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="dateRange">
+          <th class="h-8 py-0 px-2 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="dateRange">
             Dates ${renderSortIndicator("dateRange")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-center cursor-pointer hover:text-white whitespace-nowrap" data-sort="points">
+          <th class="h-8 py-0 px-2 font-semibold text-center cursor-pointer hover:text-white whitespace-nowrap" data-sort="points">
             Points ${renderSortIndicator("points")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volume" title="Robinhood trading volume for the week">
+          <th class="h-8 py-0 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volume" title="Robinhood trading volume for the week">
             Vol ${renderSortIndicator("volume")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgOi" title="Time-weighted average open interest for the week">
+          <th class="h-8 py-0 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgOi" title="Time-weighted average open interest for the week">
             Avg OI ${renderSortIndicator("avgOi")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="costPerPoint" title="Point price based on net PnL (-Net PnL / Points)">
+          <th class="h-8 py-0 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="netPnl" title="Total net PnL for the week">
+            Net PnL ${renderSortIndicator("netPnl")}
+          </th>
+          <th class="h-8 py-0 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="costPerPoint" title="Point price based on net PnL (-Net PnL / Points)">
             Point Price ${renderSortIndicator("costPerPoint")}
           </th>
         </tr>
@@ -1709,7 +1758,7 @@ export function renderWeeklyPointsTable(
       <tbody class="divide-y divide-terminal-borderSubtle/60">
         ${rowsHtml}
         <tr class="h-full border-0 pointer-events-none spacer-row">
-          <td colspan="7" class="p-0 border-0 bg-transparent"></td>
+          <td colspan="8" class="p-0 border-0 bg-transparent"></td>
         </tr>
       </tbody>
       ${tfootHtml}

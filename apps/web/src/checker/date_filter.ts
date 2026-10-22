@@ -54,6 +54,10 @@ export function formatShortMonthDay(d: Date): string {
   return `${MONTH_NAMES[d.getUTCMonth()]} ${pad2(d.getUTCDate())}`;
 }
 
+export function formatSlashMonthDay(d: Date): string {
+  return `${pad2(d.getUTCDate())}/${pad2(d.getUTCMonth() + 1)}`;
+}
+
 /**
  * Generates all 20 weeks of the Lighter on Robinhood Chain points program.
  * - Program effective date: Monday, August 10, 2026

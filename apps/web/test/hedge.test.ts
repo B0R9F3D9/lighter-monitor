@@ -3761,17 +3761,19 @@ describe("Hedge Matching Engine", () => {
       expect(renderedHtml).toContain("Week 2");
       expect(renderedHtml).toContain("Vol");
       expect(renderedHtml).toContain("Avg OI");
+      expect(renderedHtml).toContain("Net PnL");
       expect(renderedHtml).toContain("Point Price");
       expect(renderedHtml).toContain("$100.0K"); // Volume for W1
       expect(renderedHtml).toContain("$5.0K"); // Avg OI for W1
+      expect(renderedHtml).toContain("-$50.00"); // Net PnL for W1
       expect(renderedHtml).not.toContain("Fees:");
       expect(renderedHtml).not.toContain("Rate:");
       // Input width reduced to w-20
       expect(renderedHtml).toContain("w-20");
       expect(renderedHtml).not.toContain("w-24");
       // Price for cost/loss should be text-white, NOT text-terminal-coral
-      expect(renderedHtml).toContain("text-white tabular-nums");
-      expect(renderedHtml).not.toContain("text-terminal-coral");
+      expect(renderedHtml).toContain("val-price font-bold text-white tabular-nums");
+      expect(renderedHtml).not.toContain("val-price font-bold text-terminal-coral");
 
       // Test row click triggering onSelectWeek
       rowClickListeners[2]?.({ target: { tagName: "TD" } });
@@ -3929,6 +3931,14 @@ describe("Hedge Matching Engine", () => {
       const byOiAsc = sortWeeklyPointsStats([...statsList], "avgOi", "asc");
       expect(byOiAsc.map((s) => s.weekNumber)).toEqual([1, 2, 3]);
 
+      // Sort by netPnl desc (W2: +100 profit, W1: -50 loss, W3: -150 loss)
+      const byNetPnlDesc = sortWeeklyPointsStats([...statsList], "netPnl", "desc");
+      expect(byNetPnlDesc.map((s) => s.weekNumber)).toEqual([2, 1, 3]);
+
+      // Sort by netPnl asc (-150 loss, -50 loss, +100 profit)
+      const byNetPnlAsc = sortWeeklyPointsStats([...statsList], "netPnl", "asc");
+      expect(byNetPnlAsc.map((s) => s.weekNumber)).toEqual([3, 1, 2]);
+
       // Sort by costPerPoint desc (0.15, 0.05, then null)
       const byCostDesc = sortWeeklyPointsStats([...statsList], "costPerPoint", "desc");
       expect(byCostDesc.map((s) => s.weekNumber)).toEqual([3, 1, 2]);
@@ -3983,6 +3993,7 @@ describe("Hedge Matching Engine", () => {
               "points",
               "volume",
               "avgOi",
+              "netPnl",
               "costPerPoint",
             ];
             return cols.map((col) => ({
@@ -4085,8 +4096,8 @@ describe("Hedge Matching Engine", () => {
       expect(totals!.totalNetPnlUsd).toBe(-150);
       expect(totals!.totalFeesUsd).toBe(100);
       expect(totals!.points).toBe(3000);
-      expect(totals!.dateRangeFormatted).toContain("Aug 10");
-      expect(totals!.dateRangeFormatted).toContain("Aug 28");
+      expect(totals!.dateRangeFormatted).toContain("10/08");
+      expect(totals!.dateRangeFormatted).toContain("28/08");
 
       // Per-point aggregate analysis:
       // Vol / Point: $300k / 3k pts = $100
@@ -4225,6 +4236,7 @@ describe("Hedge Matching Engine", () => {
       expect(renderedHtml).toContain("3,000"); // 1000 + 2000 points
       expect(renderedHtml).toContain("$300.0K"); // $100k + $200k = $300k total volume
       expect(renderedHtml).toContain("$7.5K"); // ($5k + $10k) / 2 = $7.5k average weekly OI
+      expect(renderedHtml).toContain("-$150.00"); // -$50 + -$100 = -$150 total burn
 
       // Click on total row
       expect(totalRowClickHandler).not.toBeNull();

@@ -367,4 +367,5 @@ export type WeeklyPointsSortColumn =
   | "points"
   | "volume"
   | "avgOi"
+  | "netPnl"
   | "costPerPoint";

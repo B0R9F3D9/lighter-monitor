@@ -1,4 +1,4 @@
-import { formatShortMonthDay, getRobinhoodPromoWeeks, type DateRangePreset } from "./date_filter";
+import { formatSlashMonthDay, getRobinhoodPromoWeeks, type DateRangePreset } from "./date_filter";
 import type {
   AccountAverageOiResult,
   AccountDailyStat,
@@ -1850,6 +1850,15 @@ export function sortWeeklyPointsStats(
       return a.weekNumber - b.weekNumber;
     }
 
+    if (sortColumn === "netPnl") {
+      const aVal = a.totalNetPnlUsd;
+      const bVal = b.totalNetPnlUsd;
+      if (Math.abs(aVal - bVal) > 0.00001) {
+        return (aVal - bVal) * dir;
+      }
+      return a.weekNumber - b.weekNumber;
+    }
+
     if (sortColumn === "costPerPoint") {
       const getEffectiveCost = (item: WeekActivityStats): number | null => {
         if (item.analysis.costPerPoint === null) return null;
@@ -2055,7 +2064,7 @@ export function calculateWeekActivityStats(
 
   const startD = new Date(startTimestampMs);
   const endD = new Date(endTimestampMs);
-  const dateRangeFormatted = `${formatShortMonthDay(startD)} – ${formatShortMonthDay(endD)}`;
+  const dateRangeFormatted = `${formatSlashMonthDay(startD)}–${formatSlashMonthDay(endD)}`;
 
   return {
     weekNumber: weekPreset.weekNumber,
@@ -2155,7 +2164,7 @@ export function calculateWeeklyPointsTotalStats(
 
   const dateRangeFormatted =
     minStart !== Infinity && maxEnd !== -Infinity
-      ? `${formatShortMonthDay(new Date(minStart))} – ${formatShortMonthDay(new Date(maxEnd))}`
+      ? `${formatSlashMonthDay(new Date(minStart))}–${formatSlashMonthDay(new Date(maxEnd))}`
       : "";
 
   return {
