@@ -446,8 +446,8 @@ export class AnalyticsController {
       changeEl.textContent = `${sign}${pair.dailyPriceChange.toFixed(2)}%`;
       changeEl.className =
         pair.dailyPriceChange >= 0
-          ? "text-xs sm:text-[13px] font-bold tabular-nums text-terminal-emerald"
-          : "text-xs sm:text-[13px] font-bold tabular-nums text-terminal-coral";
+          ? "text-xs sm:text-sm font-bold tabular-nums text-terminal-emerald"
+          : "text-xs sm:text-sm font-bold tabular-nums text-terminal-coral";
     }
 
     if (volEl) volEl.textContent = formatMoney(pair.totalVolume24h);
@@ -458,8 +458,8 @@ export class AnalyticsController {
       fundingEl.textContent = `${sign}${pair.fundingRate1h.toFixed(4)}%`;
       fundingEl.className =
         pair.fundingRate1h >= 0
-          ? "text-xs sm:text-[13px] font-bold tabular-nums text-terminal-emerald"
-          : "text-xs sm:text-[13px] font-bold tabular-nums text-terminal-coral";
+          ? "text-xs sm:text-sm font-bold tabular-nums text-terminal-emerald"
+          : "text-xs sm:text-sm font-bold tabular-nums text-terminal-coral";
     }
 
     this.startFundingCountdown();

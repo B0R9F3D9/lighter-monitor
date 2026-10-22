@@ -63,7 +63,7 @@
     <header
       class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md select-none"
     >
-      <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2">
+      <div class="max-w-8xl mx-auto px-4 sm:px-6 py-2">
         <div class="flex items-center justify-between gap-3">
           <!-- Brand & Strategy Context -->
           <div class="flex items-center gap-2.5">
@@ -237,7 +237,7 @@
     </header>
 
     <!-- MAIN VIEWPORT -->
-    <main class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 space-y-2.5 w-full flex-1">
+    <main class="max-w-8xl mx-auto px-4 sm:px-6 py-2.5 space-y-2.5 w-full flex-1">
       <!-- Controls & Ticker Toolbar -->
       <div
         class="bg-terminal-surface border border-terminal-border rounded p-2 sm:px-3 sm:py-1.5 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 text-xs font-mono"
@@ -302,12 +302,7 @@
                   >RH</span
                 >)
               </div>
-              <div
-                id="statMarkPrice"
-                class="text-xs sm:text-[12px] font-bold tabular-nums text-white"
-              >
-                --
-              </div>
+              <div id="statMarkPrice" class="text-xs font-bold tabular-nums text-white">--</div>
             </div>
 
             <!-- 2. Index Price -->
@@ -320,7 +315,7 @@
               </div>
               <div
                 id="statIndexPrice"
-                class="text-xs sm:text-[12px] font-bold tabular-nums text-terminal-secondary"
+                class="text-xs font-bold tabular-nums text-terminal-secondary"
               >
                 --
               </div>
@@ -333,10 +328,7 @@
                   >RH</span
                 >)
               </div>
-              <div
-                id="stat24hChange"
-                class="text-xs sm:text-[12px] font-bold tabular-nums text-terminal-emerald"
-              >
+              <div id="stat24hChange" class="text-xs font-bold tabular-nums text-terminal-emerald">
                 --%
               </div>
             </div>
@@ -348,12 +340,7 @@
                   >RH</span
                 >)
               </div>
-              <div
-                id="stat24hVolume"
-                class="text-xs sm:text-[12px] font-bold tabular-nums text-white"
-              >
-                $--
-              </div>
+              <div id="stat24hVolume" class="text-xs font-bold tabular-nums text-white">$--</div>
             </div>
 
             <!-- 5. Open Interest -->
@@ -366,12 +353,7 @@
                   >RH</span
                 >)
               </div>
-              <div
-                id="statOpenInterest"
-                class="text-xs sm:text-[12px] font-bold tabular-nums text-white"
-              >
-                $--
-              </div>
+              <div id="statOpenInterest" class="text-xs font-bold tabular-nums text-white">$--</div>
             </div>
 
             <!-- 6. 1hr Funding -->
@@ -382,10 +364,7 @@
               >
                 1HR FUNDING
               </div>
-              <div
-                id="stat1hFunding"
-                class="text-xs sm:text-[12px] font-bold tabular-nums text-terminal-emerald"
-              >
+              <div id="stat1hFunding" class="text-xs font-bold tabular-nums text-terminal-emerald">
                 --%
               </div>
             </div>
@@ -397,7 +376,7 @@
               </div>
               <div
                 id="statNextFunding"
-                class="text-xs sm:text-[12px] font-bold tabular-nums text-terminal-primary"
+                class="text-xs font-bold tabular-nums text-terminal-primary"
               >
                 --:--
               </div>
@@ -668,7 +647,7 @@
         </div>
 
         <!-- Price Comparison Chart Container -->
-        <div id="priceChartContainer" class="w-full h-[340px] relative cursor-crosshair"></div>
+        <div id="priceChartContainer" class="w-full h-85 relative cursor-crosshair"></div>
 
         <!-- Draggable Height Resizer Handle -->
         <div
@@ -712,7 +691,7 @@
         </div>
 
         <!-- Spread & Basis Sub-Chart Container -->
-        <div id="basisChartContainer" class="w-full h-[220px] relative cursor-crosshair"></div>
+        <div id="basisChartContainer" class="w-full h-55 relative cursor-crosshair"></div>
 
         <!-- Draggable Height Resizer Handle -->
         <div

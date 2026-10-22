@@ -3,6 +3,9 @@
 @source "../app";
 
 @theme {
+  --container-8xl: 100rem;
+  --blur-2xs: 1px;
+
   /* Clean graphite zinc without cold blue tint */
   --color-terminal-bg: #09090b; /* Deep page background */
   --color-terminal-surface: #111113; /* Card surface */

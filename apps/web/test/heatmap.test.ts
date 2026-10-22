@@ -124,7 +124,7 @@ describe("Execution Clock 24h Heatmap Ribbon", () => {
     const ribbon = container.children[0];
     const currentCell = ribbon.children[currentHour];
     expect(currentCell.className).toContain("ring-1 ring-terminal-accent");
-    expect(currentCell.className).toContain("h-[46px]");
+    expect(currentCell.className).toContain("h-11.5");
     expect(currentCell.innerHTML).toContain("bg-terminal-accent");
 
     const otherCell = ribbon.children[5];

@@ -165,7 +165,7 @@ export function renderHourlyHeatmap(
     }
 
     const ringClass = isCurrent ? "ring-1 ring-terminal-accent" : "";
-    cell.className = `relative flex flex-col items-center justify-center h-[46px] px-0.5 rounded border cursor-pointer transition select-none ${ringClass} ${bgClass} ${borderClass}`;
+    cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none ${ringClass} ${bgClass} ${borderClass}`;
 
     const sign = b.avgBasisUsd > 0 ? "+" : "";
     const basisLabel = b.sampleCount > 0 ? `${sign}$${b.avgBasisUsd.toFixed(2)}` : "—";

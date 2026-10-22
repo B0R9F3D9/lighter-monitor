@@ -613,8 +613,8 @@ export function renderDailySummary(
         .join("\n");
 
       const colClass = hasActivity
-        ? `flex-1 min-w-[56px] sm:min-w-[62px] py-1 px-1 rounded flex flex-col items-center justify-between text-center bg-terminal-bg/80 border border-terminal-border/80 hover:border-terminal-muted transition-colors cursor-default`
-        : `flex-1 min-w-[56px] sm:min-w-[62px] py-1 px-1 rounded flex flex-col items-center justify-between text-center bg-terminal-bg/20 border border-terminal-borderSubtle/40 opacity-40 cursor-default`;
+        ? `flex-1 min-w-14 sm:min-w-15.5 py-1 px-1 rounded flex flex-col items-center justify-between text-center bg-terminal-bg/80 border border-terminal-border/80 hover:border-terminal-muted transition-colors cursor-default`
+        : `flex-1 min-w-14 sm:min-w-15.5 py-1 px-1 rounded flex flex-col items-center justify-between text-center bg-terminal-bg/20 border border-terminal-borderSubtle/40 opacity-40 cursor-default`;
 
       return `<div class="${colClass}" title="${tooltipLines}"><div class="flex items-center justify-center gap-0.5 mb-1 leading-none whitespace-nowrap"><span class="text-[10px] font-semibold ${hasActivity ? "text-terminal-secondary" : "text-terminal-muted"} tracking-tight uppercase leading-none font-sans">${day.dayOfWeek.toUpperCase()}</span><span class="text-[8.5px] sm:text-[9px] text-terminal-muted leading-none font-sans">(${day.shortDate})</span></div><div class="flex flex-col items-center gap-0.5 w-full leading-none"><span class="text-[9px] ${day.avgHoldingDurationMs > 0 ? "text-white font-medium" : "text-terminal-muted"} tabular-nums leading-none font-mono">${compactHold}</span><span class="text-[9px] ${day.totalVolumeUsd > 0 ? "text-terminal-secondary" : "text-terminal-muted"} tabular-nums leading-none font-mono">${compactVol}</span></div></div>`;
     })
