@@ -1071,6 +1071,142 @@ describe("Hedge Matching Engine", () => {
     });
   });
 
+  describe("LMB Drag-to-Select Rows & Shift-Click Integration", () => {
+    const visibleIds = ["row-1", "row-2", "row-3", "row-4", "row-5", "row-6", "row-7", "row-8"];
+
+    it("selects contiguous range downwards as cursor moves from start row to lower rows", () => {
+      // User presses LMB on row-2, drag starts with empty base snapshot
+      const baseSnapshot = new Set<string>();
+
+      // Mouse moves over row-2
+      const step1 = computeRangeSelection(visibleIds, "row-2", "row-2", baseSnapshot, true);
+      expect([...step1.newSelectedIds]).toEqual(["row-2"]);
+
+      // Mouse moves down over row-5
+      const step2 = computeRangeSelection(visibleIds, "row-2", "row-5", baseSnapshot, true);
+      expect([...step2.newSelectedIds].toSorted()).toEqual(["row-2", "row-3", "row-4", "row-5"]);
+    });
+
+    it("selects contiguous range upwards when dragging cursor backwards/upwards", () => {
+      // User presses LMB on row-6, drags up to row-3
+      const baseSnapshot = new Set<string>();
+      const res = computeRangeSelection(visibleIds, "row-6", "row-3", baseSnapshot, true);
+
+      expect(res.newAnchorId).toBe("row-6");
+      expect([...res.newSelectedIds].toSorted()).toEqual(["row-3", "row-4", "row-5", "row-6"]);
+    });
+
+    it("dynamically shrinks selection when moving mouse back towards start row", () => {
+      const baseSnapshot = new Set<string>();
+
+      // Drag expands to row-6
+      const expanded = computeRangeSelection(visibleIds, "row-2", "row-6", baseSnapshot, true);
+      expect([...expanded.newSelectedIds].toSorted()).toEqual([
+        "row-2",
+        "row-3",
+        "row-4",
+        "row-5",
+        "row-6",
+      ]);
+
+      // Drag shrinks back to row-4 (row-5 and row-6 must be unselected)
+      const contracted = computeRangeSelection(visibleIds, "row-2", "row-4", baseSnapshot, true);
+      expect([...contracted.newSelectedIds].toSorted()).toEqual(["row-2", "row-3", "row-4"]);
+    });
+
+    it("accumulates selections additively across multiple drag-to-select operations without dropping previous rows", () => {
+      // 1. First drag: user drags row-2 to row-3
+      const drag1 = computeRangeSelection(visibleIds, "row-2", "row-3", new Set(), true);
+      expect([...drag1.newSelectedIds].toSorted()).toEqual(["row-2", "row-3"]);
+
+      // 2. Second drag: user now drags row-5 to row-6 without losing row-2 and row-3
+      const snapshotAfterDrag1 = new Set(drag1.newSelectedIds);
+      const drag2 = computeRangeSelection(visibleIds, "row-5", "row-6", snapshotAfterDrag1, true);
+      expect([...drag2.newSelectedIds].toSorted()).toEqual(["row-2", "row-3", "row-5", "row-6"]);
+
+      // 3. Third drag: user drags row-7 to row-8; all previous rows remain selected
+      const snapshotAfterDrag2 = new Set(drag2.newSelectedIds);
+      const drag3 = computeRangeSelection(visibleIds, "row-7", "row-8", snapshotAfterDrag2, true);
+      expect([...drag3.newSelectedIds].toSorted()).toEqual([
+        "row-2",
+        "row-3",
+        "row-5",
+        "row-6",
+        "row-7",
+        "row-8",
+      ]);
+    });
+
+    it("chains drag-to-select seamlessly with subsequent Shift-click range selection", () => {
+      // 1. User drags row-2 to row-4
+      const dragResult = computeRangeSelection(visibleIds, "row-2", "row-4", new Set(), true);
+      expect([...dragResult.newSelectedIds].toSorted()).toEqual(["row-2", "row-3", "row-4"]);
+
+      // Drag finalizes: selectionSnapshot = {row-2, row-3, row-4}, lastClickedRowId = row-4
+      const postDragSnapshot = new Set(dragResult.newSelectedIds);
+      const postDragAnchor = "row-4";
+
+      // 2. User subsequently Shift-clicks row-7
+      const shiftResult = computeRangeSelection(
+        visibleIds,
+        postDragAnchor,
+        "row-7",
+        postDragSnapshot,
+        true,
+      );
+      expect([...shiftResult.newSelectedIds].toSorted()).toEqual([
+        "row-2",
+        "row-3",
+        "row-4",
+        "row-5",
+        "row-6",
+        "row-7",
+      ]);
+    });
+
+    it("performs reverse drag-selection (flips select to unselected) when dragging over already selected rows", () => {
+      // Initial state: rows 2, 3, 4, 5, 6 are selected
+      const initialSnapshot = new Set(["row-2", "row-3", "row-4", "row-5", "row-6"]);
+
+      // User drags over already selected rows row-4 to row-6 in reverse mode (shouldSelect = false)
+      const deselectDrag = computeRangeSelection(
+        visibleIds,
+        "row-4",
+        "row-6",
+        initialSnapshot,
+        false,
+      );
+
+      // row-4, row-5, row-6 are flipped to unselected; row-2 and row-3 remain selected
+      expect([...deselectDrag.newSelectedIds].toSorted()).toEqual(["row-2", "row-3"]);
+    });
+
+    it("dynamically restores rows during reverse drag if cursor shrinks back towards start row", () => {
+      // Initial state: rows 2..6 are selected
+      const initialSnapshot = new Set(["row-2", "row-3", "row-4", "row-5", "row-6"]);
+
+      // Drag expands backwards to row-2: all rows 2..6 unselected
+      const expandedDeselect = computeRangeSelection(
+        visibleIds,
+        "row-6",
+        "row-2",
+        initialSnapshot,
+        false,
+      );
+      expect([...expandedDeselect.newSelectedIds]).toEqual([]);
+
+      // User moves cursor back to row-4: row-2 and row-3 are restored to selected
+      const contractedDeselect = computeRangeSelection(
+        visibleIds,
+        "row-6",
+        "row-4",
+        initialSnapshot,
+        false,
+      );
+      expect([...contractedDeselect.newSelectedIds].toSorted()).toEqual(["row-2", "row-3"]);
+    });
+  });
+
   describe("Date Filtering & Robinhood Promo Weeks Integration", () => {
     it("filters matched hedge pairs by Robinhood Campaign week preset and recomputes summary metrics", () => {
       // Week 1: 2026-08-10 00:00:00 UTC to 2026-08-20 00:00:00 UTC

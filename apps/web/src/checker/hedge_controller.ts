@@ -202,6 +202,16 @@ export class HedgeController {
   private lastClickedHedgeRowId: string | null = null;
   private lastClickedHedgeRowState = true;
   private selectionSnapshot = new Set<string>();
+  private isHedgeDragMouseDown = false;
+  private isHedgeDragging = false;
+  private hedgeDragStartRowId: string | null = null;
+  private hedgeDragCurrentRowId: string | null = null;
+  private hedgeDragStartX = 0;
+  private hedgeDragStartY = 0;
+  private hedgeDragBaseSnapshot = new Set<string>();
+  private hedgeDragShouldSelect = true;
+  private justFinishedHedgeDrag = false;
+  private justFinishedHedgeDragTimer: ReturnType<typeof setTimeout> | null = null;
   private hedgeSelectionCard: HTMLElement | null = null;
   private btnDeselectAllHedge: HTMLButtonElement | null = null;
   private hedgeSelectionMetricElements: HedgeSelectionMetricElements = {
@@ -548,12 +558,12 @@ export class HedgeController {
 
     // Selection
     this.checkAllHedge?.addEventListener("click", () => this.toggleSelectAllVisibleHedge());
-    this.hedgeTableBody?.addEventListener("mousedown", (e) => {
-      // Prevent browser native text selection when Shift+Clicking rows
-      if (e.shiftKey) {
-        e.preventDefault();
-      }
-    });
+    this.hedgeTableBody?.addEventListener("mousedown", (e) => this.handleHedgeTableMouseDown(e));
+    if (typeof window !== "undefined") {
+      window.addEventListener("mousemove", (e) => this.handleHedgeTableMouseMove(e));
+      window.addEventListener("mouseup", () => this.finishHedgeDrag());
+      window.addEventListener("blur", () => this.finishHedgeDrag());
+    }
     this.hedgeTableBody?.addEventListener("click", (e) => this.handleHedgeTableClick(e));
     this.btnDeselectAllHedge?.addEventListener("click", () => {
       this.selectedHedgeRowIds.clear();
@@ -1836,7 +1846,185 @@ export class HedgeController {
     this.onHedgeSelectionChanged();
   }
 
+  private handleHedgeTableMouseDown(e: MouseEvent): void {
+    if (e.button !== 0) return;
+    if (!this.hedgeTableBody) return;
+
+    const target = e.target as HTMLElement;
+    if (target.closest("#btnLoadMoreHedge, [data-action='load-more']")) {
+      return;
+    }
+
+    const row = target.closest("tr[data-id]") as HTMLTableRowElement | null;
+    if (!row || !row.dataset.id) return;
+
+    const rowId = row.dataset.id;
+
+    if (e.shiftKey) {
+      e.preventDefault();
+    }
+
+    this.isHedgeDragMouseDown = true;
+    this.isHedgeDragging = false;
+    this.hedgeDragStartRowId = rowId;
+    this.hedgeDragCurrentRowId = null;
+    this.hedgeDragStartX = e.clientX;
+    this.hedgeDragStartY = e.clientY;
+
+    // If start row is already selected, drag acts in reverse (deselection/flip mode).
+    // If start row is unselected, drag acts in normal mode (selection mode).
+    this.hedgeDragShouldSelect = !this.selectedHedgeRowIds.has(rowId);
+
+    // By default, dragging is additive/subtractive and preserves existing selections.
+    // If Alt key is held, it starts a fresh selection clearing prior rows.
+    this.hedgeDragBaseSnapshot = e.altKey ? new Set() : new Set(this.selectedHedgeRowIds);
+  }
+
+  private handleHedgeTableMouseMove(e: MouseEvent): void {
+    if (!this.isHedgeDragMouseDown || !this.hedgeDragStartRowId) return;
+
+    if (e.buttons !== undefined && (e.buttons & 1) === 0) {
+      this.finishHedgeDrag();
+      return;
+    }
+
+    const targetRow = this.getHedgeRowAtPoint(e.clientX, e.clientY);
+    const targetId = targetRow?.dataset.id ?? this.hedgeDragStartRowId;
+
+    if (!this.isHedgeDragging) {
+      const distance = Math.hypot(
+        e.clientX - this.hedgeDragStartX,
+        e.clientY - this.hedgeDragStartY,
+      );
+      const movedToDifferentRow = targetId !== this.hedgeDragStartRowId;
+
+      if (distance > 5 || movedToDifferentRow) {
+        this.isHedgeDragging = true;
+        if (typeof window !== "undefined" && window.getSelection) {
+          window.getSelection()?.removeAllRanges();
+        }
+      }
+    }
+
+    if (!this.isHedgeDragging) return;
+
+    e.preventDefault();
+    this.handleViewportEdgeScroll(e.clientY);
+
+    if (targetId === this.hedgeDragCurrentRowId) {
+      return;
+    }
+
+    this.hedgeDragCurrentRowId = targetId;
+    const visibleIds = this.getVisibleHedgeRowIds();
+    const result = computeRangeSelection(
+      visibleIds,
+      this.hedgeDragStartRowId,
+      targetId,
+      this.hedgeDragBaseSnapshot,
+      this.hedgeDragShouldSelect,
+    );
+
+    this.selectedHedgeRowIds = result.newSelectedIds;
+    this.onHedgeSelectionChanged();
+  }
+
+  private finishHedgeDrag(): void {
+    if (!this.isHedgeDragMouseDown) return;
+
+    const wasDragging = this.isHedgeDragging;
+    this.isHedgeDragMouseDown = false;
+    this.isHedgeDragging = false;
+
+    if (wasDragging) {
+      this.justFinishedHedgeDrag = true;
+      if (this.justFinishedHedgeDragTimer) {
+        clearTimeout(this.justFinishedHedgeDragTimer);
+      }
+      this.justFinishedHedgeDragTimer = setTimeout(() => {
+        this.justFinishedHedgeDrag = false;
+        this.justFinishedHedgeDragTimer = null;
+      }, 100);
+
+      if (this.hedgeDragStartRowId) {
+        this.lastClickedHedgeRowId = this.hedgeDragCurrentRowId ?? this.hedgeDragStartRowId;
+        this.lastClickedHedgeRowState = this.hedgeDragShouldSelect;
+        this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
+      }
+    }
+
+    this.hedgeDragStartRowId = null;
+    this.hedgeDragCurrentRowId = null;
+    this.hedgeDragShouldSelect = true;
+  }
+
+  private getHedgeRowAtPoint(clientX: number, clientY: number): HTMLTableRowElement | null {
+    if (!this.hedgeTableBody) return null;
+
+    if (typeof document !== "undefined" && typeof document.elementFromPoint === "function") {
+      const el = document.elementFromPoint(clientX, clientY);
+      const directRow = el?.closest<HTMLTableRowElement>("#hedgeTableBody tr[data-id]");
+      if (directRow) return directRow;
+    }
+
+    const visibleRows = this.hedgeTableBody.querySelectorAll<HTMLTableRowElement>("tr[data-id]");
+    if (visibleRows.length === 0) return null;
+
+    if (typeof this.hedgeTableBody.getBoundingClientRect === "function") {
+      const tbodyRect = this.hedgeTableBody.getBoundingClientRect();
+      if (tbodyRect && tbodyRect.height > 0) {
+        if (clientY < tbodyRect.top) {
+          return visibleRows[0];
+        }
+        if (clientY > tbodyRect.bottom) {
+          return visibleRows[visibleRows.length - 1];
+        }
+
+        if (typeof document !== "undefined" && typeof document.elementFromPoint === "function") {
+          const clampedX = Math.min(Math.max(clientX, tbodyRect.left + 8), tbodyRect.right - 8);
+          const el = document.elementFromPoint(clampedX, clientY);
+          const clampedRow = el?.closest<HTMLTableRowElement>("#hedgeTableBody tr[data-id]");
+          if (clampedRow) return clampedRow;
+        }
+
+        for (const r of visibleRows) {
+          if (typeof r.getBoundingClientRect === "function") {
+            const rect = r.getBoundingClientRect();
+            if (clientY >= rect.top && clientY <= rect.bottom) {
+              return r;
+            }
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private handleViewportEdgeScroll(clientY: number): void {
+    if (typeof window === "undefined" || typeof window.scrollBy !== "function") return;
+    const viewportHeight = window.innerHeight || 800;
+    const edgeMargin = 40;
+
+    if (clientY < edgeMargin) {
+      const intensity = Math.min(1, (edgeMargin - clientY) / edgeMargin);
+      window.scrollBy({ top: -Math.round(intensity * 18), behavior: "auto" });
+    } else if (clientY > viewportHeight - edgeMargin) {
+      const intensity = Math.min(1, (clientY - (viewportHeight - edgeMargin)) / edgeMargin);
+      window.scrollBy({ top: Math.round(intensity * 18), behavior: "auto" });
+    }
+  }
+
   private handleHedgeTableClick(e: MouseEvent): void {
+    if (this.justFinishedHedgeDrag) {
+      this.justFinishedHedgeDrag = false;
+      if (this.justFinishedHedgeDragTimer) {
+        clearTimeout(this.justFinishedHedgeDragTimer);
+        this.justFinishedHedgeDragTimer = null;
+      }
+      return;
+    }
+
     const target = e.target as HTMLElement;
 
     // Check if clicking "Load more" button
@@ -1920,19 +2108,10 @@ export class HedgeController {
         const cb = r.querySelector<HTMLInputElement>("input.hedge-row-cb");
         const isSelected = this.selectedHedgeRowIds.has(id);
         if (cb) cb.checked = isSelected;
-        const firstCell = r.cells[0];
         if (isSelected) {
           r.classList.add("bg-white/10", "hover:bg-white/[0.13]");
-          if (firstCell) {
-            firstCell.classList.remove("border-l-transparent");
-            firstCell.classList.add("border-l-terminal-accent");
-          }
         } else {
           r.classList.remove("bg-white/10", "hover:bg-white/[0.13]");
-          if (firstCell) {
-            firstCell.classList.remove("border-l-terminal-accent");
-            firstCell.classList.add("border-l-transparent");
-          }
         }
       }
     }

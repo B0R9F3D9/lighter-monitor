@@ -66,7 +66,7 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
   tr.className = isSelected ? `${baseClass} bg-white/10 hover:bg-white/[0.13]` : baseClass;
   tr.dataset.id = pair.id;
   tr.dataset.index = index.toString();
-  tr.title = "Click to select pair (Shift+Click to select range)";
+  tr.title = "Click or drag to select (Shift+Click for range)";
 
   const rhIsBuy = pair.rhSide === "BUY";
   const coreIsBuy = pair.coreSide === "BUY";
@@ -134,13 +134,13 @@ function createHedgeRow(pair: HedgePair, index: number, isSelected = false): HTM
   }
 
   tr.innerHTML = `
-    <td class="py-1.5 px-2 text-center w-7 border-l-2 ${isSelected ? "border-l-terminal-accent" : "border-l-transparent"}">
+    <td class="py-1.5 px-2 text-center w-7">
       <input
         type="checkbox"
         class="hedge-row-cb hedge-cb"
         data-id="${pair.id}"
         ${isSelected ? "checked" : ""}
-        title="Select pair (Shift+Click to select range)"
+        title="Select pair (drag or Shift+Click for range)"
       />
     </td>
     <td class="py-1.5 px-2 text-terminal-muted tabular-nums text-[11px]">${index}</td>
@@ -190,7 +190,7 @@ function createUnhedgedRow(
     : `${baseClass} bg-terminal-coral/5`;
   tr.dataset.id = id;
   tr.dataset.index = index.toString();
-  tr.title = "Click to select trade (Shift+Click to select range)";
+  tr.title = "Click or drag to select (Shift+Click for range)";
 
   const isBuy = trade.side === "BUY";
   const sideColor = isBuy ? "text-terminal-emerald" : "text-terminal-coral";
@@ -225,13 +225,13 @@ function createUnhedgedRow(
   }
 
   tr.innerHTML = `
-    <td class="py-1.5 px-2 text-center w-7 border-l-2 ${isSelected ? "border-l-terminal-accent" : "border-l-transparent"}">
+    <td class="py-1.5 px-2 text-center w-7">
       <input
         type="checkbox"
         class="hedge-row-cb hedge-cb"
         data-id="${id}"
         ${isSelected ? "checked" : ""}
-        title="Select trade (Shift+Click to select range)"
+        title="Select trade (drag or Shift+Click for range)"
       />
     </td>
     <td class="py-1.5 px-2 text-terminal-muted tabular-nums text-[11px]">${index}</td>
