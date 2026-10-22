@@ -957,7 +957,7 @@ export function renderMarketSummaryCards(
 ): void {
   if (!stats || stats.length === 0) {
     container.innerHTML = `
-      <div class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5">
+      <div class="py-6 text-center text-terminal-muted text-xs w-full flex-1 flex items-center justify-center gap-1.5 my-auto">
         <span class="text-terminal-secondary font-medium">No token activity for selected period</span>
         <span class="text-[11px] text-terminal-muted">— Select a different date preset or import trade history to view market metrics.</span>
       </div>
@@ -1019,34 +1019,34 @@ export function renderMarketSummaryCards(
 
       return `
         <tr
-          class="border-b border-terminal-borderSubtle/60 transition-colors cursor-pointer select-none text-xs font-mono group ${rowClass}"
+          class="h-8 border-b border-terminal-borderSubtle/60 transition-colors cursor-pointer select-none text-xs font-mono group ${rowClass}"
           title="${tooltipLines}"
           data-market="${stat.marketSymbol}"
         >
-          <td class="py-2 px-3 text-center text-terminal-muted tabular-nums text-[11px] w-8">
+          <td class="h-8 py-0 px-3 text-center text-terminal-muted tabular-nums text-[11px] w-8">
             ${idx + 1}
           </td>
-          <td class="py-2 px-3 whitespace-nowrap">
+          <td class="h-8 py-0 px-3 whitespace-nowrap">
             <span class="font-bold text-white transition-colors">
               ${stat.marketSymbol}
             </span>
           </td>
-          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap">
+          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap">
             ${formatMoney(stat.volumeUsd)}
           </td>
-          <td class="py-2 px-3 text-right text-white tabular-nums whitespace-nowrap">
+          <td class="h-8 py-0 px-3 text-right text-white tabular-nums whitespace-nowrap">
             ${stat.transactionsCount} txs
           </td>
-          <td class="py-2 px-3 text-right text-terminal-secondary tabular-nums whitespace-nowrap" title="Avg Size: ${formatMoney(stat.avgVolumeSizeUsd)}">
+          <td class="h-8 py-0 px-3 text-right text-terminal-secondary tabular-nums whitespace-nowrap" title="Avg Size: ${formatMoney(stat.avgVolumeSizeUsd)}">
             ${avgVolumeSizeFormatted}
           </td>
-          <td class="py-2 px-3 text-right tabular-nums whitespace-nowrap ${stat.avgHoldingDurationMs > 0 ? "text-terminal-secondary" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}">
+          <td class="h-8 py-0 px-3 text-right tabular-nums whitespace-nowrap ${stat.avgHoldingDurationMs > 0 ? "text-terminal-secondary" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}">
             ${holdDurationFormatted}
           </td>
-          <td class="py-2 px-3 text-right text-terminal-muted tabular-nums whitespace-nowrap">
+          <td class="h-8 py-0 px-3 text-right text-terminal-muted tabular-nums whitespace-nowrap">
             ${stat.totalTokenSize ? `${formatSmartSize(stat.totalTokenSize)} ${stat.marketSymbol}` : "—"}
           </td>
-          <td class="py-2 px-3 text-right tabular-nums whitespace-nowrap ${pnlClass}">
+          <td class="h-8 py-0 px-3 text-right tabular-nums whitespace-nowrap ${pnlClass}">
             ${pnlFormatted}
           </td>
         </tr>
@@ -1054,37 +1054,113 @@ export function renderMarketSummaryCards(
     })
     .join("");
 
+  const totalVolumeUsd = stats.reduce((acc, s) => acc + (s.volumeUsd || 0), 0);
+  const totalTransactions = stats.reduce((acc, s) => acc + (s.transactionsCount || 0), 0);
+  const totalPairs = stats.reduce((acc, s) => acc + (s.pairsCount || 0), 0);
+  const totalUnhedged = stats.reduce((acc, s) => acc + (s.unhedgedCount || 0), 0);
+  const totalNetPnlUsd = stats.reduce((acc, s) => acc + (s.realizedPnlUsd || 0), 0);
+  const overallAvgVolumeSizeUsd = totalTransactions > 0 ? totalVolumeUsd / totalTransactions : 0;
+  const totalHoldingWeight = stats.reduce(
+    (acc, s) => acc + (s.avgHoldingDurationMs || 0) * (s.transactionsCount || 0),
+    0,
+  );
+  const overallAvgHoldingMs = totalTransactions > 0 ? totalHoldingWeight / totalTransactions : 0;
+
+  const totalPnl = totalNetPnlUsd;
+  const totalPnlClass =
+    totalPnl > 0.001
+      ? "text-terminal-emerald font-semibold"
+      : totalPnl < -0.001
+        ? "text-terminal-coral font-semibold"
+        : "text-terminal-muted";
+  const totalSign = totalPnl > 0.0001 ? "+" : "";
+  const totalPnlFormatted = `${totalSign}${formatMoney(totalPnl)}`;
+
+  const isTotalActive = !activeMarketFilter;
+  const totalRowClass = isTotalActive
+    ? "bg-white/[0.08] hover:bg-white/[0.12]"
+    : "hover:bg-terminal-surfaceHover/80";
+
+  const totalTooltipLines = [
+    `Total: ${stats.length} markets`,
+    `Volume (RH): ${formatMoney(totalVolumeUsd)}`,
+    `Transactions: ${totalTransactions} (${totalPairs} hedged pairs, ${totalUnhedged} unhedged)`,
+    `Avg Volume Size: ${formatMoney(overallAvgVolumeSizeUsd)}`,
+    overallAvgHoldingMs > 0 ? `Avg Hold: ${formatCompactDuration(overallAvgHoldingMs)}` : null,
+    totalNetPnlUsd !== 0 ? `Net PnL: ${totalPnlFormatted}` : null,
+    "Click to view all markets",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   container.innerHTML = `
-    <table class="w-full border-collapse text-left text-xs font-mono">
+    <table class="w-full h-full border-collapse text-left text-xs font-mono">
       <thead>
-        <tr class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] font-mono select-none">
-          <th class="py-2 px-3 font-semibold w-8 text-center">#</th>
-          <th class="py-2 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap" data-sort="marketSymbol">
+        <tr class="h-8 border-b border-terminal-border bg-terminal-surface/95 text-terminal-muted text-[11px] font-mono select-none sticky top-0 z-10 backdrop-blur-xs">
+          <th class="h-8 py-0 px-3 font-semibold w-8 text-center">#</th>
+          <th class="h-8 py-0 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap" data-sort="marketSymbol">
             Market ${renderSortIndicator("marketSymbol")}
           </th>
-          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volumeUsd" title="Robinhood (RH) volume over selected period">
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volumeUsd" title="Robinhood (RH) volume over selected period">
             Volume (RH) ${renderSortIndicator("volumeUsd")}
           </th>
-          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="transactionsCount">
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="transactionsCount">
             Trades ${renderSortIndicator("transactionsCount")}
           </th>
-          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgVolumeSizeUsd" title="Average volume size per transaction">
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgVolumeSizeUsd" title="Average volume size per transaction">
             Avg Size ${renderSortIndicator("avgVolumeSizeUsd")}
           </th>
-          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgHoldingDurationMs" title="Average position holding duration (FIFO)">
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgHoldingDurationMs" title="Average position holding duration (FIFO)">
             Avg Hold ${renderSortIndicator("avgHoldingDurationMs")}
           </th>
-          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="totalTokenSize" title="Total token base size traded">
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="totalTokenSize" title="Total token base size traded">
             Token Size ${renderSortIndicator("totalTokenSize")}
           </th>
-          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="realizedPnlUsd" title="Realized price PnL - fees">
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="realizedPnlUsd" title="Realized price PnL - fees">
             Net PnL ${renderSortIndicator("realizedPnlUsd")}
           </th>
         </tr>
       </thead>
       <tbody class="divide-y divide-terminal-borderSubtle/60">
         ${rowsHtml}
+        <tr class="h-full border-0 pointer-events-none spacer-row">
+          <td colspan="8" class="p-0 border-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:10px_10px] opacity-70"></td>
+        </tr>
       </tbody>
+      <tfoot class="border-t border-terminal-border bg-terminal-surface font-semibold select-none sticky bottom-0 z-10">
+        <tr
+          class="h-8 transition-colors cursor-pointer text-xs font-mono group ${totalRowClass}"
+          data-market-total="true"
+          title="${totalTooltipLines}"
+        >
+          <td class="h-8 py-0 px-3 text-center text-terminal-accent font-bold tabular-nums text-xs w-8">
+            Σ
+          </td>
+          <td class="h-8 py-0 px-3 whitespace-nowrap">
+            <span class="font-bold text-white transition-colors">
+              Total (${stats.length})
+            </span>
+          </td>
+          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap">
+            ${formatMoney(totalVolumeUsd)}
+          </td>
+          <td class="h-8 py-0 px-3 text-right text-white tabular-nums whitespace-nowrap">
+            ${totalTransactions} txs
+          </td>
+          <td class="h-8 py-0 px-3 text-right text-terminal-secondary tabular-nums whitespace-nowrap" title="Avg Size: ${formatMoney(overallAvgVolumeSizeUsd)}">
+            ${overallAvgVolumeSizeUsd > 0 ? formatCompactUsd(overallAvgVolumeSizeUsd) : "$0"}
+          </td>
+          <td class="h-8 py-0 px-3 text-right tabular-nums whitespace-nowrap ${overallAvgHoldingMs > 0 ? "text-terminal-secondary" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(overallAvgHoldingMs)}">
+            ${overallAvgHoldingMs > 0 ? formatCompactDuration(overallAvgHoldingMs) : "—"}
+          </td>
+          <td class="h-8 py-0 px-3 text-right text-terminal-muted tabular-nums whitespace-nowrap">
+            —
+          </td>
+          <td class="h-8 py-0 px-3 text-right tabular-nums whitespace-nowrap ${totalPnlClass}">
+            ${totalPnlFormatted}
+          </td>
+        </tr>
+      </tfoot>
     </table>
   `;
 
@@ -1110,6 +1186,16 @@ export function renderMarketSummaryCards(
         }
       });
     });
+
+    const totalRowEl =
+      typeof container.querySelector === "function"
+        ? container.querySelector<HTMLElement>("tr[data-market-total]")
+        : null;
+    if (totalRowEl) {
+      totalRowEl.addEventListener("click", () => {
+        onMarketClick("");
+      });
+    }
   }
 }
 
@@ -1426,7 +1512,7 @@ export function renderWeeklyPointsTable(
 ): void {
   if (!statsList || statsList.length === 0) {
     container.innerHTML = `
-      <div class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5">
+      <div class="py-6 text-center text-terminal-muted text-xs w-full flex-1 flex items-center justify-center gap-1.5 my-auto">
         <span class="text-terminal-secondary font-medium">No weekly points data loaded</span>
         <span class="text-[11px] text-terminal-muted">— Upload RH and Core files to view weekly point metrics.</span>
       </div>
@@ -1485,39 +1571,39 @@ export function renderWeeklyPointsTable(
 
       return `
         <tr
-          class="border-b border-terminal-borderSubtle/60 transition-colors cursor-pointer select-none text-xs font-mono group ${rowClass}"
+          class="h-8 border-b border-terminal-borderSubtle/60 transition-colors cursor-pointer select-none text-xs font-mono group ${rowClass}"
           data-week="${stats.weekNumber}"
           title="Click to filter trades by Week ${stats.weekNumber}"
         >
-          <td class="py-2 px-3 text-center text-terminal-muted tabular-nums text-[11px] w-8">
+          <td class="h-8 py-0 px-3 text-center text-terminal-muted tabular-nums text-[11px] w-8">
             ${idx + 1}
           </td>
-          <td class="py-2 px-3 whitespace-nowrap">
+          <td class="h-8 py-0 px-3 whitespace-nowrap">
             <span class="font-bold text-white transition-colors">
               Week ${stats.weekNumber}
             </span>
           </td>
-          <td class="py-2 px-3 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]">
+          <td class="h-8 py-0 px-3 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]">
             ${escapeHtml(stats.dateRangeFormatted)}
           </td>
-          <td class="py-1 px-3 text-center whitespace-nowrap">
+          <td class="h-8 py-0 px-3 text-center whitespace-nowrap">
             <input
               type="text"
               inputmode="decimal"
               data-week="${stats.weekNumber}"
               value="${stats.points ? String(stats.points) : ""}"
               placeholder="0"
-              class="hedge-points-table-input h-6 w-20 px-1.5 bg-terminal-bg border border-terminal-border hover:border-terminal-muted focus:border-terminal-accent rounded text-white font-mono text-xs focus:outline-none transition tabular-nums text-right select-text cursor-text"
+              class="hedge-points-table-input h-6 w-20 px-1.5 py-0 bg-terminal-bg border border-terminal-border hover:border-terminal-muted focus:border-terminal-accent rounded text-white font-mono text-xs focus:outline-none transition tabular-nums text-right select-text cursor-text leading-none"
               title="Enter points received for Week ${stats.weekNumber}"
             />
           </td>
-          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.volTitle}">
+          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.volTitle}">
             <span class="val-vol">${values.volStr}</span>
           </td>
-          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.oiTitle}">
+          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${values.oiTitle}">
             <span class="val-oi">${values.oiStr}</span>
           </td>
-          <td class="py-2 px-3 text-right font-bold tabular-nums whitespace-nowrap" title="${values.priceTitle}">
+          <td class="h-8 py-0 px-3 text-right font-bold tabular-nums whitespace-nowrap" title="${values.priceTitle}">
             <span class="val-price ${values.priceCls}">${values.priceStr}</span>
           </td>
         </tr>
@@ -1539,40 +1625,40 @@ export function renderWeeklyPointsTable(
       : "No points entered for any week";
 
     tfootHtml = `
-      <tfoot class="border-t-2 border-terminal-border bg-terminal-surface font-semibold select-none">
+      <tfoot class="border-t border-terminal-border bg-terminal-surface font-semibold select-none sticky bottom-0 z-10">
         <tr
-          class="transition-colors cursor-pointer text-xs font-mono group ${totalRowClass}"
+          class="h-8 transition-colors cursor-pointer text-xs font-mono group ${totalRowClass}"
           data-total-row="true"
           title="Click to view trades across all weeks"
         >
-          <td class="py-2 px-3 text-center text-terminal-accent font-bold tabular-nums text-xs w-8">
+          <td class="h-8 py-0 px-3 text-center text-terminal-accent font-bold tabular-nums text-xs w-8">
             Σ
           </td>
-          <td class="py-2 px-3 whitespace-nowrap">
+          <td class="h-8 py-0 px-3 whitespace-nowrap">
             <span class="font-bold text-white transition-colors">
               Total
             </span>
           </td>
-          <td class="py-2 px-3 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]" title="${escapeHtml(totalStats.dateRangeFormatted)} (${statsList.length} weeks)">
+          <td class="h-8 py-0 px-3 text-terminal-muted tabular-nums whitespace-nowrap text-[11px]" title="${escapeHtml(totalStats.dateRangeFormatted)} (${statsList.length} weeks)">
             ${escapeHtml(totalStats.dateRangeFormatted)}
           </td>
-          <td class="py-1 px-3 text-center whitespace-nowrap">
+          <td class="h-8 py-0 px-3 text-center whitespace-nowrap">
             <div class="flex items-center justify-center">
               <span
-                class="val-total-points inline-flex items-center justify-end h-6 w-20 px-1.5 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-xs tabular-nums text-right font-bold"
+                class="val-total-points inline-flex items-center justify-end h-6 w-20 px-1.5 py-0 bg-terminal-bg border border-terminal-border rounded text-white font-mono text-xs tabular-nums text-right font-bold leading-none"
                 title="${totalPointsTitle}"
               >
                 ${totalPointsStr}
               </span>
             </div>
           </td>
-          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.volTitle}">
+          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.volTitle}">
             <span class="val-vol">${totalValues.volStr}</span>
           </td>
-          <td class="py-2 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.oiTitle}">
+          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap" title="${totalValues.oiTitle}">
             <span class="val-oi">${totalValues.oiStr}</span>
           </td>
-          <td class="py-2 px-3 text-right font-bold tabular-nums whitespace-nowrap" title="${totalValues.priceTitle}">
+          <td class="h-8 py-0 px-3 text-right font-bold tabular-nums whitespace-nowrap" title="${totalValues.priceTitle}">
             <span class="val-price ${totalValues.priceCls}">${totalValues.priceStr}</span>
           </td>
         </tr>
@@ -1581,32 +1667,35 @@ export function renderWeeklyPointsTable(
   }
 
   container.innerHTML = `
-    <table class="w-full border-collapse text-left text-xs font-mono">
+    <table class="w-full h-full border-collapse text-left text-xs font-mono">
       <thead>
-        <tr class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] font-mono select-none">
-          <th class="py-2 px-3 font-semibold w-8 text-center">#</th>
-          <th class="py-2 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="weekNumber">
+        <tr class="h-8 border-b border-terminal-border bg-terminal-surface/95 text-terminal-muted text-[11px] font-mono select-none sticky top-0 z-10 backdrop-blur-xs">
+          <th class="h-8 py-0 px-3 font-semibold w-8 text-center">#</th>
+          <th class="h-8 py-0 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="weekNumber">
             Week ${renderSortIndicator("weekNumber")}
           </th>
-          <th class="py-2 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="dateRange">
+          <th class="h-8 py-0 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap text-left" data-sort="dateRange">
             Dates ${renderSortIndicator("dateRange")}
           </th>
-          <th class="py-2 px-3 font-semibold text-center cursor-pointer hover:text-white whitespace-nowrap" data-sort="points">
+          <th class="h-8 py-0 px-3 font-semibold text-center cursor-pointer hover:text-white whitespace-nowrap" data-sort="points">
             Points ${renderSortIndicator("points")}
           </th>
-          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volPerPoint" title="Robinhood trading volume per point">
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volPerPoint" title="Robinhood trading volume per point">
             Vol / Point ${renderSortIndicator("volPerPoint")}
           </th>
-          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="oiPerPoint" title="Time-weighted average open interest per point">
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="oiPerPoint" title="Time-weighted average open interest per point">
             Avg OI / Point ${renderSortIndicator("oiPerPoint")}
           </th>
-          <th class="py-2 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="costPerPoint" title="Point price based on net PnL (-Net PnL / Points)">
+          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="costPerPoint" title="Point price based on net PnL (-Net PnL / Points)">
             Point Price ${renderSortIndicator("costPerPoint")}
           </th>
         </tr>
       </thead>
       <tbody class="divide-y divide-terminal-borderSubtle/60">
         ${rowsHtml}
+        <tr class="h-full border-0 pointer-events-none spacer-row">
+          <td colspan="7" class="p-0 border-0 bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1px)] [background-size:10px_10px] opacity-70"></td>
+        </tr>
       </tbody>
       ${tfootHtml}
     </table>

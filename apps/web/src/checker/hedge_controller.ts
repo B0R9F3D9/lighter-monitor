@@ -1064,7 +1064,11 @@ export class HedgeController {
 
   private handleMarketCardClick(marketSymbol: string): void {
     const sym = marketSymbol.trim();
-    if (this.activeMarketFilter?.toUpperCase() === sym.toUpperCase()) {
+    if (
+      this.activeMarketFilter?.toUpperCase() === sym.toUpperCase() ||
+      sym === "" ||
+      sym.toUpperCase() === "TOTAL"
+    ) {
       // Toggle off: clear selection and active market indicator
       this.activeMarketFilter = null;
       this.selectedHedgeRowIds.clear();

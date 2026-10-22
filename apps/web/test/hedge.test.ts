@@ -2652,6 +2652,72 @@ describe("Hedge Matching Engine", () => {
       expect(html).toContain("$8.1k");
     });
 
+    it("renderMarketSummaryCards renders total row with Σ, sums, spacer row, and handles total row click", () => {
+      let totalClickHandler: (() => void) | null = null;
+      const fakeTotalRow = {
+        addEventListener: (event: string, handler: () => void) => {
+          if (event === "click") totalClickHandler = handler;
+        },
+      };
+
+      let renderedHtml = "";
+      const container = {
+        get innerHTML() {
+          return renderedHtml;
+        },
+        set innerHTML(val: string) {
+          renderedHtml = val;
+        },
+        querySelectorAll: () => [],
+        querySelector: (sel: string) => {
+          if (sel === "tr[data-market-total]") return fakeTotalRow;
+          return null;
+        },
+      } as unknown as HTMLElement;
+
+      const stats: MarketSummaryStat[] = [
+        {
+          marketSymbol: "NVDA",
+          volumeUsd: 100000,
+          transactionsCount: 10,
+          avgVolumeSizeUsd: 10000,
+          avgHoldingDurationMs: 60000,
+          pairsCount: 10,
+          unhedgedCount: 0,
+          realizedPnlUsd: -150,
+        },
+        {
+          marketSymbol: "AAPL",
+          volumeUsd: 50000,
+          transactionsCount: 5,
+          avgVolumeSizeUsd: 10000,
+          avgHoldingDurationMs: 30000,
+          pairsCount: 5,
+          unhedgedCount: 0,
+          realizedPnlUsd: 50,
+        },
+      ];
+
+      let clickedToken = "initial";
+      renderMarketSummaryCards(container, stats, "NVDA", (sym) => {
+        clickedToken = sym;
+      });
+
+      expect(renderedHtml).toContain("<tfoot");
+      expect(renderedHtml).toContain('data-market-total="true"');
+      expect(renderedHtml).toContain("Total (2)");
+      expect(renderedHtml).toContain("Σ");
+      expect(renderedHtml).toContain("$150.0K"); // 100k + 50k
+      expect(renderedHtml).toContain("15 txs"); // 10 + 5
+      expect(renderedHtml).toContain("spacer-row");
+      expect(renderedHtml).toContain("-$100.00"); // -150 + 50
+
+      // Click total row
+      expect(totalClickHandler).not.toBeNull();
+      totalClickHandler!();
+      expect(clickedToken).toBe(""); // resets filter
+    });
+
     it("renderMarketSummaryCards handles click callback and activeMarketFilter highlighting", () => {
       let clickHandler: (() => void) | null = null;
       const fakeCard = {

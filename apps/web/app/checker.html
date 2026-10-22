@@ -744,16 +744,19 @@
         </div>
 
         <!-- 1D. BREAKDOWN TABLES (TOKENS & WEEKLY POINTS) -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-2 items-start">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-2 items-stretch">
           <!-- Token / Market Breakdown Table -->
           <div
             id="hedgeMarketSummaryCard"
-            class="bg-terminal-surface border border-terminal-border rounded text-xs font-mono overflow-hidden"
+            class="bg-terminal-surface border border-terminal-border rounded text-xs font-mono overflow-hidden flex flex-col h-full min-h-[160px] max-h-[352px]"
           >
             <!-- Token items full-width table -->
-            <div id="hedgeMarketCardsContainer" class="overflow-x-auto no-scrollbar">
+            <div
+              id="hedgeMarketCardsContainer"
+              class="overflow-x-auto overflow-y-auto no-scrollbar flex-1 flex flex-col h-full min-h-0"
+            >
               <div
-                class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5"
+                class="py-6 text-center text-terminal-muted text-xs w-full flex-1 flex items-center justify-center gap-1.5 my-auto"
               >
                 <span class="text-terminal-secondary font-medium">No token activity loaded</span>
                 <span class="text-[11px] text-terminal-muted"
@@ -766,11 +769,14 @@
           <!-- Weekly Points Analysis Table -->
           <div
             id="hedgeWeeklyPointsTableCard"
-            class="bg-terminal-surface border border-terminal-border rounded text-xs font-mono overflow-hidden"
+            class="bg-terminal-surface border border-terminal-border rounded text-xs font-mono overflow-hidden flex flex-col h-full min-h-[160px] max-h-[352px]"
           >
-            <div id="hedgeWeeklyPointsTableContainer" class="overflow-x-auto no-scrollbar">
+            <div
+              id="hedgeWeeklyPointsTableContainer"
+              class="overflow-x-auto overflow-y-auto no-scrollbar flex-1 flex flex-col h-full min-h-0"
+            >
               <div
-                class="py-4 text-center text-terminal-muted text-xs w-full flex items-center justify-center gap-1.5"
+                class="py-6 text-center text-terminal-muted text-xs w-full flex-1 flex items-center justify-center gap-1.5 my-auto"
               >
                 <span class="text-terminal-secondary font-medium"
                   >No weekly points data loaded</span
