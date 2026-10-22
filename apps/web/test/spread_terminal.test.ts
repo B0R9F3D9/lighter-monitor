@@ -64,9 +64,9 @@ describe("Spread Terminal: Formatters", () => {
   });
 
   it("formats delta mid correctly", () => {
-    expect(formatDeltaMid(0.05, 5)).toBe("Δ: +$0.050");
-    expect(formatDeltaMid(-1.25, -12)).toBe("Δ: -$1.25");
-    expect(formatDeltaMid(null, null)).toBe("Δ: $0.00");
+    expect(formatDeltaMid(0.05)).toBe("Δ: +$0.050");
+    expect(formatDeltaMid(-1.25)).toBe("Δ: -$1.25");
+    expect(formatDeltaMid(null)).toBe("Δ: $0.00");
   });
 });
 

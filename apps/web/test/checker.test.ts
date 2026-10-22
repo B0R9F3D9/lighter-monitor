@@ -85,63 +85,38 @@ describe("Checker: API & Calculations", () => {
     expect(parsed.realizedPnl).toBe(-25.5);
   });
 
-  it("parseImportedTradesJson parses truncation flags correctly", async () => {
-    const { parseImportedTradesJson } = await import("../src/checker/api");
-    const testPayload = {
-      version: "1.0",
-      network: "rh",
-      account_index: 12345,
-      truncated: true,
-      row_cap: 150000,
-      trades: mockTrades,
-    };
-    const jsonStr = JSON.stringify(testPayload);
+  it("parseLighterToken and maskToken handle canonical ro: tokens and standard tokens", async () => {
+    const { parseLighterToken, maskToken } = await import("../src/checker/sync");
 
-    const parsed = parseImportedTradesJson(jsonStr);
-    expect(parsed.isTruncated).toBe(true);
-    expect(parsed.rowCap).toBe(150000);
-  });
+    // Canonical ro token format
+    const futureExpiry = Math.floor(Date.now() / 1000) + 3600;
+    const roToken = `ro:31704:readonly:${futureExpiry}:0xabc1234567890abcdef1234567890abcdef12345`;
+    const parsed = parseLighterToken(roToken);
+    expect(parsed.accountIndex).toBe(31704);
+    expect(parsed.expiryMs).toBe(futureExpiry * 1000);
+    expect(parsed.expiryMs! > Date.now()).toBe(true);
 
-  it("parseImportedTradesJson cleanly handles UTF-8 BOM prefix without errors", async () => {
-    const { parseImportedTradesJson } = await import("../src/checker/api");
-    const testPayload = {
-      version: "1.0",
-      network: "rh",
-      account_index: 12345,
-      trades: mockTrades,
-    };
-    const jsonWithBom = "\uFEFF" + JSON.stringify(testPayload);
+    // Masked token verification
+    const masked = maskToken(roToken);
+    expect(masked).toBe("ro:31704:••••••••••••2345");
+    expect(masked).not.toContain("0xabc1234567890");
 
-    const parsed = parseImportedTradesJson(jsonWithBom);
-    expect(parsed.trades.length).toBe(2);
-    expect(parsed.network).toBe("rh");
-  });
+    // Expired token verification
+    const pastExpiry = Math.floor(Date.now() / 1000) - 3600;
+    const expiredToken = `ro:31704:readonly:${pastExpiry}:0xsig`;
+    const parsedExpired = parseLighterToken(expiredToken);
+    expect(parsedExpired.expiryMs! < Date.now()).toBe(true);
 
-  it("getBookmarkletHref returns valid URL-encoded javascript:... string with resilient features", async () => {
-    const { getBookmarkletHref, BOOKMARKLET_RAW_CODE } = await import("../src/checker/bookmarklet");
-    expect(BOOKMARKLET_RAW_CODE).toContain("/api/v1");
-    expect(BOOKMARKLET_RAW_CODE).toContain("/trades");
-    expect(BOOKMARKLET_RAW_CODE).toContain("Wrong tab");
-    expect(BOOKMARKLET_RAW_CODE).toContain("ROW_CAP");
-    expect(BOOKMARKLET_RAW_CODE).toContain("fetchWithRetry");
-    expect(BOOKMARKLET_RAW_CODE).toContain("slimTrade");
-    expect(BOOKMARKLET_RAW_CODE).toContain("lte-last100-btn");
-    expect(BOOKMARKLET_RAW_CODE).toContain("Export Last 100");
-    expect(BOOKMARKLET_RAW_CODE).toContain("lte-funding-chk");
-    expect(BOOKMARKLET_RAW_CODE).toContain("lte-this-week-btn");
-    expect(BOOKMARKLET_RAW_CODE).toContain("lte-prev-week-btn");
-    expect(BOOKMARKLET_RAW_CODE).toContain("lte-last24h-btn");
-    expect(BOOKMARKLET_RAW_CODE).toContain("getWeekRange");
-    expect(BOOKMARKLET_RAW_CODE).toContain("runExport");
-    const href = getBookmarkletHref();
-    expect(href.startsWith("javascript:")).toBe(true);
-    expect(decodeURIComponent(href)).toContain("/trades");
-    expect(decodeURIComponent(href)).toContain("ROW_CAP");
-    expect(decodeURIComponent(href)).toContain("Export Last 100");
-    expect(decodeURIComponent(href)).toContain("lte-last100-btn");
-    expect(decodeURIComponent(href)).toContain("lte-funding-chk");
-    expect(decodeURIComponent(href)).toContain("lte-this-week-btn");
-    expect(decodeURIComponent(href)).toContain("This Week");
+    // Standard 4-part token: <account_index>:<key>:<expiry>:<sig>
+    const standardToken = `749329:0:${futureExpiry}:0xabcdef1234567890`;
+    const parsedStandard = parseLighterToken(standardToken);
+    expect(parsedStandard.accountIndex).toBe(749329);
+    expect(parsedStandard.keyIndex).toBe(0);
+    expect(parsedStandard.expiryMs).toBe(futureExpiry * 1000);
+
+    // Invalid token throws
+    expect(() => parseLighterToken("not-a-token")).toThrow();
+    expect(() => parseLighterToken("")).toThrow();
   });
 
   it("parseTradeForView precomputes searchIndex and tradeIdNum for instant filtering and sorting", () => {
@@ -317,14 +292,5 @@ describe("Checker: API & Calculations", () => {
     expect(res.totalFundingUsd).toBeNull();
     expect(trades[0].fundingUsd).toBeNull();
     expect(trades[1].fundingUsd).toBeNull();
-  });
-
-  it("getBookmarkletHref generates valid javascript bookmarklet URI", async () => {
-    const { getBookmarkletHref } = await import("../src/checker/bookmarklet");
-
-    const href = getBookmarkletHref();
-    expect(href.startsWith("javascript:")).toBe(true);
-    expect(href.length).toBeGreaterThan(100);
-    expect(href).toContain("Lighter%20Trade%20Exporter");
   });
 });

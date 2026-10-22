@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import {
   getStaticMarketMap,
   parseFeeUsd,
-  parseImportedTradesJson,
   parseTradeForView,
   stitchTradeBatches,
 } from "../src/checker/api";
@@ -2729,7 +2728,7 @@ describe("Hedge Matching Engine", () => {
 
       const container = {
         innerHTML: "",
-        querySelectorAll: (_selector: string) => [fakeCard],
+        querySelectorAll: () => [fakeCard],
       } as unknown as HTMLElement;
 
       const stats: MarketSummaryStat[] = [
@@ -2927,7 +2926,7 @@ describe("Hedge Matching Engine", () => {
       expect(metrics.totalNetPnlUsd).toBe(17);
 
       const elements = {
-        selectionCard: { classList: { remove: (_c: string) => {}, add: (_c: string) => {} } },
+        selectionCard: { classList: { remove: () => {}, add: () => {} } },
         countBadge: { textContent: "" },
         pairsCount: { textContent: "" },
         volume: { textContent: "" },
@@ -2948,55 +2947,48 @@ describe("Hedge Matching Engine", () => {
   });
 
   describe("Withdrawals Integration in Hedge Checker", () => {
-    it("parseImportedTradesJson correctly parses withdrawals array from JSON", () => {
-      const mockJson = JSON.stringify({
-        network: "rh",
-        account_index: 12345,
-        trades: [
-          {
-            trade_id: 1,
-            market_id: 1,
-            size: 1,
-            price: 100,
-            usd_amount: 100,
-            timestamp: 1720000000,
-            side: "BUY",
-          },
-        ],
-        withdrawals: [
-          {
-            id: "tx-1",
-            amount: "500.00",
-            amount_usd: 500,
-            timestamp: 1720001000,
-            status: "completed",
-            type: "fast",
-            l1_tx_hash: "0xabc123",
-            asset_id: 1,
-            symbol: "USDG",
-            fee: "1.50",
-          },
-          {
-            id: "tx-2",
-            amount: "250.00",
-            timestamp: 1720002000,
-            status: "pending",
-            type: "secure",
-            asset_id: 1,
-          },
-        ],
-      });
+    it("stitchTradeBatches parses and preserves withdrawal structures", () => {
+      const mockWithdrawals = [
+        {
+          id: "tx-1",
+          amount: "500.00",
+          amountUsd: 500,
+          timestamp: 1720001000,
+          timestampMs: 1720001000000,
+          status: "completed",
+          type: "fast",
+          l1_tx_hash: "0xabc123",
+          asset_id: 1,
+          symbol: "USDG",
+          fee: "1.50",
+        },
+        {
+          id: "tx-2",
+          amount: "250.00",
+          amountUsd: 250,
+          timestamp: 1720002000,
+          timestampMs: 1720002000000,
+          status: "pending",
+          type: "secure",
+          asset_id: 1,
+        },
+      ];
 
-      const parsed = parseImportedTradesJson(mockJson, "rh-export.json");
-      expect(parsed.hasWithdrawals).toBe(true);
-      expect(parsed.withdrawals?.length).toBe(2);
-      expect(parsed.withdrawals![0].amountUsd).toBe(500);
-      expect(parsed.withdrawals![0].symbol).toBe("USDG");
-      expect(parsed.withdrawals![0].status).toBe("completed");
-      expect(parsed.withdrawals![0].type).toBe("fast");
-      expect(parsed.withdrawals![1].amountUsd).toBe(250);
-      expect(parsed.withdrawals![1].status).toBe("pending");
-      expect(parsed.withdrawals![1].type).toBe("secure");
+      const batch = {
+        trades: [],
+        accountIndex: 12345,
+        network: "rh" as const,
+        withdrawals: mockWithdrawals,
+      };
+
+      const stitched = stitchTradeBatches([batch]);
+      expect(stitched.hasWithdrawals).toBe(true);
+      expect(stitched.withdrawals?.length).toBe(2);
+      expect(stitched.withdrawals![0].amountUsd).toBe(250);
+      expect(stitched.withdrawals![1].amountUsd).toBe(500);
+      expect(stitched.withdrawals![1].symbol).toBe("USDG");
+      expect(stitched.withdrawals![1].status).toBe("completed");
+      expect(stitched.withdrawals![1].type).toBe("fast");
     });
 
     it("stitchTradeBatches deduplicates withdrawals across multiple batches", () => {
@@ -3235,7 +3227,7 @@ describe("Hedge Matching Engine", () => {
       } as any;
 
       updateHedgeExecutiveMetrics(mockMetrics, elements);
-      expect(elements.withdrawals.textContent).toBe("RH: 2 / CORE: 1");
+      expect(elements.withdrawals.textContent).toBe("RH: 2 / Core: 1");
       expect(elements.withdrawals.title).toContain(
         "Withdrawals: RH: 2, Core: 1 · Total Fee: $3.00",
       );

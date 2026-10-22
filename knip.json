@@ -9,8 +9,7 @@
     "apps/web/src/hub/main.ts",
     "apps/web/src/spread/main.ts",
     "apps/web/src/analytics/main.ts",
-    "apps/web/src/checker/main.ts",
-    "apps/web/src/checker/bookmarklet_script.js"
+    "apps/web/src/checker/main.ts"
   ],
   "project": [
     "src/**/*.ts",

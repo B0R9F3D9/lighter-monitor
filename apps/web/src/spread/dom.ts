@@ -624,7 +624,7 @@ export function updateDetailRow(
   );
 
   if (c.dtlBasis) {
-    setTextIfChanged(c.dtlBasis, formatDeltaMid(r.deltaMidUsd, r.deltaMidBps));
+    setTextIfChanged(c.dtlBasis, formatDeltaMid(r.deltaMidUsd));
     setClassIfChanged(
       c.dtlBasis,
       Math.abs(r.deltaMidBps) > 6

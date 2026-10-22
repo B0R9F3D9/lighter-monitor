@@ -1,13 +1,44 @@
 import type {
   AccountQuery,
   CheckerNetwork,
-  ImportedTradesResult,
   LighterTrade,
   ParsedTradeView,
   PositionFundingRecord,
-  StitchedTradesResult,
   WithdrawalRecord,
 } from "./types";
+
+export interface TradeBatchInput {
+  trades: LighterTrade[];
+  accountIndex?: number | null;
+  accountIndices?: number[];
+  network?: CheckerNetwork | null;
+  l1Address?: string;
+  fileName?: string;
+  totalFundingUsd?: number | null;
+  fundingByMarketId?: Map<number, number>;
+  fundingBySymbol?: Map<string, number>;
+  funding_history?: PositionFundingRecord[];
+  withdrawals?: WithdrawalRecord[];
+}
+
+export interface StitchedTradesResult {
+  trades: LighterTrade[];
+  accountIndices: number[];
+  primaryAccountIndex: number | null;
+  network: CheckerNetwork | null;
+  l1Address?: string;
+  totalRawTradesCount: number;
+  duplicateTradesCount: number;
+  fileCount: number;
+  fileNames: string[];
+  totalFundingUsd?: number | null;
+  fundingByMarketId?: Map<number, number>;
+  fundingBySymbol?: Map<string, number>;
+  funding_history?: PositionFundingRecord[];
+  hasFundingHistory?: boolean;
+  withdrawals?: WithdrawalRecord[];
+  hasWithdrawals?: boolean;
+}
 
 /**
  * Normalizes timestamp into milliseconds (handles both sec and ms).
@@ -511,21 +542,7 @@ export function sortParsedTradesChronologicalDesc(trades: ParsedTradeView[]): Pa
  * - Aggregates all detected user accounts
  * - Sorts chronologically descending
  */
-export function stitchTradeBatches(
-  batches: Array<
-    | ImportedTradesResult
-    | {
-        trades: LighterTrade[];
-        accountIndex?: number | null;
-        accountIndices?: number[];
-        network?: CheckerNetwork | null;
-        l1Address?: string;
-        fileName?: string;
-        funding_history?: PositionFundingRecord[];
-        withdrawals?: WithdrawalRecord[];
-      }
-  >,
-): StitchedTradesResult {
+export function stitchTradeBatches(batches: TradeBatchInput[]): StitchedTradesResult {
   const seenTradeKeys = new Set<string>();
   const mergedTrades: LighterTrade[] = [];
   const accountSet = new Set<number>();
@@ -559,19 +576,18 @@ export function stitchTradeBatches(
         if (acc != null && !isNaN(acc)) accountSet.add(acc);
       }
     }
-    const typedBatch = batch as Partial<ImportedTradesResult>;
-    if (typedBatch.totalFundingUsd != null) {
-      totalFundingUsd += typedBatch.totalFundingUsd;
+    if (batch.totalFundingUsd != null) {
+      totalFundingUsd += batch.totalFundingUsd;
       hasFunding = true;
     }
-    if (typedBatch.fundingByMarketId) {
-      for (const [mId, f] of typedBatch.fundingByMarketId.entries()) {
+    if (batch.fundingByMarketId) {
+      for (const [mId, f] of batch.fundingByMarketId.entries()) {
         fundingByMarketId.set(mId, (fundingByMarketId.get(mId) || 0) + f);
       }
       hasFunding = true;
     }
-    if (typedBatch.fundingBySymbol) {
-      for (const [sym, f] of typedBatch.fundingBySymbol.entries()) {
+    if (batch.fundingBySymbol) {
+      for (const [sym, f] of batch.fundingBySymbol.entries()) {
         fundingBySymbol.set(sym, (fundingBySymbol.get(sym) || 0) + f);
       }
       hasFunding = true;
@@ -806,216 +822,4 @@ export function downloadTextFile(
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-/**
- * Validates and parses an uploaded JSON file into structured trade history.
- * Supports both custom export payloads and raw Lighter API responses ({ code: 200, next_cursor, trades: [...] }).
- */
-export function parseImportedTradesJson(rawText: string, fileName?: string): ImportedTradesResult {
-  let parsed: any;
-  const cleanText = rawText.charCodeAt(0) === 0xfeff ? rawText.slice(1) : rawText;
-  try {
-    parsed = JSON.parse(cleanText);
-  } catch (err: any) {
-    throw new Error(`Invalid JSON syntax: ${err.message}`, { cause: err });
-  }
-
-  let trades: LighterTrade[] = [];
-  let accountIndex: number | null = null;
-  let accountIndices: number[] = [];
-  let network: CheckerNetwork | null = null;
-  let l1Address: string | undefined = undefined;
-  let exportedAt: string | undefined = undefined;
-  let isTruncated: boolean | undefined = undefined;
-  let rowCap: number | undefined = undefined;
-  let nextCursor: string | undefined = undefined;
-  let positions: any[] | undefined = undefined;
-  let totalFundingUsd: number | undefined = undefined;
-  const fundingByMarketId = new Map<number, number>();
-  const fundingBySymbol = new Map<string, number>();
-  let fundingHistory: PositionFundingRecord[] | undefined = undefined;
-  let hasFundingHistory = false;
-  let withdrawals: WithdrawalRecord[] | undefined = undefined;
-  let hasWithdrawals = false;
-
-  if (Array.isArray(parsed)) {
-    trades = parsed;
-  } else if (parsed && typeof parsed === "object") {
-    if (Array.isArray(parsed.trades)) {
-      trades = parsed.trades;
-    } else if (Array.isArray(parsed.data)) {
-      trades = parsed.data;
-    } else {
-      throw new Error("Uploaded JSON file does not contain a 'trades' array or trade list.");
-    }
-
-    if (parsed.next_cursor) {
-      nextCursor = String(parsed.next_cursor);
-    }
-    if (parsed.account_index !== undefined) {
-      accountIndex = Number(parsed.account_index);
-    }
-    if (parsed.network === "rh" || parsed.network === "mainnet") {
-      network = parsed.network;
-    }
-    if (parsed.l1_address) {
-      l1Address = String(parsed.l1_address);
-    }
-    if (parsed.exported_at) {
-      exportedAt = String(parsed.exported_at);
-    }
-    if (parsed.truncated) {
-      isTruncated = true;
-    }
-    if (parsed.row_cap) {
-      rowCap = Number(parsed.row_cap);
-    }
-
-    if (Array.isArray(parsed.positions)) {
-      const posList = parsed.positions;
-      positions = posList;
-      let sumPosFunding = 0;
-      for (const p of posList) {
-        const mId = Number(p.market_id);
-        const sym = String(p.symbol || "").toUpperCase();
-        const f =
-          p.total_funding_paid_out != null && p.total_funding_paid_out !== ""
-            ? parseFloat(p.total_funding_paid_out) || 0
-            : 0;
-        if (f !== 0) {
-          sumPosFunding += f;
-          if (!isNaN(mId)) fundingByMarketId.set(mId, f);
-          if (sym) fundingBySymbol.set(sym, f);
-        }
-      }
-      if (sumPosFunding !== 0) {
-        totalFundingUsd = sumPosFunding;
-      }
-    }
-
-    if (Array.isArray(parsed.funding_history) && parsed.funding_history.length > 0) {
-      fundingHistory = parsed.funding_history;
-      hasFundingHistory = true;
-    } else if (Array.isArray(parsed.position_fundings) && parsed.position_fundings.length > 0) {
-      fundingHistory = parsed.position_fundings;
-      hasFundingHistory = true;
-    }
-
-    if (parsed.total_funding_paid_out !== undefined) {
-      totalFundingUsd = parseFloat(parsed.total_funding_paid_out) || 0;
-    } else if (parsed.total_funding_usd !== undefined) {
-      totalFundingUsd = parseFloat(parsed.total_funding_usd) || 0;
-    } else if (parsed.summary?.total_funding_usd !== undefined) {
-      totalFundingUsd = parseFloat(parsed.summary.total_funding_usd) || 0;
-    }
-
-    const rawWithdrawals = parsed.withdrawals || parsed.withdraw_history || parsed.withdraws;
-    if (Array.isArray(rawWithdrawals) && rawWithdrawals.length > 0) {
-      withdrawals = [];
-      for (const w of rawWithdrawals) {
-        if (!w || typeof w !== "object") continue;
-        const rawTs = w.timestamp_ms || w.timestampMs || w.timestamp;
-        const tsMs = normalizeTimestampMs(rawTs);
-        const amountNum = parseFloat(w.amount != null ? String(w.amount) : "0") || 0;
-        const rawFee = w.fee_usd ?? w.feeUsd ?? w.fee ?? w.usd_fee ?? w.fee_amount;
-        const feeNum =
-          rawFee != null && !isNaN(Number(rawFee)) ? parseFloat(String(rawFee)) : undefined;
-        withdrawals.push({
-          id: String(w.id != null ? w.id : `${tsMs}_${amountNum}`),
-          amount: w.amount != null ? String(w.amount) : String(amountNum),
-          amountUsd:
-            w.amount_usd != null
-              ? Number(w.amount_usd)
-              : w.amountUsd != null
-                ? Number(w.amountUsd)
-                : amountNum,
-          timestamp: w.timestamp != null ? Number(w.timestamp) : Math.floor(tsMs / 1000),
-          timestampMs: tsMs,
-          status: String(w.status || "completed").toLowerCase(),
-          type: String(w.type || "secure").toLowerCase(),
-          l1_tx_hash: w.l1_tx_hash || w.l1TxHash || w.tx_hash || "",
-          asset_id: Number(w.asset_id || 0),
-          symbol: w.symbol ? String(w.symbol) : undefined,
-          fee:
-            w.fee != null
-              ? String(w.fee)
-              : w.fee_amount != null
-                ? String(w.fee_amount)
-                : feeNum != null
-                  ? String(feeNum)
-                  : undefined,
-          feeUsd: feeNum,
-        });
-      }
-      if (withdrawals.length > 0) {
-        hasWithdrawals = true;
-      }
-    }
-  }
-
-  if (trades.length === 0) {
-    throw new Error("No trades found in the imported JSON file.");
-  }
-
-  // Detect network from fileName if not specified in JSON
-  if (!network && fileName) {
-    const fn = fileName.toLowerCase();
-    if (fn.includes("rh") || fn.includes("robinhood")) {
-      network = "rh";
-    } else if (fn.includes("mainnet") || fn.includes("core")) {
-      network = "mainnet";
-    }
-  }
-
-  // If still unknown, attempt to infer network from market_ids
-  if (!network && trades.length > 0) {
-    const marketIds = new Set(trades.map((t) => Number(t.market_id)));
-    // Mainnet has distinct high IDs: e.g. 108, 109, 110, 111, 112, 113, 114, 115, 120, 128
-    const hasMainnetSpecificMarkets = Array.from(marketIds).some((id) => id >= 80 && id <= 250);
-    if (hasMainnetSpecificMarkets) {
-      network = "mainnet";
-    }
-  }
-
-  // Account detection: If explicitly provided in metadata (our bookmarklet or custom export), use it!
-  if (Array.isArray(parsed?.account_indices) && parsed.account_indices.length > 0) {
-    accountIndices = parsed.account_indices
-      .map(Number)
-      .filter((n: number) => !isNaN(n) && n > 0 && n < 100_000_000_000);
-    if (accountIndex === null && accountIndices.length > 0) {
-      accountIndex = accountIndices[0];
-    }
-  } else if (accountIndex !== null && !isNaN(accountIndex) && accountIndex > 0) {
-    // Single account explicitly provided in JSON metadata (our bookmarklet export)
-    accountIndices = [accountIndex];
-  } else {
-    // Zero-trust raw API response without metadata: detect user account(s)
-    accountIndices = detectUserAccounts(trades);
-    accountIndex = accountIndices.length > 0 ? accountIndices[0] : null;
-  }
-
-  // Always ensure trades are sorted chronologically descending (newest first)
-  sortTradesChronologicalDesc(trades);
-
-  return {
-    trades,
-    accountIndex,
-    accountIndices,
-    network,
-    l1Address,
-    exportedAt,
-    isTruncated,
-    rowCap,
-    fileName,
-    nextCursor,
-    positions,
-    totalFundingUsd,
-    fundingByMarketId: fundingByMarketId.size > 0 ? fundingByMarketId : undefined,
-    fundingBySymbol: fundingBySymbol.size > 0 ? fundingBySymbol : undefined,
-    funding_history: fundingHistory,
-    hasFundingHistory,
-    withdrawals,
-    hasWithdrawals,
-  };
 }

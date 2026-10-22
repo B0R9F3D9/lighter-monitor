@@ -1,16 +1,12 @@
-import { copyToClipboard } from "../shared/clipboard";
 import {
   downloadTextFile,
   getStaticMarketMap,
   normalizeTimestampMs,
-  parseImportedTradesJson,
   parseTradeForView,
   processTradesFundingHistory,
   sortParsedTradesChronologicalDesc,
   sortTradesChronologicalDesc,
-  stitchTradeBatches,
 } from "./api";
-import { getBookmarkletHref } from "./bookmarklet";
 import {
   type ActiveDateFilter,
   createPresetDateFilter,
@@ -20,7 +16,14 @@ import {
   populatePresetSelect,
 } from "./date_filter";
 import {
-  formatDisplayFileName,
+  clearAllData,
+  getAccountFunding,
+  getAccountMeta,
+  getAccountTrades,
+  getAccountWithdrawals,
+  saveAccountMeta,
+} from "./db";
+import {
   type HedgeMetricElements,
   type HedgeSelectionMetricElements,
   type IndividualAccountMetricElements,
@@ -43,35 +46,48 @@ import {
   matchHedgeTrades,
   sortWeeklyPointsStats,
 } from "./hedge";
+import { AuthExpiredError, parseLighterToken, syncDualAccounts } from "./sync";
 import type {
+  AccountMetaRecord,
   HedgePair,
   HedgeSummaryMetrics,
-  ImportedTradesResult,
   IndividualAccountMetrics,
   LighterTrade,
   MarketSummarySortColumn,
   ParsedTradeView,
-  StitchedTradesResult,
+  PositionFundingRecord,
+  SyncProgressInfo,
   UnhedgedTrade,
   WeeklyPointsSortColumn,
+  WithdrawalRecord,
 } from "./types";
 
+const STORAGE_KEY_RH_TOKEN = "lighter_ro_token_rh";
+const STORAGE_KEY_CORE_TOKEN = "lighter_ro_token_core";
+const STORAGE_KEY_ACTIVE_RH_KEY = "lighter_active_rh_key";
+const STORAGE_KEY_ACTIVE_CORE_KEY = "lighter_active_core_key";
+
 export class HedgeController {
-  // Hedge mode state
-  private rhBatches: ImportedTradesResult[] = [];
-  private coreBatches: ImportedTradesResult[] = [];
+  // In-Memory dataset (Loaded once from IDB, updated in O(K) on delta sync)
   private rhRawTrades: LighterTrade[] = [];
   private coreRawTrades: LighterTrade[] = [];
+  private rhFunding: PositionFundingRecord[] = [];
+  private coreFunding: PositionFundingRecord[] = [];
+  private rhWithdrawals: WithdrawalRecord[] = [];
+  private coreWithdrawals: WithdrawalRecord[] = [];
+
+  private rhAccountMeta: AccountMetaRecord | null = null;
+  private coreAccountMeta: AccountMetaRecord | null = null;
+  private activeRhAccountKey = "";
+  private activeCoreAccountKey = "";
+
   private rhParsedTrades: ParsedTradeView[] = [];
   private coreParsedTrades: ParsedTradeView[] = [];
   private rhAccountIndex: number | null = null;
   private coreAccountIndex: number | null = null;
   private rhAccountIndices: number[] = [];
   private coreAccountIndices: number[] = [];
-  private rhFileName = "";
-  private coreFileName = "";
-  private rhStitched: StitchedTradesResult | null = null;
-  private coreStitched: StitchedTradesResult | null = null;
+
   private hedgePairs: HedgePair[] = [];
   private unhedgedTrades: UnhedgedTrade[] = [];
   private hedgePairsMap = new Map<string, HedgePair>();
@@ -84,36 +100,51 @@ export class HedgeController {
   private hedgeFilterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private rhMarketMap: Map<number, string> = getStaticMarketMap("rh");
   private coreMarketMap: Map<number, string> = getStaticMarketMap("mainnet");
-  private uploadSessionId = 0;
 
-  // Bookmarklet DOM Elements
-  private hedgeBookmarkletLink: HTMLAnchorElement | null = null;
-  private btnCopyBookmarkletHedge: HTMLButtonElement | null = null;
-  private modalBookmarkletLink: HTMLAnchorElement | null = null;
-  private modalCopyBookmarkletBtn: HTMLButtonElement | null = null;
+  private isSyncing = false;
+  private syncAbortController: AbortController | null = null;
 
-  // Export Help Modal
-  private exportModal: HTMLElement | null = null;
-  private btnOpenExportHelpHedgeEmpty: HTMLElement | null = null;
-  private btnOpenExportHelpHedge: HTMLElement | null = null;
-  private btnCloseExportModal: HTMLElement | null = null;
-  private btnDismissExportModal: HTMLElement | null = null;
+  // Sync Control Bar Elements
+  private labelLastSyncedAt: HTMLElement | null = null;
+  private btnSyncNewData: HTMLButtonElement | null = null;
+  private labelSyncButtonText: HTMLElement | null = null;
+  private btnFullResync: HTMLButtonElement | null = null;
+  private btnToggleCredentials: HTMLButtonElement | null = null;
+  private syncIconSpin: HTMLElement | null = null;
+  private stopIconCross: HTMLElement | null = null;
+  private syncProgressWrapper: HTMLElement | null = null;
+  private syncProgressBar: HTMLElement | null = null;
+  private syncStatusMessage: HTMLElement | null = null;
+  private syncDurationLabel: HTMLElement | null = null;
+  private btnHedgeExportCsv: HTMLButtonElement | null = null;
 
-  // Dropzones & File inputs
-  private dropzoneRh: HTMLElement | null = null;
-  private dropzoneCore: HTMLElement | null = null;
-  private fileInputRh: HTMLInputElement | null = null;
-  private fileInputCore: HTMLInputElement | null = null;
-  private statusRhFile: HTMLElement | null = null;
-  private statusCoreFile: HTMLElement | null = null;
-  private labelRhAccount: HTMLElement | null = null;
-  private labelCoreAccount: HTMLElement | null = null;
-  private btnClearRh: HTMLElement | null = null;
-  private btnClearCore: HTMLElement | null = null;
-  private btnBrowseRhFile: HTMLButtonElement | null = null;
-  private btnPasteRhBox: HTMLButtonElement | null = null;
-  private btnBrowseCoreFile: HTMLButtonElement | null = null;
-  private btnPasteCoreBox: HTMLButtonElement | null = null;
+  // Credentials Drawer Elements
+  private credentialsDrawer: HTMLElement | null = null;
+  private btnCloseCredentials: HTMLButtonElement | null = null;
+  private btnDismissCredentials: HTMLButtonElement | null = null;
+  private btnSaveCredentialsAndSync: HTMLButtonElement | null = null;
+  private btnClearStoredCredentials: HTMLButtonElement | null = null;
+  private inputRhToken: HTMLInputElement | null = null;
+  private inputCoreToken: HTMLInputElement | null = null;
+  private btnToggleRhVisibility: HTMLButtonElement | null = null;
+  private btnToggleCoreVisibility: HTMLButtonElement | null = null;
+  private badgeRhTokenParsed: HTMLElement | null = null;
+  private badgeCoreTokenParsed: HTMLElement | null = null;
+  private badgeRhExpiry: HTMLElement | null = null;
+  private badgeCoreExpiry: HTMLElement | null = null;
+
+  // Confirmation Modal Elements
+  private modalConfirmFullResync: HTMLElement | null = null;
+  private btnConfirmFullResync: HTMLButtonElement | null = null;
+  private btnCancelFullResync: HTMLButtonElement | null = null;
+  private btnCloseFullResyncModal: HTMLButtonElement | null = null;
+  private backdropConfirmFullResync: HTMLElement | null = null;
+
+  private modalConfirmPurge: HTMLElement | null = null;
+  private btnConfirmPurge: HTMLButtonElement | null = null;
+  private btnCancelPurge: HTMLButtonElement | null = null;
+  private btnClosePurgeModal: HTMLButtonElement | null = null;
+  private backdropConfirmPurge: HTMLElement | null = null;
 
   // Summary Metrics Elements
   private hedgeMetricElements: HedgeMetricElements = {
@@ -152,17 +183,6 @@ export class HedgeController {
   private rhIndividualMetrics: IndividualAccountMetrics | null = null;
   private coreIndividualMetrics: IndividualAccountMetrics | null = null;
 
-  private hedgeEmptyStatePanel: HTMLElement | null = null;
-  private hedgeLoadedToolbar: HTMLElement | null = null;
-  private loadedRhFileName: HTMLElement | null = null;
-  private loadedCoreFileName: HTMLElement | null = null;
-  private btnAddRhFileLoaded: HTMLButtonElement | null = null;
-  private btnPasteRhLoaded: HTMLButtonElement | null = null;
-  private btnAddCoreFileLoaded: HTMLButtonElement | null = null;
-  private btnPasteCoreLoaded: HTMLButtonElement | null = null;
-  private btnClearHedgeAll: HTMLButtonElement | null = null;
-  private btnHedgeExportCsv: HTMLButtonElement | null = null;
-
   // Filter & Search Controls
   private inputHedgeSearch: HTMLInputElement | null = null;
   private tabBtnHedgeAll: HTMLButtonElement | null = null;
@@ -196,15 +216,7 @@ export class HedgeController {
     unhedgedCount: null,
   };
 
-  // Paste JSON Modal
-  private pasteModal: HTMLElement | null = null;
-  private selectPasteTarget: HTMLSelectElement | null = null;
-  private textareaPasteJson: HTMLTextAreaElement | null = null;
-  private btnClosePasteModal: HTMLElement | null = null;
-  private btnDismissPasteModal: HTMLElement | null = null;
-  private btnSubmitPasteJson: HTMLElement | null = null;
-
-  // Date Filter & Promo Modal Elements
+  // Date Filter & Promo Elements
   private activeHedgeDateFilter: ActiveDateFilter | null = null;
   private allHedgePairs: HedgePair[] = [];
   private allUnhedgedTrades: UnhedgedTrade[] = [];
@@ -221,11 +233,26 @@ export class HedgeController {
   private marketSortColumn: MarketSummarySortColumn = "volumeUsd";
   private marketSortDirection: "asc" | "desc" = "desc";
 
-  public init(): void {
+  // Card Loading Overlays
+  private cardOverlays: HTMLElement[] = [];
+
+  public async init(): Promise<void> {
     this.cacheDomElements();
     this.initDateFilterSection();
-    this.initBookmarkletSection();
     this.bindEvents();
+
+    await this.loadStoredCredentialsAndAccounts();
+    await this.loadCachedDataFromDb();
+
+    // Stale-While-Revalidate: If tokens exist, trigger delta sync and show loading progress bar
+    if (this.rhAccountMeta?.authToken || this.coreAccountMeta?.authToken) {
+      setTimeout(() => {
+        this.runSync(false, false).catch(() => {});
+      }, 50);
+    } else {
+      // If tokens are missing, automatically open the credentials drawer
+      this.openCredentialsDrawer();
+    }
   }
 
   private initDateFilterSection(): void {
@@ -238,44 +265,74 @@ export class HedgeController {
   }
 
   private cacheDomElements(): void {
-    // Bookmarklet
-    this.hedgeBookmarkletLink = document.getElementById(
-      "hedgeBookmarkletLink",
-    ) as HTMLAnchorElement | null;
-    this.btnCopyBookmarkletHedge = document.getElementById(
-      "btnCopyBookmarkletHedge",
+    // Card loading overlays across all data sections
+    this.cardOverlays = Array.from(document.querySelectorAll<HTMLElement>(".sync-card-overlay"));
+
+    // Sync Control Bar
+    this.labelLastSyncedAt = document.getElementById("labelLastSyncedAt");
+    this.btnSyncNewData = document.getElementById("btnSyncNewData") as HTMLButtonElement | null;
+    this.labelSyncButtonText = document.getElementById("labelSyncButtonText");
+    this.btnFullResync = document.getElementById("btnFullResync") as HTMLButtonElement | null;
+    this.btnToggleCredentials = document.getElementById(
+      "btnToggleCredentials",
     ) as HTMLButtonElement | null;
-    this.modalBookmarkletLink = document.getElementById(
-      "modalBookmarkletLink",
-    ) as HTMLAnchorElement | null;
-    this.modalCopyBookmarkletBtn = document.getElementById(
-      "modalCopyBookmarkletBtn",
+    this.syncIconSpin = document.getElementById("syncIconSpin");
+    this.stopIconCross = document.getElementById("stopIconCross");
+    this.syncProgressWrapper = document.getElementById("syncProgressWrapper");
+    this.syncProgressBar = document.getElementById("syncProgressBar");
+    this.syncStatusMessage = document.getElementById("syncStatusMessage");
+    this.syncDurationLabel = document.getElementById("syncDurationLabel");
+    this.btnHedgeExportCsv = document.getElementById(
+      "btnHedgeExportCsv",
     ) as HTMLButtonElement | null;
 
-    // Export Modal
-    this.exportModal = document.getElementById("exportModal");
-    this.btnOpenExportHelpHedgeEmpty = document.getElementById("btnOpenExportHelpHedgeEmpty");
-    this.btnOpenExportHelpHedge = document.getElementById("btnOpenExportHelpHedge");
-    this.btnCloseExportModal = document.getElementById("btnCloseExportModal");
-    this.btnDismissExportModal = document.getElementById("btnDismissExportModal");
-
-    // Dual Dropzones
-    this.dropzoneRh = document.getElementById("dropzoneRh");
-    this.dropzoneCore = document.getElementById("dropzoneCore");
-    this.fileInputRh = document.getElementById("fileInputRh") as HTMLInputElement | null;
-    this.fileInputCore = document.getElementById("fileInputCore") as HTMLInputElement | null;
-    this.statusRhFile = document.getElementById("statusRhFile");
-    this.statusCoreFile = document.getElementById("statusCoreFile");
-    this.labelRhAccount = document.getElementById("labelRhAccount");
-    this.labelCoreAccount = document.getElementById("labelCoreAccount");
-    this.btnClearRh = document.getElementById("btnClearRh");
-    this.btnClearCore = document.getElementById("btnClearCore");
-    this.btnBrowseRhFile = document.getElementById("btnBrowseRhFile") as HTMLButtonElement | null;
-    this.btnPasteRhBox = document.getElementById("btnPasteRhBox") as HTMLButtonElement | null;
-    this.btnBrowseCoreFile = document.getElementById(
-      "btnBrowseCoreFile",
+    // Credentials Drawer
+    this.credentialsDrawer = document.getElementById("credentialsDrawer");
+    this.btnCloseCredentials = document.getElementById(
+      "btnCloseCredentials",
     ) as HTMLButtonElement | null;
-    this.btnPasteCoreBox = document.getElementById("btnPasteCoreBox") as HTMLButtonElement | null;
+    this.btnDismissCredentials = document.getElementById(
+      "btnDismissCredentials",
+    ) as HTMLButtonElement | null;
+    this.btnSaveCredentialsAndSync = document.getElementById(
+      "btnSaveCredentialsAndSync",
+    ) as HTMLButtonElement | null;
+    this.btnClearStoredCredentials = document.getElementById(
+      "btnClearStoredCredentials",
+    ) as HTMLButtonElement | null;
+    this.inputRhToken = document.getElementById("inputRhToken") as HTMLInputElement | null;
+    this.inputCoreToken = document.getElementById("inputCoreToken") as HTMLInputElement | null;
+    this.btnToggleRhVisibility = document.getElementById(
+      "btnToggleRhVisibility",
+    ) as HTMLButtonElement | null;
+    this.btnToggleCoreVisibility = document.getElementById(
+      "btnToggleCoreVisibility",
+    ) as HTMLButtonElement | null;
+    this.badgeRhTokenParsed = document.getElementById("badgeRhTokenParsed");
+    this.badgeCoreTokenParsed = document.getElementById("badgeCoreTokenParsed");
+    this.badgeRhExpiry = document.getElementById("badgeRhExpiry");
+    this.badgeCoreExpiry = document.getElementById("badgeCoreExpiry");
+
+    // Confirmation Modals
+    this.modalConfirmFullResync = document.getElementById("modalConfirmFullResync");
+    this.btnConfirmFullResync = document.getElementById(
+      "btnConfirmFullResync",
+    ) as HTMLButtonElement | null;
+    this.btnCancelFullResync = document.getElementById(
+      "btnCancelFullResync",
+    ) as HTMLButtonElement | null;
+    this.btnCloseFullResyncModal = document.getElementById(
+      "btnCloseFullResyncModal",
+    ) as HTMLButtonElement | null;
+    this.backdropConfirmFullResync = document.getElementById("backdropConfirmFullResync");
+
+    this.modalConfirmPurge = document.getElementById("modalConfirmPurge");
+    this.btnConfirmPurge = document.getElementById("btnConfirmPurge") as HTMLButtonElement | null;
+    this.btnCancelPurge = document.getElementById("btnCancelPurge") as HTMLButtonElement | null;
+    this.btnClosePurgeModal = document.getElementById(
+      "btnClosePurgeModal",
+    ) as HTMLButtonElement | null;
+    this.backdropConfirmPurge = document.getElementById("backdropConfirmPurge");
 
     // Metrics
     this.hedgeMetricElements = {
@@ -318,25 +375,6 @@ export class HedgeController {
       dailySummary: document.getElementById("leadCoreDailySummary"),
     };
 
-    this.hedgeEmptyStatePanel = document.getElementById("hedgeEmptyStatePanel");
-    this.hedgeLoadedToolbar = document.getElementById("hedgeLoadedToolbar");
-    this.loadedRhFileName = document.getElementById("loadedRhFileName");
-    this.loadedCoreFileName = document.getElementById("loadedCoreFileName");
-    this.btnAddRhFileLoaded = document.getElementById(
-      "btnAddRhFileLoaded",
-    ) as HTMLButtonElement | null;
-    this.btnPasteRhLoaded = document.getElementById("btnPasteRhLoaded") as HTMLButtonElement | null;
-    this.btnAddCoreFileLoaded = document.getElementById(
-      "btnAddCoreFileLoaded",
-    ) as HTMLButtonElement | null;
-    this.btnPasteCoreLoaded = document.getElementById(
-      "btnPasteCoreLoaded",
-    ) as HTMLButtonElement | null;
-    this.btnClearHedgeAll = document.getElementById("btnHedgeClear") as HTMLButtonElement | null;
-    this.btnHedgeExportCsv = document.getElementById(
-      "btnHedgeExportCsv",
-    ) as HTMLButtonElement | null;
-
     // Filters & Search
     this.inputHedgeSearch = document.getElementById(
       "inputHedgeSearchFilter",
@@ -376,19 +414,7 @@ export class HedgeController {
       unhedgedCount: document.getElementById("selectedUnhedgedCount"),
     };
 
-    // Paste Modal
-    this.pasteModal = document.getElementById("pasteModal");
-    this.selectPasteTarget = document.getElementById(
-      "selectPasteTarget",
-    ) as HTMLSelectElement | null;
-    this.textareaPasteJson = document.getElementById(
-      "textareaPasteJson",
-    ) as HTMLTextAreaElement | null;
-    this.btnClosePasteModal = document.getElementById("btnClosePasteModal");
-    this.btnDismissPasteModal = document.getElementById("btnDismissPasteModal");
-    this.btnSubmitPasteJson = document.getElementById("btnSubmitPasteJson");
-
-    // Date Filter & Promo Modal Elements
+    // Date Filter & Promo Elements
     this.selectHedgeDatePreset = document.getElementById(
       "selectHedgeDatePreset",
     ) as HTMLSelectElement | null;
@@ -407,125 +433,66 @@ export class HedgeController {
     this.hedgeMarketSummaryCard = document.getElementById("hedgeMarketSummaryCard");
     this.hedgeMarketCardsContainer = document.getElementById("hedgeMarketCardsContainer");
 
-    // Weekly Points Analysis Table Elements
+    // Weekly Points Table Elements
     this.weeklyPointsTableCard = document.getElementById("hedgeWeeklyPointsTableCard");
     this.weeklyPointsTableContainer = document.getElementById("hedgeWeeklyPointsTableContainer");
   }
 
-  private handleBookmarkletClick(e: MouseEvent): void {
-    e.preventDefault();
-    this.openExportModal();
-  }
-
-  private initBookmarkletSection(): void {
-    const bookmarkletHref = getBookmarkletHref();
-
-    if (this.hedgeBookmarkletLink) {
-      this.hedgeBookmarkletLink.href = bookmarkletHref;
-      this.hedgeBookmarkletLink.addEventListener("click", (e) => this.handleBookmarkletClick(e));
-    }
-    if (this.modalBookmarkletLink) {
-      this.modalBookmarkletLink.href = bookmarkletHref;
-      this.modalBookmarkletLink.addEventListener("click", (e) => this.handleBookmarkletClick(e));
-    }
-    if (this.btnCopyBookmarkletHedge) {
-      const btn = this.btnCopyBookmarkletHedge;
-      btn.addEventListener("click", () => {
-        copyToClipboard(getBookmarkletHref(), btn, "Copy Code");
-      });
-    }
-    if (this.modalCopyBookmarkletBtn) {
-      const btn = this.modalCopyBookmarkletBtn;
-      btn.addEventListener("click", () => {
-        copyToClipboard(getBookmarkletHref(), btn, "Copy Code");
-      });
-    }
-  }
-
   private bindEvents(): void {
-    // Export Modal
-    this.btnOpenExportHelpHedgeEmpty?.addEventListener("click", () => this.openExportModal());
-    this.btnOpenExportHelpHedge?.addEventListener("click", () => this.openExportModal());
-    this.btnCloseExportModal?.addEventListener("click", () => this.closeExportModal());
-    this.btnDismissExportModal?.addEventListener("click", () => this.closeExportModal());
-    this.exportModal?.addEventListener("click", (e) => {
-      if (e.target === this.exportModal) this.closeExportModal();
+    // Sync buttons
+    this.btnSyncNewData?.addEventListener("click", () => {
+      if (this.isSyncing) {
+        this.stopSync();
+      } else {
+        void this.runSync(false);
+      }
+    });
+    this.btnFullResync?.addEventListener("click", () => this.openFullResyncModal());
+    this.btnCancelFullResync?.addEventListener("click", () => this.closeFullResyncModal());
+    this.btnCloseFullResyncModal?.addEventListener("click", () => this.closeFullResyncModal());
+    this.backdropConfirmFullResync?.addEventListener("click", () => this.closeFullResyncModal());
+    this.btnConfirmFullResync?.addEventListener("click", () => {
+      this.closeFullResyncModal();
+      void this.runSync(true);
     });
 
-    // Paste Modal
-    this.btnClosePasteModal?.addEventListener("click", () => this.closePasteModal());
-    this.btnDismissPasteModal?.addEventListener("click", () => this.closePasteModal());
-    this.btnSubmitPasteJson?.addEventListener("click", () => this.handlePasteSubmit());
-    this.pasteModal?.addEventListener("click", (e) => {
-      if (e.target === this.pasteModal) this.closePasteModal();
+    this.btnToggleCredentials?.addEventListener("click", () => this.toggleCredentialsDrawer());
+
+    // Credentials drawer
+    this.btnCloseCredentials?.addEventListener("click", () => this.closeCredentialsDrawer());
+    this.btnDismissCredentials?.addEventListener("click", () => this.closeCredentialsDrawer());
+    this.btnSaveCredentialsAndSync?.addEventListener("click", () => this.handleSaveTokensAndSync());
+    this.btnClearStoredCredentials?.addEventListener("click", () => this.openPurgeModal());
+    this.btnCancelPurge?.addEventListener("click", () => this.closePurgeModal());
+    this.btnClosePurgeModal?.addEventListener("click", () => this.closePurgeModal());
+    this.backdropConfirmPurge?.addEventListener("click", () => this.closePurgeModal());
+    this.btnConfirmPurge?.addEventListener("click", () => {
+      this.closePurgeModal();
+      void this.executePurgeStoredCredentials();
     });
 
-    // Dual Dropzones
-    this.setupHedgeDropzone(this.dropzoneRh, "rh");
-    this.setupHedgeDropzone(this.dropzoneCore, "core");
-
-    this.btnBrowseRhFile?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.fileInputRh?.click();
+    // Eye visibility toggles
+    this.btnToggleRhVisibility?.addEventListener("click", () => {
+      if (!this.inputRhToken) return;
+      const isPwd = this.inputRhToken.type === "password";
+      this.inputRhToken.type = isPwd ? "text" : "password";
+      if (this.btnToggleRhVisibility)
+        this.btnToggleRhVisibility.textContent = isPwd ? "Hide" : "Show";
     });
 
-    this.btnBrowseCoreFile?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.fileInputCore?.click();
+    this.btnToggleCoreVisibility?.addEventListener("click", () => {
+      if (!this.inputCoreToken) return;
+      const isPwd = this.inputCoreToken.type === "password";
+      this.inputCoreToken.type = isPwd ? "text" : "password";
+      if (this.btnToggleCoreVisibility)
+        this.btnToggleCoreVisibility.textContent = isPwd ? "Hide" : "Show";
     });
 
-    this.btnPasteRhBox?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.pasteFromClipboard("rh");
-    });
+    // Live token input parsing
+    this.inputRhToken?.addEventListener("input", () => this.updateLiveTokenPreview("rh"));
+    this.inputCoreToken?.addEventListener("input", () => this.updateLiveTokenPreview("core"));
 
-    this.btnPasteCoreBox?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.pasteFromClipboard("core");
-    });
-
-    this.fileInputRh?.addEventListener("change", (e) => {
-      const input = e.target as HTMLInputElement;
-      const files = input.files;
-      if (files && files.length > 0) this.handleHedgeFiles(files, "rh");
-      input.value = "";
-    });
-
-    this.fileInputCore?.addEventListener("change", (e) => {
-      const input = e.target as HTMLInputElement;
-      const files = input.files;
-      if (files && files.length > 0) this.handleHedgeFiles(files, "core");
-      input.value = "";
-    });
-
-    this.btnClearRh?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.clearHedgeSlot("rh");
-    });
-
-    this.btnClearCore?.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.clearHedgeSlot("core");
-    });
-
-    // Loaded Toolbar buttons
-    this.btnAddRhFileLoaded?.addEventListener("click", () => {
-      this.fileInputRh?.click();
-    });
-
-    this.btnPasteRhLoaded?.addEventListener("click", () => {
-      this.pasteFromClipboard("rh");
-    });
-
-    this.btnAddCoreFileLoaded?.addEventListener("click", () => {
-      this.fileInputCore?.click();
-    });
-
-    this.btnPasteCoreLoaded?.addEventListener("click", () => {
-      this.pasteFromClipboard("core");
-    });
-
-    this.btnClearHedgeAll?.addEventListener("click", () => this.clearHedge());
+    // CSV export
     this.btnHedgeExportCsv?.addEventListener("click", () => this.downloadHedgeCsv());
 
     // Search and filters with 150ms debounce
@@ -604,8 +571,21 @@ export class HedgeController {
     // Keyboard hotkeys
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (!this.exportModal?.classList.contains("hidden")) this.closeExportModal();
-        if (!this.pasteModal?.classList.contains("hidden")) this.closePasteModal();
+        if (
+          this.modalConfirmFullResync &&
+          !this.modalConfirmFullResync.classList.contains("hidden")
+        ) {
+          this.closeFullResyncModal();
+          return;
+        }
+        if (this.modalConfirmPurge && !this.modalConfirmPurge.classList.contains("hidden")) {
+          this.closePurgeModal();
+          return;
+        }
+        if (!this.credentialsDrawer?.classList.contains("hidden")) {
+          this.closeCredentialsDrawer();
+          return;
+        }
         if (this.selectedHedgeRowIds.size > 0) {
           this.selectedHedgeRowIds.clear();
           this.lastClickedHedgeRowId = null;
@@ -617,272 +597,592 @@ export class HedgeController {
     });
   }
 
-  private setupHedgeDropzone(dropzone: HTMLElement | null, defaultSlot: "rh" | "core"): void {
-    if (!dropzone) return;
-
-    const highlight = () => {
-      dropzone.classList.add("border-terminal-accent", "bg-terminal-surfaceHover");
-      dropzone.classList.remove("border-terminal-border");
-    };
-    const unhighlight = () => {
-      dropzone.classList.remove("border-terminal-accent", "bg-terminal-surfaceHover");
-      dropzone.classList.add("border-terminal-border");
-    };
-
-    dropzone.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      highlight();
-    });
-    dropzone.addEventListener("dragenter", (e) => {
-      e.preventDefault();
-      highlight();
-    });
-    dropzone.addEventListener("dragleave", (e) => {
-      e.preventDefault();
-      unhighlight();
-    });
-
-    dropzone.addEventListener("drop", (e) => {
-      e.preventDefault();
-      unhighlight();
-      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-        this.handleHedgeFiles(e.dataTransfer.files, defaultSlot);
-      }
-    });
-
-    dropzone.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest("button")) return;
-      if (defaultSlot === "rh") {
-        this.fileInputRh?.click();
-      } else {
-        this.fileInputCore?.click();
-      }
-    });
+  public openCredentialsDrawer(): void {
+    this.credentialsDrawer?.classList.remove("hidden");
   }
 
-  public openExportModal(): void {
-    this.exportModal?.classList.remove("hidden");
+  public closeCredentialsDrawer(): void {
+    this.credentialsDrawer?.classList.add("hidden");
   }
 
-  public closeExportModal(): void {
-    this.exportModal?.classList.add("hidden");
+  public toggleCredentialsDrawer(): void {
+    this.credentialsDrawer?.classList.toggle("hidden");
   }
 
-  public openPasteModal(target: "auto" | "rh" | "core" = "auto"): void {
-    if (this.selectPasteTarget) this.selectPasteTarget.value = target;
-    if (this.textareaPasteJson) this.textareaPasteJson.value = "";
-    this.pasteModal?.classList.remove("hidden");
-    setTimeout(() => this.textareaPasteJson?.focus(), 50);
+  public openFullResyncModal(): void {
+    this.modalConfirmFullResync?.classList.remove("hidden");
   }
 
-  public closePasteModal(): void {
-    this.pasteModal?.classList.add("hidden");
+  public closeFullResyncModal(): void {
+    this.modalConfirmFullResync?.classList.add("hidden");
   }
 
-  public handlePasteSubmit(): void {
-    const rawText = this.textareaPasteJson?.value?.trim() || "";
-    if (!rawText) return;
+  public openPurgeModal(): void {
+    this.modalConfirmPurge?.classList.remove("hidden");
+  }
 
-    this.uploadSessionId++;
-    try {
-      const parsed = parseImportedTradesJson(rawText, "pasted-response.json");
-      const chosenTarget = this.selectPasteTarget?.value || "auto";
+  public closePurgeModal(): void {
+    this.modalConfirmPurge?.classList.add("hidden");
+  }
 
-      let finalSlot: "rh" | "core" = "core";
-      if (chosenTarget === "rh") {
-        finalSlot = "rh";
-      } else if (chosenTarget === "core") {
-        finalSlot = "core";
-      } else {
-        finalSlot = parsed.network === "rh" ? "rh" : "core";
-      }
+  private updateLiveTokenPreview(network: "rh" | "core"): void {
+    const input = network === "rh" ? this.inputRhToken : this.inputCoreToken;
+    const badgeAccount = network === "rh" ? this.badgeRhTokenParsed : this.badgeCoreTokenParsed;
+    const badgeExpiry = network === "rh" ? this.badgeRhExpiry : this.badgeCoreExpiry;
+    if (!input || !badgeAccount || !badgeExpiry) return;
 
-      if (finalSlot === "rh") {
-        this.rhBatches = [...this.rhBatches, parsed];
-      } else {
-        this.coreBatches = [...this.coreBatches, parsed];
-      }
-
-      this.closePasteModal();
-      this.applyHedgeBatches();
-    } catch (err: any) {
-      console.error("Failed to parse pasted JSON:", err);
+    const val = input.value.trim();
+    if (!val) {
+      badgeAccount.textContent = "Account: --";
+      badgeAccount.className = "text-[10px] text-terminal-muted";
+      badgeExpiry.textContent = "Expiry: --";
+      return;
     }
-  }
 
-  private async pasteFromClipboard(slot: "rh" | "core"): Promise<void> {
     try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
-        const sessionId = ++this.uploadSessionId;
-        const text = await navigator.clipboard.readText();
-        if (sessionId !== this.uploadSessionId) return;
+      const parsed = parseLighterToken(val, network === "rh" ? "rh" : "mainnet");
+      badgeAccount.textContent = `Account #${parsed.accountIndex}`;
+      badgeAccount.className = `text-[10px] font-bold ${network === "rh" ? "text-terminal-emerald" : "text-terminal-accent"}`;
 
-        if (text && /\S/.test(text)) {
-          const parsed = parseImportedTradesJson(
-            text,
-            `Clipboard-${slot.toUpperCase()}-${Date.now().toString().slice(-4)}.json`,
-          );
-          if (sessionId !== this.uploadSessionId) return;
-
-          if (slot === "rh") {
-            this.rhBatches = [...this.rhBatches, parsed];
-          } else {
-            this.coreBatches = [...this.coreBatches, parsed];
-          }
-          this.applyHedgeBatches();
-          return;
-        }
+      if (parsed.expiryMs) {
+        const d = new Date(parsed.expiryMs);
+        badgeExpiry.textContent = `Expires: ${d.toISOString().slice(0, 10)}`;
+      } else {
+        badgeExpiry.textContent = "Expires: standard session";
       }
     } catch {
-      // Clipboard read failed or was denied by permissions policy -> fallback to modal
+      badgeAccount.textContent = "Invalid token format";
+      badgeAccount.className = "text-[10px] text-terminal-coral font-semibold";
+      badgeExpiry.textContent = "Expiry: --";
     }
-
-    // Fallback: open paste modal pre-targeted for this slot
-    this.openPasteModal(slot);
   }
 
-  private async handleHedgeFiles(files: FileList, defaultSlot: "rh" | "core"): Promise<void> {
-    const sessionId = ++this.uploadSessionId;
+  /**
+   * Restores stored tokens and active account keys from localStorage and IDB.
+   */
+  private async loadStoredCredentialsAndAccounts(): Promise<void> {
+    const rhToken = localStorage.getItem(STORAGE_KEY_RH_TOKEN) || "";
+    const coreToken = localStorage.getItem(STORAGE_KEY_CORE_TOKEN) || "";
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const fileNameLower = file.name.toLowerCase();
-      const isJson =
-        fileNameLower.endsWith(".json") ||
-        fileNameLower.includes(".json") ||
-        file.type === "application/json" ||
-        file.type === "text/plain" ||
-        file.type.includes("json") ||
-        file.type === "";
+    if (this.inputRhToken && rhToken) {
+      this.inputRhToken.value = rhToken;
+      this.updateLiveTokenPreview("rh");
+    }
+    if (this.inputCoreToken && coreToken) {
+      this.inputCoreToken.value = coreToken;
+      this.updateLiveTokenPreview("core");
+    }
 
-      if (!isJson) {
-        continue;
-      }
+    let activeRhKey = localStorage.getItem(STORAGE_KEY_ACTIVE_RH_KEY) || "";
+    let activeCoreKey = localStorage.getItem(STORAGE_KEY_ACTIVE_CORE_KEY) || "";
 
+    if (!activeRhKey && rhToken) {
       try {
-        const text = await file.text();
-        if (sessionId !== this.uploadSessionId) return;
-
-        if (!/\S/.test(text)) {
-          continue;
-        }
-
-        // Yield to event loop to keep UI responsive with large files
-        await new Promise((r) => setTimeout(r, 0));
-        if (sessionId !== this.uploadSessionId) return;
-
-        const parsed = parseImportedTradesJson(text, file.name);
-        if (sessionId !== this.uploadSessionId) return;
-
-        // Smart network routing
-        let targetSlot = defaultSlot;
-        if (
-          parsed.network === "mainnet" ||
-          file.name.toLowerCase().includes("mainnet") ||
-          file.name.toLowerCase().includes("core")
-        ) {
-          targetSlot = "core";
-        } else if (parsed.network === "rh" || file.name.toLowerCase().includes("-rh-")) {
-          targetSlot = "rh";
-        }
-
-        if (targetSlot === "rh") {
-          this.rhBatches = [...this.rhBatches, parsed];
-        } else {
-          this.coreBatches = [...this.coreBatches, parsed];
-        }
-      } catch (err: any) {
-        if (sessionId === this.uploadSessionId) {
-          console.error(`Error reading "${file.name}":`, err);
-        }
-      }
+        const parsed = parseLighterToken(rhToken, "rh");
+        activeRhKey = `rh:${parsed.accountIndex}`;
+        localStorage.setItem(STORAGE_KEY_ACTIVE_RH_KEY, activeRhKey);
+      } catch {}
     }
 
-    if (sessionId !== this.uploadSessionId) return;
-    this.applyHedgeBatches();
+    if (!activeCoreKey && coreToken) {
+      try {
+        const parsed = parseLighterToken(coreToken, "mainnet");
+        activeCoreKey = `mainnet:${parsed.accountIndex}`;
+        localStorage.setItem(STORAGE_KEY_ACTIVE_CORE_KEY, activeCoreKey);
+      } catch {}
+    }
+
+    this.activeRhAccountKey = activeRhKey;
+    this.activeCoreAccountKey = activeCoreKey;
+
+    if (activeRhKey) {
+      let meta = await getAccountMeta(activeRhKey);
+      if (!meta && rhToken) {
+        const parsed = parseLighterToken(rhToken, "rh");
+        meta = {
+          accountKey: activeRhKey,
+          network: "rh",
+          accountIndex: parsed.accountIndex,
+          authToken: rhToken,
+          syncState: { hasFullHistory: false },
+        };
+        await saveAccountMeta(meta);
+      }
+      this.rhAccountMeta = meta;
+    }
+
+    if (activeCoreKey) {
+      let meta = await getAccountMeta(activeCoreKey);
+      if (!meta && coreToken) {
+        const parsed = parseLighterToken(coreToken, "mainnet");
+        meta = {
+          accountKey: activeCoreKey,
+          network: "mainnet",
+          accountIndex: parsed.accountIndex,
+          authToken: coreToken,
+          syncState: { hasFullHistory: false },
+        };
+        await saveAccountMeta(meta);
+      }
+      this.coreAccountMeta = meta;
+    }
+
+    this.updateSlotStatusBadges();
   }
 
-  private applyHedgeBatches(): void {
-    if (this.rhBatches.length > 0) {
-      const rhStitched = stitchTradeBatches(this.rhBatches);
-      this.rhStitched = rhStitched;
-      this.rhRawTrades = sortTradesChronologicalDesc(rhStitched.trades);
-      this.rhAccountIndices = rhStitched.accountIndices;
-      this.rhAccountIndex =
-        rhStitched.accountIndices.length > 0 ? rhStitched.accountIndices[0] : null;
-
-      const rawFileName = this.rhBatches[0].fileName || "RH JSON";
-      const fileCountText =
-        this.rhBatches.length === 1
-          ? formatDisplayFileName(rawFileName, 22)
-          : `${this.rhBatches.length} files`;
-
-      if (this.statusRhFile) {
-        this.statusRhFile.textContent = `✓ ${fileCountText} (${this.rhRawTrades.length} trades)`;
-        this.statusRhFile.title = `${this.rhBatches.length === 1 ? rawFileName : `${this.rhBatches.length} files`} (${this.rhRawTrades.length} trades)`;
-        this.statusRhFile.className =
-          "text-[11px] text-terminal-emerald font-semibold my-1.5 truncate w-full max-w-full px-1 text-center";
-      }
-      if (this.labelRhAccount) {
-        this.labelRhAccount.textContent =
-          this.rhAccountIndices.length > 0
-            ? `Account(s) ${this.rhAccountIndices.map((a) => `#${a}`).join(", ")}`
-            : `Account #${this.rhAccountIndex ?? "--"}`;
-        this.labelRhAccount.className =
-          "text-[10px] text-terminal-emerald font-semibold truncate max-w-28 sm:max-w-36";
-      }
-      if (this.btnClearRh) this.btnClearRh.classList.remove("hidden");
-      if (this.btnBrowseRhFile) {
-        this.btnBrowseRhFile.textContent = "Add More Files";
-      }
-      if (this.loadedRhFileName) {
-        this.loadedRhFileName.textContent = fileCountText;
-        this.loadedRhFileName.title = `${this.rhBatches.length === 1 ? rawFileName : `${this.rhBatches.length} files`} (${this.rhRawTrades.length} trades)`;
+  private updateSlotStatusBadges(): void {
+    if (this.labelLastSyncedAt) {
+      const ts = Math.max(
+        this.rhAccountMeta?.lastSyncedAt || 0,
+        this.coreAccountMeta?.lastSyncedAt || 0,
+      );
+      if (ts > 0) {
+        const d = new Date(ts);
+        const timeStr = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        this.labelLastSyncedAt.textContent = `(${timeStr})`;
+        if (this.btnSyncNewData) {
+          this.btnSyncNewData.title = `Last sync: ${timeStr} · Fetch only new trades (~200ms)`;
+        }
+      } else {
+        this.labelLastSyncedAt.textContent = "";
+        if (this.btnSyncNewData) {
+          this.btnSyncNewData.title = "Fetch only new trades and funding (~200ms)";
+        }
       }
     }
+  }
 
-    if (this.coreBatches.length > 0) {
-      const coreStitched = stitchTradeBatches(this.coreBatches);
-      this.coreStitched = coreStitched;
-      this.coreRawTrades = sortTradesChronologicalDesc(coreStitched.trades);
-      this.coreAccountIndices = coreStitched.accountIndices;
-      this.coreAccountIndex =
-        coreStitched.accountIndices.length > 0 ? coreStitched.accountIndices[0] : null;
-
-      const rawFileName = this.coreBatches[0].fileName || "Core JSON";
-      const fileCountText =
-        this.coreBatches.length === 1
-          ? formatDisplayFileName(rawFileName, 22)
-          : `${this.coreBatches.length} files`;
-
-      if (this.statusCoreFile) {
-        this.statusCoreFile.textContent = `✓ ${fileCountText} (${this.coreRawTrades.length} trades)`;
-        this.statusCoreFile.title = `${this.coreBatches.length === 1 ? rawFileName : `${this.coreBatches.length} files`} (${this.coreRawTrades.length} trades)`;
-        this.statusCoreFile.className =
-          "text-[11px] text-terminal-emerald font-semibold my-1.5 truncate w-full max-w-full px-1 text-center";
-      }
-      if (this.labelCoreAccount) {
-        this.labelCoreAccount.textContent =
-          this.coreAccountIndices.length > 0
-            ? `Account(s) ${this.coreAccountIndices.map((a) => `#${a}`).join(", ")}`
-            : `Account #${this.coreAccountIndex ?? "--"}`;
-        this.labelCoreAccount.className =
-          "text-[10px] text-terminal-accent font-semibold truncate max-w-28 sm:max-w-36";
-      }
-      if (this.btnClearCore) this.btnClearCore.classList.remove("hidden");
-      if (this.btnBrowseCoreFile) {
-        this.btnBrowseCoreFile.textContent = "Add More Files";
-      }
-      if (this.loadedCoreFileName) {
-        this.loadedCoreFileName.textContent = fileCountText;
-        this.loadedCoreFileName.title = `${this.coreBatches.length === 1 ? rawFileName : `${this.coreBatches.length} files`} (${this.coreRawTrades.length} trades)`;
-      }
+  /**
+   * Fast cold-start reading from IndexedDB (< 50ms on M3 / Ryzen).
+   * Range scan directly over primary keys in LevelDB B-tree.
+   */
+  private async loadCachedDataFromDb(): Promise<void> {
+    if (this.activeRhAccountKey) {
+      this.rhAccountMeta = await getAccountMeta(this.activeRhAccountKey);
+      const [trades, funding, withdrawals] = await Promise.all([
+        getAccountTrades(this.activeRhAccountKey),
+        getAccountFunding(this.activeRhAccountKey),
+        getAccountWithdrawals(this.activeRhAccountKey),
+      ]);
+      this.rhRawTrades = trades;
+      this.rhFunding = funding;
+      this.rhWithdrawals = withdrawals;
+      this.rhAccountIndex = this.rhAccountMeta?.accountIndex ?? null;
+      this.rhAccountIndices = this.rhAccountIndex != null ? [this.rhAccountIndex] : [];
+    } else {
+      this.rhAccountMeta = null;
+      this.rhRawTrades = [];
+      this.rhFunding = [];
+      this.rhWithdrawals = [];
+      this.rhAccountIndex = null;
+      this.rhAccountIndices = [];
     }
 
-    if (this.rhRawTrades.length > 0 && this.coreRawTrades.length > 0) {
+    if (this.activeCoreAccountKey) {
+      this.coreAccountMeta = await getAccountMeta(this.activeCoreAccountKey);
+      const [trades, funding, withdrawals] = await Promise.all([
+        getAccountTrades(this.activeCoreAccountKey),
+        getAccountFunding(this.activeCoreAccountKey),
+        getAccountWithdrawals(this.activeCoreAccountKey),
+      ]);
+      this.coreRawTrades = trades;
+      this.coreFunding = funding;
+      this.coreWithdrawals = withdrawals;
+      this.coreAccountIndex = this.coreAccountMeta?.accountIndex ?? null;
+      this.coreAccountIndices = this.coreAccountIndex != null ? [this.coreAccountIndex] : [];
+    } else {
+      this.coreAccountMeta = null;
+      this.coreRawTrades = [];
+      this.coreFunding = [];
+      this.coreWithdrawals = [];
+      this.coreAccountIndex = null;
+      this.coreAccountIndices = [];
+    }
+
+    this.updateSlotStatusBadges();
+    this.recalculateAndRenderHedge();
+  }
+
+  public async handleSaveTokensAndSync(): Promise<void> {
+    const rhVal = this.inputRhToken?.value?.trim() || "";
+    const coreVal = this.inputCoreToken?.value?.trim() || "";
+
+    if (!rhVal && !coreVal) {
+      alert("Please provide at least one Read-Only token.");
+      return;
+    }
+
+    try {
+      if (rhVal) {
+        const rhInfo = parseLighterToken(rhVal, "rh");
+        const key = `rh:${rhInfo.accountIndex}`;
+        localStorage.setItem(STORAGE_KEY_RH_TOKEN, rhVal);
+        localStorage.setItem(STORAGE_KEY_ACTIVE_RH_KEY, key);
+        this.activeRhAccountKey = key;
+
+        let meta = await getAccountMeta(key);
+        if (!meta) {
+          meta = {
+            accountKey: key,
+            network: "rh",
+            accountIndex: rhInfo.accountIndex,
+            authToken: rhVal,
+            syncState: { hasFullHistory: false },
+          };
+        } else {
+          meta.authToken = rhVal;
+        }
+        await saveAccountMeta(meta);
+        this.rhAccountMeta = meta;
+      }
+
+      if (coreVal) {
+        const coreInfo = parseLighterToken(coreVal, "mainnet");
+        const key = `mainnet:${coreInfo.accountIndex}`;
+        localStorage.setItem(STORAGE_KEY_CORE_TOKEN, coreVal);
+        localStorage.setItem(STORAGE_KEY_ACTIVE_CORE_KEY, key);
+        this.activeCoreAccountKey = key;
+
+        let meta = await getAccountMeta(key);
+        if (!meta) {
+          meta = {
+            accountKey: key,
+            network: "mainnet",
+            accountIndex: coreInfo.accountIndex,
+            authToken: coreVal,
+            syncState: { hasFullHistory: false },
+          };
+        } else {
+          meta.authToken = coreVal;
+        }
+        await saveAccountMeta(meta);
+        this.coreAccountMeta = meta;
+      }
+
+      this.updateSlotStatusBadges();
+      this.closeCredentialsDrawer();
+      await this.loadCachedDataFromDb();
+      await this.runSync(false);
+    } catch (err: any) {
+      alert(`Invalid token: ${err.message || String(err)}`);
+    }
+  }
+
+  public async executePurgeStoredCredentials(): Promise<void> {
+    localStorage.removeItem(STORAGE_KEY_RH_TOKEN);
+    localStorage.removeItem(STORAGE_KEY_CORE_TOKEN);
+    localStorage.removeItem(STORAGE_KEY_ACTIVE_RH_KEY);
+    localStorage.removeItem(STORAGE_KEY_ACTIVE_CORE_KEY);
+
+    await clearAllData();
+
+    this.rhRawTrades = [];
+    this.coreRawTrades = [];
+    this.rhFunding = [];
+    this.coreFunding = [];
+    this.rhWithdrawals = [];
+    this.coreWithdrawals = [];
+    this.rhAccountMeta = null;
+    this.coreAccountMeta = null;
+    this.activeRhAccountKey = "";
+    this.activeCoreAccountKey = "";
+
+    if (this.inputRhToken) this.inputRhToken.value = "";
+    if (this.inputCoreToken) this.inputCoreToken.value = "";
+    this.updateLiveTokenPreview("rh");
+    this.updateLiveTokenPreview("core");
+    this.updateSlotStatusBadges();
+
+    this.allHedgePairs = [];
+    this.allUnhedgedTrades = [];
+    this.hedgePairs = [];
+    this.unhedgedTrades = [];
+    this.hedgePairsMap.clear();
+    this.unhedgedTradesMap.clear();
+    this.filteredHedgePairs = [];
+    this.filteredUnhedgedTrades = [];
+    this.hedgeMetrics = null;
+
+    this.updateHedgeExecutiveSummary();
+    this.updateHedgeMarketSummary();
+    this.applyHedgeFilter();
+    this.renderWeeklyPointsAnalysis();
+
+    if (this.syncStatusMessage) {
+      this.syncStatusMessage.textContent = "Database cleared. Please enter new Read-Only tokens.";
+    }
+  }
+
+  public async handleClearStoredCredentials(): Promise<void> {
+    this.openPurgeModal();
+  }
+
+  public stopSync(): void {
+    if (this.syncAbortController) {
+      this.syncAbortController.abort();
+      this.syncAbortController = null;
+    }
+    this.isSyncing = false;
+    this.updateSyncUiState(false, "Sync cancelled by user.");
+  }
+
+  /**
+   * Main synchronization execution: runs concurrent dual-network sync over HTTP/2.
+   * Performs in-memory delta merge on Delta Sync to eliminate IDB re-reading latency.
+   */
+  public async runSync(forceFull = false, silent = false): Promise<void> {
+    if (this.isSyncing) return;
+
+    if (!this.rhAccountMeta?.authToken && !this.coreAccountMeta?.authToken) {
+      if (!silent) this.openCredentialsDrawer();
+      return;
+    }
+
+    this.isSyncing = true;
+    this.syncAbortController = new AbortController();
+    const signal = this.syncAbortController.signal;
+
+    if (!silent) {
+      this.updateSyncUiState(
+        true,
+        forceFull ? "Starting Resync..." : "Syncing new data (~200ms)...",
+      );
+    }
+
+    const startTime = Date.now();
+    let rhMessage = "";
+    let coreMessage = "";
+    let rhProgress = 5;
+    let coreProgress = 5;
+
+    const onProgress = (info: SyncProgressInfo) => {
+      const p = info.progressPercent ?? 0;
+      if (info.network === "rh") {
+        rhMessage = `RH: ${info.message}`;
+        rhProgress = p;
+      } else {
+        coreMessage = `Core: ${info.message}`;
+        coreProgress = p;
+      }
+      if (this.syncStatusMessage && !silent) {
+        this.syncStatusMessage.textContent = [rhMessage, coreMessage].filter(Boolean).join(" | ");
+      }
+      if (this.syncProgressBar && !silent) {
+        const hasRh = Boolean(this.rhAccountMeta?.authToken);
+        const hasCore = Boolean(this.coreAccountMeta?.authToken);
+        let combined = 5;
+        if (hasRh && hasCore) {
+          combined = Math.round((rhProgress + coreProgress) / 2);
+        } else if (hasRh) {
+          combined = rhProgress;
+        } else if (hasCore) {
+          combined = coreProgress;
+        }
+        const clamped = Math.min(98, Math.max(5, combined));
+        this.syncProgressBar.style.width = `${clamped}%`;
+      }
+    };
+
+    try {
+      const { rhResult, coreResult, errors } = await syncDualAccounts(
+        this.rhAccountMeta,
+        this.coreAccountMeta,
+        {
+          forceFullSync: forceFull,
+          signal,
+          onProgress,
+        },
+      );
+
+      if (errors.length > 0) {
+        const expired = errors.find((e) => e instanceof AuthExpiredError);
+        if (expired) {
+          alert((expired as AuthExpiredError).message);
+          this.openCredentialsDrawer();
+        } else {
+          console.warn("[LighterSync] Non-fatal sync warnings:", errors);
+        }
+      }
+
+      if (this.syncProgressBar && !silent) {
+        this.syncProgressBar.style.width = "97%";
+      }
+      if (this.syncStatusMessage && !silent) {
+        this.syncStatusMessage.textContent = "Calculating hedge matches...";
+      }
+
+      // Fast In-Memory Delta Merge in O(K) without re-reading IDB!
+      if (!forceFull) {
+        if (rhResult && rhResult.newTrades.length > 0) {
+          const seen = new Set(rhResult.newTrades.map((t) => t.trade_id));
+          this.rhRawTrades = [
+            ...rhResult.newTrades,
+            ...this.rhRawTrades.filter((t) => !seen.has(t.trade_id)),
+          ];
+        }
+        if (rhResult && rhResult.newFunding.length > 0) {
+          const seen = new Set(rhResult.newFunding.map((f) => `${f.timestamp}_${f.market_id}`));
+          this.rhFunding = [
+            ...rhResult.newFunding,
+            ...this.rhFunding.filter((f) => !seen.has(`${f.timestamp}_${f.market_id}`)),
+          ];
+        }
+        if (rhResult && rhResult.newWithdrawals.length > 0) {
+          const seen = new Set(rhResult.newWithdrawals.map((w) => w.id));
+          this.rhWithdrawals = [
+            ...rhResult.newWithdrawals,
+            ...this.rhWithdrawals.filter((w) => !seen.has(w.id)),
+          ];
+        }
+
+        if (coreResult && coreResult.newTrades.length > 0) {
+          const seen = new Set(coreResult.newTrades.map((t) => t.trade_id));
+          this.coreRawTrades = [
+            ...coreResult.newTrades,
+            ...this.coreRawTrades.filter((t) => !seen.has(t.trade_id)),
+          ];
+        }
+        if (coreResult && coreResult.newFunding.length > 0) {
+          const seen = new Set(coreResult.newFunding.map((f) => `${f.timestamp}_${f.market_id}`));
+          this.coreFunding = [
+            ...coreResult.newFunding,
+            ...this.coreFunding.filter((f) => !seen.has(`${f.timestamp}_${f.market_id}`)),
+          ];
+        }
+        if (coreResult && coreResult.newWithdrawals.length > 0) {
+          const seen = new Set(coreResult.newWithdrawals.map((w) => w.id));
+          this.coreWithdrawals = [
+            ...coreResult.newWithdrawals,
+            ...this.coreWithdrawals.filter((w) => !seen.has(w.id)),
+          ];
+        }
+      } else {
+        // Full Resync: re-read everything fresh from IDB
+        await this.loadCachedDataFromDb();
+      }
+
+      // Re-read updated metadata
+      if (this.activeRhAccountKey) {
+        this.rhAccountMeta = await getAccountMeta(this.activeRhAccountKey);
+      }
+      if (this.activeCoreAccountKey) {
+        this.coreAccountMeta = await getAccountMeta(this.activeCoreAccountKey);
+      }
+
+      this.rhAccountIndex = this.rhAccountMeta?.accountIndex ?? null;
+      this.rhAccountIndices = this.rhAccountIndex != null ? [this.rhAccountIndex] : [];
+      this.coreAccountIndex = this.coreAccountMeta?.accountIndex ?? null;
+      this.coreAccountIndices = this.coreAccountIndex != null ? [this.coreAccountIndex] : [];
+
+      this.updateSlotStatusBadges();
+
+      // Recalculate hedge analytics directly in memory (~15-30ms)
       this.recalculateAndRenderHedge();
-      this.hedgeEmptyStatePanel?.classList.add("hidden");
-      this.hedgeLoadedToolbar?.classList.remove("hidden");
+
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      const totalNewTrades =
+        (rhResult?.newTrades.length || 0) + (coreResult?.newTrades.length || 0);
+
+      this.updateSyncUiState(
+        false,
+        totalNewTrades > 0
+          ? `Synced +${totalNewTrades} new trades in ${elapsedSec}s.`
+          : `All data is up to date (${elapsedSec}s).`,
+      );
+    } catch (err: any) {
+      if (err.name === "AbortError" || signal.aborted) {
+        this.updateSyncUiState(false, "Sync cancelled.");
+      } else if (err instanceof AuthExpiredError) {
+        alert(err.message);
+        this.openCredentialsDrawer();
+        this.updateSyncUiState(false, err.message);
+      } else {
+        console.error("[LighterSync] Sync failed:", err);
+        this.updateSyncUiState(false, `Sync error: ${err.message || String(err)}`);
+      }
+    } finally {
+      this.isSyncing = false;
+      this.syncAbortController = null;
+    }
+  }
+
+  private setCardOverlaysVisible(visible: boolean): void {
+    for (const el of this.cardOverlays) {
+      if (visible) {
+        el.classList.remove("hidden");
+      } else {
+        el.classList.add("hidden");
+      }
+    }
+  }
+
+  private updateSyncUiState(syncing: boolean, message: string): void {
+    if (this.syncStatusMessage) this.syncStatusMessage.textContent = message;
+
+    if (this.syncIconSpin) {
+      if (syncing) this.syncIconSpin.classList.add("animate-spin");
+      else this.syncIconSpin.classList.remove("animate-spin");
+    }
+
+    this.setCardOverlaysVisible(syncing);
+
+    if (syncing) {
+      if (this.btnSyncNewData) {
+        this.btnSyncNewData.classList.remove(
+          "bg-terminal-emerald/20",
+          "border-terminal-emerald/50",
+          "hover:bg-terminal-emerald/30",
+          "text-terminal-emerald",
+        );
+        this.btnSyncNewData.classList.add(
+          "bg-terminal-coral/20",
+          "border-terminal-coral/50",
+          "hover:bg-terminal-coral/30",
+          "text-terminal-coral",
+        );
+        this.btnSyncNewData.title = "Stop synchronization";
+      }
+      this.syncIconSpin?.classList.add("hidden");
+      this.stopIconCross?.classList.remove("hidden");
+      if (this.labelSyncButtonText) this.labelSyncButtonText.textContent = "Stop";
+      this.labelLastSyncedAt?.classList.add("hidden");
+
+      this.btnFullResync?.classList.add("opacity-50", "pointer-events-none");
+      this.btnHedgeExportCsv?.classList.add("opacity-50", "pointer-events-none");
+      if (this.btnHedgeExportCsv) this.btnHedgeExportCsv.disabled = true;
+      this.syncProgressWrapper?.classList.remove("hidden");
+      if (this.syncProgressBar) this.syncProgressBar.style.width = "5%";
+    } else {
+      if (this.btnSyncNewData) {
+        this.btnSyncNewData.classList.remove(
+          "bg-terminal-coral/20",
+          "border-terminal-coral/50",
+          "hover:bg-terminal-coral/30",
+          "text-terminal-coral",
+        );
+        this.btnSyncNewData.classList.add(
+          "bg-terminal-emerald/20",
+          "border-terminal-emerald/50",
+          "hover:bg-terminal-emerald/30",
+          "text-terminal-emerald",
+        );
+      }
+      this.syncIconSpin?.classList.remove("hidden");
+      this.stopIconCross?.classList.add("hidden");
+      if (this.labelSyncButtonText) this.labelSyncButtonText.textContent = "Sync";
+      this.labelLastSyncedAt?.classList.remove("hidden");
+      this.updateSlotStatusBadges();
+
+      this.btnFullResync?.classList.remove("opacity-50", "pointer-events-none");
+      this.btnHedgeExportCsv?.classList.remove("opacity-50", "pointer-events-none");
+      if (this.btnHedgeExportCsv) this.btnHedgeExportCsv.disabled = false;
+      if (this.syncProgressBar) this.syncProgressBar.style.width = "100%";
+      setTimeout(() => {
+        if (!this.isSyncing) {
+          this.syncProgressWrapper?.classList.add("hidden");
+          if (this.syncProgressBar) this.syncProgressBar.style.width = "0%";
+        }
+      }, 600);
     }
   }
 
@@ -902,8 +1202,8 @@ export class HedgeController {
       parseTradeForView(t, coreAccQuery, this.coreMarketMap),
     );
 
-    processTradesFundingHistory(this.rhParsedTrades, this.rhStitched?.funding_history);
-    processTradesFundingHistory(this.coreParsedTrades, this.coreStitched?.funding_history);
+    processTradesFundingHistory(this.rhParsedTrades, this.rhFunding);
+    processTradesFundingHistory(this.coreParsedTrades, this.coreFunding);
 
     sortParsedTradesChronologicalDesc(this.rhParsedTrades);
     sortParsedTradesChronologicalDesc(this.coreParsedTrades);
@@ -987,20 +1287,17 @@ export class HedgeController {
         ).length
       : this.coreRawTrades.length;
 
-    const rhRawWithdrawals = this.rhStitched?.withdrawals || [];
-    const coreRawWithdrawals = this.coreStitched?.withdrawals || [];
-
     const rhFilteredWithdrawals = this.activeHedgeDateFilter
-      ? rhRawWithdrawals.filter((w) =>
+      ? this.rhWithdrawals.filter((w) =>
           isTradeInDateRange(w.timestampMs, this.activeHedgeDateFilter),
         )
-      : rhRawWithdrawals;
+      : this.rhWithdrawals;
 
     const coreFilteredWithdrawals = this.activeHedgeDateFilter
-      ? coreRawWithdrawals.filter((w) =>
+      ? this.coreWithdrawals.filter((w) =>
           isTradeInDateRange(w.timestampMs, this.activeHedgeDateFilter),
         )
-      : coreRawWithdrawals;
+      : this.coreWithdrawals;
 
     this.hedgeMetrics = calculateHedgeMetrics(
       this.hedgePairs,
@@ -1037,8 +1334,8 @@ export class HedgeController {
       Date.now(),
       this.marketSortColumn,
       this.marketSortDirection,
-      this.rhStitched?.funding_history,
-      this.coreStitched?.funding_history,
+      this.rhFunding,
+      this.coreFunding,
     );
 
     renderMarketSummaryCards(
@@ -1069,7 +1366,6 @@ export class HedgeController {
       sym === "" ||
       sym.toUpperCase() === "TOTAL"
     ) {
-      // Toggle off: clear selection and active market indicator
       this.activeMarketFilter = null;
       this.selectedHedgeRowIds.clear();
       this.lastClickedHedgeRowId = null;
@@ -1080,10 +1376,7 @@ export class HedgeController {
       return;
     }
 
-    // Toggle on: select all trades of this market without changing the table list
     this.activeMarketFilter = sym;
-
-    // Populate selected row IDs for all pairs and unhedged trades of this market
     this.selectedHedgeRowIds.clear();
     const targetSym = sym.toUpperCase();
     for (const p of this.hedgePairs) {
@@ -1210,9 +1503,9 @@ export class HedgeController {
       coreAccountIndex: coreAccQuery,
       rhAccountIndices: this.rhAccountIndices,
       coreAccountIndices: this.coreAccountIndices,
-      rhFundingHistory: this.rhStitched?.funding_history,
-      rhWithdrawals: this.rhStitched?.withdrawals,
-      coreWithdrawals: this.coreStitched?.withdrawals,
+      rhFundingHistory: this.rhFunding,
+      rhWithdrawals: this.rhWithdrawals,
+      coreWithdrawals: this.coreWithdrawals,
       nowMs: Date.now(),
       pointsByWeek,
     });
@@ -1229,7 +1522,6 @@ export class HedgeController {
     }
 
     const activeWeekNumber = this.activeHedgeDateFilter?.weekNumber ?? null;
-
     const sortedParticipating = sortWeeklyPointsStats(
       participating,
       this.weeklyPointsSortColumn,
@@ -1275,21 +1567,21 @@ export class HedgeController {
     }
 
     const unhedgedCount = this.unhedgedTrades.filter((u) => u.network === network).length;
-    const stitched = isRh ? this.rhStitched : this.coreStitched;
+    const fundingHistory = isRh ? this.rhFunding : this.coreFunding;
     const oiResult = calculateAccountAverageOi(
       trades,
       this.activeHedgeDateFilter,
       Date.now(),
-      stitched?.funding_history,
+      fundingHistory,
     );
     const dailyStats = calculateAccountDailyStats(
       trades,
       this.activeHedgeDateFilter,
       Date.now(),
-      stitched?.funding_history,
+      fundingHistory,
     );
 
-    const rawWithdrawals = isRh ? this.rhStitched?.withdrawals : this.coreStitched?.withdrawals;
+    const rawWithdrawals = isRh ? this.rhWithdrawals : this.coreWithdrawals;
     const filteredWithdrawals = (rawWithdrawals || []).filter((w) =>
       this.activeHedgeDateFilter
         ? isTradeInDateRange(w.timestampMs, this.activeHedgeDateFilter)
@@ -1443,7 +1735,8 @@ export class HedgeController {
   }
 
   public downloadHedgeCsv(): void {
-    if (this.hedgePairs.length === 0 && this.unhedgedTrades.length === 0) return;
+    if (this.isSyncing || (this.hedgePairs.length === 0 && this.unhedgedTrades.length === 0))
+      return;
 
     let pairsToExport = this.hedgePairs;
     let unhedgedToExport = this.unhedgedTrades;
@@ -1482,109 +1775,6 @@ export class HedgeController {
     downloadTextFile(csvContent, filename, "text/csv;charset=utf-8");
   }
 
-  public clearHedgeSlot(slot: "rh" | "core"): void {
-    this.uploadSessionId++;
-    if (slot === "rh") {
-      this.rhBatches = [];
-      this.rhRawTrades = [];
-      this.rhParsedTrades = [];
-      this.rhAccountIndex = null;
-      this.rhAccountIndices = [];
-      this.rhFileName = "";
-      this.rhStitched = null;
-      if (this.statusRhFile) {
-        this.statusRhFile.innerHTML =
-          'Drop <code class="text-terminal-emerald">rh-*.json</code> or raw API';
-        this.statusRhFile.title = "";
-        this.statusRhFile.className =
-          "text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center";
-      }
-      if (this.labelRhAccount) {
-        this.labelRhAccount.textContent = "No files loaded";
-        this.labelRhAccount.className =
-          "text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36";
-      }
-      if (this.btnClearRh) this.btnClearRh.classList.add("hidden");
-      if (this.fileInputRh) this.fileInputRh.value = "";
-      if (this.btnBrowseRhFile) this.btnBrowseRhFile.textContent = "Select Files";
-      if (this.loadedRhFileName) {
-        this.loadedRhFileName.textContent = "--";
-        this.loadedRhFileName.title = "";
-      }
-    } else {
-      this.coreBatches = [];
-      this.coreRawTrades = [];
-      this.coreParsedTrades = [];
-      this.coreAccountIndex = null;
-      this.coreAccountIndices = [];
-      this.coreFileName = "";
-      this.coreStitched = null;
-      if (this.statusCoreFile) {
-        this.statusCoreFile.innerHTML =
-          'Drop <code class="text-terminal-accent">mainnet-*.json</code> or raw API';
-        this.statusCoreFile.title = "";
-        this.statusCoreFile.className =
-          "text-[11px] text-terminal-secondary truncate w-full max-w-full px-1 text-center";
-      }
-      if (this.labelCoreAccount) {
-        this.labelCoreAccount.textContent = "No files loaded";
-        this.labelCoreAccount.className =
-          "text-[10px] text-terminal-muted truncate max-w-28 sm:max-w-36";
-      }
-      if (this.btnClearCore) this.btnClearCore.classList.add("hidden");
-      if (this.fileInputCore) this.fileInputCore.value = "";
-      if (this.btnBrowseCoreFile) this.btnBrowseCoreFile.textContent = "Select Files";
-      if (this.loadedCoreFileName) {
-        this.loadedCoreFileName.textContent = "--";
-        this.loadedCoreFileName.title = "";
-      }
-    }
-
-    this.allHedgePairs = [];
-    this.allUnhedgedTrades = [];
-    this.hedgePairs = [];
-    this.unhedgedTrades = [];
-    this.hedgePairsMap.clear();
-    this.unhedgedTradesMap.clear();
-    this.filteredHedgePairs = [];
-    this.filteredUnhedgedTrades = [];
-    this.hedgeMetrics = null;
-    this.selectedHedgeRowIds.clear();
-    this.lastClickedHedgeRowId = null;
-    this.lastClickedHedgeRowState = true;
-    this.selectionSnapshot.clear();
-    updateHedgeSelectionMetrics(null, this.hedgeSelectionMetricElements);
-
-    if (this.rhRawTrades.length === 0 || this.coreRawTrades.length === 0) {
-      this.hedgeLoadedToolbar?.classList.add("hidden");
-      this.hedgeEmptyStatePanel?.classList.remove("hidden");
-    }
-
-    this.updateHedgeExecutiveSummary();
-    this.updateHedgeMarketSummary();
-    this.applyHedgeFilter();
-    this.updateHedgeDateFilterUi();
-  }
-
-  public clearHedge(): void {
-    this.uploadSessionId++;
-    this.activeHedgeDateFilter = null;
-    this.activeMarketFilter = null;
-    this.marketSortColumn = "volumeUsd";
-    this.marketSortDirection = "desc";
-    this.rhIndividualMetrics = null;
-    this.coreIndividualMetrics = null;
-    this.weeklyPointsSortColumn = "weekNumber";
-    this.weeklyPointsSortDirection = "asc";
-    this.renderWeeklyPointsAnalysis();
-    if (this.selectHedgeDatePreset) this.selectHedgeDatePreset.value = "all";
-    if (this.inputCustomHedgeDateFrom) this.inputCustomHedgeDateFrom.value = "";
-    if (this.inputCustomHedgeDateTo) this.inputCustomHedgeDateTo.value = "";
-    this.customHedgeDateContainer?.classList.add("hidden");
-    this.clearHedgeSlot("rh");
-    this.clearHedgeSlot("core");
-  }
-
   private getVisibleHedgeRowIds(): string[] {
     if (!this.hedgeTableBody) return [];
     const ids: string[] = [];
@@ -1607,62 +1797,46 @@ export class HedgeController {
 
     this.selectedHedgeRowIds = result.newSelectedIds;
     this.lastClickedHedgeRowId = result.newAnchorId;
-    if (
-      result.newAnchorId === targetId &&
-      !this.selectionSnapshot.has(targetId) &&
-      this.lastClickedHedgeRowState
-    ) {
-      this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
-    }
+    this.onHedgeSelectionChanged();
   }
 
   private handleHedgeTableClick(e: MouseEvent): void {
     const target = e.target as HTMLElement;
-    const tr = target.closest("tr") as HTMLTableRowElement | null;
-    if (!tr || !tr.dataset.id) return;
+    const row = target.closest("tr[data-id]") as HTMLTableRowElement | null;
+    if (!row || !row.dataset.id) return;
 
-    const id = tr.dataset.id;
-    const isCheckbox =
-      target.classList.contains("hedge-row-cb") || target instanceof HTMLInputElement;
-
-    // Ignore clicks on links or action buttons inside the row
-    if (!isCheckbox && (target.closest("a") || target.closest("button"))) return;
-
-    // Ignore text selection on normal drag-selection clicks (never block Shift-range selection)
-    if (!e.shiftKey && !isCheckbox) {
-      const sel = window.getSelection();
-      if (sel && sel.toString().trim().length > 0) return;
-    }
+    const rowId = row.dataset.id;
+    const isCheckbox = target instanceof HTMLInputElement && target.type === "checkbox";
 
     if (e.shiftKey) {
       e.preventDefault();
-      window.getSelection()?.removeAllRanges();
-      this.handleHedgeRangeSelection(id);
-    } else {
-      if (isCheckbox) {
-        const cb = target as HTMLInputElement;
-        const isChecked = cb.checked;
-        if (isChecked) {
-          this.selectedHedgeRowIds.add(id);
-        } else {
-          this.selectedHedgeRowIds.delete(id);
-        }
-        this.lastClickedHedgeRowId = id;
-        this.lastClickedHedgeRowState = isChecked;
-        this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
-      } else {
-        const isNowSelected = !this.selectedHedgeRowIds.has(id);
-        if (isNowSelected) {
-          this.selectedHedgeRowIds.add(id);
-        } else {
-          this.selectedHedgeRowIds.delete(id);
-        }
-        this.lastClickedHedgeRowId = id;
-        this.lastClickedHedgeRowState = isNowSelected;
-        this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
-      }
+      this.handleHedgeRangeSelection(rowId);
+      return;
     }
 
+    if (isCheckbox) {
+      const cb = target as HTMLInputElement;
+      if (cb.checked) {
+        this.selectedHedgeRowIds.add(rowId);
+      } else {
+        this.selectedHedgeRowIds.delete(rowId);
+      }
+      this.lastClickedHedgeRowId = rowId;
+      this.lastClickedHedgeRowState = cb.checked;
+      this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
+      this.onHedgeSelectionChanged();
+      return;
+    }
+
+    if (this.selectedHedgeRowIds.has(rowId)) {
+      this.selectedHedgeRowIds.delete(rowId);
+      this.lastClickedHedgeRowState = false;
+    } else {
+      this.selectedHedgeRowIds.add(rowId);
+      this.lastClickedHedgeRowState = true;
+    }
+    this.lastClickedHedgeRowId = rowId;
+    this.selectionSnapshot = new Set(this.selectedHedgeRowIds);
     this.onHedgeSelectionChanged();
   }
 
@@ -1686,6 +1860,45 @@ export class HedgeController {
     this.onHedgeSelectionChanged();
   }
 
+  private onHedgeSelectionChanged(): void {
+    if (this.hedgeTableBody) {
+      const rows = this.hedgeTableBody.querySelectorAll<HTMLTableRowElement>("tr[data-id]");
+      for (const r of rows) {
+        const id = r.dataset.id;
+        if (!id) continue;
+        const cb = r.querySelector<HTMLInputElement>("input.hedge-row-cb");
+        const isSelected = this.selectedHedgeRowIds.has(id);
+        if (cb) cb.checked = isSelected;
+        if (isSelected) {
+          r.classList.add("bg-white/10", "hover:bg-white/[0.13]");
+        } else {
+          r.classList.remove("bg-white/10", "hover:bg-white/[0.13]");
+        }
+      }
+    }
+
+    this.updateHeaderCheckboxState();
+
+    if (this.selectedHedgeRowIds.size === 0) {
+      updateHedgeSelectionMetrics(null, this.hedgeSelectionMetricElements);
+      return;
+    }
+
+    const selPairs: HedgePair[] = [];
+    const selUnhedged: UnhedgedTrade[] = [];
+    for (const id of this.selectedHedgeRowIds) {
+      const p = this.hedgePairsMap.get(id);
+      if (p) selPairs.push(p);
+      else {
+        const u = this.unhedgedTradesMap.get(id);
+        if (u) selUnhedged.push(u);
+      }
+    }
+
+    const selMetrics = calculateSelectedHedgeMetrics(selPairs, selUnhedged);
+    updateHedgeSelectionMetrics(selMetrics, this.hedgeSelectionMetricElements);
+  }
+
   private updateHeaderCheckboxState(): void {
     if (!this.checkAllHedge) return;
     const visibleIds = this.getVisibleHedgeRowIds();
@@ -1694,60 +1907,16 @@ export class HedgeController {
       this.checkAllHedge.indeterminate = false;
       return;
     }
-
-    const selectedVisibleCount = visibleIds.filter((id) => this.selectedHedgeRowIds.has(id)).length;
-    this.checkAllHedge.checked = selectedVisibleCount === visibleIds.length;
-    this.checkAllHedge.indeterminate =
-      selectedVisibleCount > 0 && selectedVisibleCount < visibleIds.length;
-  }
-
-  private onHedgeSelectionChanged(): void {
-    const selectedPairs: HedgePair[] = [];
-    const selectedUnhedged: UnhedgedTrade[] = [];
-
-    for (const id of this.selectedHedgeRowIds) {
-      const p = this.hedgePairsMap.get(id);
-      if (p) {
-        selectedPairs.push(p);
-      } else {
-        const u = this.unhedgedTradesMap.get(id);
-        if (u) selectedUnhedged.push(u);
-      }
-    }
-
-    const metrics = calculateSelectedHedgeMetrics(selectedPairs, selectedUnhedged);
-    updateHedgeSelectionMetrics(metrics, this.hedgeSelectionMetricElements);
-
-    // Fast DOM sync without full table reconstruction
-    if (this.hedgeTableBody) {
-      const rows = this.hedgeTableBody.querySelectorAll<HTMLTableRowElement>("tr[data-id]");
-      for (const r of rows) {
-        const id = r.dataset.id;
-        if (!id) continue;
-        const isSelected = this.selectedHedgeRowIds.has(id);
-        const cb = r.querySelector<HTMLInputElement>(".hedge-row-cb");
-        if (cb && cb.checked !== isSelected) {
-          cb.checked = isSelected;
-        }
-
-        const baseClass =
-          "hover:bg-terminal-surfaceHover transition-colors text-xs font-mono select-text cursor-pointer";
-        const isUnhedged = id.startsWith("unhedged-");
-        if (isSelected) {
-          r.className = `${baseClass} bg-white/10 hover:bg-white/[0.13]`;
-        } else {
-          r.className = isUnhedged ? `${baseClass} bg-terminal-coral/5` : baseClass;
-        }
-      }
-    }
-
-    this.updateHeaderCheckboxState();
-
-    if (this.btnHedgeExportCsv) {
-      this.btnHedgeExportCsv.textContent =
-        this.selectedHedgeRowIds.size > 0
-          ? `Export CSV (${this.selectedHedgeRowIds.size})`
-          : "Export CSV";
+    const count = visibleIds.filter((id) => this.selectedHedgeRowIds.has(id)).length;
+    if (count === 0) {
+      this.checkAllHedge.checked = false;
+      this.checkAllHedge.indeterminate = false;
+    } else if (count === visibleIds.length) {
+      this.checkAllHedge.checked = true;
+      this.checkAllHedge.indeterminate = false;
+    } else {
+      this.checkAllHedge.checked = false;
+      this.checkAllHedge.indeterminate = true;
     }
   }
 }

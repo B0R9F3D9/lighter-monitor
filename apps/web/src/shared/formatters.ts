@@ -37,10 +37,7 @@ export function formatBaseQty(qty: number | undefined | null): string {
   return qty.toFixed(4);
 }
 
-export function formatDeltaMid(
-  deltaUsd: number | undefined | null,
-  _deltaBps?: number | undefined | null,
-): string {
+export function formatDeltaMid(deltaUsd: number | undefined | null): string {
   if (deltaUsd === undefined || deltaUsd === null || isNaN(deltaUsd)) return "Δ: $0.00";
   const sign = deltaUsd >= 0 ? "+" : "-";
   const abs = Math.abs(deltaUsd);

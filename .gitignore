@@ -43,8 +43,6 @@ apps/bot/load-tests/*.sql
 /src/spread_assets.ts
 /src/version.ts
 /src/*.html
-/web/src/checker/bookmarklet_code.ts
 apps/web/dist/
 apps/web/src/version.ts
-apps/web/src/checker/bookmarklet_code.ts
 

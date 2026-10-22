@@ -280,7 +280,7 @@ export function renderHedgeTable(
       <td colspan="13" class="py-12 text-center text-terminal-muted">
         <div class="flex flex-col items-center justify-center gap-1.5">
           <span class="text-terminal-secondary font-medium">No hedge pairs to display</span>
-          <span class="text-[11px] text-terminal-muted">Upload both your Robinhood JSON and Core JSON files to compare and audit your hedge efficiency.</span>
+          <span class="text-[11px] text-terminal-muted">Configure Read-Only tokens above and click "Sync New Data" to compare and audit your hedge efficiency.</span>
         </div>
       </td>
     `;
@@ -357,7 +357,7 @@ export function updateHedgeExecutiveMetrics(
       elements.funding.title = "No funding data";
     }
     if (elements.withdrawals) {
-      elements.withdrawals.textContent = "RH: 0 / CORE: 0";
+      elements.withdrawals.textContent = "RH: 0 / Core: 0";
       elements.withdrawals.className = "font-bold text-white tabular-nums";
       elements.withdrawals.title = "No withdrawals data";
     }
@@ -446,7 +446,7 @@ export function updateHedgeExecutiveMetrics(
   if (elements.withdrawals) {
     const rhCount = metrics.rhWithdrawalsCount ?? 0;
     const coreCount = metrics.coreWithdrawalsCount ?? 0;
-    elements.withdrawals.textContent = `RH: ${rhCount} / CORE: ${coreCount}`;
+    elements.withdrawals.textContent = `RH: ${rhCount} / Core: ${coreCount}`;
     elements.withdrawals.className = "font-bold text-white tabular-nums";
     const wFeeTotal = metrics.totalWithdrawalFeesUsd ?? 0;
     const feeStr = wFeeTotal > 0.0001 ? ` · Total Fee: ${formatFee(wFeeTotal)}` : "";

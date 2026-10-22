@@ -1,5 +1,38 @@
 export type CheckerNetwork = "rh" | "mainnet";
 
+export interface LighterTokenInfo {
+  rawToken: string;
+  accountIndex: number;
+  network: CheckerNetwork;
+  expiryMs?: number;
+  scope?: string;
+  keyIndex?: number;
+}
+
+export interface AccountSyncState {
+  latestTradeId?: number;
+  latestTradeTs?: number; // Normalized in milliseconds
+  latestFundingTs?: number; // Normalized in milliseconds
+  latestWithdrawId?: string;
+  latestWithdrawTs?: number; // Normalized in milliseconds
+  hasFullHistory: boolean;
+}
+
+export interface AccountMetaRecord {
+  accountKey: string; // e.g. "rh:31704" or "mainnet:749329"
+  network: CheckerNetwork;
+  accountIndex: number;
+  authToken: string;
+  positions?: any[];
+  fundingSummary?: {
+    totalFundingUsd: number;
+    byMarketUsd: Record<string, number>;
+  };
+  lastSyncedAt?: number;
+  totalTradesCount?: number;
+  syncState?: AccountSyncState;
+}
+
 export interface LighterTrade {
   trade_id: number;
   trade_id_str: string;
@@ -43,6 +76,12 @@ export interface LighterTrade {
   total_funding_paid_out?: number | string;
 }
 
+export interface DbTradeRecord extends LighterTrade {
+  uid: string; // "${accountKey}:${String(timestampMs).padStart(15, '0')}:${String(trade_id).padStart(12, '0')}"
+  accountKey: string;
+  timestampMs: number;
+}
+
 export type AccountQuery = number | number[] | Set<number>;
 
 export interface PositionFundingRecord {
@@ -54,6 +93,12 @@ export interface PositionFundingRecord {
   position_size?: string | number;
   position_side?: "long" | "short" | string;
   discount?: string | number;
+}
+
+export interface DbFundingRecord extends PositionFundingRecord {
+  uid: string; // "${accountKey}:${String(timestampMs).padStart(15, '0')}:${market_id}"
+  accountKey: string;
+  timestampMs: number;
 }
 
 export interface WithdrawalRecord {
@@ -71,44 +116,31 @@ export interface WithdrawalRecord {
   feeUsd?: number;
 }
 
-export interface ImportedTradesResult {
-  trades: LighterTrade[];
-  accountIndex: number | null;
-  accountIndices: number[];
-  network: CheckerNetwork | null;
-  l1Address?: string;
-  exportedAt?: string;
-  isTruncated?: boolean;
-  rowCap?: number;
-  fileName?: string;
-  nextCursor?: string;
-  positions?: any[];
-  totalFundingUsd?: number | null;
-  fundingByMarketId?: Map<number, number>;
-  fundingBySymbol?: Map<string, number>;
-  funding_history?: PositionFundingRecord[];
-  hasFundingHistory?: boolean;
-  withdrawals?: WithdrawalRecord[];
-  hasWithdrawals?: boolean;
+export interface DbWithdrawalRecord extends WithdrawalRecord {
+  uid: string; // "${accountKey}:${String(timestampMs).padStart(15, '0')}:${id}"
+  accountKey: string;
 }
 
-export interface StitchedTradesResult {
-  trades: LighterTrade[];
-  accountIndices: number[];
-  primaryAccountIndex: number | null;
-  network: CheckerNetwork | null;
-  l1Address?: string;
-  totalRawTradesCount: number;
-  duplicateTradesCount: number;
-  fileCount: number;
-  fileNames: string[];
-  totalFundingUsd?: number | null;
-  fundingByMarketId?: Map<number, number>;
-  fundingBySymbol?: Map<string, number>;
-  funding_history?: PositionFundingRecord[];
-  hasFundingHistory?: boolean;
-  withdrawals?: WithdrawalRecord[];
-  hasWithdrawals?: boolean;
+export interface SyncProgressInfo {
+  network: CheckerNetwork;
+  accountIndex: number;
+  phase: "init" | "trades" | "funding" | "withdrawals" | "saving" | "done" | "error";
+  page: number;
+  count: number;
+  message: string;
+  progressPercent?: number;
+}
+
+export interface SyncResult {
+  network: CheckerNetwork;
+  accountIndex: number;
+  accountKey: string;
+  newTrades: LighterTrade[];
+  newFunding: PositionFundingRecord[];
+  newWithdrawals: WithdrawalRecord[];
+  isFullSync: boolean;
+  totalTradesInDb?: number;
+  durationMs: number;
 }
 
 export interface ParsedTradeView {
