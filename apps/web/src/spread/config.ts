@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   MAX_CAP: "terminal_max_cap",
   LEVERAGE: "terminal_leverage",
   FILTER_EQUITIES: "terminal_filter_equities",
+  CATEGORY_FILTER: "terminal_category_filter",
   FILTER_READY: "terminal_filter_ready",
   RERANK_INTERVAL: "terminal_rerank_interval",
   SORT_COLUMN: "terminal_sort_column",

@@ -24,7 +24,7 @@ import type {
   RawCandle,
   TimeframeId,
 } from "./types";
-import { CONFIG, isCryptoSymbol, formatMoney, initFontSelector } from "../shared";
+import { CONFIG, matchesCategoryFilter, formatMoney, initFontSelector } from "../shared";
 
 export type SortField = "volume" | "oi" | "change" | "price" | "symbol";
 export type SortDirection = "asc" | "desc";
@@ -59,7 +59,7 @@ export class AnalyticsController {
   private pairs: AnalyticsMarketPair[] = [];
   private activeSymbol = "AAPL";
   private activeTimeframe: TimeframeId = "24h";
-  private activeCategory: "all" | "equities" | "crypto" | "favorites" = "all";
+  private activeCategory: "all" | "stocks" | "pre_ipo" | "etf" | "crypto" | "favorites" = "all";
   private activeVenue: AnalyticsVenue = "rh";
   private currentSortField: SortField = "volume";
   private currentSortDirection: SortDirection = "desc";
@@ -256,7 +256,7 @@ export class AnalyticsController {
       this.activeStats = stats;
 
       if (this.chartContext) {
-        this.chartContext.setData(points, bands, true);
+        this.chartContext.setData(points, bands, true, undefined, pair.hedgeSideConfig.isRhLong);
       }
 
       this.updateQuantGauges(stats);
@@ -352,14 +352,20 @@ export class AnalyticsController {
 
       const points = alignCandlesToBasisPoints(rhCandles, coreCandles);
       if (points.length >= 2) {
-        const stats = calculateQuantStats(points);
+        const stats = calculateQuantStats(points, pair.hedgeSideConfig.isRhLong);
         const bands = calculateRollingBands(points, 20);
 
         this.activePoints = points;
         this.activeStats = stats;
 
         if (this.chartContext) {
-          this.chartContext.setData(points, bands, false, { fromSec, toSec });
+          this.chartContext.setData(
+            points,
+            bands,
+            false,
+            { fromSec, toSec },
+            pair.hedgeSideConfig.isRhLong,
+          );
         }
 
         this.updateQuantGauges(stats);
@@ -506,13 +512,16 @@ export class AnalyticsController {
     if (rhVal) rhVal.textContent = `$${point.rhPrice.toFixed(2)}`;
     if (coreVal) coreVal.textContent = `$${point.corePrice.toFixed(2)}`;
 
+    const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+    const isRhLong = pair ? pair.hedgeSideConfig.isRhLong : true;
+    const isEdge = isRhLong ? point.basisUsd <= 0 : point.basisUsd >= 0;
+
     const sign = point.basisUsd > 0 ? "+" : "";
     if (basisVal) {
       basisVal.textContent = `${sign}$${point.basisUsd.toFixed(3)}`;
-      const targetClass =
-        point.basisUsd <= 0
-          ? "font-bold tabular-nums text-terminal-emerald"
-          : "font-bold tabular-nums text-terminal-accent";
+      const targetClass = isEdge
+        ? "font-bold tabular-nums text-terminal-emerald"
+        : "font-bold tabular-nums text-terminal-accent";
       if (basisVal.className !== targetClass) {
         basisVal.className = targetClass;
       }
@@ -520,10 +529,9 @@ export class AnalyticsController {
 
     if (bpsVal) {
       bpsVal.textContent = `${sign}${point.basisBps.toFixed(2)} bps`;
-      const targetClass =
-        point.basisBps <= 0
-          ? "font-bold tabular-nums text-terminal-emerald"
-          : "font-bold tabular-nums text-terminal-accent";
+      const targetClass = isEdge
+        ? "font-bold tabular-nums text-terminal-emerald"
+        : "font-bold tabular-nums text-terminal-accent";
       if (bpsVal.className !== targetClass) {
         bpsVal.className = targetClass;
       }
@@ -537,6 +545,10 @@ export class AnalyticsController {
   private updateQuantGauges(stats: QuantStats | null): void {
     if (!stats) return;
 
+    const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+    const isRhLong = stats.isRhLong ?? (pair ? pair.hedgeSideConfig.isRhLong : true);
+    const isEdge = isRhLong ? stats.currentBasisUsd <= 0 : stats.currentBasisUsd >= 0;
+
     const sign = stats.currentBasisUsd > 0 ? "+" : "";
     const basisEl = document.getElementById("statCurrentBasis");
     const basisBpsEl = document.getElementById("statCurrentBasisBps");
@@ -549,18 +561,16 @@ export class AnalyticsController {
 
     if (basisEl) {
       basisEl.textContent = `${sign}$${stats.currentBasisUsd.toFixed(3)}`;
-      basisEl.className =
-        stats.currentBasisUsd <= 0
-          ? "text-sm font-bold tabular-nums text-terminal-emerald"
-          : "text-sm font-bold tabular-nums text-white";
+      basisEl.className = isEdge
+        ? "text-sm font-bold tabular-nums text-terminal-emerald"
+        : "text-sm font-bold tabular-nums text-white";
     }
 
     if (basisBpsEl) {
       basisBpsEl.textContent = `(${sign}${stats.currentBasisBps.toFixed(1)} bps)`;
-      basisBpsEl.className =
-        stats.currentBasisBps <= 0
-          ? "text-[11px] tabular-nums text-terminal-emerald"
-          : "text-[11px] tabular-nums text-terminal-muted";
+      basisBpsEl.className = isEdge
+        ? "text-[11px] tabular-nums text-terminal-emerald"
+        : "text-[11px] tabular-nums text-terminal-muted";
     }
 
     if (meanEl) {
@@ -575,12 +585,13 @@ export class AnalyticsController {
     if (zScoreEl) {
       const zSign = stats.zScore > 0 ? "+" : "";
       zScoreEl.textContent = `${zSign}${stats.zScore.toFixed(2)}σ`;
+      const effZ = stats.effectiveZScore ?? (isRhLong ? stats.zScore : -stats.zScore);
       zScoreEl.className =
-        stats.zScore <= 0
+        effZ <= 0
           ? "font-bold tabular-nums text-terminal-emerald"
-          : stats.zScore <= 1.0
+          : effZ <= 1.0
             ? "font-bold tabular-nums text-terminal-primary"
-            : stats.zScore <= 2.0
+            : effZ <= 2.0
               ? "font-bold tabular-nums text-terminal-amber"
               : "font-bold tabular-nums text-terminal-coral";
     }
@@ -594,8 +605,8 @@ export class AnalyticsController {
     }
 
     if (verdictEl) {
-      const zStr =
-        stats.zScore <= 0 ? `${stats.zScore.toFixed(2)}σ` : `+${stats.zScore.toFixed(2)}σ`;
+      const effZ = stats.effectiveZScore ?? (isRhLong ? stats.zScore : -stats.zScore);
+      const zStr = effZ <= 0 ? `${effZ.toFixed(2)}σ` : `+${effZ.toFixed(2)}σ`;
       if (stats.signal === "EXCELLENT ENTRY") {
         verdictEl.textContent = `● EXCELLENT (${zStr})`;
         verdictEl.className = "text-[11px] font-semibold text-terminal-emerald select-text";
@@ -616,7 +627,10 @@ export class AnalyticsController {
     const container = document.getElementById("heatmapContainer");
     if (!container) return;
 
-    const buckets = calculateHourlyBuckets(this.activePoints);
+    const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+    const isRhLong = pair ? pair.hedgeSideConfig.isRhLong : true;
+
+    const buckets = calculateHourlyBuckets(this.activePoints, undefined, isRhLong);
     const nowLocalHour = new Date().getHours();
 
     renderHourlyHeatmap(container, buckets, nowLocalHour);
@@ -624,9 +638,11 @@ export class AnalyticsController {
 
   private getFilteredPairs(): AnalyticsMarketPair[] {
     const list = this.pairs.filter((p) => {
-      if (this.activeCategory === "equities" && !p.isEquity) return false;
-      if (this.activeCategory === "crypto" && !isCryptoSymbol(p.symbol)) return false;
-      if (this.activeCategory === "favorites" && !this.favorites.has(p.symbol)) return false;
+      if (this.activeCategory === "favorites") {
+        if (!this.favorites.has(p.symbol)) return false;
+      } else if (this.activeCategory !== "all") {
+        if (!matchesCategoryFilter(p.symbol, this.activeCategory)) return false;
+      }
 
       if (this.searchQuery) {
         const q = this.searchQuery.toUpperCase();
@@ -1585,12 +1601,12 @@ export class AnalyticsController {
 
       this.dateFilter = { ...config, isActive: true, resolution };
       this.activePoints = filtered;
-      const stats = calculateQuantStats(filtered);
+      const stats = calculateQuantStats(filtered, pair.hedgeSideConfig.isRhLong);
       const bands = calculateRollingBands(filtered, 20);
       this.activeStats = stats;
 
       if (this.chartContext) {
-        this.chartContext.setData(filtered, bands, true);
+        this.chartContext.setData(filtered, bands, true, undefined, pair.hedgeSideConfig.isRhLong);
       }
 
       this.updateQuantGauges(stats);
@@ -1687,7 +1703,13 @@ export class AnalyticsController {
     // Modal category tabs
     document.querySelectorAll(".cat-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
-        const cat = (tab as HTMLElement).dataset.cat as "all" | "equities" | "crypto" | "favorites";
+        const cat = (tab as HTMLElement).dataset.cat as
+          | "all"
+          | "stocks"
+          | "pre_ipo"
+          | "etf"
+          | "crypto"
+          | "favorites";
         if (cat) {
           this.activeCategory = cat;
           document.querySelectorAll(".cat-tab").forEach((t) => {

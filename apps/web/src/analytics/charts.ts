@@ -39,6 +39,7 @@ export interface ChartSyncContext {
     bands: Array<{ timeSec: number; sma: number; upper: number; lower: number }>,
     fitContent?: boolean,
     targetRange?: { fromSec: number; toSec: number },
+    isRhLong?: boolean,
   ) => void;
   setLogScale: (enabled: boolean) => void;
   setShowBands: (visible: boolean) => void;
@@ -298,6 +299,7 @@ export function initAnalyticsCharts(
 
   let isSyncing = false;
   let isProgrammaticUpdate = false;
+  let currentIsRhLong = true;
   let currentPointsList: BasisPoint[] = [];
   const currentPointsMap = new Map<number, BasisPoint>();
 
@@ -383,13 +385,13 @@ export function initAnalyticsCharts(
     });
 
     if (typeof p.basisUsd === "number") {
-      const isDiscount = p.basisUsd <= 0;
+      const isEdge = currentIsRhLong ? p.basisUsd <= 0 : p.basisUsd >= 0;
       basisPriceLine.applyOptions({
         price: p.basisUsd,
         axisLabelVisible: true,
         lineVisible: true,
-        axisLabelColor: isDiscount ? CHART_PALETTE.emerald : CHART_PALETTE.accent,
-        axisLabelTextColor: isDiscount ? CHART_PALETTE.white : CHART_PALETTE.background,
+        axisLabelColor: isEdge ? CHART_PALETTE.emerald : CHART_PALETTE.accent,
+        axisLabelTextColor: isEdge ? CHART_PALETTE.white : CHART_PALETTE.background,
       });
     } else {
       basisPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
@@ -453,13 +455,28 @@ export function initAnalyticsCharts(
     bands: Array<{ timeSec: number; sma: number; upper: number; lower: number }>,
     fitContent = true,
     targetRange?: { fromSec: number; toSec: number },
+    isRhLong = true,
   ) => {
     isProgrammaticUpdate = true;
+    currentIsRhLong = isRhLong;
     currentPointsList = points;
     currentPointsMap.clear();
     for (const p of points) {
       currentPointsMap.set(p.timeSec, p);
     }
+
+    basisSeries.applyOptions({
+      topLineColor: currentIsRhLong ? CHART_PALETTE.accent : CHART_PALETTE.emerald,
+      topFillColor1: currentIsRhLong ? CHART_PALETTE.accentFillHigh : CHART_PALETTE.emeraldFillHigh,
+      topFillColor2: currentIsRhLong ? CHART_PALETTE.accentFillLow : CHART_PALETTE.emeraldFillLow,
+      bottomLineColor: currentIsRhLong ? CHART_PALETTE.emerald : CHART_PALETTE.accent,
+      bottomFillColor1: currentIsRhLong
+        ? CHART_PALETTE.emeraldFillLow
+        : CHART_PALETTE.accentFillHigh,
+      bottomFillColor2: currentIsRhLong
+        ? CHART_PALETTE.emeraldFillHigh
+        : CHART_PALETTE.accentFillLow,
+    });
 
     const rhLineData = points.map((p) => ({ time: p.timeSec as UTCTimestamp, value: p.rhPrice }));
     const coreLineData = points.map((p) => ({

@@ -3,7 +3,14 @@ import { CONFIG, STORAGE_KEYS } from "./config";
 import { getMetrics } from "./metrics";
 import { getOrCreateBook, updateBookFromWs } from "./orderbook";
 import { WebSocketManager, type WsOrderBookData } from "./ws";
-import { initFontSelector, registerTokens, isEquitySymbol } from "../shared";
+import {
+  initFontSelector,
+  registerTokens,
+  matchesCategoryFilter,
+  getHedgeCategory,
+  getHedgeSideConfig,
+  type TokenCategoryType,
+} from "../shared";
 import {
   createRowElement,
   applyRowMetricsToDom,
@@ -24,7 +31,8 @@ export class TerminalController {
     isDynamicSize: false,
     dynamicMode: "none",
     maxCapUsd: 20000,
-    filterEquities: true,
+    filterEquities: false,
+    categoryFilter: "all",
     filterReadyOnly: false,
     minLeverageFilter: 0,
     searchQuery: "",
@@ -255,8 +263,14 @@ export class TerminalController {
       totalAvailableBase: 0,
     };
 
+    const hedgeSideConfig = getHedgeSideConfig(m.symbol);
+    const hedgeCategory = getHedgeCategory(m.symbol);
+
     return {
       symbol: m.symbol,
+      isRhLong: hedgeSideConfig.isRhLong,
+      hedgeCategory,
+      hedgeSideConfig,
       leverage: m.leverage,
       leverageNum: m.leverageNum,
       rhLeverage: m.rhLeverage,
@@ -309,7 +323,7 @@ export class TerminalController {
     const now = performance.now();
 
     for (const m of this.state.markets.values()) {
-      if (this.state.filterEquities && !isEquitySymbol(m.symbol)) continue;
+      if (!matchesCategoryFilter(m.symbol, this.state.categoryFilter)) continue;
       if (this.state.minLeverageFilter > 0 && m.leverageNum < this.state.minLeverageFilter)
         continue;
       if (
@@ -789,18 +803,34 @@ export class TerminalController {
     });
   }
 
-  private updateEquitiesControl(active: boolean): void {
+  private updateCategoryControl(cat: TokenCategoryType): void {
+    const sel = document.getElementById("categorySelector") as HTMLSelectElement | null;
+    if (sel) sel.value = cat;
+
     const eqBtn = document.getElementById("equitiesToggle");
-    if (!eqBtn) return;
-    if (active) {
-      eqBtn.className =
-        "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
-      eqBtn.textContent = "Stocks Only";
-    } else {
-      eqBtn.className =
-        "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer whitespace-nowrap text-center";
-      eqBtn.textContent = "All Tokens";
+    if (eqBtn) {
+      if (cat === "stocks") {
+        eqBtn.className =
+          "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
+        eqBtn.textContent = "Single Stocks";
+      } else if (cat === "pre_ipo") {
+        eqBtn.className =
+          "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
+        eqBtn.textContent = "Pre-IPO";
+      } else if (cat === "etf") {
+        eqBtn.className =
+          "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
+        eqBtn.textContent = "ETFs";
+      } else {
+        eqBtn.className =
+          "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer whitespace-nowrap text-center";
+        eqBtn.textContent = "All Markets";
+      }
     }
+  }
+
+  private updateEquitiesControl(active: boolean): void {
+    this.updateCategoryControl(active ? "stocks" : "all");
   }
 
   private updateReadyControl(active: boolean): void {
@@ -823,7 +853,11 @@ export class TerminalController {
       localStorage.setItem(STORAGE_KEYS.SIZE_MODE, this.state.dynamicMode);
       localStorage.setItem(STORAGE_KEYS.MAX_CAP, String(this.state.maxCapUsd));
       localStorage.setItem(STORAGE_KEYS.LEVERAGE, String(this.state.minLeverageFilter));
-      localStorage.setItem(STORAGE_KEYS.FILTER_EQUITIES, String(this.state.filterEquities));
+      localStorage.setItem(STORAGE_KEYS.CATEGORY_FILTER, this.state.categoryFilter);
+      localStorage.setItem(
+        STORAGE_KEYS.FILTER_EQUITIES,
+        String(this.state.categoryFilter === "stocks"),
+      );
       localStorage.setItem(STORAGE_KEYS.FILTER_READY, String(this.state.filterReadyOnly));
       localStorage.setItem(STORAGE_KEYS.RERANK_INTERVAL, String(this.state.rerankIntervalSec));
       localStorage.setItem(STORAGE_KEYS.SORT_COLUMN, String(this.state.sortColumn));
@@ -886,10 +920,18 @@ export class TerminalController {
         }
       }
 
-      const savedEq = localStorage.getItem(STORAGE_KEYS.FILTER_EQUITIES);
-      if (savedEq !== null) {
-        this.state.filterEquities = savedEq === "true";
-        this.updateEquitiesControl(this.state.filterEquities);
+      const savedCat = localStorage.getItem(STORAGE_KEYS.CATEGORY_FILTER);
+      if (savedCat && ["all", "stocks", "pre_ipo", "etf"].includes(savedCat)) {
+        this.state.categoryFilter = savedCat as TokenCategoryType;
+        this.state.filterEquities = savedCat === "stocks";
+        this.updateCategoryControl(this.state.categoryFilter);
+      } else {
+        const savedEq = localStorage.getItem(STORAGE_KEYS.FILTER_EQUITIES);
+        if (savedEq !== null) {
+          this.state.categoryFilter = savedEq === "true" ? "stocks" : "all";
+          this.state.filterEquities = savedEq === "true";
+          this.updateCategoryControl(this.state.categoryFilter);
+        }
       }
 
       const savedReady = localStorage.getItem(STORAGE_KEYS.FILTER_READY);
@@ -930,7 +972,8 @@ export class TerminalController {
     this.state.dynamicMode = "none";
     this.state.maxCapUsd = 20000;
     this.state.minLeverageFilter = 0;
-    this.state.filterEquities = true;
+    this.state.filterEquities = false;
+    this.state.categoryFilter = "all";
     this.state.filterReadyOnly = false;
     this.state.searchQuery = "";
     this.state.sortColumn = "costUsd";
@@ -955,7 +998,7 @@ export class TerminalController {
 
     this.updateSizeControls(10000);
     this.updateLeverageControls(0);
-    this.updateEquitiesControl(true);
+    this.updateCategoryControl("all");
     this.updateReadyControl(false);
 
     try {
@@ -963,6 +1006,7 @@ export class TerminalController {
       localStorage.removeItem(STORAGE_KEYS.SIZE_MODE);
       localStorage.removeItem(STORAGE_KEYS.MAX_CAP);
       localStorage.removeItem(STORAGE_KEYS.LEVERAGE);
+      localStorage.removeItem(STORAGE_KEYS.CATEGORY_FILTER);
       localStorage.removeItem(STORAGE_KEYS.FILTER_EQUITIES);
       localStorage.removeItem(STORAGE_KEYS.FILTER_READY);
       localStorage.removeItem(STORAGE_KEYS.RERANK_INTERVAL);
@@ -1140,11 +1184,22 @@ export class TerminalController {
       }
     });
 
-    // 5. Equities toggle
+    // 5. Category selector
+    const catSel = document.getElementById("categorySelector") as HTMLSelectElement | null;
+    catSel?.addEventListener("change", (e) => {
+      const val = (e.target as HTMLSelectElement).value as TokenCategoryType;
+      this.state.categoryFilter = val;
+      this.state.filterEquities = val === "stocks";
+      this.saveFilterSettings();
+      this.rerank();
+    });
+
     const eqBtn = document.getElementById("equitiesToggle");
     eqBtn?.addEventListener("click", () => {
-      this.state.filterEquities = !this.state.filterEquities;
-      this.updateEquitiesControl(this.state.filterEquities);
+      const nextCat: TokenCategoryType = this.state.categoryFilter === "all" ? "stocks" : "all";
+      this.state.categoryFilter = nextCat;
+      this.state.filterEquities = nextCat === "stocks";
+      this.updateCategoryControl(nextCat);
       this.saveFilterSettings();
       this.rerank();
     });

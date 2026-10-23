@@ -8,6 +8,8 @@ export interface TimeframeConfig {
   durationSec: number;
 }
 
+import type { HedgeSideConfig } from "../shared";
+
 export interface RawCandle {
   t: number; // millisecond timestamp
   o: number; // open
@@ -44,6 +46,8 @@ export interface QuantStats {
   upperBandUsd: number; // Mean + 2σ
   lowerBandUsd: number; // Mean - 2σ
   zScore: number;
+  effectiveZScore: number;
+  isRhLong: boolean;
   percentile: number; // 0 to 100
   minBasisUsd: number;
   maxBasisUsd: number;
@@ -80,6 +84,7 @@ export interface AnalyticsMarketPair {
   leverage: string;
   leverageNum: number;
   isEquity: boolean;
+  hedgeSideConfig: HedgeSideConfig;
   rh: MarketVenueStats;
   core: MarketVenueStats;
   totalVolume24h: number;

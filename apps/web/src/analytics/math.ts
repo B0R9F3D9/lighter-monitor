@@ -110,7 +110,7 @@ export function evaluateSignalVerdict(zScore: number): SignalVerdict {
  * Computes mean, median, standard deviation, Bollinger bands, Z-Score,
  * percentile rank, and actionable signal verdict.
  */
-export function calculateQuantStats(points: BasisPoint[]): QuantStats | null {
+export function calculateQuantStats(points: BasisPoint[], isRhLong = true): QuantStats | null {
   if (!points.length) return null;
 
   const count = points.length;
@@ -139,8 +139,15 @@ export function calculateQuantStats(points: BasisPoint[]): QuantStats | null {
   const currentBasisUsd = latest.basisUsd;
   const currentBasisBps = latest.basisBps;
 
-  // Z-Score
+  // Raw Basis Z-Score: (basis - mean) / stdDev
   const zScore = stdDevUsd > 0.00001 ? (currentBasisUsd - meanBasisUsd) / stdDevUsd : 0;
+
+  // Effective Entry Z-Score:
+  // - If isRhLong (Crypto / Commodities / ETFs):
+  //   Opening: Long RH (buy) + Short Core (sell). Lower basis = cheaper entry.
+  // - If !isRhLong (Pre-IPOs / Equities):
+  //   Opening: Short RH (sell) + Long Core (buy). Higher basis = selling RH premium = cheaper entry!
+  const effectiveZScore = isRhLong ? zScore : -zScore;
 
   // Percentile rank (0 to 100)
   const countBelow = sortedUsd.filter((v) => v < currentBasisUsd).length;
@@ -152,7 +159,7 @@ export function calculateQuantStats(points: BasisPoint[]): QuantStats | null {
 
   const minBasisUsd = sortedUsd[0];
   const maxBasisUsd = sortedUsd[count - 1];
-  const signal = evaluateSignalVerdict(zScore);
+  const signal = evaluateSignalVerdict(effectiveZScore);
 
   return {
     count,
@@ -166,6 +173,8 @@ export function calculateQuantStats(points: BasisPoint[]): QuantStats | null {
     upperBandUsd,
     lowerBandUsd,
     zScore,
+    effectiveZScore,
+    isRhLong,
     percentile,
     minBasisUsd,
     maxBasisUsd,
@@ -224,6 +233,7 @@ export function calculateRollingBands(
 export function calculateHourlyBuckets(
   points: BasisPoint[],
   timezoneOffsetHours?: number,
+  isRhLong = true,
 ): HourlyBucketStats[] {
   const buckets: Array<{
     hour: number;
@@ -298,7 +308,13 @@ export function calculateHourlyBuckets(
   const range = maxAvgUsd - minAvgUsd;
   for (const r of result) {
     if (r.sampleCount > 0 && range > 0.0001) {
-      r.scoreNormalized = Math.max(0, Math.min(1, (r.avgBasisUsd - minAvgUsd) / range));
+      if (isRhLong) {
+        // Lower basis is cheaper entry
+        r.scoreNormalized = Math.max(0, Math.min(1, (r.avgBasisUsd - minAvgUsd) / range));
+      } else {
+        // Higher basis (RH premium) is cheaper entry
+        r.scoreNormalized = Math.max(0, Math.min(1, (maxAvgUsd - r.avgBasisUsd) / range));
+      }
     } else {
       r.scoreNormalized = 0.5;
     }

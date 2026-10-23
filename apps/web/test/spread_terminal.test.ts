@@ -22,6 +22,8 @@ import {
   isCryptoSymbol,
   isNonEquitySymbol,
   getTokenImageUrl,
+  getHedgeSideConfig,
+  matchesCategoryFilter,
   type ApiTokenInfo,
 } from "../src/shared";
 import type { MarketInfo, OrderBook, SimFillResult, TerminalState } from "../src/spread/types";
@@ -393,6 +395,7 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
   it("calculates asymmetric entry and exit when shorting premium RH and longing discount Core", () => {
     // RH: Ask 102.10, Bid 101.90 (Mid 102.0)
     // Core: Ask 100.05, Bid 99.95 (Mid 100.0)
+    const equityMarket: MarketInfo = { ...dummyMarket, symbol: "AAPL" };
     const rhBook: OrderBook = {
       marketId: 1,
       asks: new Map([[102.1, 100]]),
@@ -411,9 +414,13 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     };
 
     const now = Date.now();
-    const metrics = calculateMarketMetrics(dummyMarket, 10100, coreBook, rhBook, now, now);
+    const metrics = calculateMarketMetrics(equityMarket, 10100, coreBook, rhBook, now, now);
     expect(metrics).not.toBeNull();
     if (!metrics) return;
+
+    // Equities: RH Short / Core Long
+    expect(metrics.isRhLong).toBe(false);
+    expect(metrics.hedgeCategory).toBe("RWA_PRE_IPO_EQUITIES");
 
     // Mid: (102 + 100) / 2 = 101.0 -> 100 base units for $10,100
     expect(metrics.midPrice).toBe(101.0);
@@ -428,6 +435,53 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     expect(metrics.exitLossUsd).toBeCloseTo(215.0, 2);
 
     // Total RT loss = -$185 + $215 = $30.00
+    expect(metrics.rawCostUsd).toBeCloseTo(30.0, 2);
+    expect(metrics.costUsd).toBeCloseTo(30.0, 2);
+  });
+
+  it("calculates entry and exit for crypto/commodities/etfs when longing RH and shorting Core", () => {
+    // RH: Ask 102.10, Bid 101.90 (Mid 102.0)
+    // Core: Ask 100.05, Bid 99.95 (Mid 100.0)
+    const cryptoMarket: MarketInfo = { ...dummyMarket, symbol: "BTC" };
+    const rhBook: OrderBook = {
+      marketId: 1,
+      asks: new Map([[102.1, 100]]),
+      bids: new Map([[101.9, 100]]),
+      isSnapshotReceived: true,
+      lastUpdatedTs: Date.now(),
+      offset: 1,
+    };
+    const coreBook: OrderBook = {
+      marketId: 2,
+      asks: new Map([[100.05, 100]]),
+      bids: new Map([[99.95, 100]]),
+      isSnapshotReceived: true,
+      lastUpdatedTs: Date.now(),
+      offset: 1,
+    };
+
+    const now = Date.now();
+    const metrics = calculateMarketMetrics(cryptoMarket, 10100, coreBook, rhBook, now, now);
+    expect(metrics).not.toBeNull();
+    if (!metrics) return;
+
+    // Crypto: RH Long / Core Short
+    expect(metrics.isRhLong).toBe(true);
+    expect(metrics.hedgeCategory).toBe("CRYPTO");
+
+    // Mid: (102 + 100) / 2 = 101.0 -> 100 base units for $10,100
+    expect(metrics.midPrice).toBe(101.0);
+    expect(metrics.baseQty).toBeCloseTo(100.0, 2);
+
+    // Entry: Buy 100 RH @ 102.10 ($10,210), Sell 100 Core @ 99.95 ($9,995)
+    // Entry Loss = CostRH ($10,210) - RecvCore ($9,995) = +$215.00
+    expect(metrics.entryLossUsd).toBeCloseTo(215.0, 2);
+
+    // Exit: Sell 100 RH @ 101.90 ($10,190), Buy 100 Core @ 100.05 ($10,005)
+    // Exit Loss = CostCore ($10,005) - RecvRH ($10,190) = -$185.00
+    expect(metrics.exitLossUsd).toBeCloseTo(-185.0, 2);
+
+    // Total RT loss = +$215 - $185 = $30.00
     expect(metrics.rawCostUsd).toBeCloseTo(30.0, 2);
     expect(metrics.costUsd).toBeCloseTo(30.0, 2);
   });
@@ -458,6 +512,7 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
       isDynamicSize: false,
       dynamicMode: "none",
       maxCapUsd: 20000,
+      categoryFilter: "all",
       filterEquities: false,
       filterReadyOnly: false,
       minLeverageFilter: 0,
@@ -923,5 +978,80 @@ describe("Spread Terminal: Dynamic Token List & All Tokens Filter", () => {
     });
 
     expect(displayed.map((m) => m.symbol)).toEqual(["AAPL", "NVDA"]);
+  });
+
+  describe("Lighter Points Program Hedge Classification & Category Selector", () => {
+    it("correctly determines hedge leg directions for all three asset classes", () => {
+      // 1. Crypto: Core Short / RH Long
+      const btc = getHedgeSideConfig("BTC");
+      expect(btc.isRhLong).toBe(true);
+      expect(btc.rhSide).toBe("BUY");
+      expect(btc.coreSide).toBe("SELL");
+      expect(btc.category).toBe("CRYPTO");
+
+      // 2. RWA Commodities & ETFs: Core Short / RH Long
+      const spy = getHedgeSideConfig("SPY");
+      expect(spy.isRhLong).toBe(true);
+      expect(spy.rhSide).toBe("BUY");
+      expect(spy.coreSide).toBe("SELL");
+      expect(spy.category).toBe("RWA_COMMODITIES_ETF");
+
+      const xau = getHedgeSideConfig("XAU");
+      expect(xau.isRhLong).toBe(true);
+      expect(xau.rhSide).toBe("BUY");
+      expect(xau.coreSide).toBe("SELL");
+      expect(xau.category).toBe("RWA_COMMODITIES_ETF");
+
+      // 3. RWA Pre IPOs & Equities: Core Long / RH Short
+      const aapl = getHedgeSideConfig("AAPL");
+      expect(aapl.isRhLong).toBe(false);
+      expect(aapl.rhSide).toBe("SELL");
+      expect(aapl.coreSide).toBe("BUY");
+      expect(aapl.category).toBe("RWA_PRE_IPO_EQUITIES");
+
+      const openai = getHedgeSideConfig("OPENAI");
+      expect(openai.isRhLong).toBe(false);
+      expect(openai.rhSide).toBe("SELL");
+      expect(openai.coreSide).toBe("BUY");
+      expect(openai.category).toBe("RWA_PRE_IPO_EQUITIES");
+    });
+
+    it("filters markets correctly via matchesCategoryFilter across all dropdown options", () => {
+      const allTokens = [
+        "AAPL",
+        "NVDA",
+        "OPENAI",
+        "ANTHROPIC",
+        "SPCX",
+        "CRWV",
+        "SHEIN",
+        "CRCL",
+        "SPY",
+        "QQQ",
+        "BTC",
+        "ETH",
+        "XAU",
+      ];
+
+      // 'all': matches every token
+      const allResult = allTokens.filter((s) => matchesCategoryFilter(s, "all"));
+      expect(allResult.length).toBe(allTokens.length);
+
+      // 'stocks': single stocks only (AAPL, NVDA - excluding Pre-IPOs, ETFs, commodities, crypto)
+      const stocksResult = allTokens.filter((s) => matchesCategoryFilter(s, "stocks"));
+      expect(stocksResult).toEqual(["AAPL", "NVDA"]);
+
+      // 'pre_ipo': pre-IPO equities (OPENAI, ANTHROPIC, SPCX, CRWV, SHEIN, CRCL)
+      const preIpoResult = allTokens.filter((s) => matchesCategoryFilter(s, "pre_ipo"));
+      expect(preIpoResult).toEqual(["OPENAI", "ANTHROPIC", "SPCX", "CRWV", "SHEIN", "CRCL"]);
+
+      // 'etf': ETFs only (SPY, QQQ)
+      const etfResult = allTokens.filter((s) => matchesCategoryFilter(s, "etf"));
+      expect(etfResult).toEqual(["SPY", "QQQ"]);
+
+      // 'crypto': Crypto tokens only (BTC, ETH)
+      const cryptoResult = allTokens.filter((s) => matchesCategoryFilter(s, "crypto"));
+      expect(cryptoResult).toEqual(["BTC", "ETH"]);
+    });
   });
 });

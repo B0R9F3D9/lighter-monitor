@@ -1,3 +1,5 @@
+import type { HedgeSideConfig, HedgeStrategyCategory, TokenCategoryType } from "../shared";
+
 export interface OrderBookLevel {
   price: number;
   totalBase: number;
@@ -112,6 +114,9 @@ export interface MarketMetrics {
   isDynamic: boolean;
   dynamicMode: DynamicSizeMode;
   status: "READY" | "SLIPPAGE" | "LOW LIQ" | "STALE";
+  isRhLong: boolean;
+  hedgeCategory: HedgeStrategyCategory;
+  hedgeSideConfig: HedgeSideConfig;
   legs: ExecutionLegs;
   computedAt?: number;
 }
@@ -130,6 +135,7 @@ export interface TerminalState {
   dynamicMode: DynamicSizeMode;
   maxCapUsd: number;
   filterEquities: boolean;
+  categoryFilter: TokenCategoryType;
   filterReadyOnly: boolean;
   minLeverageFilter: number;
   searchQuery: string;

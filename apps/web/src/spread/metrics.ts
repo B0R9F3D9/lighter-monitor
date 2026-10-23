@@ -11,6 +11,7 @@ import { CONFIG } from "./config";
 import { ASC_COMP, FlatOrderBookSide } from "./orderbook";
 import type { FastSimResult } from "./simulation";
 import { fastSimFillInto, simulateFillBaseInto } from "./simulation";
+import { getHedgeSideConfig } from "../shared";
 
 function formatOptSize(sz: number): number {
   if (sz >= 10000) {
@@ -83,6 +84,7 @@ export function findOptimalSize(
   midPrice: number,
   mode: DynamicSizeMode = "min_burn",
   maxCapUsd: number = 50000,
+  isRhLong: boolean = false,
 ): number {
   if (
     midPrice <= 0 ||
@@ -111,8 +113,12 @@ export function findOptimalSize(
   const rhBestAsk = getBestPrice(rhAsks);
   const coreBestBid = getBestPrice(coreBids);
 
-  const rawEntryDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
-  const rawExitDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
+  const rawEntryDragBps = isRhLong
+    ? ((rhBestAsk - coreBestBid) / midPrice) * 10000
+    : ((coreBestAsk - rhBestBid) / midPrice) * 10000;
+  const rawExitDragBps = isRhLong
+    ? ((coreBestAsk - rhBestBid) / midPrice) * 10000
+    : ((rhBestAsk - coreBestBid) / midPrice) * 10000;
   const rawSpreadBps = (rawEntryDragBps + rawExitDragBps) / 2;
 
   const l1Depth = Math.floor(
@@ -151,15 +157,26 @@ export function findOptimalSize(
     const s = scratchCandidates[i]!;
     const q = s / midPrice;
 
-    if (!fastSimFillInto(staticSimEntryRh, rhBids, q)) break;
-    if (!fastSimFillInto(staticSimEntryCore, coreAsks, q)) break;
-    if (!fastSimFillInto(staticSimExitRh, rhAsks, q)) break;
-    if (!fastSimFillInto(staticSimExitCore, coreBids, q)) break;
+    let entryLossUsd = 0;
+    let exitLossUsd = 0;
+
+    if (isRhLong) {
+      if (!fastSimFillInto(staticSimEntryRh, rhAsks, q)) break;
+      if (!fastSimFillInto(staticSimEntryCore, coreBids, q)) break;
+      if (!fastSimFillInto(staticSimExitRh, rhBids, q)) break;
+      if (!fastSimFillInto(staticSimExitCore, coreAsks, q)) break;
+      entryLossUsd = staticSimEntryRh.totalCostUsd - staticSimEntryCore.totalCostUsd;
+      exitLossUsd = staticSimExitCore.totalCostUsd - staticSimExitRh.totalCostUsd;
+    } else {
+      if (!fastSimFillInto(staticSimEntryRh, rhBids, q)) break;
+      if (!fastSimFillInto(staticSimEntryCore, coreAsks, q)) break;
+      if (!fastSimFillInto(staticSimExitRh, rhAsks, q)) break;
+      if (!fastSimFillInto(staticSimExitCore, coreBids, q)) break;
+      entryLossUsd = staticSimEntryCore.totalCostUsd - staticSimEntryRh.totalCostUsd;
+      exitLossUsd = staticSimExitRh.totalCostUsd - staticSimExitCore.totalCostUsd;
+    }
 
     hasCompletedSim = true;
-
-    const entryLossUsd = staticSimEntryCore.totalCostUsd - staticSimEntryRh.totalCostUsd;
-    const exitLossUsd = staticSimExitRh.totalCostUsd - staticSimExitCore.totalCostUsd;
     const costUsd = entryLossUsd + exitLossUsd;
 
     if (costUsd <= 0) {
@@ -236,6 +253,7 @@ function createEmptyLeg(): SimFillResult {
 }
 
 function createEmptyMetrics(symbol: string): MarketMetrics {
+  const hedgeSideConfig = getHedgeSideConfig(symbol);
   return {
     symbol,
     leverage: "",
@@ -269,6 +287,9 @@ function createEmptyMetrics(symbol: string): MarketMetrics {
     isDynamic: false,
     dynamicMode: "none",
     status: "LOW LIQ",
+    isRhLong: hedgeSideConfig.isRhLong,
+    hedgeCategory: hedgeSideConfig.category,
+    hedgeSideConfig,
     legs: {
       entryRh: createEmptyLeg(),
       entryCore: createEmptyLeg(),
@@ -350,9 +371,21 @@ export function calculateMarketMetrics(
   const midPrice = (rhMid + coreMid) / 2;
   if (midPrice <= 0) return null;
 
+  const hedgeSideConfig = getHedgeSideConfig(m.symbol);
+  const isRhLong = hedgeSideConfig.isRhLong;
+
   const isDynamic = dynamicMode !== "none";
   const optimalSizeUsd = isDynamic
-    ? findOptimalSize(rhBids, coreAsks, rhAsks, coreBids, midPrice, dynamicMode, maxCapUsd)
+    ? findOptimalSize(
+        rhBids,
+        coreAsks,
+        rhAsks,
+        coreBids,
+        midPrice,
+        dynamicMode,
+        maxCapUsd,
+        isRhLong,
+      )
     : targetUsd;
   const effectiveTargetUsd = optimalSizeUsd;
 
@@ -365,60 +398,86 @@ export function calculateMarketMetrics(
 
   // Mutate target in place or instantiate once
   const res = target ?? createEmptyMetrics(m.symbol);
+  res.isRhLong = isRhLong;
+  res.hedgeCategory = hedgeSideConfig.category;
+  res.hedgeSideConfig = hedgeSideConfig;
 
-  // 4-Leg VWAP fills directly into pre-allocated legs!
-  // Entry: SHORT on RH (sell taker into rhBids), LONG on Core (buy taker into coreAsks)
-  simulateFillBaseInto(res.legs.entryRh, rhBids, baseQty, false);
-  simulateFillBaseInto(res.legs.entryCore, coreAsks, baseQty, true);
-  // Exit: CLOSE RH (buy taker into rhAsks), CLOSE Core (sell taker into coreBids)
-  simulateFillBaseInto(res.legs.exitRh, rhAsks, baseQty, true);
-  simulateFillBaseInto(res.legs.exitCore, coreBids, baseQty, false);
+  let rawEntryDragBps = 0;
+  let rawExitDragBps = 0;
+  let vwapEntryDragBps = 0;
+  let vwapExitDragBps = 0;
+  let entryLossUsd = 0;
+  let exitLossUsd = 0;
 
-  const simEntryRh = res.legs.entryRh;
-  const simEntryCore = res.legs.entryCore;
-  const simExitRh = res.legs.exitRh;
-  const simExitCore = res.legs.exitCore;
+  if (isRhLong) {
+    // Categories: Crypto & RWA (Commodities, ETFs)
+    // Points program: RH LONG / Core SHORT (2.5x Boost)
+    // Entry: LONG on RH (buy taker into rhAsks), SHORT on Core (sell taker into coreBids)
+    simulateFillBaseInto(res.legs.entryRh, rhAsks, baseQty, true);
+    simulateFillBaseInto(res.legs.entryCore, coreBids, baseQty, false);
+    // Exit: CLOSE RH (sell taker into rhBids), CLOSE Core (buy taker into coreAsks)
+    simulateFillBaseInto(res.legs.exitRh, rhBids, baseQty, false);
+    simulateFillBaseInto(res.legs.exitCore, coreAsks, baseQty, true);
 
-  // Theoretical top-of-book spread
-  const rawEntryDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
-  const rawExitDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
+    rawEntryDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
+    rawExitDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
+
+    vwapEntryDragBps =
+      ((res.legs.entryRh.avgPrice - res.legs.entryCore.avgPrice) / midPrice) * 10000;
+    vwapExitDragBps = ((res.legs.exitCore.avgPrice - res.legs.exitRh.avgPrice) / midPrice) * 10000;
+
+    entryLossUsd = res.legs.entryRh.totalCostUsd - res.legs.entryCore.totalCostUsd;
+    exitLossUsd = res.legs.exitCore.totalCostUsd - res.legs.exitRh.totalCostUsd;
+  } else {
+    // Categories: RWA (Pre IPOs, Equities)
+    // Points program: RH SHORT / Core LONG (2.5x Boost)
+    // Entry: SHORT on RH (sell taker into rhBids), LONG on Core (buy taker into coreAsks)
+    simulateFillBaseInto(res.legs.entryRh, rhBids, baseQty, false);
+    simulateFillBaseInto(res.legs.entryCore, coreAsks, baseQty, true);
+    // Exit: CLOSE RH (buy taker into rhAsks), CLOSE Core (sell taker into coreBids)
+    simulateFillBaseInto(res.legs.exitRh, rhAsks, baseQty, true);
+    simulateFillBaseInto(res.legs.exitCore, coreBids, baseQty, false);
+
+    rawEntryDragBps = ((coreBestAsk - rhBestBid) / midPrice) * 10000;
+    rawExitDragBps = ((rhBestAsk - coreBestBid) / midPrice) * 10000;
+
+    vwapEntryDragBps =
+      ((res.legs.entryCore.avgPrice - res.legs.entryRh.avgPrice) / midPrice) * 10000;
+    vwapExitDragBps = ((res.legs.exitRh.avgPrice - res.legs.exitCore.avgPrice) / midPrice) * 10000;
+
+    entryLossUsd = res.legs.entryCore.totalCostUsd - res.legs.entryRh.totalCostUsd;
+    exitLossUsd = res.legs.exitRh.totalCostUsd - res.legs.exitCore.totalCostUsd;
+  }
+
   const rawSpreadBps = (rawEntryDragBps + rawExitDragBps) / 2;
-
-  // Real VWAP drag in bps
-  const vwapEntryDragBps = ((simEntryCore.avgPrice - simEntryRh.avgPrice) / midPrice) * 10000;
-  const vwapExitDragBps = ((simExitRh.avgPrice - simExitCore.avgPrice) / midPrice) * 10000;
   const rawVwapDragBps = (vwapEntryDragBps + vwapExitDragBps) / 2;
   const slippageBps = rawVwapDragBps - rawSpreadBps;
 
   if (isNaN(rawVwapDragBps) || !isFinite(rawVwapDragBps)) return null;
-
-  // Instant Entry Drag ($) vs Exit Drag ($)
-  const entryLossUsd = simEntryCore.totalCostUsd - simEntryRh.totalCostUsd;
-  const exitLossUsd = simExitRh.totalCostUsd - simExitCore.totalCostUsd;
 
   // Real Round-Trip Dollar Loss: Sum of Entry Loss + Exit Loss
   const costUsd = entryLossUsd + exitLossUsd;
   const vwapTotalDragBps = rawVwapDragBps;
 
   const maxLevelsSwept = Math.max(
-    simEntryRh.levelsSwept,
-    simEntryCore.levelsSwept,
-    simExitRh.levelsSwept,
-    simExitCore.levelsSwept,
+    res.legs.entryRh.levelsSwept,
+    res.legs.entryCore.levelsSwept,
+    res.legs.exitRh.levelsSwept,
+    res.legs.exitCore.levelsSwept,
   );
 
   const minDepthUsd = Math.min(
-    simEntryRh.totalAvailableUsd,
-    simEntryCore.totalAvailableUsd,
-    simExitRh.totalAvailableUsd,
-    simExitCore.totalAvailableUsd,
+    res.legs.entryRh.totalAvailableUsd,
+    res.legs.entryCore.totalAvailableUsd,
+    res.legs.exitRh.totalAvailableUsd,
+    res.legs.exitCore.totalAvailableUsd,
   );
 
   const allFilled =
-    simEntryRh.isComplete &&
-    simEntryCore.isComplete &&
-    simExitRh.isComplete &&
-    simExitCore.isComplete;
+    res.legs.entryRh.isComplete &&
+    res.legs.entryCore.isComplete &&
+    res.legs.exitRh.isComplete &&
+    res.legs.exitCore.isComplete;
 
   let status: "READY" | "SLIPPAGE" | "LOW LIQ" | "STALE" = "READY";
   if (isStale) {

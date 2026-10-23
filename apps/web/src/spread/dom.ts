@@ -414,31 +414,31 @@ export function createDetailRowElement(
 
         <!-- 4 Leg Cards (4 vertical blocks) -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 min-w-0">
-          <!-- Leg 1: RH SHORT -->
-          <div class="bg-terminal-surface border border-terminal-coral/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
-            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-coral">
-              <span>LEG 1: RH SHORT</span>
-              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-coralMuted border border-terminal-coral/30">Sell Bid</span>
+          <!-- Leg 1: ENTRY RH -->
+          <div id="dtlL1Card" class="bg-terminal-surface border border-terminal-coral/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
+            <div class="flex items-center justify-between text-[10px] font-bold">
+              <span id="dtlL1Title">LEG 1: RH SHORT</span>
+              <span id="dtlL1Action" class="text-[9px] px-1 py-0.2 rounded bg-terminal-coralMuted border border-terminal-coral/30 text-terminal-coral">Sell Bid</span>
             </div>
             <div class="text-[10px] space-y-0.5 text-terminal-secondary">
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL1Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Price:</span> <span id="dtlL1Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL1Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL1Slip" class="text-terminal-coral tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL1Slip" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL1Swept" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Depth:</span> <span id="dtlL1Depth" class="tabular-nums shrink-0"></span></div>
             </div>
           </div>
 
-          <!-- Leg 2: CORE LONG -->
-          <div class="bg-terminal-surface border border-terminal-emerald/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
-            <div class="flex items-center justify-between text-[10px] font-bold text-terminal-emerald">
-              <span>LEG 2: CORE LONG</span>
-              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-emeraldMuted border border-terminal-emerald/30">Buy Ask</span>
+          <!-- Leg 2: ENTRY CORE -->
+          <div id="dtlL2Card" class="bg-terminal-surface border border-terminal-emerald/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
+            <div class="flex items-center justify-between text-[10px] font-bold">
+              <span id="dtlL2Title">LEG 2: CORE LONG</span>
+              <span id="dtlL2Action" class="text-[9px] px-1 py-0.2 rounded bg-terminal-emeraldMuted border border-terminal-emerald/30 text-terminal-emerald">Buy Ask</span>
             </div>
             <div class="text-[10px] space-y-0.5 text-terminal-secondary">
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL2Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Price:</span> <span id="dtlL2Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL2Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL2Slip" class="text-terminal-emerald tabular-nums shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL2Slip" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL2Swept" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Depth:</span> <span id="dtlL2Depth" class="tabular-nums shrink-0"></span></div>
             </div>
@@ -448,10 +448,10 @@ export function createDetailRowElement(
           <div class="bg-terminal-surface border border-terminal-border p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
             <div class="flex items-center justify-between text-[10px] font-bold text-terminal-secondary">
               <span>LEG 3: CLOSE RH</span>
-              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Buy Ask</span>
+              <span id="dtlL3Action" class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Buy Ask</span>
             </div>
             <div class="text-[10px] space-y-0.5 text-terminal-secondary">
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Ask:</span> <span id="dtlL3Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Price:</span> <span id="dtlL3Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL3Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL3Slip" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL3Swept" class="tabular-nums shrink-0"></span></div>
@@ -463,10 +463,10 @@ export function createDetailRowElement(
           <div class="bg-terminal-surface border border-terminal-border p-1.5 sm:p-2 rounded space-y-0.5 min-w-0">
             <div class="flex items-center justify-between text-[10px] font-bold text-terminal-secondary">
               <span>LEG 4: CLOSE CORE</span>
-              <span class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Sell Bid</span>
+              <span id="dtlL4Action" class="text-[9px] px-1 py-0.2 rounded bg-terminal-bg border border-terminal-border text-terminal-muted">Sell Bid</span>
             </div>
             <div class="text-[10px] space-y-0.5 text-terminal-secondary">
-              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Bid:</span> <span id="dtlL4Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
+              <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Top Price:</span> <span id="dtlL4Top" class="tabular-nums font-semibold text-terminal-primary shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">VWAP Fill:</span> <span id="dtlL4Fill" class="text-white font-bold tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Slippage:</span> <span id="dtlL4Slip" class="tabular-nums shrink-0"></span></div>
               <div class="flex justify-between items-center"><span class="text-terminal-muted shrink-0">Swept:</span> <span id="dtlL4Swept" class="tabular-nums shrink-0"></span></div>
@@ -502,21 +502,29 @@ interface DetailRowDomCache {
   dtlEntryDrag: HTMLElement | null;
   dtlExit: HTMLElement | null;
   dtlExitDrag: HTMLElement | null;
+  dtlL1Card: HTMLElement | null;
+  dtlL1Title: HTMLElement | null;
+  dtlL1Action: HTMLElement | null;
   dtlL1Top: HTMLElement | null;
   dtlL1Fill: HTMLElement | null;
   dtlL1Slip: HTMLElement | null;
   dtlL1Swept: HTMLElement | null;
   dtlL1Depth: HTMLElement | null;
+  dtlL2Card: HTMLElement | null;
+  dtlL2Title: HTMLElement | null;
+  dtlL2Action: HTMLElement | null;
   dtlL2Top: HTMLElement | null;
   dtlL2Fill: HTMLElement | null;
   dtlL2Slip: HTMLElement | null;
   dtlL2Swept: HTMLElement | null;
   dtlL2Depth: HTMLElement | null;
+  dtlL3Action: HTMLElement | null;
   dtlL3Top: HTMLElement | null;
   dtlL3Fill: HTMLElement | null;
   dtlL3Slip: HTMLElement | null;
   dtlL3Swept: HTMLElement | null;
   dtlL3Depth: HTMLElement | null;
+  dtlL4Action: HTMLElement | null;
   dtlL4Top: HTMLElement | null;
   dtlL4Fill: HTMLElement | null;
   dtlL4Slip: HTMLElement | null;
@@ -542,21 +550,29 @@ function getDetailRowCache(root: HTMLElement | Document): DetailRowDomCache {
         dtlEntryDrag: root.querySelector("#dtlEntryDrag"),
         dtlExit: root.querySelector("#dtlExit"),
         dtlExitDrag: root.querySelector("#dtlExitDrag"),
+        dtlL1Card: root.querySelector("#dtlL1Card"),
+        dtlL1Title: root.querySelector("#dtlL1Title"),
+        dtlL1Action: root.querySelector("#dtlL1Action"),
         dtlL1Top: root.querySelector("#dtlL1Top"),
         dtlL1Fill: root.querySelector("#dtlL1Fill"),
         dtlL1Slip: root.querySelector("#dtlL1Slip"),
         dtlL1Swept: root.querySelector("#dtlL1Swept"),
         dtlL1Depth: root.querySelector("#dtlL1Depth"),
+        dtlL2Card: root.querySelector("#dtlL2Card"),
+        dtlL2Title: root.querySelector("#dtlL2Title"),
+        dtlL2Action: root.querySelector("#dtlL2Action"),
         dtlL2Top: root.querySelector("#dtlL2Top"),
         dtlL2Fill: root.querySelector("#dtlL2Fill"),
         dtlL2Slip: root.querySelector("#dtlL2Slip"),
         dtlL2Swept: root.querySelector("#dtlL2Swept"),
         dtlL2Depth: root.querySelector("#dtlL2Depth"),
+        dtlL3Action: root.querySelector("#dtlL3Action"),
         dtlL3Top: root.querySelector("#dtlL3Top"),
         dtlL3Fill: root.querySelector("#dtlL3Fill"),
         dtlL3Slip: root.querySelector("#dtlL3Slip"),
         dtlL3Swept: root.querySelector("#dtlL3Swept"),
         dtlL3Depth: root.querySelector("#dtlL3Depth"),
+        dtlL4Action: root.querySelector("#dtlL4Action"),
         dtlL4Top: root.querySelector("#dtlL4Top"),
         dtlL4Fill: root.querySelector("#dtlL4Fill"),
         dtlL4Slip: root.querySelector("#dtlL4Slip"),
@@ -579,21 +595,29 @@ function getDetailRowCache(root: HTMLElement | Document): DetailRowDomCache {
     dtlEntryDrag: root.getElementById("dtlEntryDrag"),
     dtlExit: root.getElementById("dtlExit"),
     dtlExitDrag: root.getElementById("dtlExitDrag"),
+    dtlL1Card: root.getElementById("dtlL1Card"),
+    dtlL1Title: root.getElementById("dtlL1Title"),
+    dtlL1Action: root.getElementById("dtlL1Action"),
     dtlL1Top: root.getElementById("dtlL1Top"),
     dtlL1Fill: root.getElementById("dtlL1Fill"),
     dtlL1Slip: root.getElementById("dtlL1Slip"),
     dtlL1Swept: root.getElementById("dtlL1Swept"),
     dtlL1Depth: root.getElementById("dtlL1Depth"),
+    dtlL2Card: root.getElementById("dtlL2Card"),
+    dtlL2Title: root.getElementById("dtlL2Title"),
+    dtlL2Action: root.getElementById("dtlL2Action"),
     dtlL2Top: root.getElementById("dtlL2Top"),
     dtlL2Fill: root.getElementById("dtlL2Fill"),
     dtlL2Slip: root.getElementById("dtlL2Slip"),
     dtlL2Swept: root.getElementById("dtlL2Swept"),
     dtlL2Depth: root.getElementById("dtlL2Depth"),
+    dtlL3Action: root.getElementById("dtlL3Action"),
     dtlL3Top: root.getElementById("dtlL3Top"),
     dtlL3Fill: root.getElementById("dtlL3Fill"),
     dtlL3Slip: root.getElementById("dtlL3Slip"),
     dtlL3Swept: root.getElementById("dtlL3Swept"),
     dtlL3Depth: root.getElementById("dtlL3Depth"),
+    dtlL4Action: root.getElementById("dtlL4Action"),
     dtlL4Top: root.getElementById("dtlL4Top"),
     dtlL4Fill: root.getElementById("dtlL4Fill"),
     dtlL4Slip: root.getElementById("dtlL4Slip"),
@@ -613,6 +637,7 @@ export function updateDetailRow(
 ): void {
   const l = r.legs;
   const c = getDetailRowCache(root);
+  const isRhLong = r.isRhLong;
 
   // Header info
   setTextIfChanged(c.dtlSymbol, r.symbol);
@@ -638,29 +663,75 @@ export function updateDetailRow(
   setTextIfChanged(c.dtlExit, formatMoney(r.exitLossUsd));
   setTextIfChanged(c.dtlExitDrag, `(${formatBps(r.exitDragBps, true)})`);
 
-  // Leg 1: RH SHORT
-  setTextIfChanged(c.dtlL1Top, formatPrice(l.rhBestBid));
+  // Leg 1: Entry RH
+  if (c.dtlL1Title) {
+    setTextIfChanged(c.dtlL1Title, isRhLong ? "LEG 1: RH LONG" : "LEG 1: RH SHORT");
+  }
+  if (c.dtlL1Action) {
+    setTextIfChanged(c.dtlL1Action, isRhLong ? "Buy Ask" : "Sell Bid");
+    setClassIfChanged(
+      c.dtlL1Action,
+      isRhLong
+        ? "text-[9px] px-1 py-0.2 rounded bg-terminal-emeraldMuted border border-terminal-emerald/30 text-terminal-emerald"
+        : "text-[9px] px-1 py-0.2 rounded bg-terminal-coralMuted border border-terminal-coral/30 text-terminal-coral",
+    );
+  }
+  if (c.dtlL1Card) {
+    setClassIfChanged(
+      c.dtlL1Card,
+      isRhLong
+        ? "bg-terminal-surface border border-terminal-emerald/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0"
+        : "bg-terminal-surface border border-terminal-coral/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0",
+    );
+  }
+  setTextIfChanged(c.dtlL1Top, formatPrice(isRhLong ? l.rhBestAsk : l.rhBestBid));
   setTextIfChanged(c.dtlL1Fill, formatPrice(l.entryRh.avgPrice));
   setTextIfChanged(c.dtlL1Slip, formatBps(l.entryRh.slippageBps, true));
   setTextIfChanged(c.dtlL1Swept, String(l.entryRh.levelsSwept));
   setTextIfChanged(c.dtlL1Depth, formatMoney(l.entryRh.totalAvailableUsd));
 
-  // Leg 2: CORE LONG
-  setTextIfChanged(c.dtlL2Top, formatPrice(l.coreBestAsk));
+  // Leg 2: Entry Core
+  if (c.dtlL2Title) {
+    setTextIfChanged(c.dtlL2Title, isRhLong ? "LEG 2: CORE SHORT" : "LEG 2: CORE LONG");
+  }
+  if (c.dtlL2Action) {
+    setTextIfChanged(c.dtlL2Action, isRhLong ? "Sell Bid" : "Buy Ask");
+    setClassIfChanged(
+      c.dtlL2Action,
+      isRhLong
+        ? "text-[9px] px-1 py-0.2 rounded bg-terminal-coralMuted border border-terminal-coral/30 text-terminal-coral"
+        : "text-[9px] px-1 py-0.2 rounded bg-terminal-emeraldMuted border border-terminal-emerald/30 text-terminal-emerald",
+    );
+  }
+  if (c.dtlL2Card) {
+    setClassIfChanged(
+      c.dtlL2Card,
+      isRhLong
+        ? "bg-terminal-surface border border-terminal-coral/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0"
+        : "bg-terminal-surface border border-terminal-emerald/30 p-1.5 sm:p-2 rounded space-y-0.5 min-w-0",
+    );
+  }
+  setTextIfChanged(c.dtlL2Top, formatPrice(isRhLong ? l.coreBestBid : l.coreBestAsk));
   setTextIfChanged(c.dtlL2Fill, formatPrice(l.entryCore.avgPrice));
   setTextIfChanged(c.dtlL2Slip, formatBps(l.entryCore.slippageBps, true));
   setTextIfChanged(c.dtlL2Swept, String(l.entryCore.levelsSwept));
   setTextIfChanged(c.dtlL2Depth, formatMoney(l.entryCore.totalAvailableUsd));
 
-  // Leg 3: CLOSE RH
-  setTextIfChanged(c.dtlL3Top, formatPrice(l.rhBestAsk));
+  // Leg 3: Close RH
+  if (c.dtlL3Action) {
+    setTextIfChanged(c.dtlL3Action, isRhLong ? "Sell Bid" : "Buy Ask");
+  }
+  setTextIfChanged(c.dtlL3Top, formatPrice(isRhLong ? l.rhBestBid : l.rhBestAsk));
   setTextIfChanged(c.dtlL3Fill, formatPrice(l.exitRh.avgPrice));
   setTextIfChanged(c.dtlL3Slip, formatBps(l.exitRh.slippageBps, true));
   setTextIfChanged(c.dtlL3Swept, String(l.exitRh.levelsSwept));
   setTextIfChanged(c.dtlL3Depth, formatMoney(l.exitRh.totalAvailableUsd));
 
-  // Leg 4: CLOSE CORE
-  setTextIfChanged(c.dtlL4Top, formatPrice(l.coreBestBid));
+  // Leg 4: Close Core
+  if (c.dtlL4Action) {
+    setTextIfChanged(c.dtlL4Action, isRhLong ? "Buy Ask" : "Sell Bid");
+  }
+  setTextIfChanged(c.dtlL4Top, formatPrice(isRhLong ? l.coreBestAsk : l.coreBestBid));
   setTextIfChanged(c.dtlL4Fill, formatPrice(l.exitCore.avgPrice));
   setTextIfChanged(c.dtlL4Slip, formatBps(l.exitCore.slippageBps, true));
   setTextIfChanged(c.dtlL4Swept, String(l.exitCore.levelsSwept));

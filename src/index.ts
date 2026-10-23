@@ -127,9 +127,7 @@ export default {
         const keyParam = url.searchParams.get("key");
 
         const isAuthorized =
-          authHeader === `Bearer ${secret}` ||
-          customHeader === secret ||
-          keyParam === secret;
+          authHeader === `Bearer ${secret}` || customHeader === secret || keyParam === secret;
 
         if (!isAuthorized) {
           return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {

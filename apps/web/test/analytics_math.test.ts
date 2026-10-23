@@ -73,6 +73,33 @@ describe("Analytics Math Engine", () => {
     expect(stats.signal).toBe("CAUTION"); // or OVERHEATED depending on z-score
   });
 
+  it("calculates quant stats with isRhLong false (equities/pre-IPO) where high RH basis is an entry edge", () => {
+    const rhCandles: RawCandle[] = [];
+    const coreCandles: RawCandle[] = [];
+
+    // Create 100 data points with known basis: 0.10 up to 1.09
+    for (let i = 0; i < 100; i++) {
+      const t = 1700000000000 + i * 60000;
+      const corePrice = 100;
+      const basis = 0.1 + i * 0.01;
+      rhCandles.push({ t, o: 100, h: 102, l: 98, c: corePrice + basis, v: 1, V: 100 });
+      coreCandles.push({ t, o: 100, h: 102, l: 98, c: corePrice, v: 1, V: 100 });
+    }
+
+    const points = alignCandlesToBasisPoints(rhCandles, coreCandles);
+    // isRhLong = false (Short RH, Long Core - e.g. NVDA, AAPL, OPENAI)
+    const stats = calculateQuantStats(points, false);
+    expect(stats).not.toBeNull();
+    if (!stats) return;
+
+    expect(stats.isRhLong).toBe(false);
+    expect(stats.zScore).toBeGreaterThan(1.5);
+    // Effective Z-Score for shorting RH is flipped: higher basis means lower effective drag
+    expect(stats.effectiveZScore).toBeLessThan(-1.5);
+    // Because effectiveZScore is negative, verdict is EXCELLENT ENTRY!
+    expect(stats.signal).toBe("EXCELLENT ENTRY");
+  });
+
   it("evaluates signal verdicts across tiers properly", () => {
     expect(evaluateSignalVerdict(-0.5)).toBe("EXCELLENT ENTRY");
     expect(evaluateSignalVerdict(0)).toBe("EXCELLENT ENTRY");
@@ -128,6 +155,32 @@ describe("Analytics Math Engine", () => {
     expect(buckets[16].sampleCount).toBe(1);
     expect(buckets[16].avgBasisUsd).toBeCloseTo(0.5, 4);
     expect(buckets[16].scoreNormalized).toBeCloseTo(1, 2);
+  });
+
+  it("normalizes hourly bucket scores inverted for isRhLong = false (equities/pre-IPO)", () => {
+    const rhCandles: RawCandle[] = [];
+    const coreCandles: RawCandle[] = [];
+
+    const tHour10 = Date.UTC(2026, 9, 1, 10, 0, 0);
+    const tHour14 = Date.UTC(2026, 9, 1, 14, 0, 0);
+
+    // Hour 10 UTC: lower basis (0.05) -> for shorting RH this has lower premium, so worse entry
+    rhCandles.push({ t: tHour10, o: 100, h: 100, l: 100, c: 100.05, v: 1, V: 100 });
+    coreCandles.push({ t: tHour10, o: 100, h: 100, l: 100, c: 100.0, v: 1, V: 100 });
+
+    // Hour 14 UTC: higher basis (0.50) -> for shorting RH this has higher premium, so best entry!
+    rhCandles.push({ t: tHour14, o: 100, h: 100, l: 100, c: 100.5, v: 1, V: 100 });
+    coreCandles.push({ t: tHour14, o: 100, h: 100, l: 100, c: 100.0, v: 1, V: 100 });
+
+    const points = alignCandlesToBasisPoints(rhCandles, coreCandles);
+    // isRhLong = false
+    const buckets = calculateHourlyBuckets(points, 2, false);
+
+    // Hour 12 local (10 UTC): scoreNormalized = 1 (most expensive entry)
+    expect(buckets[12].scoreNormalized).toBeCloseTo(1, 2);
+
+    // Hour 16 local (14 UTC): scoreNormalized = 0 (cheapest / best entry!)
+    expect(buckets[16].scoreNormalized).toBeCloseTo(0, 2);
   });
 
   it("selects optimal candle resolutions based on visible time span", () => {

@@ -1,4 +1,4 @@
-import { CONFIG, registerTokens, isEquitySymbol } from "../shared";
+import { CONFIG, registerTokens, isEquitySymbol, getHedgeSideConfig } from "../shared";
 import { alignCandlesToBasisPoints, calculateQuantStats, calculateRollingBands } from "./math";
 import type {
   AnalyticsMarketPair,
@@ -130,6 +130,7 @@ export async function fetchMarketPairs(): Promise<AnalyticsMarketPair[]> {
       leverage: `${minLev}x`,
       leverageNum: minLev,
       isEquity: isEquitySymbol(rm.symbol),
+      hedgeSideConfig: getHedgeSideConfig(rm.symbol),
       rh: rhStats,
       core: coreStats,
       // Default: Robinhood (RH) stats
@@ -206,7 +207,7 @@ export async function fetchHistoricalBasis(
   ]);
 
   const points = alignCandlesToBasisPoints(rhCandles, coreCandles);
-  const stats = calculateQuantStats(points);
+  const stats = calculateQuantStats(points, pair.hedgeSideConfig.isRhLong);
   const bands = calculateRollingBands(points, 20);
 
   return { points, stats, bands };
