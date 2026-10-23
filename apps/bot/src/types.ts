@@ -11,6 +11,7 @@ export interface Env {
   LIGHTER_API_KEY_RH?: string;
   WEBAPP_URL?: string;
   ASSETS?: Fetcher;
+  CRON_SECRET?: string;
 }
 
 export interface TrackedAccountKey {

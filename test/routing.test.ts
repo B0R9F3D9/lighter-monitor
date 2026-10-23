@@ -11,6 +11,19 @@ if (!fs.existsSync(versionFile)) {
 
 const { default: worker } = await import("../src/index");
 
+function createSuccessMockDb(): any {
+  const stmt = {
+    bind: () => stmt,
+    run: async () => ({ success: true, meta: { changes: 0 } }),
+    all: async () => ({ results: [] }),
+    first: async () => null,
+  };
+  return {
+    prepare: () => stmt,
+    batch: async () => [],
+  };
+}
+
 describe("Worker HTTP Routing", () => {
   const mockEnv: Env = {
     DB: {} as any,
@@ -220,5 +233,112 @@ describe("Worker HTTP Routing", () => {
     });
     const res = await worker.fetch(req, mockEnv, mockCtx);
     expect(res.status).toBe(404);
+  });
+
+  describe("External Cron Trigger Endpoint (/api/cron)", () => {
+    const cronEnv: Env = {
+      DB: createSuccessMockDb(),
+      TELEGRAM_BOT_TOKEN: "mock_token",
+      CRON_SECRET: "my_super_secret_token_123",
+    };
+
+    it("executes cron via GET /api/cron when CRON_SECRET is not configured", async () => {
+      const envWithoutSecret: Env = {
+        DB: createSuccessMockDb(),
+        TELEGRAM_BOT_TOKEN: "mock_token",
+      };
+      const req = new Request("https://worker.dev/api/cron", { method: "GET" });
+      const res = await worker.fetch(req, envWithoutSecret, mockCtx);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as any;
+      expect(data.ok).toBe(true);
+      expect(data.trigger).toBe("http");
+      expect(typeof data.duration_ms).toBe("number");
+    });
+
+    it("rejects unauthorized request with 401 when CRON_SECRET is set but missing in request", async () => {
+      const req = new Request("https://worker.dev/api/cron", { method: "GET" });
+      const res = await worker.fetch(req, cronEnv, mockCtx);
+      expect(res.status).toBe(401);
+      const data = (await res.json()) as any;
+      expect(data.ok).toBe(false);
+      expect(data.error).toBe("Unauthorized");
+    });
+
+    it("rejects unauthorized request with 401 when token is invalid", async () => {
+      const req = new Request("https://worker.dev/api/cron?key=wrong_key", { method: "GET" });
+      const res = await worker.fetch(req, cronEnv, mockCtx);
+      expect(res.status).toBe(401);
+    });
+
+    it("authorizes and executes cron via query parameter (?key=...)", async () => {
+      const req = new Request("https://worker.dev/api/cron?key=my_super_secret_token_123", {
+        method: "GET",
+      });
+      const res = await worker.fetch(req, cronEnv, mockCtx);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as any;
+      expect(data.ok).toBe(true);
+      expect(data.trigger).toBe("http");
+    });
+
+    it("authorizes and executes cron via Authorization Bearer header", async () => {
+      const req = new Request("https://worker.dev/api/cron", {
+        method: "POST",
+        headers: { Authorization: "Bearer my_super_secret_token_123" },
+      });
+      const res = await worker.fetch(req, cronEnv, mockCtx);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as any;
+      expect(data.ok).toBe(true);
+    });
+
+    it("authorizes and executes cron via x-cron-secret header", async () => {
+      const req = new Request("https://worker.dev/api/cron", {
+        method: "GET",
+        headers: { "x-cron-secret": "my_super_secret_token_123" },
+      });
+      const res = await worker.fetch(req, cronEnv, mockCtx);
+      expect(res.status).toBe(200);
+      const data = (await res.json()) as any;
+      expect(data.ok).toBe(true);
+    });
+
+    it("handles HEAD /api/cron without executing cron", async () => {
+      const req = new Request("https://worker.dev/api/cron?key=my_super_secret_token_123", {
+        method: "HEAD",
+      });
+      const res = await worker.fetch(req, cronEnv, mockCtx);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("");
+    });
+
+    it("returns 405 Method Not Allowed for unsupported methods (PUT, DELETE)", async () => {
+      const req = new Request("https://worker.dev/api/cron?key=my_super_secret_token_123", {
+        method: "DELETE",
+      });
+      const res = await worker.fetch(req, cronEnv, mockCtx);
+      expect(res.status).toBe(405);
+      expect(res.headers.get("Allow")).toBe("GET, POST, HEAD");
+    });
+
+    it("returns 500 when cron execution throws an error", async () => {
+      const failingDb: any = {
+        prepare: () => {
+          throw new Error("D1 connection lost");
+        },
+      };
+      const failingEnv: Env = {
+        DB: failingDb,
+        TELEGRAM_BOT_TOKEN: "mock_token",
+        CRON_SECRET: "secret",
+      };
+      const req = new Request("https://worker.dev/api/cron?key=secret", { method: "GET" });
+      const res = await worker.fetch(req, failingEnv, mockCtx);
+      expect(res.status).toBe(500);
+      const data = (await res.json()) as any;
+      expect(data.ok).toBe(false);
+      expect(data.error).toContain("D1 connection lost");
+    });
   });
 });

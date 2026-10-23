@@ -110,6 +110,87 @@ export default {
       });
     }
 
+    // External Cron Trigger endpoint (e.g. cron-job.org, uptime monitor, or curl)
+    if (url.pathname === "/api/cron" || url.pathname === "/api/cron/") {
+      if (request.method !== "GET" && request.method !== "POST" && request.method !== "HEAD") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "GET, POST, HEAD" },
+        });
+      }
+
+      // Check CRON_SECRET if configured in env
+      const secret = env.CRON_SECRET;
+      if (secret) {
+        const authHeader = request.headers.get("authorization");
+        const customHeader = request.headers.get("x-cron-secret");
+        const keyParam = url.searchParams.get("key");
+
+        const isAuthorized =
+          authHeader === `Bearer ${secret}` ||
+          customHeader === secret ||
+          keyParam === secret;
+
+        if (!isAuthorized) {
+          return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+            status: 401,
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "Cache-Control": "no-store",
+            },
+          });
+        }
+      }
+
+      if (request.method === "HEAD") {
+        return new Response(null, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+
+      const startMs = Date.now();
+      try {
+        await runBotScheduled(null, env, ctx);
+        const durationMs = Date.now() - startMs;
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            trigger: "http",
+            duration_ms: durationMs,
+            timestamp: Date.now(),
+          }),
+          {
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "Cache-Control": "no-store",
+            },
+          },
+        );
+      } catch (err: any) {
+        const durationMs = Date.now() - startMs;
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            trigger: "http",
+            error: err?.message || String(err),
+            duration_ms: durationMs,
+            timestamp: Date.now(),
+          }),
+          {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "Cache-Control": "no-store",
+            },
+          },
+        );
+      }
+    }
+
     // Telegram Bot API command registration (setMyCommands) and Menu Button
     if (url.pathname === "/setup-commands") {
       try {
