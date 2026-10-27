@@ -1,0 +1,3 @@
+# Cloudflare Workers Assets Static Rewrites (Edge CDN 200 Rewrite)
+# Serves analytics.html directly from CDN static cache without invoking Worker script on production
+/analytics/*    /analytics.html    200

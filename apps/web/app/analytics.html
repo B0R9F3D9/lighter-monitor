@@ -45,6 +45,40 @@
         }
       } catch {}
     </script>
+    <script>
+      try {
+        const m = window.location.pathname.match(/^\/analytics\/([a-zA-Z0-9_.-]+)\/?$/i);
+        let s = m ? m[1].toUpperCase() : localStorage.getItem("analytics_symbol");
+        if (
+          s &&
+          !s.endsWith(".HTML") &&
+          !s.endsWith(".JS") &&
+          !s.endsWith(".CSS") &&
+          !s.endsWith(".JSON")
+        ) {
+          window.__INITIAL_ANALYTICS_SYMBOL__ = s;
+          document.title = s + " Analytics | Lighter × Robinhood";
+        }
+      } catch {}
+    </script>
+    <script>
+      try {
+        var ph = localStorage.getItem("analytics_price_chart_h");
+        if (ph) {
+          var pVal = parseInt(ph, 10);
+          if (!isNaN(pVal) && pVal >= 180 && pVal <= 1200) {
+            document.documentElement.style.setProperty("--price-chart-h", pVal + "px");
+          }
+        }
+        var bh = localStorage.getItem("analytics_basis_chart_h");
+        if (bh) {
+          var bVal = parseInt(bh, 10);
+          if (!isNaN(bVal) && bVal >= 120 && bVal <= 800) {
+            document.documentElement.style.setProperty("--basis-chart-h", bVal + "px");
+          }
+        }
+      } catch {}
+    </script>
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
@@ -263,13 +297,13 @@
               <span
                 id="tickerTokenIcon"
                 class="hidden absolute inset-0 items-center justify-center text-[9px] font-bold text-white bg-terminal-surface"
-                ></span
+                >●</span
               >
             </span>
             <span id="headerSymbol" class="text-white font-bold tracking-tight text-xs sm:text-sm"
-              >AAPL</span
+              >--</span
             >
-            <span id="headerLeverage" class="text-terminal-muted text-[11px] font-normal">20x</span>
+            <span id="headerLeverage" class="text-terminal-muted text-[11px] font-normal">--</span>
             <svg
               class="w-3 h-3 text-terminal-muted ml-0.5"
               fill="none"
@@ -284,6 +318,20 @@
               />
             </svg>
           </button>
+          <script>
+            try {
+              if (window.__INITIAL_ANALYTICS_SYMBOL__) {
+                var sym = window.__INITIAL_ANALYTICS_SYMBOL__;
+                var symEl = document.getElementById("headerSymbol");
+                if (symEl) symEl.textContent = sym;
+                var imgEl = document.getElementById("tickerTokenImg");
+                if (imgEl) {
+                  imgEl.src = "https://assets.lighter.xyz/fe/token/" + sym.toLowerCase() + ".png";
+                  imgEl.alt = sym;
+                }
+              }
+            } catch {}
+          </script>
 
           <!-- Divider -->
           <div class="h-5 w-px bg-terminal-border hidden sm:block shrink-0"></div>
@@ -585,16 +633,39 @@
         id="priceChartBlock"
         class="bg-terminal-surface border border-terminal-border rounded overflow-hidden relative flex flex-col"
       >
-        <!-- Chart Loading Overlay -->
+        <!-- Chart Loading Overlay (Matches /checker spinner) -->
         <div
           id="chartLoadingOverlay"
-          class="hidden absolute inset-0 bg-terminal-bg/70 backdrop-blur-xs flex items-center justify-center z-20 pointer-events-auto select-none"
+          class="absolute inset-0 bg-terminal-bg/75 backdrop-blur-2xs flex items-center justify-center z-20 pointer-events-auto select-none transition-opacity"
         >
-          <div class="inline-flex items-center gap-2 text-terminal-accent text-xs">
-            <span class="w-2 h-2 rounded-full bg-terminal-accent animate-ping"></span>
-            <span>Syncing historical candles from Robinhood Chain & Lighter Core...</span>
+          <div class="inline-flex items-center gap-2.5 text-terminal-accent text-xs font-mono">
+            <svg
+              class="animate-spin w-4 h-4 text-terminal-accent shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <span id="chartLoadingMessage">Loading Market Analytics...</span>
           </div>
         </div>
+        <script>
+          try {
+            if (window.__INITIAL_ANALYTICS_SYMBOL__) {
+              var mEl = document.getElementById("chartLoadingMessage");
+              if (mEl) {
+                mEl.textContent =
+                  "Syncing " +
+                  window.__INITIAL_ANALYTICS_SYMBOL__ +
+                  " candles from Robinhood Chain & Lighter Core...";
+              }
+            }
+          } catch {}
+        </script>
 
         <!-- Chart Top Legend & Details Strip -->
         <div
@@ -647,7 +718,11 @@
         </div>
 
         <!-- Price Comparison Chart Container -->
-        <div id="priceChartContainer" class="w-full h-85 relative cursor-crosshair"></div>
+        <div
+          id="priceChartContainer"
+          class="w-full relative cursor-crosshair"
+          style="height: var(--price-chart-h, 340px)"
+        ></div>
 
         <!-- Draggable Height Resizer Handle -->
         <div
@@ -691,7 +766,11 @@
         </div>
 
         <!-- Spread & Basis Sub-Chart Container -->
-        <div id="basisChartContainer" class="w-full h-55 relative cursor-crosshair"></div>
+        <div
+          id="basisChartContainer"
+          class="w-full relative cursor-crosshair"
+          style="height: var(--basis-chart-h, 220px)"
+        ></div>
 
         <!-- Draggable Height Resizer Handle -->
         <div

@@ -86,6 +86,47 @@ describe("Worker HTTP Routing", () => {
     expect(res.headers.get("Content-Type")).toContain("text/html");
   });
 
+  it("serves analytics HTML on GET /analytics/XAU", async () => {
+    const req = new Request("https://worker.dev/analytics/XAU", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Analytics | Lighter");
+  });
+
+  it("serves analytics HTML on GET /analytics/BTC/", async () => {
+    const req = new Request("https://worker.dev/analytics/BTC/", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+  });
+
+  it("serves analytics HTML on GET /analytics/XAU via env.ASSETS (Cloudflare Workers simulation)", async () => {
+    const assetReqs: string[] = [];
+    const envWithAssets: Env = {
+      ...mockEnv,
+      ASSETS: {
+        fetch: async (r: Request | string) => {
+          const u = typeof r === "string" ? r : r.url;
+          assetReqs.push(u);
+          return new Response(
+            "<!doctype html><html><head><title>Analytics | Lighter</title></head></html>",
+            {
+              headers: { "Content-Type": "text/html; charset=utf-8" },
+            },
+          );
+        },
+      } as any,
+    };
+    const req = new Request("https://worker.dev/analytics/XAU", { method: "GET" });
+    const res = await worker.fetch(req, envWithAssets, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    expect(assetReqs.length).toBe(1);
+    expect(assetReqs[0]).toContain("/analytics.html");
+  });
+
   it("serves hedge trade checker HTML on GET /checker", async () => {
     const req = new Request("https://worker.dev/checker", { method: "GET" });
     const res = await worker.fetch(req, mockEnv, mockCtx);

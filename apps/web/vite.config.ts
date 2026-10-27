@@ -17,7 +17,30 @@ export default defineConfig({
       allow: [import.meta.dirname],
     },
   },
-  plugins: [tailwindcss()],
+  plugins: [
+    tailwindcss(),
+    {
+      name: "html-route-fallback",
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          if (req.url) {
+            const [pathname, search] = req.url.split("?");
+            if (
+              pathname === "/analytics" ||
+              (pathname.startsWith("/analytics/") && !pathname.slice(11).includes("."))
+            ) {
+              req.url = "/analytics.html" + (search ? `?${search}` : "");
+            } else if (pathname === "/spread") {
+              req.url = "/spread.html" + (search ? `?${search}` : "");
+            } else if (pathname === "/checker") {
+              req.url = "/checker.html" + (search ? `?${search}` : "");
+            }
+          }
+          next();
+        });
+      },
+    },
+  ],
   define: {
     APP_VERSION: JSON.stringify("dev"),
   },

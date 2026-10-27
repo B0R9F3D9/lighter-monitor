@@ -23,7 +23,11 @@ async function serveLocalBunAsset(request: Request): Promise<Response | null> {
     pathname = "/index.html";
   } else if (pathname === "/spread" || pathname === "/spread/") {
     pathname = "/spread.html";
-  } else if (pathname === "/analytics" || pathname === "/analytics/") {
+  } else if (
+    pathname === "/analytics" ||
+    pathname === "/analytics/" ||
+    (pathname.startsWith("/analytics/") && !pathname.slice(11).includes("."))
+  ) {
     pathname = "/analytics.html";
   } else if (pathname === "/checker" || pathname === "/checker/") {
     pathname = "/checker.html";
@@ -217,6 +221,15 @@ export default {
 
     // Static Assets on Cloudflare via Workers Assets binding (GET / HEAD only)
     if (isGetOrHead && env.ASSETS) {
+      if (
+        url.pathname === "/analytics" ||
+        url.pathname === "/analytics/" ||
+        (url.pathname.startsWith("/analytics/") && !url.pathname.slice(11).includes("."))
+      ) {
+        const assetUrl = new URL("/analytics.html", request.url);
+        return await env.ASSETS.fetch(new Request(assetUrl, request));
+      }
+
       const assetResponse = await env.ASSETS.fetch(request);
       if (assetResponse.status !== 404) {
         return assetResponse;

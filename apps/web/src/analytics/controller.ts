@@ -55,6 +55,21 @@ function formatLegendDate(timestampMs: number): string {
   return `${mon} ${day}, ${hh}:${mm}`;
 }
 
+export function getSlugSymbolFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/analytics\/([a-zA-Z0-9_.-]+)\/?$/i);
+  if (!match) return null;
+  const slug = match[1].trim();
+  if (
+    slug.endsWith(".html") ||
+    slug.endsWith(".js") ||
+    slug.endsWith(".css") ||
+    slug.endsWith(".json")
+  ) {
+    return null;
+  }
+  return slug.toUpperCase();
+}
+
 export class AnalyticsController {
   private pairs: AnalyticsMarketPair[] = [];
   private activeSymbol = "AAPL";
@@ -99,24 +114,56 @@ export class AnalyticsController {
   } | null = null;
 
   public async init(): Promise<void> {
-    this.restoreSettings();
-    this.setupEventListeners();
-    await this.loadPairs();
-    this.initCharts();
-    await this.loadData();
+    try {
+      this.restoreSettings();
+      this.updateInitialHeaderDisplay();
+      this.initCharts();
+      this.setupEventListeners();
+      this.setLoading(true);
+      await this.loadPairs();
+      await this.loadData();
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
+  private updateInitialHeaderDisplay(): void {
+    const symEl = document.getElementById("headerSymbol");
+    if (symEl) symEl.textContent = this.activeSymbol;
+    const imgEl = document.getElementById("tickerTokenImg") as HTMLImageElement | null;
+    const iconEl = document.getElementById("tickerTokenIcon");
+    if (imgEl) {
+      imgEl.src = getTokenImageUrl(this.activeSymbol);
+      imgEl.alt = this.activeSymbol;
+      imgEl.style.display = "block";
+    }
+    if (iconEl) {
+      iconEl.textContent = getTokenIcon(this.activeSymbol);
+    }
+    if (typeof document !== "undefined") {
+      document.title = `${this.activeSymbol} Analytics | Lighter × Robinhood`;
+    }
   }
 
   private restoreSettings(): void {
     try {
-      const sym = localStorage.getItem("analytics_symbol");
-      if (sym) this.activeSymbol = sym;
+      const urlSymbol =
+        typeof window !== "undefined" ? getSlugSymbolFromPath(window.location.pathname) : null;
+      if (urlSymbol) {
+        this.activeSymbol = urlSymbol;
+      } else {
+        const sym = localStorage.getItem("analytics_symbol");
+        if (sym) this.activeSymbol = sym;
+      }
       const tf = localStorage.getItem("analytics_timeframe") as TimeframeId;
       if (tf && TIMEFRAMES[tf]) this.activeTimeframe = tf;
+      this.updateTimeframeButtons();
 
       const savedVenue = localStorage.getItem("analytics_venue") as AnalyticsVenue;
       if (savedVenue === "rh" || savedVenue === "core") {
         this.activeVenue = savedVenue;
       }
+      this.updateVenueButtons();
 
       const savedSortField = localStorage.getItem("analytics_sort_field") as SortField;
       if (
@@ -177,6 +224,7 @@ export class AnalyticsController {
         const firstEquity = this.pairs.find((p) => p.isEquity) || this.pairs[0];
         if (firstEquity) this.activeSymbol = firstEquity.symbol;
       }
+      this.updateUrl(false);
       const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
       if (pair) this.updateTopMarketStats(pair);
       this.updateSortIndicators();
@@ -184,6 +232,27 @@ export class AnalyticsController {
       this.renderTickerSelector();
     } catch (err) {
       console.error("Failed to load pairs:", err);
+    }
+  }
+
+  private updateUrl(push = true): void {
+    if (typeof window === "undefined" || !window.history) return;
+    const targetPath = `/analytics/${this.activeSymbol}`;
+    if (window.location.pathname === targetPath) {
+      if (typeof document !== "undefined") {
+        document.title = `${this.activeSymbol} Analytics | Lighter × Robinhood`;
+      }
+      return;
+    }
+
+    const newUrl = `${targetPath}${window.location.search}${window.location.hash}`;
+    if (push) {
+      window.history.pushState(null, "", newUrl);
+    } else {
+      window.history.replaceState(null, "", newUrl);
+    }
+    if (typeof document !== "undefined") {
+      document.title = `${this.activeSymbol} Analytics | Lighter × Robinhood`;
     }
   }
 
@@ -198,6 +267,7 @@ export class AnalyticsController {
         const ph = parseInt(savedPriceH, 10);
         if (!isNaN(ph) && ph >= 180 && ph <= 1200) {
           priceContainer.style.height = `${ph}px`;
+          document.documentElement.style.setProperty("--price-chart-h", `${ph}px`);
         }
       }
       const savedBasisH = localStorage.getItem("analytics_basis_chart_h");
@@ -205,6 +275,7 @@ export class AnalyticsController {
         const bh = parseInt(savedBasisH, 10);
         if (!isNaN(bh) && bh >= 120 && bh <= 800) {
           basisContainer.style.height = `${bh}px`;
+          document.documentElement.style.setProperty("--basis-chart-h", `${bh}px`);
         }
       }
     } catch {}
@@ -406,12 +477,22 @@ export class AnalyticsController {
     });
   }
 
-  private setLoading(isLoading: boolean): void {
+  private setLoading(isLoading: boolean, message?: string): void {
     const loader = document.getElementById("chartLoadingOverlay");
     if (loader) {
-      loader.className = isLoading
-        ? "absolute inset-0 bg-terminal-bg/70 backdrop-blur-xs flex items-center justify-center z-20 pointer-events-auto"
-        : "hidden";
+      if (isLoading) {
+        loader.classList.remove("hidden");
+        loader.classList.add("flex");
+        const msgEl = document.getElementById("chartLoadingMessage");
+        if (msgEl) {
+          msgEl.textContent =
+            message ||
+            `Syncing ${this.activeSymbol} candles from Robinhood Chain & Lighter Core...`;
+        }
+      } else {
+        loader.classList.add("hidden");
+        loader.classList.remove("flex");
+      }
     }
   }
 
@@ -970,8 +1051,11 @@ export class AnalyticsController {
     });
   }
 
-  public selectSymbol(symbol: string): void {
-    if (this.activeSymbol === symbol) return;
+  public selectSymbol(symbol: string, pushHistory = true): void {
+    if (this.activeSymbol === symbol) {
+      if (pushHistory) this.updateUrl(false);
+      return;
+    }
     this.currentRequestId++;
     if (this.rangeDebounceTimer) {
       clearTimeout(this.rangeDebounceTimer);
@@ -981,6 +1065,10 @@ export class AnalyticsController {
     this.activeSymbol = symbol;
     this.saveSettings();
     this.addToRecents(symbol);
+    if (pushHistory) {
+      this.updateUrl(true);
+    }
+    this.renderRecents();
     this.renderTickerSelector();
     const pair = this.pairs.find((p) => p.symbol === symbol);
     if (pair) this.updateTopMarketStats(pair);
@@ -994,10 +1082,14 @@ export class AnalyticsController {
     }
     this.activeTimeframe = tf;
     this.saveSettings();
+    this.updateTimeframeButtons();
+    this.loadData();
+  }
 
+  private updateTimeframeButtons(): void {
     document.querySelectorAll(".tf-btn").forEach((btn) => {
       const id = (btn as HTMLElement).dataset.tf;
-      if (id === tf) {
+      if (id === this.activeTimeframe) {
         btn.className =
           "tf-btn px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap";
       } else {
@@ -1005,8 +1097,6 @@ export class AnalyticsController {
           "tf-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap";
       }
     });
-
-    this.loadData();
   }
 
   // --- LOG SCALE & BANDS CONTROLS ---
@@ -1071,6 +1161,9 @@ export class AnalyticsController {
       // Double-click to reset to default height
       handle.addEventListener("dblclick", () => {
         container.style.height = `${defaultHeight}px`;
+        const cssVar =
+          containerId === "priceChartContainer" ? "--price-chart-h" : "--basis-chart-h";
+        document.documentElement.style.setProperty(cssVar, `${defaultHeight}px`);
         try {
           localStorage.removeItem(storageKey);
         } catch {}
@@ -1103,6 +1196,9 @@ export class AnalyticsController {
 
         const finalHeight = container.clientHeight;
         if (finalHeight >= minHeight && finalHeight <= maxHeight) {
+          const cssVar =
+            containerId === "priceChartContainer" ? "--price-chart-h" : "--basis-chart-h";
+          document.documentElement.style.setProperty(cssVar, `${finalHeight}px`);
           try {
             localStorage.setItem(storageKey, String(finalHeight));
           } catch {}
@@ -1650,6 +1746,14 @@ export class AnalyticsController {
   }
 
   private setupEventListeners(): void {
+    // Browser back/forward navigation support for /analytics/:ticker
+    window.addEventListener("popstate", () => {
+      const sym = getSlugSymbolFromPath(window.location.pathname);
+      if (sym && sym !== this.activeSymbol) {
+        this.selectSymbol(sym, false);
+      }
+    });
+
     // Font selector
     initFontSelector({
       onFontChange: (_font, stack) => {
