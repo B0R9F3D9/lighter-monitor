@@ -35,6 +35,110 @@ export type TokenCategoryType =
   | "pre_ipo"
   | "etf";
 
+export type MarketCategoryFilter = TokenCategoryType | "favorites";
+
+export interface MarketCategoryDef {
+  id: MarketCategoryFilter;
+  label: string;
+  shortLabel: string;
+}
+
+/**
+ * Canonical official market categories for Lighter asset classes.
+ * Reused across /spread, /analytics, /checker.
+ */
+export const MARKET_CATEGORIES: readonly MarketCategoryDef[] = [
+  { id: "all", label: "All Markets", shortLabel: "All" },
+  { id: "crypto", label: "Crypto", shortLabel: "Crypto" },
+  { id: "rwa_commodities_etf", label: "RWA (Commodities, ETFs)", shortLabel: "Commodities, ETFs" },
+  {
+    id: "rwa_pre_ipo_equities",
+    label: "RWA (Pre IPOs, Equities)",
+    shortLabel: "Pre-IPOs, Equities",
+  },
+] as const;
+
+export const MARKET_CATEGORIES_WITH_FAVORITES: readonly MarketCategoryDef[] = [
+  ...MARKET_CATEGORIES,
+  { id: "favorites", label: "Favorites", shortLabel: "★ Favs" },
+] as const;
+
+export const HEDGE_CATEGORY_PRIORITY: Record<HedgeStrategyCategory, number> = {
+  RWA_PRE_IPO_EQUITIES: 0,
+  RWA_COMMODITIES_ETF: 1,
+  CRYPTO: 2,
+};
+
+export function compareMarketCategoryPriority(symbolA: string, symbolB: string): number {
+  const catA = getHedgeCategory(symbolA);
+  const catB = getHedgeCategory(symbolB);
+  const prioA = HEDGE_CATEGORY_PRIORITY[catA] ?? 3;
+  const prioB = HEDGE_CATEGORY_PRIORITY[catB] ?? 3;
+  return prioA - prioB;
+}
+
+export function normalizeCategoryFilter(
+  savedCat: string | null | undefined,
+  allowFavorites = false,
+  fallback: MarketCategoryFilter = "all",
+): MarketCategoryFilter {
+  if (!savedCat) return fallback;
+  const s = savedCat.toLowerCase().trim();
+  if (s === "stocks" || s === "pre_ipo") return "rwa_pre_ipo_equities";
+  if (s === "etf") return "rwa_commodities_etf";
+  if (s === "favorites") return allowFavorites ? "favorites" : fallback;
+  if (
+    s === "all" ||
+    s === "crypto" ||
+    s === "rwa_commodities_etf" ||
+    s === "rwa_pre_ipo_equities"
+  ) {
+    return s as TokenCategoryType;
+  }
+  return fallback;
+}
+
+export function getCategoryLabel(cat: MarketCategoryFilter): string {
+  const found = MARKET_CATEGORIES_WITH_FAVORITES.find((c) => c.id === cat);
+  return found?.label || "All Markets";
+}
+
+export function getCategoryShortLabel(cat: MarketCategoryFilter): string {
+  const found = MARKET_CATEGORIES_WITH_FAVORITES.find((c) => c.id === cat);
+  return found?.shortLabel || "All";
+}
+
+export function matchesCategory(
+  symbol: string,
+  category: MarketCategoryFilter,
+  favorites?: Set<string>,
+): boolean {
+  if (category === "favorites") {
+    return favorites ? favorites.has(symbol) : false;
+  }
+  if (category === "all") return true;
+  return matchesCategoryFilter(symbol, category as TokenCategoryType);
+}
+
+export function getCategoryBadge(symbol: string): {
+  category: HedgeStrategyCategory;
+  label: string;
+  shortLabel: string;
+} {
+  const cfg = getHedgeSideConfig(symbol);
+  const shortLabel =
+    cfg.category === "RWA_PRE_IPO_EQUITIES"
+      ? "Equities"
+      : cfg.category === "RWA_COMMODITIES_ETF"
+        ? "Commodities"
+        : "Crypto";
+  return {
+    category: cfg.category,
+    label: cfg.categoryLabel,
+    shortLabel,
+  };
+}
+
 export const CRYPTO_SYMBOLS: Set<string> = new Set();
 export const NON_EQUITY_SYMBOLS: Set<string> = new Set();
 export const EQUITY_SYMBOLS: Set<string> = new Set();

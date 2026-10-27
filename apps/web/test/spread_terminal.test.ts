@@ -24,6 +24,11 @@ import {
   getTokenImageUrl,
   getHedgeSideConfig,
   matchesCategoryFilter,
+  matchesCategory,
+  normalizeCategoryFilter,
+  compareMarketCategoryPriority,
+  MARKET_CATEGORIES,
+  MARKET_CATEGORIES_WITH_FAVORITES,
   WebSocketManager,
   type ApiTokenInfo,
 } from "../src/shared";
@@ -1081,6 +1086,52 @@ describe("Spread Terminal: Dynamic Token List & All Tokens Filter", () => {
       // 'etf': ETFs only (SPY, QQQ)
       const etfResult = allTokens.filter((s) => matchesCategoryFilter(s, "etf"));
       expect(etfResult).toEqual(["SPY", "QQQ"]);
+    });
+
+    it("reusable category helpers (normalizeCategoryFilter, matchesCategory, compareMarketCategoryPriority)", () => {
+      // 1. Canonical market categories count and consistency
+      expect(MARKET_CATEGORIES.map((c) => c.id)).toEqual([
+        "all",
+        "crypto",
+        "rwa_commodities_etf",
+        "rwa_pre_ipo_equities",
+      ]);
+      expect(MARKET_CATEGORIES_WITH_FAVORITES.map((c) => c.id)).toEqual([
+        "all",
+        "crypto",
+        "rwa_commodities_etf",
+        "rwa_pre_ipo_equities",
+        "favorites",
+      ]);
+
+      // 2. normalizeCategoryFilter handles legacy migration and validation
+      expect(normalizeCategoryFilter("stocks")).toBe("rwa_pre_ipo_equities");
+      expect(normalizeCategoryFilter("pre_ipo")).toBe("rwa_pre_ipo_equities");
+      expect(normalizeCategoryFilter("etf")).toBe("rwa_commodities_etf");
+      expect(normalizeCategoryFilter("crypto")).toBe("crypto");
+      expect(normalizeCategoryFilter("rwa_commodities_etf")).toBe("rwa_commodities_etf");
+      expect(normalizeCategoryFilter("rwa_pre_ipo_equities")).toBe("rwa_pre_ipo_equities");
+      expect(normalizeCategoryFilter("all")).toBe("all");
+      expect(normalizeCategoryFilter("invalid_junk")).toBe("all");
+      expect(normalizeCategoryFilter("favorites", false)).toBe("all");
+      expect(normalizeCategoryFilter("favorites", true)).toBe("favorites");
+
+      // 3. matchesCategory supports all categories and favorites set
+      const favs = new Set(["BTC", "NVDA"]);
+      expect(matchesCategory("BTC", "favorites", favs)).toBe(true);
+      expect(matchesCategory("ETH", "favorites", favs)).toBe(false);
+      expect(matchesCategory("BTC", "all")).toBe(true);
+      expect(matchesCategory("BTC", "crypto")).toBe(true);
+      expect(matchesCategory("BTC", "rwa_commodities_etf")).toBe(false);
+      expect(matchesCategory("XAU", "rwa_commodities_etf")).toBe(true);
+      expect(matchesCategory("AAPL", "rwa_pre_ipo_equities")).toBe(true);
+
+      // 4. compareMarketCategoryPriority correctly prioritizes Equities -> Commodities -> Crypto
+      expect(compareMarketCategoryPriority("AAPL", "XAU")).toBeLessThan(0);
+      expect(compareMarketCategoryPriority("XAU", "BTC")).toBeLessThan(0);
+      expect(compareMarketCategoryPriority("AAPL", "BTC")).toBeLessThan(0);
+      expect(compareMarketCategoryPriority("BTC", "AAPL")).toBeGreaterThan(0);
+      expect(compareMarketCategoryPriority("AAPL", "NVDA")).toBe(0);
     });
   });
 

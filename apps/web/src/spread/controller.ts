@@ -6,7 +6,10 @@ import { WebSocketManager, type WsOrderBookData } from "./ws";
 import {
   initFontSelector,
   registerTokens,
-  matchesCategoryFilter,
+  matchesCategory,
+  normalizeCategoryFilter,
+  getCategoryShortLabel,
+  MARKET_CATEGORIES,
   getHedgeCategory,
   getHedgeSideConfig,
   type TokenCategoryType,
@@ -106,7 +109,7 @@ export class TerminalController {
 
   public syncSubscriptions(): void {
     for (const m of this.state.markets.values()) {
-      const shouldBeSubscribed = matchesCategoryFilter(m.symbol, this.state.categoryFilter);
+      const shouldBeSubscribed = matchesCategory(m.symbol, this.state.categoryFilter);
 
       if (shouldBeSubscribed) {
         if (!this.wsManager.isCoreSubscribed(m.coreMarketId)) {
@@ -166,7 +169,7 @@ export class TerminalController {
     offset: number,
   ): void {
     const symbol = this.marketIdToSymbol.core.get(marketId);
-    if (!symbol || !matchesCategoryFilter(symbol, this.state.categoryFilter)) {
+    if (!symbol || !matchesCategory(symbol, this.state.categoryFilter)) {
       return;
     }
     const book = getOrCreateBook(this.state.coreBooks, marketId);
@@ -182,7 +185,7 @@ export class TerminalController {
     offset: number,
   ): void {
     const symbol = this.marketIdToSymbol.rh.get(marketId);
-    if (!symbol || !matchesCategoryFilter(symbol, this.state.categoryFilter)) {
+    if (!symbol || !matchesCategory(symbol, this.state.categoryFilter)) {
       return;
     }
     const book = getOrCreateBook(this.state.rhBooks, marketId);
@@ -356,7 +359,7 @@ export class TerminalController {
     const now = performance.now();
 
     for (const m of this.state.markets.values()) {
-      if (!matchesCategoryFilter(m.symbol, this.state.categoryFilter)) continue;
+      if (!matchesCategory(m.symbol, this.state.categoryFilter)) continue;
       if (this.state.minLeverageFilter > 0 && m.leverageNum < this.state.minLeverageFilter)
         continue;
       if (
@@ -847,23 +850,11 @@ export class TerminalController {
 
     const eqBtn = document.getElementById("equitiesToggle");
     if (eqBtn) {
-      if (cat === "crypto") {
-        eqBtn.className =
-          "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
-        eqBtn.textContent = "Crypto";
-      } else if (cat === "rwa_commodities_etf") {
-        eqBtn.className =
-          "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
-        eqBtn.textContent = "Commodities & ETFs";
-      } else if (cat === "rwa_pre_ipo_equities" || cat === "stocks" || cat === "pre_ipo") {
-        eqBtn.className =
-          "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
-        eqBtn.textContent = "Pre-IPOs & Equities";
-      } else {
-        eqBtn.className =
-          "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer whitespace-nowrap text-center";
-        eqBtn.textContent = "All Markets";
-      }
+      const isFiltered = cat !== "all";
+      eqBtn.className = isFiltered
+        ? "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center"
+        : "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer whitespace-nowrap text-center";
+      eqBtn.textContent = getCategoryShortLabel(cat);
     }
   }
 
@@ -955,25 +946,8 @@ export class TerminalController {
       }
 
       const savedCat = localStorage.getItem(STORAGE_KEYS.CATEGORY_FILTER);
-      if (
-        savedCat &&
-        [
-          "all",
-          "crypto",
-          "rwa_commodities_etf",
-          "rwa_pre_ipo_equities",
-          "stocks",
-          "pre_ipo",
-          "etf",
-        ].includes(savedCat)
-      ) {
-        if (savedCat === "stocks" || savedCat === "pre_ipo") {
-          this.state.categoryFilter = "rwa_pre_ipo_equities";
-        } else if (savedCat === "etf") {
-          this.state.categoryFilter = "rwa_commodities_etf";
-        } else {
-          this.state.categoryFilter = savedCat as TokenCategoryType;
-        }
+      if (savedCat) {
+        this.state.categoryFilter = normalizeCategoryFilter(savedCat) as TokenCategoryType;
         this.state.filterEquities = this.state.categoryFilter === "rwa_pre_ipo_equities";
         this.updateCategoryControl(this.state.categoryFilter);
       } else {
@@ -1238,6 +1212,12 @@ export class TerminalController {
 
     // 5. Category selector
     const catSel = document.getElementById("categorySelector") as HTMLSelectElement | null;
+    if (catSel) {
+      catSel.innerHTML = MARKET_CATEGORIES.map(
+        (c) => `<option value="${c.id}" class="bg-terminal-surface text-white">${c.label}</option>`,
+      ).join("");
+      catSel.value = this.state.categoryFilter;
+    }
     catSel?.addEventListener("change", (e) => {
       const val = (e.target as HTMLSelectElement).value as TokenCategoryType;
       this.state.categoryFilter = val;

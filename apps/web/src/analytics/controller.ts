@@ -28,13 +28,17 @@ import type {
 } from "./types";
 import {
   CONFIG,
-  matchesCategoryFilter,
+  matchesCategory,
+  normalizeCategoryFilter,
   formatMoney,
   initFontSelector,
   WebSocketManager,
   createEmptyBook,
   updateBookFromWs,
   getBookMidPrice,
+  getCategoryBadge,
+  MARKET_CATEGORIES_WITH_FAVORITES,
+  type MarketCategoryFilter,
   type OrderBook,
 } from "../shared";
 
@@ -86,7 +90,7 @@ export class AnalyticsController {
   private pairs: AnalyticsMarketPair[] = [];
   private activeSymbol = "AAPL";
   private activeTimeframe: TimeframeId = "24h";
-  private activeCategory: "all" | "stocks" | "pre_ipo" | "etf" | "crypto" | "favorites" = "all";
+  private activeCategory: MarketCategoryFilter = "all";
   private activeVenue: AnalyticsVenue = "rh";
   private currentSortField: SortField = "volume";
   private currentSortDirection: SortDirection = "desc";
@@ -278,7 +282,60 @@ export class AnalyticsController {
 
       const savedBands = localStorage.getItem("analytics_show_bands");
       if (savedBands === "true") this.showBands = true;
+
+      const savedCat = localStorage.getItem("analytics_category");
+      if (savedCat) {
+        this.activeCategory = normalizeCategoryFilter(savedCat, true);
+        this.updateCategoryTabsUi();
+      }
     } catch {}
+  }
+
+  private initCategoryTabs(): void {
+    const container = document.getElementById("categoryTabs");
+    if (!container) return;
+
+    container.innerHTML = MARKET_CATEGORIES_WITH_FAVORITES.map(
+      (cat) => `
+        <button
+          type="button"
+          data-cat="${cat.id}"
+          class="cat-tab px-2.5 py-0.5 rounded ${
+            this.activeCategory === cat.id
+              ? "bg-terminal-border text-white font-bold"
+              : "text-terminal-muted hover:text-white"
+          } transition cursor-pointer text-[11px] whitespace-nowrap"
+        >
+          ${cat.shortLabel}
+        </button>
+      `,
+    ).join("");
+
+    container.querySelectorAll(".cat-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const cat = (tab as HTMLElement).dataset.cat as MarketCategoryFilter;
+        if (cat) {
+          this.activeCategory = cat;
+          this.saveSettings();
+          this.updateCategoryTabsUi();
+          this.focusedModalRowIndex = 0;
+          this.renderTickerSelector();
+        }
+      });
+    });
+  }
+
+  private updateCategoryTabsUi(): void {
+    document.querySelectorAll(".cat-tab").forEach((t) => {
+      const cat = (t as HTMLElement).dataset.cat;
+      if (cat === this.activeCategory) {
+        t.className =
+          "cat-tab px-2.5 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer text-[11px] whitespace-nowrap";
+      } else {
+        t.className =
+          "cat-tab px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer text-[11px] whitespace-nowrap";
+      }
+    });
   }
 
   private saveSettings(): void {
@@ -286,6 +343,7 @@ export class AnalyticsController {
       localStorage.setItem("analytics_symbol", this.activeSymbol);
       localStorage.setItem("analytics_timeframe", this.activeTimeframe);
       localStorage.setItem("analytics_venue", this.activeVenue);
+      localStorage.setItem("analytics_category", this.activeCategory);
       localStorage.setItem("analytics_sort_field", this.currentSortField);
       localStorage.setItem("analytics_sort_dir", this.currentSortDirection);
       localStorage.setItem("analytics_recent_symbols", JSON.stringify(this.recents));
@@ -997,10 +1055,8 @@ export class AnalyticsController {
 
   private getFilteredPairs(): AnalyticsMarketPair[] {
     const list = this.pairs.filter((p) => {
-      if (this.activeCategory === "favorites") {
-        if (!this.favorites.has(p.symbol)) return false;
-      } else if (this.activeCategory !== "all") {
-        if (!matchesCategoryFilter(p.symbol, this.activeCategory)) return false;
+      if (!matchesCategory(p.symbol, this.activeCategory, this.favorites)) {
+        return false;
       }
 
       if (this.searchQuery) {
@@ -1292,6 +1348,7 @@ export class AnalyticsController {
       const isFav = this.favorites.has(p.symbol);
       const icon = getTokenIcon(p.symbol);
       const imgUrl = getTokenImageUrl(p.symbol);
+      const catInfo = getCategoryBadge(p.symbol);
 
       const changeSign = p.dailyPriceChange >= 0 ? "+" : "";
       const changeColor = p.dailyPriceChange >= 0 ? "text-terminal-emerald" : "text-terminal-coral";
@@ -1317,6 +1374,7 @@ export class AnalyticsController {
           </div>
           <span class="${isSelected ? "text-white font-bold" : "text-terminal-primary font-semibold"} truncate">${p.symbol}</span>
           <span class="text-[10px] text-terminal-muted px-1 rounded bg-terminal-bg border border-terminal-border shrink-0">${p.leverage}</span>
+          <span class="text-[9px] text-terminal-muted px-1 py-0.5 rounded bg-terminal-bg border border-terminal-border/70 shrink-0 hidden sm:inline" title="${catInfo.label}">${catInfo.shortLabel}</span>
         </div>
         <div class="col-span-4 sm:col-span-2 text-right tabular-nums text-white font-semibold">${formatMarketPrice(p.markPrice)}</div>
         <div class="col-span-3 sm:col-span-2 text-right tabular-nums font-bold ${changeColor}">${changeSign}${p.dailyPriceChange.toFixed(2)}%</div>
@@ -2098,32 +2156,8 @@ export class AnalyticsController {
       searchInput?.focus();
     });
 
-    // Modal category tabs
-    document.querySelectorAll(".cat-tab").forEach((tab) => {
-      tab.addEventListener("click", () => {
-        const cat = (tab as HTMLElement).dataset.cat as
-          | "all"
-          | "stocks"
-          | "pre_ipo"
-          | "etf"
-          | "crypto"
-          | "favorites";
-        if (cat) {
-          this.activeCategory = cat;
-          document.querySelectorAll(".cat-tab").forEach((t) => {
-            if ((t as HTMLElement).dataset.cat === cat) {
-              t.className =
-                "cat-tab px-2.5 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer text-[11px]";
-            } else {
-              t.className =
-                "cat-tab px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer text-[11px]";
-            }
-          });
-          this.focusedModalRowIndex = 0;
-          this.renderTickerSelector();
-        }
-      });
-    });
+    // Modal category tabs (Populated dynamically from shared MARKET_CATEGORIES_WITH_FAVORITES)
+    this.initCategoryTabs();
 
     // Keyboard navigation in search input
     searchInput?.addEventListener("keydown", (e) => {

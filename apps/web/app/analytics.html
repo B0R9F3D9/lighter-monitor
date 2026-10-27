@@ -878,51 +878,8 @@
         <div
           class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex flex-wrap items-center justify-between gap-2 text-xs"
         >
-          <!-- Left: Category Tabs -->
-          <div class="flex items-center gap-1" id="categoryTabs">
-            <button
-              type="button"
-              data-cat="all"
-              class="cat-tab px-2.5 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer text-[11px]"
-            >
-              All
-            </button>
-            <button
-              type="button"
-              data-cat="stocks"
-              class="cat-tab px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer text-[11px]"
-            >
-              Stocks
-            </button>
-            <button
-              type="button"
-              data-cat="pre_ipo"
-              class="cat-tab px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer text-[11px]"
-            >
-              Pre-IPO
-            </button>
-            <button
-              type="button"
-              data-cat="etf"
-              class="cat-tab px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer text-[11px]"
-            >
-              ETF
-            </button>
-            <button
-              type="button"
-              data-cat="crypto"
-              class="cat-tab px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer text-[11px]"
-            >
-              Crypto
-            </button>
-            <button
-              type="button"
-              data-cat="favorites"
-              class="cat-tab px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer text-[11px] flex items-center gap-1"
-            >
-              ★ Favs
-            </button>
-          </div>
+          <!-- Left: Category Tabs (Populated dynamically from shared MARKET_CATEGORIES_WITH_FAVORITES) -->
+          <div class="flex items-center gap-1 overflow-x-auto no-scrollbar" id="categoryTabs"></div>
 
           <!-- Right: Venue Switcher (RH vs Core) + Sort Dropdown + Count -->
           <div class="flex items-center gap-2">

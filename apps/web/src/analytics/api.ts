@@ -1,4 +1,10 @@
-import { CONFIG, registerTokens, isEquitySymbol, getHedgeSideConfig } from "../shared";
+import {
+  CONFIG,
+  registerTokens,
+  isEquitySymbol,
+  getHedgeSideConfig,
+  compareMarketCategoryPriority,
+} from "../shared";
 import { alignCandlesToBasisPoints, calculateQuantStats, calculateRollingBands } from "./math";
 import type {
   AnalyticsMarketPair,
@@ -144,9 +150,10 @@ export async function fetchMarketPairs(): Promise<AnalyticsMarketPair[]> {
     });
   }
 
-  // Sort: Equities first, then by 24h volume descending
+  // Sort: Pre-IPOs/Equities first, then Commodities/ETFs, then Crypto, then by 24h volume descending
   pairs.sort((a, b) => {
-    if (a.isEquity !== b.isEquity) return a.isEquity ? -1 : 1;
+    const catDiff = compareMarketCategoryPriority(a.symbol, b.symbol);
+    if (catDiff !== 0) return catDiff;
     return b.totalVolume24h - a.totalVolume24h;
   });
 
