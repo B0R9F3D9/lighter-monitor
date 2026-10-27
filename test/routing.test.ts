@@ -124,7 +124,7 @@ describe("Worker HTTP Routing", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
     expect(assetReqs.length).toBe(1);
-    expect(assetReqs[0]).toContain("/analytics.html");
+    expect(assetReqs[0]).toContain("/analytics");
   });
 
   it("serves hedge trade checker HTML on GET /checker", async () => {

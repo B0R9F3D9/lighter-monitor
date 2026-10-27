@@ -44,4 +44,12 @@ describe("Analytics URL Slug Resolution", () => {
     expect(getSlugSymbolFromPath("/checker")).toBeNull();
     expect(getSlugSymbolFromPath("")).toBeNull();
   });
+
+  it("resolves slug from encoded ticker link paths correctly", () => {
+    const symbols = ["AAPL", "BTC", "ETH", "1000PEPE", "XAU", "BRK.B"];
+    for (const sym of symbols) {
+      const linkPath = `/analytics/${encodeURIComponent(sym)}`;
+      expect(getSlugSymbolFromPath(linkPath)).toBe(sym.toUpperCase());
+    }
+  });
 });

@@ -226,7 +226,7 @@ export default {
         url.pathname === "/analytics/" ||
         (url.pathname.startsWith("/analytics/") && !url.pathname.slice(11).includes("."))
       ) {
-        const assetUrl = new URL("/analytics.html", request.url);
+        const assetUrl = new URL("/analytics", request.url);
         return await env.ASSETS.fetch(new Request(assetUrl, request));
       }
 

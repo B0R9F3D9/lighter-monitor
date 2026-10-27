@@ -146,10 +146,24 @@ export class AnalyticsController {
 
   private restoreSettings(): void {
     try {
-      const urlSymbol =
-        typeof window !== "undefined" ? getSlugSymbolFromPath(window.location.pathname) : null;
-      if (urlSymbol) {
-        this.activeSymbol = urlSymbol;
+      let resolvedSymbol: string | null = null;
+      if (typeof window !== "undefined") {
+        resolvedSymbol = getSlugSymbolFromPath(window.location.pathname);
+        if (!resolvedSymbol && window.location.search) {
+          const params = new URLSearchParams(window.location.search);
+          const q = params.get("token") || params.get("symbol");
+          if (q && q.trim()) resolvedSymbol = q.trim().toUpperCase();
+        }
+        if (!resolvedSymbol && (window as any)["__INITIAL_ANALYTICS_SYMBOL__"]) {
+          resolvedSymbol = (window as any)["__INITIAL_ANALYTICS_SYMBOL__"];
+        }
+      }
+
+      if (resolvedSymbol) {
+        this.activeSymbol = resolvedSymbol;
+        try {
+          localStorage.setItem("analytics_symbol", resolvedSymbol);
+        } catch {}
       } else {
         const sym = localStorage.getItem("analytics_symbol");
         if (sym) this.activeSymbol = sym;
@@ -907,10 +921,10 @@ export class AnalyticsController {
       const pair = this.pairs.find((p) => p.symbol === sym);
       const icon = getTokenIcon(sym);
       const imgUrl = getTokenImageUrl(sym);
-      const chip = document.createElement("button");
-      chip.type = "button";
+      const chip = document.createElement("a");
+      chip.href = `/analytics/${encodeURIComponent(sym)}`;
       const isSelected = sym === this.activeSymbol;
-      chip.className = `inline-flex items-center gap-1.5 px-2 py-0.5 rounded border text-[11px] font-mono transition cursor-pointer shrink-0 ${
+      chip.className = `inline-flex items-center gap-1.5 px-2 py-0.5 rounded border text-[11px] font-mono transition cursor-pointer shrink-0 no-underline ${
         isSelected
           ? "bg-terminal-border border-terminal-accent/50 text-white font-bold"
           : "bg-terminal-bg border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white"
@@ -929,9 +943,21 @@ export class AnalyticsController {
       chip.addEventListener("click", (e) => {
         const target = e.target as HTMLElement;
         if (target.classList.contains("chip-remove-btn")) {
+          e.preventDefault();
           this.removeFromRecents(sym, e);
           return;
         }
+        if (
+          e.defaultPrevented ||
+          e.button !== 0 ||
+          e.metaKey ||
+          e.ctrlKey ||
+          e.shiftKey ||
+          e.altKey
+        ) {
+          return;
+        }
+        e.preventDefault();
         this.selectSymbol(sym);
         this.closeTickerModal();
       });
@@ -948,6 +974,7 @@ export class AnalyticsController {
 
   private removeFromRecents(symbol: string, e: Event): void {
     e.stopPropagation();
+    e.preventDefault();
     this.recents = this.recents.filter((s) => s !== symbol);
     this.saveSettings();
     this.renderRecents();
@@ -955,6 +982,7 @@ export class AnalyticsController {
 
   private toggleFavorite(symbol: string, e: Event): void {
     e.stopPropagation();
+    e.preventDefault();
     if (this.favorites.has(symbol)) {
       this.favorites.delete(symbol);
     } else {
@@ -1010,8 +1038,9 @@ export class AnalyticsController {
       const changeSign = p.dailyPriceChange >= 0 ? "+" : "";
       const changeColor = p.dailyPriceChange >= 0 ? "text-terminal-emerald" : "text-terminal-coral";
 
-      const row = document.createElement("div");
-      row.className = `ticker-modal-row grid grid-cols-12 items-center px-3 py-2 text-xs font-mono transition cursor-pointer ${
+      const row = document.createElement("a");
+      row.href = `/analytics/${encodeURIComponent(p.symbol)}`;
+      row.className = `ticker-modal-row grid grid-cols-12 items-center px-3 py-2 text-xs font-mono transition cursor-pointer no-underline ${
         isFocused ? "bg-terminal-surfaceHover" : ""
       } ${
         isSelected
@@ -1040,9 +1069,24 @@ export class AnalyticsController {
       row.addEventListener("click", (e) => {
         const target = e.target as HTMLElement;
         if (target.classList.contains("fav-star-btn")) {
+          e.preventDefault();
           this.toggleFavorite(p.symbol, e);
           return;
         }
+
+        // Allow opening in new tab/window when Ctrl, Cmd (Mac), Shift, Alt or middle click is used
+        if (
+          e.defaultPrevented ||
+          e.button !== 0 ||
+          e.metaKey ||
+          e.ctrlKey ||
+          e.shiftKey ||
+          e.altKey
+        ) {
+          return;
+        }
+
+        e.preventDefault();
         this.selectSymbol(p.symbol);
         this.addToRecents(p.symbol);
         this.closeTickerModal();
