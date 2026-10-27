@@ -5,4 +5,5 @@ export * from "./formatters";
 export * from "./tokens";
 export * from "./version_checker";
 export * from "./ws";
+export * from "./orderbook";
 export * from "./mobile_nav";

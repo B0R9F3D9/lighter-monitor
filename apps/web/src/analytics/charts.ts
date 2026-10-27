@@ -41,6 +41,8 @@ export interface ChartSyncContext {
     isRhLong?: boolean,
   ) => void;
   setShowBands: (visible: boolean) => void;
+  updateRealtimePoint: (point: BasisPoint, updateSeries?: boolean) => void;
+  isUserHovering: () => boolean;
   resize: () => void;
 }
 
@@ -293,6 +295,7 @@ export function initAnalyticsCharts(
 
   let isSyncing = false;
   let isProgrammaticUpdate = false;
+  let isHovering = false;
   let currentIsRhLong = true;
   let currentPointsList: BasisPoint[] = [];
   const currentPointsMap = new Map<number, BasisPoint>();
@@ -395,10 +398,12 @@ export function initAnalyticsCharts(
   // Crosshair move handler (drives dynamic price scale labels on right)
   const handleMove = (param: { time?: Time; point?: { x: number; y: number } }) => {
     if (!param.time || !param.point) {
+      isHovering = false;
       updatePriceLines(null);
       if (onCrosshairMove) onCrosshairMove(null);
       return;
     }
+    isHovering = true;
     const tSec = typeof param.time === "number" ? param.time : 0;
     const pt = currentPointsMap.get(tSec) || null;
     updatePriceLines(pt);
@@ -409,6 +414,7 @@ export function initAnalyticsCharts(
   basisChart.subscribeCrosshairMove(handleMove);
 
   const handleMouseLeave = () => {
+    isHovering = false;
     updatePriceLines(null);
     if (onCrosshairMove) onCrosshairMove(null);
   };
@@ -526,6 +532,32 @@ export function initAnalyticsCharts(
     lowerBandSeries.applyOptions({ visible });
   };
 
+  const updateRealtimePoint = (point: BasisPoint, updateSeries = true) => {
+    if (!point) return;
+
+    if (updateSeries) {
+      rhSeries.update({ time: point.timeSec as UTCTimestamp, value: point.rhPrice });
+      coreSeries.update({ time: point.timeSec as UTCTimestamp, value: point.corePrice });
+      basisSeries.update({ time: point.timeSec as UTCTimestamp, value: point.basisUsd });
+    }
+
+    const lastIdx = currentPointsList.length - 1;
+    if (lastIdx >= 0 && currentPointsList[lastIdx]!.timeSec === point.timeSec) {
+      currentPointsList[lastIdx] = point;
+    } else if (lastIdx >= 0 && point.timeSec > currentPointsList[lastIdx]!.timeSec) {
+      currentPointsList.push(point);
+    } else if (lastIdx < 0) {
+      currentPointsList.push(point);
+    }
+    currentPointsMap.set(point.timeSec, point);
+
+    if (!isHovering) {
+      updatePriceLines(point);
+    }
+  };
+
+  const isUserHovering = () => isHovering;
+
   const resize = () => {
     if (priceContainer.clientWidth > 0 && priceContainer.clientHeight > 0) {
       priceChart.applyOptions({
@@ -556,6 +588,8 @@ export function initAnalyticsCharts(
     destroy,
     setData,
     setShowBands,
+    updateRealtimePoint,
+    isUserHovering,
     resize,
   };
 }

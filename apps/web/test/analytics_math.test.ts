@@ -11,6 +11,7 @@ import {
   dedupeAndSortCandles,
   extrapolateTimeRange,
   formatMarketPrice,
+  getResolutionStepSec,
   getTokenIcon,
   getTokenImageUrl,
   splitIntervalsIntoApiChunks,
@@ -371,6 +372,17 @@ describe("Analytics Math Engine", () => {
       const deduped = dedupeAndSortCandles(candles);
       expect(deduped.length).toBe(3);
       expect(deduped.map((c) => c.t)).toEqual([1000, 2000, 3000]);
+    });
+
+    it("returns correct resolution step in seconds", () => {
+      expect(getResolutionStepSec("1m")).toBe(60);
+      expect(getResolutionStepSec("5m")).toBe(300);
+      expect(getResolutionStepSec("15m")).toBe(900);
+      expect(getResolutionStepSec("30m")).toBe(1800);
+      expect(getResolutionStepSec("1h")).toBe(3600);
+      expect(getResolutionStepSec("4h")).toBe(14400);
+      expect(getResolutionStepSec("1d")).toBe(86400);
+      expect(getResolutionStepSec("unknown")).toBe(60);
     });
   });
 });

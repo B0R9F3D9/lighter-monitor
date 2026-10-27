@@ -9,7 +9,9 @@ import {
   chooseOptimalResolution,
   computeDateFilterIntervals,
   dedupeAndSortCandles,
+  evaluateSignalVerdict,
   formatMarketPrice,
+  getResolutionStepSec,
   getTokenIcon,
   getTokenImageUrl,
   splitIntervalsIntoApiChunks,
@@ -24,7 +26,17 @@ import type {
   RawCandle,
   TimeframeId,
 } from "./types";
-import { CONFIG, matchesCategoryFilter, formatMoney, initFontSelector } from "../shared";
+import {
+  CONFIG,
+  matchesCategoryFilter,
+  formatMoney,
+  initFontSelector,
+  WebSocketManager,
+  createEmptyBook,
+  updateBookFromWs,
+  getBookMidPrice,
+  type OrderBook,
+} from "../shared";
 
 type SortField = "volume" | "oi" | "change" | "price" | "symbol";
 type SortDirection = "asc" | "desc";
@@ -86,6 +98,14 @@ export class AnalyticsController {
 
   private chartContext: ChartSyncContext | null = null;
   private activePoints: BasisPoint[] = [];
+  private currentStats: QuantStats | null = null;
+
+  private wsManager: WebSocketManager | null = null;
+  private rhBook: OrderBook | null = null;
+  private coreBook: OrderBook | null = null;
+  private lastKnownRhMid = 0;
+  private lastKnownCoreMid = 0;
+  private rafUpdateScheduled = false;
 
   private showBands = false;
   private dateFilter: DateFilterConfig = {
@@ -117,12 +137,66 @@ export class AnalyticsController {
       this.restoreSettings();
       this.updateInitialHeaderDisplay();
       this.initCharts();
+      this.initWs();
       this.setupEventListeners();
       this.setLoading(true);
       await this.loadPairs();
       await this.loadData();
     } finally {
       this.setLoading(false);
+    }
+  }
+
+  private initWs(): void {
+    this.wsManager = new WebSocketManager({
+      onRhBookUpdate: (marketId, data, isSnapshot, offset) => {
+        const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+        if (!pair || pair.rhMarketId !== marketId) return;
+        if (!this.rhBook || this.rhBook.marketId !== marketId) {
+          this.rhBook = createEmptyBook(marketId);
+        }
+        updateBookFromWs(this.rhBook, data, isSnapshot, offset);
+        const mid = getBookMidPrice(this.rhBook);
+        if (mid > 0) {
+          this.lastKnownRhMid = mid;
+          pair.rh.markPrice = mid;
+          this.scheduleRealtimeUpdate();
+        }
+      },
+      onCoreBookUpdate: (marketId, data, isSnapshot, offset) => {
+        const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+        if (!pair || pair.coreMarketId !== marketId) return;
+        if (!this.coreBook || this.coreBook.marketId !== marketId) {
+          this.coreBook = createEmptyBook(marketId);
+        }
+        updateBookFromWs(this.coreBook, data, isSnapshot, offset);
+        const mid = getBookMidPrice(this.coreBook);
+        if (mid > 0) {
+          this.lastKnownCoreMid = mid;
+          pair.core.markPrice = mid;
+          this.scheduleRealtimeUpdate();
+        }
+      },
+    });
+    this.wsManager.connectAll();
+  }
+
+  private updateWsSubscriptions(
+    prevPair?: AnalyticsMarketPair | null,
+    nextPair?: AnalyticsMarketPair | null,
+  ): void {
+    if (!this.wsManager) return;
+    if (prevPair) {
+      if (!nextPair || prevPair.rhMarketId !== nextPair.rhMarketId) {
+        this.wsManager.unsubscribeRh(prevPair.rhMarketId);
+      }
+      if (!nextPair || prevPair.coreMarketId !== nextPair.coreMarketId) {
+        this.wsManager.unsubscribeCore(prevPair.coreMarketId);
+      }
+    }
+    if (nextPair) {
+      this.wsManager.subscribeRh(nextPair.rhMarketId);
+      this.wsManager.subscribeCore(nextPair.coreMarketId);
     }
   }
 
@@ -235,7 +309,12 @@ export class AnalyticsController {
       }
       this.updateUrl(false);
       const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
-      if (pair) this.updateTopMarketStats(pair);
+      if (pair) {
+        this.updateTopMarketStats(pair);
+        this.lastKnownRhMid = pair.rh.markPrice;
+        this.lastKnownCoreMid = pair.core.markPrice;
+        this.updateWsSubscriptions(null, pair);
+      }
       this.updateSortIndicators();
       this.renderRecents();
       this.renderTickerSelector();
@@ -332,6 +411,17 @@ export class AnalyticsController {
         return;
       }
       this.activePoints = points;
+      this.currentStats = stats;
+
+      if (points.length > 0) {
+        const lastPt = points[points.length - 1]!;
+        if (this.lastKnownRhMid <= 0 && lastPt.rhPrice > 0) {
+          this.lastKnownRhMid = lastPt.rhPrice;
+        }
+        if (this.lastKnownCoreMid <= 0 && lastPt.corePrice > 0) {
+          this.lastKnownCoreMid = lastPt.corePrice;
+        }
+      }
 
       if (this.chartContext) {
         this.chartContext.setData(points, bands, true, undefined, pair.hedgeSideConfig.isRhLong);
@@ -341,6 +431,10 @@ export class AnalyticsController {
       this.renderHeatmap();
       this.updateTopMarketStats(pair);
       this.updateLegend(points[points.length - 1] || null);
+
+      if (this.lastKnownRhMid > 0 && this.lastKnownCoreMid > 0) {
+        this.scheduleRealtimeUpdate();
+      }
     } catch (err) {
       if (reqId === this.currentRequestId) {
         console.error("Failed to fetch historical basis:", err);
@@ -434,6 +528,7 @@ export class AnalyticsController {
         const bands = calculateRollingBands(points, 20);
 
         this.activePoints = points;
+        this.currentStats = stats;
 
         if (this.chartContext) {
           this.chartContext.setData(
@@ -449,6 +544,9 @@ export class AnalyticsController {
         this.renderHeatmap();
         this.updateLegend(points[points.length - 1] || null);
         this.clearActiveTimeframeButtons();
+        if (this.lastKnownRhMid > 0 && this.lastKnownCoreMid > 0) {
+          this.scheduleRealtimeUpdate();
+        }
       }
     } catch (err) {
       if (reqId === this.currentRequestId) {
@@ -631,6 +729,7 @@ export class AnalyticsController {
 
   private updateQuantGauges(stats: QuantStats | null): void {
     if (!stats) return;
+    this.currentStats = stats;
 
     const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
     const isRhLong = stats.isRhLong ?? (pair ? pair.hedgeSideConfig.isRhLong : true);
@@ -706,6 +805,165 @@ export class AnalyticsController {
       } else {
         verdictEl.textContent = `OVERHEATED (${zStr})`;
         verdictEl.className = "text-[11px] font-semibold text-terminal-coral select-text";
+      }
+    }
+  }
+
+  private scheduleRealtimeUpdate(): void {
+    if (this.rafUpdateScheduled) return;
+    this.rafUpdateScheduled = true;
+    requestAnimationFrame(() => {
+      this.rafUpdateScheduled = false;
+      this.flushRealtimeUpdate();
+    });
+  }
+
+  private flushRealtimeUpdate(): void {
+    const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+    if (!pair) return;
+
+    const rhPrice = this.lastKnownRhMid;
+    const corePrice = this.lastKnownCoreMid;
+    if (rhPrice <= 0 || corePrice <= 0) return;
+
+    const basisUsd = rhPrice - corePrice;
+    const midPrice = (rhPrice + corePrice) / 2;
+    if (midPrice <= 0) return;
+    const basisBps = (basisUsd / midPrice) * 10000;
+
+    const isRhLong = pair.hedgeSideConfig.isRhLong;
+    const isEdge = isRhLong ? basisUsd <= 0 : basisUsd >= 0;
+
+    // 1. Update Top Mark Price
+    const liveMarkPrice = this.activeVenue === "rh" ? rhPrice : corePrice;
+    pair.markPrice = liveMarkPrice;
+    const markEl = document.getElementById("statMarkPrice");
+    if (markEl) markEl.textContent = formatMarketPrice(liveMarkPrice);
+
+    // If date filter is active, historical view is frozen, so do not alter gauges or chart
+    if (this.dateFilter.isActive) return;
+
+    // 2. Update Quant Gauges
+    this.updateRealtimeQuantGauges(basisUsd, basisBps, isRhLong, isEdge);
+
+    // 3. Update Chart & Price Lines
+    const tf = TIMEFRAMES[this.activeTimeframe];
+    const stepSec = tf ? getResolutionStepSec(tf.resolution) : 300;
+    const nowSec = Math.floor(Date.now() / 1000);
+    let timeSec = Math.floor(nowSec / stepSec) * stepSec;
+    if (this.activePoints.length > 0) {
+      const lastPt = this.activePoints[this.activePoints.length - 1]!;
+      if (timeSec < lastPt.timeSec) {
+        timeSec = lastPt.timeSec;
+      }
+    }
+
+    const livePoint: BasisPoint = {
+      timeSec,
+      timestampMs: Date.now(),
+      rhPrice,
+      corePrice,
+      basisUsd,
+      basisBps,
+      midPrice,
+      rhVolume: 0,
+      coreVolume: 0,
+    };
+
+    if (this.activePoints.length > 0) {
+      const lastPt = this.activePoints[this.activePoints.length - 1]!;
+      if (lastPt.timeSec === timeSec) {
+        this.activePoints[this.activePoints.length - 1] = livePoint;
+      } else if (timeSec > lastPt.timeSec) {
+        this.activePoints.push(livePoint);
+      }
+    } else {
+      this.activePoints.push(livePoint);
+    }
+
+    if (this.chartContext) {
+      this.chartContext.updateRealtimePoint(livePoint, true);
+      if (!this.chartContext.isUserHovering()) {
+        this.updateLegend(livePoint);
+      }
+    }
+  }
+
+  private updateRealtimeQuantGauges(
+    basisUsd: number,
+    basisBps: number,
+    isRhLong: boolean,
+    isEdge: boolean,
+  ): void {
+    const sign = basisUsd > 0 ? "+" : "";
+    const basisEl = document.getElementById("statCurrentBasis");
+    const basisBpsEl = document.getElementById("statCurrentBasisBps");
+    const zScoreEl = document.getElementById("statZScore");
+    const percentileEl = document.getElementById("statPercentile");
+    const verdictEl = document.getElementById("statVerdictBadge");
+
+    if (basisEl) {
+      basisEl.textContent = `${sign}$${basisUsd.toFixed(3)}`;
+      basisEl.className = isEdge
+        ? "text-sm font-bold tabular-nums text-terminal-emerald"
+        : "text-sm font-bold tabular-nums text-white";
+    }
+
+    if (basisBpsEl) {
+      basisBpsEl.textContent = `(${sign}${basisBps.toFixed(1)} bps)`;
+      basisBpsEl.className = isEdge
+        ? "text-[11px] tabular-nums text-terminal-emerald"
+        : "text-[11px] tabular-nums text-terminal-muted";
+    }
+
+    if (this.currentStats) {
+      const { meanBasisUsd, stdDevUsd } = this.currentStats;
+      const zScore = stdDevUsd > 0.00001 ? (basisUsd - meanBasisUsd) / stdDevUsd : 0;
+      const effectiveZScore = isRhLong ? zScore : -zScore;
+
+      if (zScoreEl) {
+        const zSign = zScore > 0 ? "+" : "";
+        zScoreEl.textContent = `${zSign}${zScore.toFixed(2)}σ`;
+        zScoreEl.className =
+          effectiveZScore <= 0
+            ? "font-bold tabular-nums text-terminal-emerald"
+            : effectiveZScore <= 1.0
+              ? "font-bold tabular-nums text-terminal-primary"
+              : effectiveZScore <= 2.0
+                ? "font-bold tabular-nums text-terminal-amber"
+                : "font-bold tabular-nums text-terminal-coral";
+      }
+
+      if (verdictEl) {
+        const zStr =
+          effectiveZScore <= 0
+            ? `${effectiveZScore.toFixed(2)}σ`
+            : `+${effectiveZScore.toFixed(2)}σ`;
+        const signal = evaluateSignalVerdict(effectiveZScore);
+        if (signal === "EXCELLENT ENTRY") {
+          verdictEl.textContent = `EXCELLENT (${zStr})`;
+          verdictEl.className = "text-[11px] font-semibold text-terminal-emerald select-text";
+        } else if (signal === "FAIR") {
+          verdictEl.textContent = `FAIR (${zStr})`;
+          verdictEl.className = "text-[11px] font-semibold text-terminal-primary select-text";
+        } else if (signal === "CAUTION") {
+          verdictEl.textContent = `CAUTION (${zStr})`;
+          verdictEl.className = "text-[11px] font-semibold text-terminal-amber select-text";
+        } else {
+          verdictEl.textContent = `OVERHEATED (${zStr})`;
+          verdictEl.className = "text-[11px] font-semibold text-terminal-coral select-text";
+        }
+      }
+
+      if (percentileEl && this.activePoints.length > 0) {
+        let countBelow = 0;
+        for (let i = 0; i < this.activePoints.length; i++) {
+          if (this.activePoints[i]!.basisUsd < basisUsd) {
+            countBelow++;
+          }
+        }
+        const pct = (countBelow / this.activePoints.length) * 100;
+        percentileEl.textContent = `${pct.toFixed(1)}%`;
       }
     }
   }
@@ -1112,6 +1370,7 @@ export class AnalyticsController {
       this.rangeDebounceTimer = null;
     }
     this.pendingRange = null;
+    const prevPair = this.pairs.find((p) => p.symbol === this.activeSymbol);
     this.activeSymbol = symbol;
     this.saveSettings();
     this.addToRecents(symbol);
@@ -1121,7 +1380,14 @@ export class AnalyticsController {
     this.renderRecents();
     this.renderTickerSelector();
     const pair = this.pairs.find((p) => p.symbol === symbol);
-    if (pair) this.updateTopMarketStats(pair);
+    if (pair) {
+      this.updateTopMarketStats(pair);
+      this.updateWsSubscriptions(prevPair, pair);
+      this.rhBook = null;
+      this.coreBook = null;
+      this.lastKnownRhMid = pair.rh.markPrice;
+      this.lastKnownCoreMid = pair.core.markPrice;
+    }
     this.loadData();
   }
 
@@ -2069,5 +2335,28 @@ export class AnalyticsController {
         this.closeDateFilterModal();
       }
     });
+
+    window.addEventListener("beforeunload", () => {
+      this.destroy();
+    });
+  }
+
+  public destroy(): void {
+    if (this.wsManager) {
+      this.wsManager.disconnectAll();
+      this.wsManager = null;
+    }
+    if (this.fundingIntervalId) {
+      clearInterval(this.fundingIntervalId);
+      this.fundingIntervalId = null;
+    }
+    if (this.rangeDebounceTimer) {
+      clearTimeout(this.rangeDebounceTimer);
+      this.rangeDebounceTimer = null;
+    }
+    if (this.chartContext) {
+      this.chartContext.destroy();
+      this.chartContext = null;
+    }
   }
 }
