@@ -809,18 +809,18 @@ export class TerminalController {
 
     const eqBtn = document.getElementById("equitiesToggle");
     if (eqBtn) {
-      if (cat === "stocks") {
+      if (cat === "crypto") {
         eqBtn.className =
           "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
-        eqBtn.textContent = "Single Stocks";
-      } else if (cat === "pre_ipo") {
+        eqBtn.textContent = "Crypto";
+      } else if (cat === "rwa_commodities_etf") {
         eqBtn.className =
           "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
-        eqBtn.textContent = "Pre-IPO";
-      } else if (cat === "etf") {
+        eqBtn.textContent = "Commodities & ETFs";
+      } else if (cat === "rwa_pre_ipo_equities" || cat === "stocks" || cat === "pre_ipo") {
         eqBtn.className =
           "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-accent/40 bg-terminal-bg text-terminal-accent text-[11px] font-semibold transition cursor-pointer whitespace-nowrap text-center";
-        eqBtn.textContent = "ETFs";
+        eqBtn.textContent = "Pre-IPOs & Equities";
       } else {
         eqBtn.className =
           "flex-1 sm:flex-initial px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg text-terminal-muted hover:text-white text-[11px] transition cursor-pointer whitespace-nowrap text-center";
@@ -830,7 +830,7 @@ export class TerminalController {
   }
 
   private updateEquitiesControl(active: boolean): void {
-    this.updateCategoryControl(active ? "stocks" : "all");
+    this.updateCategoryControl(active ? "rwa_pre_ipo_equities" : "all");
   }
 
   private updateReadyControl(active: boolean): void {
@@ -856,7 +856,7 @@ export class TerminalController {
       localStorage.setItem(STORAGE_KEYS.CATEGORY_FILTER, this.state.categoryFilter);
       localStorage.setItem(
         STORAGE_KEYS.FILTER_EQUITIES,
-        String(this.state.categoryFilter === "stocks"),
+        String(this.state.categoryFilter === "rwa_pre_ipo_equities"),
       );
       localStorage.setItem(STORAGE_KEYS.FILTER_READY, String(this.state.filterReadyOnly));
       localStorage.setItem(STORAGE_KEYS.RERANK_INTERVAL, String(this.state.rerankIntervalSec));
@@ -921,14 +921,31 @@ export class TerminalController {
       }
 
       const savedCat = localStorage.getItem(STORAGE_KEYS.CATEGORY_FILTER);
-      if (savedCat && ["all", "stocks", "pre_ipo", "etf"].includes(savedCat)) {
-        this.state.categoryFilter = savedCat as TokenCategoryType;
-        this.state.filterEquities = savedCat === "stocks";
+      if (
+        savedCat &&
+        [
+          "all",
+          "crypto",
+          "rwa_commodities_etf",
+          "rwa_pre_ipo_equities",
+          "stocks",
+          "pre_ipo",
+          "etf",
+        ].includes(savedCat)
+      ) {
+        if (savedCat === "stocks" || savedCat === "pre_ipo") {
+          this.state.categoryFilter = "rwa_pre_ipo_equities";
+        } else if (savedCat === "etf") {
+          this.state.categoryFilter = "rwa_commodities_etf";
+        } else {
+          this.state.categoryFilter = savedCat as TokenCategoryType;
+        }
+        this.state.filterEquities = this.state.categoryFilter === "rwa_pre_ipo_equities";
         this.updateCategoryControl(this.state.categoryFilter);
       } else {
         const savedEq = localStorage.getItem(STORAGE_KEYS.FILTER_EQUITIES);
         if (savedEq !== null) {
-          this.state.categoryFilter = savedEq === "true" ? "stocks" : "all";
+          this.state.categoryFilter = savedEq === "true" ? "rwa_pre_ipo_equities" : "all";
           this.state.filterEquities = savedEq === "true";
           this.updateCategoryControl(this.state.categoryFilter);
         }
@@ -1189,16 +1206,17 @@ export class TerminalController {
     catSel?.addEventListener("change", (e) => {
       const val = (e.target as HTMLSelectElement).value as TokenCategoryType;
       this.state.categoryFilter = val;
-      this.state.filterEquities = val === "stocks";
+      this.state.filterEquities = val === "rwa_pre_ipo_equities";
       this.saveFilterSettings();
       this.rerank();
     });
 
     const eqBtn = document.getElementById("equitiesToggle");
     eqBtn?.addEventListener("click", () => {
-      const nextCat: TokenCategoryType = this.state.categoryFilter === "all" ? "stocks" : "all";
+      const nextCat: TokenCategoryType =
+        this.state.categoryFilter === "all" ? "rwa_pre_ipo_equities" : "all";
       this.state.categoryFilter = nextCat;
-      this.state.filterEquities = nextCat === "stocks";
+      this.state.filterEquities = nextCat === "rwa_pre_ipo_equities";
       this.updateCategoryControl(nextCat);
       this.saveFilterSettings();
       this.rerank();

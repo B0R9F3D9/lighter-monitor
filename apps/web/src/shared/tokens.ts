@@ -26,7 +26,14 @@ export interface HedgeSideConfig {
   coreAction: "Long" | "Short";
 }
 
-export type TokenCategoryType = "all" | "stocks" | "pre_ipo" | "etf" | "crypto";
+export type TokenCategoryType =
+  | "all"
+  | "crypto"
+  | "rwa_commodities_etf"
+  | "rwa_pre_ipo_equities"
+  | "stocks"
+  | "pre_ipo"
+  | "etf";
 
 export const CRYPTO_SYMBOLS: Set<string> = new Set();
 export const NON_EQUITY_SYMBOLS: Set<string> = new Set();
@@ -44,9 +51,38 @@ export const KNOWN_PRE_IPO = new Set([
   "SHEIN",
   "CRCL",
   "STRIPE",
+  "OURA",
 ]);
-export const KNOWN_ETF = new Set(["SPY", "QQQ", "USAR", "SGOV", "SLV", "USO", "SOXL"]);
-export const KNOWN_COMMODITIES = new Set(["XAU", "XAG", "GOLD", "SILVER", "OIL"]);
+export const KNOWN_ETF = new Set([
+  "SPY",
+  "QQQ",
+  "USAR",
+  "SGOV",
+  "SLV",
+  "USO",
+  "SOXL",
+  "SOXX",
+  "URA",
+  "US100",
+  "US500",
+  "SOXS",
+  "KORU",
+  "TUR30",
+]);
+export const KNOWN_COMMODITIES = new Set([
+  "XAU",
+  "XAG",
+  "GOLD",
+  "SILVER",
+  "OIL",
+  "WTI",
+  "NATGAS",
+  "XCU",
+  "PAXG",
+  "WHEAT",
+  "XPD",
+  "XPT",
+]);
 export const KNOWN_STOCKS = new Set([
   "AAPL",
   "NVDA",
@@ -69,6 +105,29 @@ export const KNOWN_STOCKS = new Set([
   "TSM",
   "ORCL",
   "BE",
+  "IREN",
+  "SOFI",
+  "AMC",
+  "SMCI",
+  "QBTS",
+  "LUNR",
+  "ASTS",
+  "SKHY",
+  "CLSK",
+  "WULF",
+  "RGTI",
+  "SOUN",
+  "NOW",
+  "RKLB",
+  "SAMSUNG",
+  "SKHYNIX",
+  "MRNA",
+  "TTWO",
+  "GEV",
+  "ASML",
+  "AXTI",
+  "WDC",
+  "KIOXIA",
 ]);
 export const KNOWN_CRYPTO = new Set([
   "BTC",
@@ -84,6 +143,103 @@ export const KNOWN_CRYPTO = new Set([
   "DOGE",
   "AVAX",
   "LINK",
+  "UNI",
+  "AAVE",
+  "TRX",
+  "USELESS",
+  "ANSEM",
+  "CASHCAT",
+  "PONS",
+  "XMR",
+  "AI",
+  "0G",
+  "2Z",
+  "ADA",
+  "ADI",
+  "AERO",
+  "AI16Z",
+  "APEX",
+  "APT",
+  "ARB",
+  "ARC",
+  "ASTER",
+  "AVNT",
+  "AXS",
+  "BLUR",
+  "BOME",
+  "BRETT",
+  "CHILLGUY",
+  "CRV",
+  "DOT",
+  "ENA",
+  "EOS",
+  "FARTCOIN",
+  "FET",
+  "FIL",
+  "FLR",
+  "FTM",
+  "GIGA",
+  "GOAT",
+  "GRASS",
+  "GRIFFAIN",
+  "ICP",
+  "INJ",
+  "IO",
+  "IP",
+  "JASMY",
+  "JTO",
+  "JUP",
+  "KAS",
+  "KOMA",
+  "LAY",
+  "LDO",
+  "LEO",
+  "MAGIC",
+  "MANA",
+  "MELANIA",
+  "MEW",
+  "MKR",
+  "MOODENG",
+  "MORPHO",
+  "MOVE",
+  "MNT",
+  "NOT",
+  "OM",
+  "ONDO",
+  "OP",
+  "PENDLE",
+  "PENGU",
+  "PIPPIN",
+  "POL",
+  "POPCAT",
+  "PUMP",
+  "PYTH",
+  "RAY",
+  "RENDER",
+  "RESOLV",
+  "RIVER",
+  "ROBO",
+  "S",
+  "SEI",
+  "SHIB",
+  "SKR",
+  "SKY",
+  "STRK",
+  "SYRUP",
+  "TAO",
+  "TIA",
+  "TON",
+  "TRUMP",
+  "VIRTUAL",
+  "WIF",
+  "WLD",
+  "WLFI",
+  "XLM",
+  "XPL",
+  "YZY",
+  "ZK",
+  "ZORA",
+  "ZRO",
 ]);
 
 const dynamicTokenMetadata = new Map<string, ApiTokenInfo>();
@@ -283,38 +439,44 @@ export function getHedgeSideConfig(symbol: string): HedgeSideConfig {
 /**
  * Filter matcher for the asset class selector in /spread and /analytics:
  * - 'all': all tokens
- * - 'stocks': single stocks (public equities excluding pre-IPO, ETF, commodities)
- * - 'pre_ipo': pre-IPO equities
- * - 'etf': ETFs
- * - 'crypto': crypto tokens
+ * - 'crypto': Crypto tokens (Core Short / RH Long, 2.5x)
+ * - 'rwa_commodities_etf': RWA (Commodities, ETFs) (Core Short / RH Long, 2.5x)
+ * - 'rwa_pre_ipo_equities': RWA (Pre IPOs, Equities) (Core Long / RH Short, 2.5x)
+ * - legacy / backward-compatible filters: 'stocks', 'pre_ipo', 'etf'
  */
 export function matchesCategoryFilter(symbol: string, filter: TokenCategoryType): boolean {
   if (filter === "all") return true;
 
   const sym = symbol.toUpperCase().trim();
   const baseSym = sym.includes("/") ? sym.split("/")[0]! : sym;
+  const filterNorm = (filter as string).toLowerCase().trim();
+
+  // 1. Official 3 Lighter Points Program groups:
+  if (filterNorm === "crypto") {
+    return getHedgeCategory(baseSym) === "CRYPTO";
+  }
+
+  if (filterNorm === "rwa_commodities_etf") {
+    return getHedgeCategory(baseSym) === "RWA_COMMODITIES_ETF";
+  }
+
+  if (filterNorm === "rwa_pre_ipo_equities") {
+    return getHedgeCategory(baseSym) === "RWA_PRE_IPO_EQUITIES";
+  }
+
+  // 2. Legacy / sub-category filters:
   const meta = dynamicTokenMetadata.get(baseSym);
   const cats = meta?.categories || [];
 
-  if (filter === "pre_ipo") {
+  if (filterNorm === "pre_ipo") {
     return cats.includes("PRE_IPO") || PRE_IPO_SYMBOLS.has(baseSym) || KNOWN_PRE_IPO.has(baseSym);
   }
 
-  if (filter === "etf") {
+  if (filterNorm === "etf") {
     return cats.includes("ETF") || ETF_SYMBOLS.has(baseSym) || KNOWN_ETF.has(baseSym);
   }
 
-  if (filter === "crypto") {
-    return (
-      cats.includes("CRYPTO") ||
-      meta?.asset_type === "CRYPTO" ||
-      isCryptoSymbol(baseSym) ||
-      KNOWN_CRYPTO.has(baseSym) ||
-      getHedgeCategory(baseSym) === "CRYPTO"
-    );
-  }
-
-  if (filter === "stocks") {
+  if (filterNorm === "stocks") {
     const isPre =
       cats.includes("PRE_IPO") || PRE_IPO_SYMBOLS.has(baseSym) || KNOWN_PRE_IPO.has(baseSym);
     const isEtf = cats.includes("ETF") || ETF_SYMBOLS.has(baseSym) || KNOWN_ETF.has(baseSym);

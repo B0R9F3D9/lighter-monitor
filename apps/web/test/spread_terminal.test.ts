@@ -1037,6 +1037,38 @@ describe("Spread Terminal: Dynamic Token List & All Tokens Filter", () => {
       const allResult = allTokens.filter((s) => matchesCategoryFilter(s, "all"));
       expect(allResult.length).toBe(allTokens.length);
 
+      // --- 3 Official Groups according to Lighter Points Program rules ---
+      // 1. 'crypto': Crypto tokens only (BTC, ETH)
+      const cryptoResult = allTokens.filter((s) => matchesCategoryFilter(s, "crypto"));
+      expect(cryptoResult).toEqual(["BTC", "ETH"]);
+
+      // 2. 'rwa_commodities_etf': RWA Commodities & ETFs (SPY, QQQ, XAU)
+      const rwaCommoditiesEtfResult = allTokens.filter((s) =>
+        matchesCategoryFilter(s, "rwa_commodities_etf"),
+      );
+      expect(rwaCommoditiesEtfResult).toEqual(["SPY", "QQQ", "XAU"]);
+
+      // 3. 'rwa_pre_ipo_equities': RWA Pre-IPOs & Equities (AAPL, NVDA, OPENAI, ANTHROPIC, SPCX, CRWV, SHEIN, CRCL)
+      const rwaPreIpoEquitiesResult = allTokens.filter((s) =>
+        matchesCategoryFilter(s, "rwa_pre_ipo_equities"),
+      );
+      expect(rwaPreIpoEquitiesResult).toEqual([
+        "AAPL",
+        "NVDA",
+        "OPENAI",
+        "ANTHROPIC",
+        "SPCX",
+        "CRWV",
+        "SHEIN",
+        "CRCL",
+      ]);
+
+      // Complete coverage test: all tokens belong to exactly one of the 3 official groups
+      expect(
+        cryptoResult.length + rwaCommoditiesEtfResult.length + rwaPreIpoEquitiesResult.length,
+      ).toBe(allTokens.length);
+
+      // --- Legacy sub-categories (for backward compatibility) ---
       // 'stocks': single stocks only (AAPL, NVDA - excluding Pre-IPOs, ETFs, commodities, crypto)
       const stocksResult = allTokens.filter((s) => matchesCategoryFilter(s, "stocks"));
       expect(stocksResult).toEqual(["AAPL", "NVDA"]);
@@ -1048,10 +1080,6 @@ describe("Spread Terminal: Dynamic Token List & All Tokens Filter", () => {
       // 'etf': ETFs only (SPY, QQQ)
       const etfResult = allTokens.filter((s) => matchesCategoryFilter(s, "etf"));
       expect(etfResult).toEqual(["SPY", "QQQ"]);
-
-      // 'crypto': Crypto tokens only (BTC, ETH)
-      const cryptoResult = allTokens.filter((s) => matchesCategoryFilter(s, "crypto"));
-      expect(cryptoResult).toEqual(["BTC", "ETH"]);
     });
   });
 });
