@@ -136,36 +136,35 @@ export function renderHourlyHeatmap(
 
     cellStateMap.set(cell, { bucket: b, isCurrent, onHourClick });
 
-    let bgClass = "bg-terminal-surface";
+    // Sleek dark container with clearly visible colored frame borders
+    const bgClass = "bg-terminal-surface";
     let borderClass = "border-terminal-border";
     let textClass = "text-terminal-secondary";
 
     if (b.sampleCount > 0) {
       if (b.scoreNormalized <= 0.25) {
-        bgClass = "bg-terminal-emeraldMuted";
-        borderClass = "border-terminal-emerald/40";
-        textClass = "text-terminal-emerald";
+        borderClass = "border-terminal-emerald/60 hover:border-terminal-emerald";
+        textClass = "text-terminal-emerald font-semibold";
       } else if (b.scoreNormalized <= 0.55) {
-        bgClass = "bg-terminal-surfaceHover";
-        borderClass = "border-terminal-borderSubtle";
+        borderClass = "border-terminal-border hover:border-terminal-muted";
         textClass = "text-terminal-primary";
       } else if (b.scoreNormalized <= 0.75) {
-        bgClass = "bg-terminal-amberMuted";
-        borderClass = "border-terminal-amber/40";
+        borderClass = "border-terminal-amber/50 hover:border-terminal-amber";
         textClass = "text-terminal-amber";
       } else {
-        bgClass = "bg-terminal-coralMuted";
-        borderClass = "border-terminal-coral/50";
-        textClass = "text-terminal-coral";
+        borderClass = "border-terminal-coral/60 hover:border-terminal-coral";
+        textClass = "text-terminal-coral font-semibold";
       }
     } else {
-      bgClass = "bg-terminal-surface/30";
-      borderClass = "border-terminal-border/30";
+      borderClass = "border-terminal-border/40";
       textClass = "text-terminal-muted";
     }
 
     const ringClass = isCurrent ? "ring-1 ring-terminal-accent" : "";
-    cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none ${ringClass} ${bgClass} ${borderClass}`;
+    cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none hover:bg-terminal-surfaceHover ${ringClass} ${bgClass} ${borderClass}`;
+    if (cell.dataset) {
+      cell.dataset.hour = String(b.hour);
+    }
 
     const sign = b.avgBasisUsd > 0 ? "+" : "";
     const basisLabel = b.sampleCount > 0 ? `${sign}$${b.avgBasisUsd.toFixed(2)}` : "—";
@@ -173,7 +172,7 @@ export function renderHourlyHeatmap(
     cell.innerHTML = `
       <div class="text-[10px] font-bold ${textClass} tabular-nums">${b.label}</div>
       <div class="text-[9px] font-mono ${textClass} tabular-nums mt-0.5 truncate w-full text-center">${basisLabel}</div>
-      ${isCurrent ? '<span class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-terminal-accent"></span>' : ""}
+      ${isCurrent ? '<span class="heatmap-current-dot absolute -top-1 -right-1 w-2 h-2 rounded-full bg-terminal-accent"></span>' : ""}
     `;
   }
 
@@ -198,5 +197,60 @@ export function renderHourlyHeatmap(
         }
       }
     });
+  }
+}
+
+/**
+ * Dynamically moves the active accent ring & indicator dot to targetHour
+ * without full ribbon re-rendering for optimal 60fps chart hover responsiveness.
+ */
+export function highlightHeatmapHour(container: HTMLElement, targetHour: number): void {
+  const grid = (container.firstElementChild || container.children?.[0]) as HTMLElement | null;
+  if (!grid || !grid.children || grid.children.length === 0) return;
+
+  for (let i = 0; i < grid.children.length; i++) {
+    const cell = grid.children[i] as HTMLElement;
+    if (!cell) continue;
+
+    const isSelected = i === targetHour;
+    const hasRing = cell.classList
+      ? cell.classList.contains("ring-1")
+      : cell.className.includes("ring-1");
+
+    if (isSelected) {
+      if (!hasRing) {
+        if (cell.classList) {
+          cell.classList.add("ring-1", "ring-terminal-accent");
+        }
+        if (!cell.className.includes("ring-1")) {
+          cell.className = `${cell.className} ring-1 ring-terminal-accent`.trim();
+        }
+      }
+      const dot = cell.querySelector ? cell.querySelector(".heatmap-current-dot") : null;
+      if (!dot && cell.innerHTML && !cell.innerHTML.includes("heatmap-current-dot")) {
+        const dotEl = document.createElement("span");
+        dotEl.className =
+          "heatmap-current-dot absolute -top-1 -right-1 w-2 h-2 rounded-full bg-terminal-accent";
+        cell.appendChild(dotEl);
+      }
+    } else {
+      if (hasRing) {
+        if (cell.classList) {
+          cell.classList.remove("ring-1", "ring-terminal-accent");
+        }
+        cell.className = cell.className
+          .replace(/\bring-1\b|\bring-terminal-accent\b/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+      const dot = cell.querySelector ? cell.querySelector(".heatmap-current-dot") : null;
+      if (dot) {
+        if (typeof (dot as any).remove === "function") {
+          (dot as any).remove();
+        } else if (typeof cell.removeChild === "function") {
+          cell.removeChild(dot);
+        }
+      }
+    }
   }
 }

@@ -116,7 +116,6 @@ export class HedgeController {
   private syncProgressWrapper: HTMLElement | null = null;
   private syncProgressBar: HTMLElement | null = null;
   private syncStatusMessage: HTMLElement | null = null;
-  private syncDurationLabel: HTMLElement | null = null;
   private btnHedgeExportCsv: HTMLButtonElement | null = null;
 
   // Credentials Drawer Elements
@@ -177,12 +176,9 @@ export class HedgeController {
     unhedgedCount: null,
   };
 
-  private weeklyPointsTableCard: HTMLElement | null = null;
   private weeklyPointsTableContainer: HTMLElement | null = null;
   private weeklyPointsSortColumn: WeeklyPointsSortColumn = "weekNumber";
   private weeklyPointsSortDirection: "asc" | "desc" = "asc";
-  private rhIndividualMetrics: IndividualAccountMetrics | null = null;
-  private coreIndividualMetrics: IndividualAccountMetrics | null = null;
 
   // Filter & Search Controls
   private inputHedgeSearch: HTMLInputElement | null = null;
@@ -239,7 +235,6 @@ export class HedgeController {
   private btnApplyCustomHedgeDate: HTMLButtonElement | null = null;
 
   // Token / Market Summary Elements
-  private hedgeMarketSummaryCard: HTMLElement | null = null;
   private hedgeMarketCardsContainer: HTMLElement | null = null;
   private activeMarketFilter: string | null = null;
   private marketSortColumn: MarketSummarySortColumn = "volumeUsd";
@@ -293,7 +288,6 @@ export class HedgeController {
     this.syncProgressWrapper = document.getElementById("syncProgressWrapper");
     this.syncProgressBar = document.getElementById("syncProgressBar");
     this.syncStatusMessage = document.getElementById("syncStatusMessage");
-    this.syncDurationLabel = document.getElementById("syncDurationLabel");
     this.btnHedgeExportCsv = document.getElementById(
       "btnHedgeExportCsv",
     ) as HTMLButtonElement | null;
@@ -442,11 +436,9 @@ export class HedgeController {
     ) as HTMLButtonElement | null;
 
     // Token / Market Summary Elements
-    this.hedgeMarketSummaryCard = document.getElementById("hedgeMarketSummaryCard");
     this.hedgeMarketCardsContainer = document.getElementById("hedgeMarketCardsContainer");
 
     // Weekly Points Table Elements
-    this.weeklyPointsTableCard = document.getElementById("hedgeWeeklyPointsTableCard");
     this.weeklyPointsTableContainer = document.getElementById("hedgeWeeklyPointsTableContainer");
   }
 
@@ -1441,8 +1433,6 @@ export class HedgeController {
   private updateHedgeExecutiveSummary(): void {
     const rhMetrics = this.computeIndividualAccountMetrics("RH");
     const coreMetrics = this.computeIndividualAccountMetrics("CORE");
-    this.rhIndividualMetrics = rhMetrics;
-    this.coreIndividualMetrics = coreMetrics;
 
     if (this.hedgeMetrics) {
       this.hedgeMetrics.rhAvgOiUsd = rhMetrics.avgOiUsd;

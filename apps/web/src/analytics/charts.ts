@@ -4,7 +4,6 @@ import {
   createChart,
   LineSeries,
   LineStyle,
-  PriceScaleMode,
   TickMarkType,
   type IChartApi,
   type IPriceLine,
@@ -41,12 +40,11 @@ export interface ChartSyncContext {
     targetRange?: { fromSec: number; toSec: number },
     isRhLong?: boolean,
   ) => void;
-  setLogScale: (enabled: boolean) => void;
   setShowBands: (visible: boolean) => void;
   resize: () => void;
 }
 
-export const CHART_PALETTE = {
+const CHART_PALETTE = {
   background: "#0B0C0E",
   textColor: "#8B949E",
   gridLine: "#16191D",
@@ -56,11 +54,7 @@ export const CHART_PALETTE = {
   borderSubtle: "#30363D",
   white: "#FFFFFF",
   accent: "#58A6FF",
-  accentFillHigh: "rgba(88, 166, 255, 0.12)",
-  accentFillLow: "rgba(88, 166, 255, 0.02)",
   emerald: "#2EA043",
-  emeraldFillHigh: "rgba(46, 160, 67, 0.12)",
-  emeraldFillLow: "rgba(46, 160, 67, 0.02)",
   neutralLine: "#21262D",
   bandOuter: "rgba(139, 148, 158, 0.35)",
   bandSma: "rgba(110, 118, 129, 0.45)",
@@ -233,11 +227,11 @@ export function initAnalyticsCharts(
   const basisSeries = basisChart.addSeries(BaselineSeries, {
     baseValue: { type: "price", price: 0 },
     topLineColor: CHART_PALETTE.accent,
-    topFillColor1: CHART_PALETTE.accentFillHigh,
-    topFillColor2: CHART_PALETTE.accentFillLow,
+    topFillColor1: "rgba(0, 0, 0, 0)",
+    topFillColor2: "rgba(0, 0, 0, 0)",
     bottomLineColor: CHART_PALETTE.emerald,
-    bottomFillColor1: CHART_PALETTE.emeraldFillLow,
-    bottomFillColor2: CHART_PALETTE.emeraldFillHigh,
+    bottomFillColor1: "rgba(0, 0, 0, 0)",
+    bottomFillColor2: "rgba(0, 0, 0, 0)",
     lineWidth: 2,
     lastValueVisible: false,
     priceLineVisible: false,
@@ -250,7 +244,7 @@ export function initAnalyticsCharts(
     color: CHART_PALETTE.accent,
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
-    lineVisible: true,
+    lineVisible: false,
     axisLabelVisible: true,
     title: "Basis",
     axisLabelColor: CHART_PALETTE.accent,
@@ -389,7 +383,7 @@ export function initAnalyticsCharts(
       basisPriceLine.applyOptions({
         price: p.basisUsd,
         axisLabelVisible: true,
-        lineVisible: true,
+        lineVisible: false,
         axisLabelColor: isEdge ? CHART_PALETTE.emerald : CHART_PALETTE.accent,
         axisLabelTextColor: isEdge ? CHART_PALETTE.white : CHART_PALETTE.background,
       });
@@ -467,15 +461,11 @@ export function initAnalyticsCharts(
 
     basisSeries.applyOptions({
       topLineColor: currentIsRhLong ? CHART_PALETTE.accent : CHART_PALETTE.emerald,
-      topFillColor1: currentIsRhLong ? CHART_PALETTE.accentFillHigh : CHART_PALETTE.emeraldFillHigh,
-      topFillColor2: currentIsRhLong ? CHART_PALETTE.accentFillLow : CHART_PALETTE.emeraldFillLow,
+      topFillColor1: "rgba(0, 0, 0, 0)",
+      topFillColor2: "rgba(0, 0, 0, 0)",
       bottomLineColor: currentIsRhLong ? CHART_PALETTE.emerald : CHART_PALETTE.accent,
-      bottomFillColor1: currentIsRhLong
-        ? CHART_PALETTE.emeraldFillLow
-        : CHART_PALETTE.accentFillHigh,
-      bottomFillColor2: currentIsRhLong
-        ? CHART_PALETTE.emeraldFillHigh
-        : CHART_PALETTE.accentFillLow,
+      bottomFillColor1: "rgba(0, 0, 0, 0)",
+      bottomFillColor2: "rgba(0, 0, 0, 0)",
     });
 
     const rhLineData = points.map((p) => ({ time: p.timeSec as UTCTimestamp, value: p.rhPrice }));
@@ -530,12 +520,6 @@ export function initAnalyticsCharts(
     basisChart.remove();
   };
 
-  const setLogScale = (enabled: boolean) => {
-    priceChart.priceScale("right").applyOptions({
-      mode: enabled ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
-    });
-  };
-
   const setShowBands = (visible: boolean) => {
     upperBandSeries.applyOptions({ visible });
     smaSeries.applyOptions({ visible });
@@ -571,7 +555,6 @@ export function initAnalyticsCharts(
     lowerBandSeries,
     destroy,
     setData,
-    setLogScale,
     setShowBands,
     resize,
   };

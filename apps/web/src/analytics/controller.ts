@@ -14,7 +14,7 @@ import {
   getTokenImageUrl,
   splitIntervalsIntoApiChunks,
 } from "./math";
-import { renderHourlyHeatmap } from "./heatmap";
+import { highlightHeatmapHour, renderHourlyHeatmap } from "./heatmap";
 import type {
   AnalyticsMarketPair,
   AnalyticsVenue,
@@ -26,8 +26,8 @@ import type {
 } from "./types";
 import { CONFIG, matchesCategoryFilter, formatMoney, initFontSelector } from "../shared";
 
-export type SortField = "volume" | "oi" | "change" | "price" | "symbol";
-export type SortDirection = "asc" | "desc";
+type SortField = "volume" | "oi" | "change" | "price" | "symbol";
+type SortDirection = "asc" | "desc";
 
 const SHORT_MONTHS = [
   "Jan",
@@ -86,9 +86,7 @@ export class AnalyticsController {
 
   private chartContext: ChartSyncContext | null = null;
   private activePoints: BasisPoint[] = [];
-  private activeStats: QuantStats | null = null;
 
-  private isLogScale = false;
   private showBands = false;
   private dateFilter: DateFilterConfig = {
     isActive: false,
@@ -105,6 +103,7 @@ export class AnalyticsController {
   private lastRequestedRange: { fromSec: number; toSec: number; resolution: string } | null = null;
 
   private currentRequestId = 0;
+  private lastHighlightedHeatmapHour: number | null = null;
   private legendElements: {
     rhVal: HTMLElement | null;
     coreVal: HTMLElement | null;
@@ -189,9 +188,6 @@ export class AnalyticsController {
         if (Array.isArray(parsed)) this.favorites = new Set(parsed);
       }
 
-      const savedLog = localStorage.getItem("analytics_log_scale");
-      if (savedLog === "true") this.isLogScale = true;
-
       const savedBands = localStorage.getItem("analytics_show_bands");
       if (savedBands === "true") this.showBands = true;
     } catch {}
@@ -209,7 +205,6 @@ export class AnalyticsController {
         "analytics_favorite_symbols",
         JSON.stringify(Array.from(this.favorites)),
       );
-      localStorage.setItem("analytics_log_scale", String(this.isLogScale));
       localStorage.setItem("analytics_show_bands", String(this.showBands));
     } catch {}
   }
@@ -283,15 +278,14 @@ export class AnalyticsController {
     this.chartContext = initAnalyticsCharts(priceContainer, basisContainer, {
       onCrosshairMove: (point) => {
         this.updateLegend(point);
+        this.updateHeatmapHover(point);
       },
       onVisibleRangeChange: (range) => {
         this.onVisibleTimeRangeChange(range);
       },
     });
 
-    if (this.isLogScale) this.chartContext.setLogScale(true);
     if (this.showBands) this.chartContext.setShowBands(true);
-    this.updateLogScaleButton();
     this.updateBandsButton();
 
     this.setupChartResizers();
@@ -324,7 +318,6 @@ export class AnalyticsController {
         return;
       }
       this.activePoints = points;
-      this.activeStats = stats;
 
       if (this.chartContext) {
         this.chartContext.setData(points, bands, true, undefined, pair.hedgeSideConfig.isRhLong);
@@ -427,7 +420,6 @@ export class AnalyticsController {
         const bands = calculateRollingBands(points, 20);
 
         this.activePoints = points;
-        this.activeStats = stats;
 
         if (this.chartContext) {
           this.chartContext.setData(
@@ -689,19 +681,32 @@ export class AnalyticsController {
       const effZ = stats.effectiveZScore ?? (isRhLong ? stats.zScore : -stats.zScore);
       const zStr = effZ <= 0 ? `${effZ.toFixed(2)}σ` : `+${effZ.toFixed(2)}σ`;
       if (stats.signal === "EXCELLENT ENTRY") {
-        verdictEl.textContent = `● EXCELLENT (${zStr})`;
+        verdictEl.textContent = `EXCELLENT (${zStr})`;
         verdictEl.className = "text-[11px] font-semibold text-terminal-emerald select-text";
       } else if (stats.signal === "FAIR") {
-        verdictEl.textContent = `● FAIR (${zStr})`;
+        verdictEl.textContent = `FAIR (${zStr})`;
         verdictEl.className = "text-[11px] font-semibold text-terminal-primary select-text";
       } else if (stats.signal === "CAUTION") {
-        verdictEl.textContent = `● CAUTION (${zStr})`;
+        verdictEl.textContent = `CAUTION (${zStr})`;
         verdictEl.className = "text-[11px] font-semibold text-terminal-amber select-text";
       } else {
-        verdictEl.textContent = `● OVERHEATED (${zStr})`;
+        verdictEl.textContent = `OVERHEATED (${zStr})`;
         verdictEl.className = "text-[11px] font-semibold text-terminal-coral select-text";
       }
     }
+  }
+
+  private updateHeatmapHover(point: BasisPoint | null): void {
+    const container = document.getElementById("heatmapContainer");
+    if (!container) return;
+
+    const targetHour =
+      point && point.timestampMs ? new Date(point.timestampMs).getHours() : new Date().getHours();
+
+    if (targetHour === this.lastHighlightedHeatmapHour) return;
+    this.lastHighlightedHeatmapHour = targetHour;
+
+    highlightHeatmapHour(container, targetHour);
   }
 
   private renderHeatmap(): void {
@@ -713,6 +718,7 @@ export class AnalyticsController {
 
     const buckets = calculateHourlyBuckets(this.activePoints, undefined, isRhLong);
     const nowLocalHour = new Date().getHours();
+    this.lastHighlightedHeatmapHour = nowLocalHour;
 
     renderHourlyHeatmap(container, buckets, nowLocalHour);
   }
@@ -1099,28 +1105,7 @@ export class AnalyticsController {
     });
   }
 
-  // --- LOG SCALE & BANDS CONTROLS ---
-
-  public toggleLogScale(): void {
-    this.isLogScale = !this.isLogScale;
-    this.saveSettings();
-    this.updateLogScaleButton();
-    if (this.chartContext) {
-      this.chartContext.setLogScale(this.isLogScale);
-    }
-  }
-
-  private updateLogScaleButton(): void {
-    const btn = document.getElementById("logScaleBtn");
-    if (!btn) return;
-    if (this.isLogScale) {
-      btn.className =
-        "px-2 py-0.5 rounded border border-terminal-accent bg-terminal-accent/15 text-terminal-accent font-bold transition cursor-pointer text-xs font-mono select-none";
-    } else {
-      btn.className =
-        "px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer text-xs font-mono select-none";
-    }
-  }
+  // --- DISPERSION BANDS CONTROLS ---
 
   public toggleBands(): void {
     this.showBands = !this.showBands;
@@ -1699,7 +1684,6 @@ export class AnalyticsController {
       this.activePoints = filtered;
       const stats = calculateQuantStats(filtered, pair.hedgeSideConfig.isRhLong);
       const bands = calculateRollingBands(filtered, 20);
-      this.activeStats = stats;
 
       if (this.chartContext) {
         this.chartContext.setData(filtered, bands, true, undefined, pair.hedgeSideConfig.isRhLong);
@@ -1919,11 +1903,6 @@ export class AnalyticsController {
     });
     document.getElementById("venueBtnCore")?.addEventListener("click", () => {
       this.setVenue("core");
-    });
-
-    // Logarithmic scale toggle button
-    document.getElementById("logScaleBtn")?.addEventListener("click", () => {
-      this.toggleLogScale();
     });
 
     // Dispersion bands toggle button

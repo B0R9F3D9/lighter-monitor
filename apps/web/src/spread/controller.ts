@@ -867,10 +867,6 @@ export class TerminalController {
     }
   }
 
-  private updateEquitiesControl(active: boolean): void {
-    this.updateCategoryControl(active ? "rwa_pre_ipo_equities" : "all");
-  }
-
   private updateReadyControl(active: boolean): void {
     const readyBtn = document.getElementById("readyToggle");
     if (!readyBtn) return;

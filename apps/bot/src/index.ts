@@ -110,7 +110,7 @@ export async function setupBotCommands(
 }
 
 export async function runBotScheduled(
-  event: ScheduledEvent | null,
+  _event: ScheduledEvent | null,
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {

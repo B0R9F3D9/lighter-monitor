@@ -297,8 +297,7 @@
               <span
                 id="tickerTokenIcon"
                 class="hidden absolute inset-0 items-center justify-center text-[9px] font-bold text-white bg-terminal-surface"
-                >●</span
-              >
+              ></span>
             </span>
             <span id="headerSymbol" class="text-white font-bold tracking-tight text-xs sm:text-sm"
               >--</span
@@ -436,16 +435,6 @@
         <div
           class="flex items-center justify-between xl:justify-end gap-2 shrink-0 select-none overflow-x-auto no-scrollbar max-w-full pb-0.5 xl:pb-0 w-full xl:w-auto"
         >
-          <!-- Logarithmic Scale Toggle Button -->
-          <button
-            id="logScaleBtn"
-            type="button"
-            class="px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer text-xs font-mono select-none"
-            title="Toggle Logarithmic Price Scale (Normal vs Log)"
-          >
-            LOG
-          </button>
-
           <!-- Date & Day-of-Week Filter Button -->
           <button
             id="openDateFilterBtn"
@@ -562,7 +551,7 @@
             <span
               id="statVerdictBadge"
               class="text-[11px] font-semibold text-terminal-emerald select-text"
-              >● READY</span
+              >READY</span
             >
           </div>
 
@@ -743,25 +732,25 @@
       >
         <!-- Sub-chart Title Strip -->
         <div
-          class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex flex-wrap items-center justify-between gap-2 text-[10px] text-terminal-muted uppercase tracking-wider font-mono select-none"
+          class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex flex-wrap items-center justify-between gap-2 text-[10px] text-terminal-muted uppercase tracking-wider font-mono select-text"
         >
-          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span class="font-bold text-terminal-secondary">Basis &amp; Spread</span>
-            <span>•</span>
-            <span class="text-terminal-emerald">RH Discount (≤ 0)</span>
-            <span>•</span>
-            <span class="text-terminal-accent">RH Premium (&gt; 0)</span>
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 select-text">
+            <span class="font-bold text-terminal-secondary select-text">Basis &amp; Spread</span>
+            <span class="select-none">•</span>
+            <span class="text-terminal-emerald select-text">RH Cheaper (≤ 0)</span>
+            <span class="select-none">•</span>
+            <span class="text-terminal-accent select-text">RH More Expensive (&gt; 0)</span>
           </div>
-          <div class="flex items-center gap-2.5 shrink-0">
+          <div class="flex items-center gap-2.5 shrink-0 select-text">
             <button
               id="toggleBandsBtn"
               type="button"
-              class="text-[9px] px-1.5 py-0.5 rounded border border-terminal-border hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer"
+              class="text-[9px] px-1.5 py-0.5 rounded border border-terminal-border hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer select-none"
               title="Toggle SMA and ±2σ Bollinger Dispersion Bands"
             >
               ±2σ Bands
             </button>
-            <span>Parity: $0.00</span>
+            <span class="select-text">Parity: $0.00</span>
           </div>
         </div>
 

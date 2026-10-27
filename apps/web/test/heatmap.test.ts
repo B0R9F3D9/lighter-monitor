@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterAll } from "bun:test";
-import { renderHourlyHeatmap } from "../src/analytics/heatmap";
+import { highlightHeatmapHour, renderHourlyHeatmap } from "../src/analytics/heatmap";
 import type { HourlyBucketStats } from "../src/analytics/types";
 
 function createMockElement(tag: string = "div"): any {
@@ -143,5 +143,32 @@ describe("Execution Clock 24h Heatmap Ribbon", () => {
     cell7.dispatchEvent("click");
 
     expect(clickedHour).toBe(7);
+  });
+
+  it("dynamically moves highlighted hour block on crosshair hover and returns to current", () => {
+    const container = createMockElement("div");
+    const initialHour = 14;
+    renderHourlyHeatmap(container, dummyBuckets, initialHour);
+
+    const ribbon = container.children[0];
+    const cell14 = ribbon.children[14];
+    expect(cell14.className).toContain("ring-1 ring-terminal-accent");
+
+    // Move hover to hour 8
+    highlightHeatmapHour(container, 8);
+    const cell8 = ribbon.children[8];
+    expect(cell8.className).toContain("ring-1 ring-terminal-accent");
+    expect(cell14.className).not.toContain("ring-1 ring-terminal-accent");
+
+    // Move hover to hour 22
+    highlightHeatmapHour(container, 22);
+    const cell22 = ribbon.children[22];
+    expect(cell22.className).toContain("ring-1 ring-terminal-accent");
+    expect(cell8.className).not.toContain("ring-1 ring-terminal-accent");
+
+    // Cursor leaves chart: returns to hour 14
+    highlightHeatmapHour(container, initialHour);
+    expect(cell14.className).toContain("ring-1 ring-terminal-accent");
+    expect(cell22.className).not.toContain("ring-1 ring-terminal-accent");
   });
 });
