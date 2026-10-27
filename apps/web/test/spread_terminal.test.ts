@@ -24,6 +24,7 @@ import {
   getTokenImageUrl,
   getHedgeSideConfig,
   matchesCategoryFilter,
+  WebSocketManager,
   type ApiTokenInfo,
 } from "../src/shared";
 import type { MarketInfo, OrderBook, SimFillResult, TerminalState } from "../src/spread/types";
@@ -1080,6 +1081,120 @@ describe("Spread Terminal: Dynamic Token List & All Tokens Filter", () => {
       // 'etf': ETFs only (SPY, QQQ)
       const etfResult = allTokens.filter((s) => matchesCategoryFilter(s, "etf"));
       expect(etfResult).toEqual(["SPY", "QQQ"]);
+    });
+  });
+
+  describe("Network & CPU Optimization: Category Subscription Management", () => {
+    it("tracks subscribed markets and drops updates for unsubscribed markets", () => {
+      const ws = new WebSocketManager({});
+
+      // Initially, market 10 and 20 are not subscribed
+      expect(ws.isCoreSubscribed(10)).toBe(false);
+      expect(ws.isRhSubscribed(20)).toBe(false);
+
+      // Subscribe market 10 on core, market 20 on rh
+      ws.subscribeCore(10);
+      ws.subscribeRh(20);
+
+      expect(ws.isCoreSubscribed(10)).toBe(true);
+      expect(ws.isCoreSubscribed(99)).toBe(false);
+      expect(ws.isRhSubscribed(20)).toBe(true);
+      expect(ws.isRhSubscribed(99)).toBe(false);
+
+      // Unsubscribe market 10 on core
+      ws.unsubscribeCore(10);
+      expect(ws.isCoreSubscribed(10)).toBe(false);
+      expect(ws.getSubscribedCoreCount()).toBe(0);
+      expect(ws.getSubscribedRhCount()).toBe(1);
+    });
+
+    it("syncs subscriptions selectively by category to prevent excess network traffic and parsing", () => {
+      const mockWs = new WebSocketManager({});
+
+      const markets = [
+        { symbol: "BTC", coreMarketId: 1, rhMarketId: 101 },
+        { symbol: "ETH", coreMarketId: 2, rhMarketId: 102 },
+        { symbol: "SPY", coreMarketId: 3, rhMarketId: 103 },
+        { symbol: "XAU", coreMarketId: 4, rhMarketId: 104 },
+        { symbol: "AAPL", coreMarketId: 5, rhMarketId: 105 },
+        { symbol: "OPENAI", coreMarketId: 6, rhMarketId: 106 },
+      ];
+
+      function sync(categoryFilter: any) {
+        for (const m of markets) {
+          const shouldBeSubscribed = matchesCategoryFilter(m.symbol, categoryFilter);
+          if (shouldBeSubscribed) {
+            if (!mockWs.isCoreSubscribed(m.coreMarketId)) mockWs.subscribeCore(m.coreMarketId);
+            if (!mockWs.isRhSubscribed(m.rhMarketId)) mockWs.subscribeRh(m.rhMarketId);
+          } else {
+            if (mockWs.isCoreSubscribed(m.coreMarketId)) mockWs.unsubscribeCore(m.coreMarketId);
+            if (mockWs.isRhSubscribed(m.rhMarketId)) mockWs.unsubscribeRh(m.rhMarketId);
+          }
+        }
+      }
+
+      // 1. Filter by 'crypto'
+      sync("crypto");
+      expect(mockWs.isCoreSubscribed(1)).toBe(true); // BTC
+      expect(mockWs.isCoreSubscribed(2)).toBe(true); // ETH
+      expect(mockWs.isCoreSubscribed(3)).toBe(false); // SPY
+      expect(mockWs.isCoreSubscribed(4)).toBe(false); // XAU
+      expect(mockWs.isCoreSubscribed(5)).toBe(false); // AAPL
+      expect(mockWs.isCoreSubscribed(6)).toBe(false); // OPENAI
+      expect(mockWs.getSubscribedCoreCount()).toBe(2);
+      expect(mockWs.getSubscribedRhCount()).toBe(2);
+
+      // 2. Switch to 'rwa_commodities_etf' -> Crypto is unsubscribed, Commodities/ETFs subscribed
+      sync("rwa_commodities_etf");
+      expect(mockWs.isCoreSubscribed(1)).toBe(false); // BTC unsubscribed!
+      expect(mockWs.isCoreSubscribed(2)).toBe(false); // ETH unsubscribed!
+      expect(mockWs.isCoreSubscribed(3)).toBe(true); // SPY subscribed!
+      expect(mockWs.isCoreSubscribed(4)).toBe(true); // XAU subscribed!
+      expect(mockWs.isCoreSubscribed(5)).toBe(false); // AAPL
+      expect(mockWs.isCoreSubscribed(6)).toBe(false); // OPENAI
+      expect(mockWs.getSubscribedCoreCount()).toBe(2);
+      expect(mockWs.getSubscribedRhCount()).toBe(2);
+
+      // 3. Switch to 'rwa_pre_ipo_equities' -> Commodities/ETFs unsubscribed, Equities/Pre-IPOs subscribed
+      sync("rwa_pre_ipo_equities");
+      expect(mockWs.isCoreSubscribed(1)).toBe(false);
+      expect(mockWs.isCoreSubscribed(3)).toBe(false); // SPY unsubscribed!
+      expect(mockWs.isCoreSubscribed(4)).toBe(false); // XAU unsubscribed!
+      expect(mockWs.isCoreSubscribed(5)).toBe(true); // AAPL subscribed!
+      expect(mockWs.isCoreSubscribed(6)).toBe(true); // OPENAI subscribed!
+      expect(mockWs.getSubscribedCoreCount()).toBe(2);
+
+      // 4. Switch to 'all' -> all markets subscribed
+      sync("all");
+      expect(mockWs.getSubscribedCoreCount()).toBe(6);
+      expect(mockWs.getSubscribedRhCount()).toBe(6);
+      for (const m of markets) {
+        expect(mockWs.isCoreSubscribed(m.coreMarketId)).toBe(true);
+        expect(mockWs.isRhSubscribed(m.rhMarketId)).toBe(true);
+      }
+    });
+
+    it("caches parsed channel market IDs avoiding slice and number parsing on every tick", () => {
+      const ws = new WebSocketManager({});
+      const mid1 = (ws as any).getMarketIdFromChannel("order_book:42");
+      const mid2 = (ws as any).getMarketIdFromChannel("order_book:42");
+      expect(mid1).toBe(42);
+      expect(mid2).toBe(42);
+      expect((ws as any).channelToMarketId.get("order_book:42")).toBe(42);
+    });
+
+    it("cleans up sockets and timers without triggering false close events", () => {
+      let closeCalled = false;
+      const ws = new WebSocketManager({
+        onCoreClose: () => {
+          closeCalled = true;
+        },
+      });
+
+      ws.disconnectAll();
+      expect((ws as any).coreWs).toBeNull();
+      expect((ws as any).rhWs).toBeNull();
+      expect(closeCalled).toBe(false);
     });
   });
 });

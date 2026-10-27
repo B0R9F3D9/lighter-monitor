@@ -74,9 +74,7 @@ export class TerminalController {
       onCoreOpen: () => {
         this.state.isCoreConnected = true;
         this.updateDotStatus("coreWsDot", "bg-terminal-emerald");
-        for (const m of this.state.markets.values()) {
-          this.wsManager.subscribeCore(m.coreMarketId);
-        }
+        this.syncSubscriptions();
       },
       onCoreClose: () => {
         this.state.isCoreConnected = false;
@@ -88,9 +86,7 @@ export class TerminalController {
       onRhOpen: () => {
         this.state.isRhConnected = true;
         this.updateDotStatus("rhWsDot", "bg-terminal-emerald");
-        for (const m of this.state.markets.values()) {
-          this.wsManager.subscribeRh(m.rhMarketId);
-        }
+        this.syncSubscriptions();
       },
       onRhClose: () => {
         this.state.isRhConnected = false;
@@ -106,6 +102,37 @@ export class TerminalController {
         this.handleRhBookUpdate(marketId, data, isSnapshot, offset);
       },
     });
+  }
+
+  public syncSubscriptions(): void {
+    for (const m of this.state.markets.values()) {
+      const shouldBeSubscribed = matchesCategoryFilter(m.symbol, this.state.categoryFilter);
+
+      if (shouldBeSubscribed) {
+        if (!this.wsManager.isCoreSubscribed(m.coreMarketId)) {
+          this.wsManager.subscribeCore(m.coreMarketId);
+        }
+        if (!this.wsManager.isRhSubscribed(m.rhMarketId)) {
+          this.wsManager.subscribeRh(m.rhMarketId);
+        }
+      } else {
+        if (this.wsManager.isCoreSubscribed(m.coreMarketId)) {
+          this.wsManager.unsubscribeCore(m.coreMarketId);
+          const coreBook = this.state.coreBooks.get(m.coreMarketId);
+          if (coreBook) {
+            coreBook.isSnapshotReceived = false;
+          }
+        }
+        if (this.wsManager.isRhSubscribed(m.rhMarketId)) {
+          this.wsManager.unsubscribeRh(m.rhMarketId);
+          const rhBook = this.state.rhBooks.get(m.rhMarketId);
+          if (rhBook) {
+            rhBook.isSnapshotReceived = false;
+          }
+        }
+        this.dirtySymbols.delete(m.symbol);
+      }
+    }
   }
 
   public init(): void {
@@ -139,9 +166,12 @@ export class TerminalController {
     offset: number,
   ): void {
     const symbol = this.marketIdToSymbol.core.get(marketId);
+    if (!symbol || !matchesCategoryFilter(symbol, this.state.categoryFilter)) {
+      return;
+    }
     const book = getOrCreateBook(this.state.coreBooks, marketId);
     updateBookFromWs(book, data, isSnapshot, offset);
-    if (symbol) this.dirtySymbols.add(symbol);
+    this.dirtySymbols.add(symbol);
     this.scheduleInPlaceUpdate();
   }
 
@@ -152,9 +182,12 @@ export class TerminalController {
     offset: number,
   ): void {
     const symbol = this.marketIdToSymbol.rh.get(marketId);
+    if (!symbol || !matchesCategoryFilter(symbol, this.state.categoryFilter)) {
+      return;
+    }
     const book = getOrCreateBook(this.state.rhBooks, marketId);
     updateBookFromWs(book, data, isSnapshot, offset);
-    if (symbol) this.dirtySymbols.add(symbol);
+    this.dirtySymbols.add(symbol);
     this.scheduleInPlaceUpdate();
   }
 
@@ -390,6 +423,16 @@ export class TerminalController {
     }
     this.state.displayedSymbolsOrder = this.scratchOrder;
 
+    if (this.state.expandedSymbol && !rows.some((r) => r.symbol === this.state.expandedSymbol)) {
+      const prevCache = this.rowDomCache.get(this.state.expandedSymbol);
+      prevCache?.chevronEl?.classList.remove("rotate-180");
+      this.state.expandedSymbol = null;
+      if (this.detailRowDom) {
+        this.detailRowDom.remove();
+        this.detailRowDom = null;
+      }
+    }
+
     const tableBody = document.getElementById("tableBody");
     if (!tableBody) {
       return;
@@ -619,7 +662,6 @@ export class TerminalController {
         const coreOi = (parseFloat(cm.open_interest) || 0) * (parseFloat(cm.last_trade_price) || 0);
 
         const oldMarket = this.state.markets.get(rm.symbol);
-        const isNewMarket = !this.state.markets.has(rm.symbol);
 
         map.set(rm.symbol, {
           symbol: rm.symbol,
@@ -637,11 +679,6 @@ export class TerminalController {
           totalOiUsd: rhOi + coreOi,
           latestMetrics: oldMarket?.latestMetrics || null,
         });
-
-        if (isNewMarket) {
-          this.wsManager.subscribeCore(cm.market_id);
-          this.wsManager.subscribeRh(rm.market_id);
-        }
       }
 
       // Prune delisted markets
@@ -659,6 +696,7 @@ export class TerminalController {
       }
 
       this.state.markets = map;
+      this.syncSubscriptions();
 
       if (!this.isWsInitialized) {
         this.isWsInitialized = true;
@@ -1017,6 +1055,7 @@ export class TerminalController {
     this.updateLeverageControls(0);
     this.updateCategoryControl("all");
     this.updateReadyControl(false);
+    this.syncSubscriptions();
 
     try {
       localStorage.removeItem(STORAGE_KEYS.SIZE);
@@ -1208,6 +1247,7 @@ export class TerminalController {
       this.state.categoryFilter = val;
       this.state.filterEquities = val === "rwa_pre_ipo_equities";
       this.saveFilterSettings();
+      this.syncSubscriptions();
       this.rerank();
     });
 
@@ -1219,6 +1259,7 @@ export class TerminalController {
       this.state.filterEquities = nextCat === "rwa_pre_ipo_equities";
       this.updateCategoryControl(nextCat);
       this.saveFilterSettings();
+      this.syncSubscriptions();
       this.rerank();
     });
 
