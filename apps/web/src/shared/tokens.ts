@@ -251,11 +251,24 @@ export function registerTokenLogos(
   for (const t of tokens) {
     if (!t.symbol || !t.logo) continue;
     const ext = t.logo_extension || "png";
-    const url = `https://assets.lighter.xyz/fe/token/${t.logo}.${ext}`;
     const rawSym = t.symbol.toUpperCase().trim();
-    dynamicTokenLogos.set(rawSym, url);
-    if (rawSym.includes("/")) {
-      dynamicTokenLogos.set(rawSym.split("/")[0]!, url);
+    const isPair = rawSym.includes("/");
+
+    if (!isPair) {
+      // Direct base token symbol (e.g. "QQQ", "AAPL", "BTC")
+      const url = `https://assets.lighter.xyz/fe/token/${t.logo}.${ext}`;
+      dynamicTokenLogos.set(rawSym, url);
+    } else {
+      // Trading / spot pair (e.g. "QQQ/USDG")
+      const pairUrl = `https://assets.lighter.xyz/fe/token/${t.logo}.${ext}`;
+      dynamicTokenLogos.set(rawSym, pairUrl);
+
+      const baseSym = rawSym.split("/")[0]!;
+      // Never overwrite an existing base token logo with a composite pair logo
+      if (!dynamicTokenLogos.has(baseSym)) {
+        const cleanLogo = t.logo.replace(/usd[gc]?$/i, "") || baseSym.toLowerCase();
+        dynamicTokenLogos.set(baseSym, `https://assets.lighter.xyz/fe/token/${cleanLogo}.${ext}`);
+      }
     }
   }
 }
@@ -266,7 +279,12 @@ export function registerTokens(tokens: ApiTokenInfo[]): void {
   for (const t of tokens) {
     if (!t.symbol) continue;
     const rawSym = t.symbol.toUpperCase().trim();
-    const sym = rawSym.includes("/") ? rawSym.split("/")[0]! : rawSym;
+    const isPair = rawSym.includes("/");
+    const sym = isPair ? rawSym.split("/")[0]! : rawSym;
+
+    if (isPair && dynamicTokenMetadata.has(sym)) {
+      continue;
+    }
 
     dynamicTokenMetadata.set(sym, t);
 
@@ -541,9 +559,21 @@ const KNOWN_TOKEN_LOGOS: Record<string, string> = {
 
 export function getTokenImageUrl(symbol: string): string {
   const sym = symbol.toUpperCase().trim();
-  const baseSym = sym.includes("/") ? sym.split("/")[0]! : sym;
+  const isPair = sym.includes("/");
+  const baseSym = isPair ? sym.split("/")[0]! : sym;
+
+  // Explicit trading pair logo requested
+  if (isPair && dynamicTokenLogos.has(sym)) {
+    return dynamicTokenLogos.get(sym)!;
+  }
+
   if (dynamicTokenLogos.has(baseSym)) {
-    return dynamicTokenLogos.get(baseSym)!;
+    let url = dynamicTokenLogos.get(baseSym)!;
+    // Safety guard: if base token was somehow assigned a composite pair icon like qqqUsdg.png, clean it
+    if (!isPair && /usd[gc]?\.[a-z0-9]+$/i.test(url)) {
+      url = url.replace(/usd[gc]?(\.[a-z0-9]+)$/i, "$1");
+    }
+    return url;
   }
   if (KNOWN_TOKEN_LOGOS[baseSym]) {
     return KNOWN_TOKEN_LOGOS[baseSym];
