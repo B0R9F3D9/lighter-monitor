@@ -35,6 +35,7 @@ function getOrCreateHeatmapTooltip(): HTMLElement {
 interface HeatmapCellState {
   bucket: HourlyBucketStats;
   isCurrent: boolean;
+  borderClass: string;
   onHourClick?: (hour: number) => void;
 }
 
@@ -134,8 +135,6 @@ export function renderHourlyHeatmap(
       grid.appendChild(cell);
     }
 
-    cellStateMap.set(cell, { bucket: b, isCurrent, onHourClick });
-
     // Sleek dark container with clearly visible colored frame borders
     const bgClass = "bg-terminal-surface";
     let borderClass = "border-terminal-border";
@@ -160,8 +159,13 @@ export function renderHourlyHeatmap(
       textClass = "text-terminal-muted";
     }
 
-    const ringClass = isCurrent ? "ring-1 ring-terminal-accent" : "";
-    cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none hover:bg-terminal-surfaceHover ${ringClass} ${bgClass} ${borderClass}`;
+    cellStateMap.set(cell, { bucket: b, isCurrent, borderClass, onHourClick });
+
+    const activeSelectedClass = isCurrent
+      ? "z-10 border-terminal-accent ring-1 ring-terminal-accent ring-inset"
+      : `z-0 ${borderClass}`;
+
+    cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none hover:bg-terminal-surfaceHover ${bgClass} ${activeSelectedClass}`;
     if (cell.dataset) {
       cell.dataset.hour = String(b.hour);
     }
@@ -172,7 +176,7 @@ export function renderHourlyHeatmap(
     cell.innerHTML = `
       <div class="text-[10px] font-bold ${textClass} tabular-nums">${b.label}</div>
       <div class="text-[9px] font-mono ${textClass} tabular-nums mt-0.5 truncate w-full text-center">${basisLabel}</div>
-      ${isCurrent ? '<span class="heatmap-current-dot absolute -top-1 -right-1 w-2 h-2 rounded-full bg-terminal-accent"></span>' : ""}
+      ${isCurrent ? '<span class="heatmap-current-dot absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-terminal-accent pointer-events-none"></span>' : ""}
     `;
   }
 
@@ -213,35 +217,40 @@ export function highlightHeatmapHour(container: HTMLElement, targetHour: number)
     if (!cell) continue;
 
     const isSelected = i === targetHour;
-    const hasRing = cell.classList
-      ? cell.classList.contains("ring-1")
-      : cell.className.includes("ring-1");
+    const state = cellStateMap.get(cell);
+    const borderClass = state?.borderClass || "border-terminal-border";
+    const bgClass = "bg-terminal-surface";
 
     if (isSelected) {
-      if (!hasRing) {
-        if (cell.classList) {
-          cell.classList.add("ring-1", "ring-terminal-accent");
-        }
-        if (!cell.className.includes("ring-1")) {
-          cell.className = `${cell.className} ring-1 ring-terminal-accent`.trim();
-        }
+      cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none hover:bg-terminal-surfaceHover ${bgClass} z-10 border-terminal-accent ring-1 ring-terminal-accent ring-inset`;
+      if (cell.classList) {
+        cell.classList.remove("z-0");
+        cell.classList.add(
+          "z-10",
+          "border-terminal-accent",
+          "ring-1",
+          "ring-terminal-accent",
+          "ring-inset",
+        );
       }
-      const dot = cell.querySelector ? cell.querySelector(".heatmap-current-dot") : null;
+      let dot = cell.querySelector ? cell.querySelector(".heatmap-current-dot") : null;
       if (!dot && cell.innerHTML && !cell.innerHTML.includes("heatmap-current-dot")) {
         const dotEl = document.createElement("span");
         dotEl.className =
-          "heatmap-current-dot absolute -top-1 -right-1 w-2 h-2 rounded-full bg-terminal-accent";
+          "heatmap-current-dot absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-terminal-accent pointer-events-none";
         cell.appendChild(dotEl);
       }
     } else {
-      if (hasRing) {
-        if (cell.classList) {
-          cell.classList.remove("ring-1", "ring-terminal-accent");
-        }
-        cell.className = cell.className
-          .replace(/\bring-1\b|\bring-terminal-accent\b/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
+      cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none hover:bg-terminal-surfaceHover ${bgClass} z-0 ${borderClass}`;
+      if (cell.classList) {
+        cell.classList.remove(
+          "z-10",
+          "border-terminal-accent",
+          "ring-1",
+          "ring-terminal-accent",
+          "ring-inset",
+        );
+        cell.classList.add("z-0");
       }
       const dot = cell.querySelector ? cell.querySelector(".heatmap-current-dot") : null;
       if (dot) {

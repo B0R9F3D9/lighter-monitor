@@ -124,11 +124,18 @@ describe("Execution Clock 24h Heatmap Ribbon", () => {
     const ribbon = container.children[0];
     const currentCell = ribbon.children[currentHour];
     expect(currentCell.className).toContain("ring-1 ring-terminal-accent");
+    expect(currentCell.className).toContain("ring-inset");
+    expect(currentCell.className).toContain("z-10");
+    expect(currentCell.className).toContain("border-terminal-accent");
     expect(currentCell.className).toContain("h-11.5");
     expect(currentCell.innerHTML).toContain("bg-terminal-accent");
+    expect(currentCell.innerHTML).toContain("top-1 right-1");
+    expect(currentCell.innerHTML).not.toContain("-top-1");
+    expect(currentCell.innerHTML).not.toContain("-right-1");
 
     const otherCell = ribbon.children[5];
     expect(otherCell.className).not.toContain("ring-1 ring-terminal-accent");
+    expect(otherCell.className).toContain("z-0");
   });
 
   it("invokes onHourClick callback with the selected hour index", () => {
@@ -158,17 +165,23 @@ describe("Execution Clock 24h Heatmap Ribbon", () => {
     highlightHeatmapHour(container, 8);
     const cell8 = ribbon.children[8];
     expect(cell8.className).toContain("ring-1 ring-terminal-accent");
+    expect(cell8.className).toContain("z-10");
     expect(cell14.className).not.toContain("ring-1 ring-terminal-accent");
+    expect(cell14.className).toContain("z-0");
 
     // Move hover to hour 22
     highlightHeatmapHour(container, 22);
     const cell22 = ribbon.children[22];
     expect(cell22.className).toContain("ring-1 ring-terminal-accent");
+    expect(cell22.className).toContain("z-10");
     expect(cell8.className).not.toContain("ring-1 ring-terminal-accent");
+    expect(cell8.className).toContain("z-0");
 
     // Cursor leaves chart: returns to hour 14
     highlightHeatmapHour(container, initialHour);
     expect(cell14.className).toContain("ring-1 ring-terminal-accent");
+    expect(cell14.className).toContain("z-10");
     expect(cell22.className).not.toContain("ring-1 ring-terminal-accent");
+    expect(cell22.className).toContain("z-0");
   });
 });
