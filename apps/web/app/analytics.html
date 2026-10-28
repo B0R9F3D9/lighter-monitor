@@ -120,7 +120,7 @@
                 </svg>
               </div>
               <span
-                class="text-sm font-bold tracking-tight text-white uppercase group-hover:text-terminal-accent transition"
+                class="text-sm font-bold tracking-tight text-white group-hover:text-terminal-accent transition"
                 >Lighter × Robinhood</span
               >
             </a>
@@ -332,6 +332,31 @@
             } catch {}
           </script>
 
+          <!-- Venue Switcher Toggle (RH / Core) -->
+          <div
+            id="topVenueToggle"
+            class="h-[26px] inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px] font-mono shrink-0 select-none"
+          >
+            <button
+              id="topVenueBtnRh"
+              type="button"
+              data-venue="rh"
+              class="h-full px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap flex items-center justify-center select-none"
+              title="Show Robinhood market metrics"
+            >
+              RH
+            </button>
+            <button
+              id="topVenueBtnCore"
+              type="button"
+              data-venue="core"
+              class="h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center select-none"
+              title="Show Lighter Core market metrics"
+            >
+              Core
+            </button>
+          </div>
+
           <!-- Divider -->
           <div class="h-5 w-px bg-terminal-border hidden sm:block shrink-0"></div>
 
@@ -345,9 +370,7 @@
                 class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold underline decoration-dotted decoration-terminal-muted/60 cursor-help"
                 title="Current Mark Price on active venue"
               >
-                MARK PRICE (<span id="topVenueTagMark" class="text-terminal-accent font-bold"
-                  >RH</span
-                >)
+                MARK PRICE
               </div>
               <div id="statMarkPrice" class="text-xs font-bold tabular-nums text-white">--</div>
             </div>
@@ -371,9 +394,7 @@
             <!-- 3. 24h Change -->
             <div class="space-y-0.5">
               <div class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold">
-                24H CHANGE (<span id="topVenueTagChange" class="text-terminal-accent font-bold"
-                  >RH</span
-                >)
+                24H CHANGE
               </div>
               <div id="stat24hChange" class="text-xs font-bold tabular-nums text-terminal-emerald">
                 --%
@@ -383,9 +404,7 @@
             <!-- 4. 24h Volume -->
             <div class="space-y-0.5">
               <div class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold">
-                24H VOLUME (<span id="topVenueTagVol" class="text-terminal-accent font-bold"
-                  >RH</span
-                >)
+                24H VOLUME
               </div>
               <div id="stat24hVolume" class="text-xs font-bold tabular-nums text-white">$--</div>
             </div>
@@ -396,9 +415,7 @@
                 class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold underline decoration-dotted decoration-terminal-muted/60 cursor-help"
                 title="Open interest in USD on active venue"
               >
-                OPEN INTEREST (<span id="topVenueTagOi" class="text-terminal-accent font-bold"
-                  >RH</span
-                >)
+                OPEN INTEREST
               </div>
               <div id="statOpenInterest" class="text-xs font-bold tabular-nums text-white">$--</div>
             </div>
@@ -439,7 +456,7 @@
           <button
             id="openDateFilterBtn"
             type="button"
-            class="flex items-center gap-1.5 px-2 py-0.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer text-xs font-mono select-none"
+            class="h-[26px] inline-flex items-center gap-1.5 px-2.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer text-[11px] font-mono select-none shrink-0"
             title="Filter by Dates & Days of Week"
           >
             <span id="dateFilterBtnText">Dates</span>
@@ -449,57 +466,59 @@
             ></span>
           </button>
 
+          <!-- Timeframe Segmented Control -->
           <div
-            class="inline-flex rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px] shrink-0"
+            class="h-[26px] inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px] font-mono shrink-0 select-none"
           >
             <button
-              class="tf-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
+              class="tf-btn h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center"
               data-tf="1h"
             >
               1H
             </button>
             <button
-              class="tf-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
+              class="tf-btn h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center"
               data-tf="4h"
             >
               4H
             </button>
             <button
-              class="tf-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
+              class="tf-btn h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center"
               data-tf="12h"
             >
               12H
             </button>
             <button
-              class="tf-btn px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap"
+              class="tf-btn h-full px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap flex items-center justify-center"
               data-tf="24h"
             >
               24H
             </button>
             <button
-              class="tf-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
+              class="tf-btn h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center"
               data-tf="3d"
             >
               3D
             </button>
             <button
-              class="tf-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
+              class="tf-btn h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center"
               data-tf="7d"
             >
               7D
             </button>
             <button
-              class="tf-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap"
+              class="tf-btn h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center"
               data-tf="30d"
             >
               ALL
             </button>
           </div>
 
+          <!-- Refresh Button -->
           <button
             id="refreshBtn"
             type="button"
-            class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-xs shrink-0 select-none"
+            class="h-[26px] px-2 inline-flex items-center justify-center rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer text-[11px] font-mono shrink-0 select-none"
             title="Refresh Historical Data"
           >
             ↻
@@ -732,14 +751,14 @@
       >
         <!-- Sub-chart Title Strip -->
         <div
-          class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex flex-wrap items-center justify-between gap-2 text-[10px] text-terminal-muted uppercase tracking-wider font-mono select-text"
+          class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex flex-wrap items-center justify-between gap-2 text-[10px] text-terminal-muted tracking-wider font-mono select-text"
         >
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 select-text">
             <span class="font-bold text-terminal-secondary select-text">Basis &amp; Spread</span>
             <span class="select-none">•</span>
-            <span class="text-terminal-emerald select-text">RH Cheaper (Core More Expensive)</span>
+            <span class="text-terminal-emerald select-text">RH Cheaper</span>
             <span class="select-none">•</span>
-            <span class="text-terminal-accent select-text">RH More Expensive (Core Cheaper)</span>
+            <span class="text-terminal-accent select-text">Core Cheaper</span>
           </div>
           <div class="flex items-center gap-2.5 shrink-0 select-text">
             <button

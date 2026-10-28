@@ -635,7 +635,7 @@ export class AnalyticsController {
   private clearActiveTimeframeButtons(): void {
     document.querySelectorAll(".tf-btn").forEach((btn) => {
       btn.className =
-        "tf-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap";
+        "tf-btn h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center";
     });
   }
 
@@ -1156,7 +1156,7 @@ export class AnalyticsController {
   private updateVenueButtons(): void {
     const rhBtn = document.getElementById("venueBtnRh");
     const coreBtn = document.getElementById("venueBtnCore");
-    const tag = this.activeVenue === "core" ? "CORE" : "RH";
+    const tag = this.activeVenue === "core" ? "Core" : "RH";
 
     if (rhBtn) {
       if (this.activeVenue === "rh") {
@@ -1186,6 +1186,21 @@ export class AnalyticsController {
       }
     }
 
+    // Update top strip venue toggle buttons (RH / Core) - matches timeframe segmented control styling
+    const topRhBtn = document.getElementById("topVenueBtnRh");
+    const topCoreBtn = document.getElementById("topVenueBtnCore");
+    const activeTopClass =
+      "h-full px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap flex items-center justify-center select-none";
+    const inactiveTopClass =
+      "h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center select-none";
+
+    if (topRhBtn) {
+      topRhBtn.className = this.activeVenue === "rh" ? activeTopClass : inactiveTopClass;
+    }
+    if (topCoreBtn) {
+      topCoreBtn.className = this.activeVenue === "core" ? activeTopClass : inactiveTopClass;
+    }
+
     // Update modal column header tags
     const colPrice = document.getElementById("colVenueTagPrice");
     const colVol = document.getElementById("colVenueTagVol");
@@ -1193,16 +1208,6 @@ export class AnalyticsController {
     if (colPrice) colPrice.textContent = tag;
     if (colVol) colVol.textContent = tag;
     if (colOi) colOi.textContent = tag;
-
-    // Update top strip tags
-    const topMark = document.getElementById("topVenueTagMark");
-    const topChange = document.getElementById("topVenueTagChange");
-    const topVol = document.getElementById("topVenueTagVol");
-    const topOi = document.getElementById("topVenueTagOi");
-    if (topMark) topMark.textContent = tag;
-    if (topChange) topChange.textContent = tag;
-    if (topVol) topVol.textContent = tag;
-    if (topOi) topOi.textContent = tag;
   }
 
   public setVenue(venue: AnalyticsVenue): void {
@@ -1465,10 +1470,10 @@ export class AnalyticsController {
       const id = (btn as HTMLElement).dataset.tf;
       if (id === this.activeTimeframe) {
         btn.className =
-          "tf-btn px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap";
+          "tf-btn h-full px-2 py-0.5 rounded bg-terminal-border text-white font-bold transition cursor-pointer whitespace-nowrap flex items-center justify-center";
       } else {
         btn.className =
-          "tf-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap";
+          "tf-btn h-full px-2 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer whitespace-nowrap flex items-center justify-center";
       }
     });
   }
@@ -1905,7 +1910,7 @@ export class AnalyticsController {
       if (activeDot) activeDot.classList.remove("hidden");
       if (btn) {
         btn.className =
-          "flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-terminal-accent bg-terminal-accent/15 text-terminal-accent font-bold transition cursor-pointer text-xs font-mono select-none";
+          "h-[26px] inline-flex items-center gap-1.5 px-2.5 rounded border border-terminal-accent bg-terminal-accent/15 text-terminal-accent font-bold transition cursor-pointer text-[11px] font-mono select-none shrink-0";
       }
 
       let daysLabel = "Custom Days";
@@ -1941,7 +1946,7 @@ export class AnalyticsController {
       if (activeDot) activeDot.classList.add("hidden");
       if (btn) {
         btn.className =
-          "flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-accent text-terminal-secondary hover:text-white transition cursor-pointer text-xs font-mono select-none";
+          "h-[26px] inline-flex items-center gap-1.5 px-2.5 rounded border border-terminal-border bg-terminal-bg hover:border-terminal-muted text-terminal-muted hover:text-white transition cursor-pointer text-[11px] font-mono select-none shrink-0";
       }
     }
   }
@@ -2241,11 +2246,19 @@ export class AnalyticsController {
       }
     });
 
-    // Venue switcher toggle buttons
+    // Venue switcher toggle buttons (Modal)
     document.getElementById("venueBtnRh")?.addEventListener("click", () => {
       this.setVenue("rh");
     });
     document.getElementById("venueBtnCore")?.addEventListener("click", () => {
+      this.setVenue("core");
+    });
+
+    // Venue switcher toggle buttons (Top Strip)
+    document.getElementById("topVenueBtnRh")?.addEventListener("click", () => {
+      this.setVenue("rh");
+    });
+    document.getElementById("topVenueBtnCore")?.addEventListener("click", () => {
       this.setVenue("core");
     });
 
