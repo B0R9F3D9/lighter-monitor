@@ -5,9 +5,17 @@ import {
   PriceStepAlertParams,
   SpreadAlertParams,
   SpreadTargetRow,
+  SPREAD_DIRECTIONS,
+  SPREAD_UNITS,
 } from "../types";
 import { CONFIG } from "../config";
-import { formatSmartPrice, formatPriceFine, computeSpreadBasis } from "../lighter/math";
+import {
+  formatSmartPrice,
+  formatPriceFine,
+  computeSpreadBasis,
+  formatCompactUsd,
+  formatCompactSize,
+} from "../lighter/math";
 
 export function formatPositionsReport(
   network: LighterNetwork,
@@ -86,27 +94,38 @@ export function formatPriceStepAlert(params: PriceStepAlertParams): string {
 // ==========================================
 
 export function formatSpreadAlert(params: SpreadAlertParams): string {
-  const dirHeader =
-    params.direction === "rh_cheaper"
-      ? "🟢 <b>RH &lt; Core</b> (Long RH / Short Core)"
-      : "🔵 <b>RH &gt; Core</b> (Short RH / Long Core)";
-
-  const basisSign = params.basisSigned >= 0 ? "+" : "-";
-  const bpsSign = params.basisBps >= 0 ? "+" : "";
+  const dirArrow =
+    params.direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "RH &lt; Core" : "RH &gt; Core";
+  const dirIcon = params.direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "🟢" : "🔵";
 
   const targetStr =
-    params.unit === "bps"
+    params.unit === SPREAD_UNITS.BPS
       ? `${params.targetDelta.toFixed(1)} bps`
       : `$${params.targetDelta.toFixed(3)}`;
 
-  return (
-    `⚖️ <b>SPREAD TARGET: ${params.symbol}</b>\n` +
-    `${dirHeader}\n\n` +
-    `• 🟠 RH Price: <b>$${formatPriceFine(params.rhPrice)}</b>\n` +
-    `• ⚡️ Core Price: <b>$${formatPriceFine(params.corePrice)}</b>\n` +
-    `• 📐 Текущий базис: <b>${basisSign}$${Math.abs(params.basisSigned).toFixed(3)}</b> (<code>${bpsSign}${params.basisBps.toFixed(2)} bps</code>)\n` +
-    `• 🎯 Таргет: <b>${targetStr}</b> (выполнен на <b>$${params.actualDiff.toFixed(3)}</b>)`
-  );
+  let lines = `🎯 <b>${params.symbol} • Таргет достигнут!</b>\n\n`;
+  lines += `${dirIcon} <b>Условие:</b> ${dirArrow} на ≥${targetStr}\n`;
+
+  if (params.orderBook) {
+    const ob = params.orderBook;
+    const bpsSign = ob.execBps >= 0 ? "+" : "";
+    const usdSign = ob.execUsd >= 0 ? "+" : "-";
+
+    const rhUsd = ob.rhPrice * ob.rhSize;
+    const coreUsd = ob.corePrice * ob.coreSize;
+
+    lines += `📊 <b>Исполняемый спред стакана:</b> <code>${bpsSign}${ob.execBps.toFixed(2)} bps</code> (<code>${usdSign}$${Math.abs(ob.execUsd).toFixed(3)}</code>)\n`;
+    lines += `• 🟠 RH ${ob.rhType}: $${formatPriceFine(ob.rhPrice)} (объём: ${formatCompactSize(ob.rhSize)} ${params.symbol} / ${formatCompactUsd(rhUsd)})\n`;
+    lines += `• ⚡️ Core ${ob.coreType}: $${formatPriceFine(ob.corePrice)} (объём: ${formatCompactSize(ob.coreSize)} ${params.symbol} / ${formatCompactUsd(coreUsd)})`;
+  } else {
+    const basisSign = params.basisSigned >= 0 ? "+" : "-";
+    const bpsSign = params.basisBps >= 0 ? "+" : "";
+    lines += `📊 <b>Базис:</b> <b>${basisSign}$${Math.abs(params.basisSigned).toFixed(3)}</b> (<code>${bpsSign}${params.basisBps.toFixed(2)} bps</code>)\n`;
+    lines += `• 🟠 RH: $${formatPriceFine(params.rhPrice)}\n`;
+    lines += `• ⚡️ Core: $${formatPriceFine(params.corePrice)}`;
+  }
+
+  return lines;
 }
 
 export function getSpreadAlertKeyboard(targetId: number | string, symbol: string): InlineKeyboard {
@@ -164,13 +183,14 @@ export function formatSpreadHubView(
 
     const targetLines: string[] = [];
     for (const t of symTargets) {
-      const dirIcon = t.direction === "rh_cheaper" ? "🟢" : "🔵";
-      const dirText = t.direction === "rh_cheaper" ? "RH &lt; Core" : "RH &gt; Core";
+      const isRhCheaper = t.direction === SPREAD_DIRECTIONS.RH_CHEAPER;
+      const dirIcon = isRhCheaper ? "🟢" : "🔵";
+      const dirText = isRhCheaper ? "RH &lt; Core" : "RH &gt; Core";
       let targetVal = "";
       const refPrice = quote && quote.corePrice > 0 ? quote.corePrice : quote?.rhPrice || 0;
 
-      const sign = t.direction === "rh_cheaper" ? "-" : "+";
-      if (t.unit === "bps") {
+      const sign = isRhCheaper ? "-" : "+";
+      if (t.unit === SPREAD_UNITS.BPS) {
         if (refPrice > 0) {
           const cents = (refPrice * t.target_delta) / 10000;
           const centsFormatted = cents >= 1 ? cents.toFixed(2) : cents.toFixed(3);

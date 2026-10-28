@@ -89,13 +89,13 @@ describe("Spread Alert Logic & State Machine", () => {
       };
 
       const formatted = formatSpreadAlert(params);
-      expect(formatted).toContain("SPREAD TARGET: SPY");
-      expect(formatted).toContain("🟢 <b>RH &lt; Core</b>");
+      expect(formatted).toContain("🎯 <b>SPY • Таргет достигнут!</b>");
+      expect(formatted).not.toContain("SPREAD TARGET");
+      expect(formatted).toContain("🟢 <b>Условие:</b> RH &lt; Core на ≥$0.150");
       expect(formatted).toContain("601.18");
       expect(formatted).toContain("601.35");
       expect(formatted).toContain("-$0.170");
       expect(formatted).toContain("-2.83 bps");
-      expect(formatted).toContain("$0.150");
       expect(formatted).not.toContain("по последней сделке");
     });
 
@@ -114,11 +114,51 @@ describe("Spread Alert Logic & State Machine", () => {
       };
 
       const formatted = formatSpreadAlert(params);
-      expect(formatted).toContain("SPREAD TARGET: SPY");
-      expect(formatted).toContain("🔵 <b>RH &gt; Core</b>");
-      expect(formatted).toContain("5.0 bps");
+      expect(formatted).toContain("🎯 <b>SPY • Таргет достигнут!</b>");
+      expect(formatted).not.toContain("SPREAD TARGET");
+      expect(formatted).toContain("🔵 <b>Условие:</b> RH &gt; Core на ≥5.0 bps");
+      expect(formatted).toContain("601.55");
+      expect(formatted).toContain("601.20");
       expect(formatted).toContain("+5.82 bps");
       expect(formatted).not.toContain("по последней сделке");
+    });
+
+    it("formats alert with executable orderbook legs and compact mobile numbers", () => {
+      const params: SpreadAlertParams = {
+        targetId: 3,
+        symbol: "SPY",
+        direction: "rh_cheaper",
+        targetDelta: 1.0,
+        unit: "bps",
+        rhPrice: 774.36,
+        corePrice: 774.26,
+        actualDiff: 0.1,
+        basisSigned: -0.1,
+        basisBps: -1.25,
+        confirmedTicks: 3,
+        minTicks: 3,
+        orderBook: {
+          rhPrice: 774.36,
+          rhSize: 1.9,
+          rhType: "Ask",
+          corePrice: 774.26,
+          coreSize: 45.3,
+          coreType: "Bid",
+          execBps: -1.25,
+          execUsd: -0.097,
+        },
+      };
+
+      const formatted = formatSpreadAlert(params);
+      expect(formatted).toContain("🎯 <b>SPY • Таргет достигнут!</b>");
+      expect(formatted).not.toContain("Подтверждён");
+      expect(formatted).toContain("🟢 <b>Условие:</b> RH &lt; Core на ≥1.0 bps");
+      expect(formatted).toContain(
+        "📊 <b>Исполняемый спред стакана:</b> <code>-1.25 bps</code> (<code>-$0.097</code>)",
+      );
+      expect(formatted).toContain("• 🟠 RH Ask: $774.36 (объём: 1.9 SPY / $1.5K)");
+      expect(formatted).toContain("• ⚡️ Core Bid: $774.26 (объём: 45.3 SPY / $35K)");
+      expect(formatted).not.toContain("SPREAD TARGET");
     });
   });
 

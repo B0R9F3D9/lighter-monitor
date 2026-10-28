@@ -10,6 +10,7 @@ import {
   SpreadTargetRow,
   SpreadDirection,
   SpreadUnit,
+  SPREAD_UNITS,
 } from "../types";
 import { packPositions, computePositionsFingerprint } from "../lighter/math";
 import {
@@ -502,6 +503,13 @@ export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
       .run();
   } catch {}
   try {
+    await db
+      .prepare(
+        "ALTER TABLE user_spread_targets ADD COLUMN consecutive_hits INTEGER NOT NULL DEFAULT 0",
+      )
+      .run();
+  } catch {}
+  try {
     await db.prepare("DROP INDEX IF EXISTS idx_spread_targets_user").run();
   } catch {}
   try {
@@ -957,7 +965,7 @@ export async function addSpreadTarget(
   symbol: string,
   direction: SpreadDirection,
   targetDelta: number,
-  unit: SpreadUnit = "usd",
+  unit: SpreadUnit = SPREAD_UNITS.USD,
   armed: number = 1,
   nowSec: number = Math.floor(Date.now() / 1000),
 ): Promise<boolean> {
@@ -1179,6 +1187,7 @@ export async function getActiveSpreadTargetsForMonitoring(
           t.is_active,
           t.armed,
           t.muted_until,
+          COALESCE(t.consecutive_hits, 0) as consecutive_hits,
           t.last_alerted_at,
           t.last_spread,
           t.created_at,

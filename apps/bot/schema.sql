@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS user_spread_targets (
     unit TEXT NOT NULL DEFAULT 'usd' CHECK (unit IN ('usd', 'bps')),
     is_active INTEGER NOT NULL DEFAULT 1,
     armed INTEGER NOT NULL DEFAULT 1,
+    consecutive_hits INTEGER NOT NULL DEFAULT 0,
     muted_until INTEGER NOT NULL DEFAULT 0,
     last_alerted_at INTEGER DEFAULT NULL,
     last_spread REAL DEFAULT NULL,

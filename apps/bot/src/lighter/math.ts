@@ -1,5 +1,12 @@
 import { CONFIG } from "../config";
-import { AlertTier, LighterNetwork, LighterPosition, PositionRiskAnalysis } from "../types";
+import {
+  AlertTier,
+  LighterNetwork,
+  LighterPosition,
+  PositionRiskAnalysis,
+  SpreadUnit,
+  SPREAD_UNITS,
+} from "../types";
 
 export function analyzePositionRisk(pos: LighterPosition): PositionRiskAnalysis | null {
   const size = Math.abs(parseFloat(pos.position || "0"));
@@ -293,6 +300,60 @@ export function formatPriceFine(price: number): string {
 }
 
 /**
+ * Компактное сжатое форматирование сумм в USD для мобильных экранов:
+ * >= $1,000,000 -> $1.2M
+ * >= $10,000    -> $35K
+ * >= $1,000     -> $1.4K
+ * >= $1         -> $125
+ * < $1          -> $0.50
+ */
+export function formatCompactUsd(val: number): string {
+  const abs = Math.abs(val);
+  if (abs >= 1_000_000) {
+    const formatted = (val / 1_000_000).toFixed(1).replace(/\.0$/, "");
+    return `$${formatted}M`;
+  }
+  if (abs >= 10_000) {
+    return `$${Math.round(val / 1_000)}K`;
+  }
+  if (abs >= 1_000) {
+    const formatted = (val / 1_000).toFixed(1).replace(/\.0$/, "");
+    return `$${formatted}K`;
+  }
+  if (abs >= 1) {
+    return `$${Math.round(val)}`;
+  }
+  return `$${val.toFixed(2)}`;
+}
+
+/**
+ * Компактное форматирование количества токенов (size):
+ * 1.9371  -> 1.9
+ * 45.3585 -> 45.4
+ * 150.2   -> 150
+ * 0.052   -> 0.05
+ */
+export function formatCompactSize(size: number): string {
+  const abs = Math.abs(size);
+  if (abs >= 10_000) {
+    return `${Math.round(size / 1_000)}K`;
+  }
+  if (abs >= 1_000) {
+    return `${(size / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  }
+  if (abs >= 100) {
+    return `${Math.round(size)}`;
+  }
+  if (abs >= 1) {
+    return `${size.toFixed(1).replace(/\.0$/, "")}`;
+  }
+  if (abs >= 0.01) {
+    return `${size.toFixed(2).replace(/0+$/, "").replace(/\.$/, "")}`;
+  }
+  return `${size.toFixed(4)}`;
+}
+
+/**
  * Расчет базиса в $ и в bps относительно Core
  */
 export function computeSpreadBasis(
@@ -311,7 +372,7 @@ export function computeSpreadBasis(
 export function parseSpreadThresholdInput(
   raw: string,
   referencePrice: number = 0,
-): { value: number; unit: "usd" | "bps" } | null {
+): { value: number; unit: SpreadUnit } | null {
   if (!raw) return null;
   const cleaned = raw.trim().toLowerCase().replace(",", ".");
 
@@ -320,7 +381,7 @@ export function parseSpreadThresholdInput(
     const numStr = cleaned.replace("bps", "").trim();
     const val = Math.abs(parseFloat(numStr));
     if (!isNaN(val) && val > 0 && val <= 500) {
-      return { value: val, unit: "bps" };
+      return { value: val, unit: SPREAD_UNITS.BPS };
     }
     return null;
   }
@@ -330,7 +391,7 @@ export function parseSpreadThresholdInput(
     const numStr = cleaned.replace("%", "").trim();
     const val = Math.abs(parseFloat(numStr));
     if (!isNaN(val) && val > 0 && val <= 5) {
-      return { value: Math.round(val * 100 * 10) / 10, unit: "bps" };
+      return { value: Math.round(val * 100 * 10) / 10, unit: SPREAD_UNITS.BPS };
     }
     return null;
   }
@@ -340,7 +401,7 @@ export function parseSpreadThresholdInput(
   const val = Math.abs(parseFloat(numStr));
   if (!isNaN(val) && val > 0) {
     if (referencePrice > 0 && val > referencePrice * 0.5) return null; // Защита от опечаток
-    return { value: val, unit: "usd" };
+    return { value: val, unit: SPREAD_UNITS.USD };
   }
 
   return null;

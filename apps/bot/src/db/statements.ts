@@ -9,6 +9,8 @@ export interface CachedStatements {
   saveMetrics: D1PreparedStatement;
   updateSpreadAlertSent: D1PreparedStatement;
   updateSpreadRearm: D1PreparedStatement;
+  updateSpreadHits: D1PreparedStatement;
+  resetSpreadHits: D1PreparedStatement;
 }
 
 let cachedStmts: CachedStatements | null = null;
@@ -81,15 +83,25 @@ export function getCronStatements(db: D1Database): CachedStatements {
     `),
     updateSpreadAlertSent: db.prepare(`
       UPDATE user_spread_targets
-      SET armed = 0, last_alerted_at = ?, last_spread = ?
+      SET armed = 0, last_alerted_at = ?, last_spread = ?, consecutive_hits = 0
       WHERE id = ?
+    `),
+    updateSpreadHits: db.prepare(`
+      UPDATE user_spread_targets
+      SET consecutive_hits = ?
+      WHERE id = ?
+    `),
+    resetSpreadHits: db.prepare(`
+      UPDATE user_spread_targets
+      SET consecutive_hits = 0
+      WHERE id = ? AND consecutive_hits > 0
     `),
     updateSpreadRearm: db.prepare(`
       UPDATE user_spread_targets
-      SET armed = 1
+      SET armed = 1, consecutive_hits = 0
       WHERE id = ?
     `),
   };
 
-  return cachedStmts;
+  return cachedStmts!;
 }

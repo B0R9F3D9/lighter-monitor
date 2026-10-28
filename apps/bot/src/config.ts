@@ -1,23 +1,23 @@
-import { LighterNetwork } from "./types";
+import { LighterNetwork, LIGHTER_NETWORKS } from "./types";
 
 export const CONFIG = {
   NETWORKS: {
     rh: {
-      id: "rh" as LighterNetwork,
+      id: LIGHTER_NETWORKS.RH,
       name: "Robinhood Lighter",
       shortLabel: "RH",
       badge: "[RH]",
       baseUrl: "https://api.rh.lighter.xyz/api/v1",
     },
     mainnet: {
-      id: "mainnet" as LighterNetwork,
+      id: LIGHTER_NETWORKS.MAINNET,
       name: "Lighter Mainnet",
       shortLabel: "Mainnet",
       badge: "[Mainnet]",
       baseUrl: "https://mainnet.zklighter.elliot.ai/api/v1",
     },
   },
-  DEFAULT_NETWORK: "rh" as LighterNetwork,
+  DEFAULT_NETWORK: LIGHTER_NETWORKS.RH,
   MAX_TRACKED_ACCOUNTS_PER_USER: 10,
 
   // Управление бюджетом Cloudflare Free Subrequests
@@ -60,6 +60,7 @@ export const CONFIG = {
   SPREAD_REARM_RATIO: 0.8, // Откат до 80% порога для повторного взведения
   SPREAD_MAX_PRICE_DIFF_RATIO: 0.1, // 10% санитарный лимит расхождения цен
   MAX_SPREAD_ALERTS_PER_TICK: 8, // Кап отправок спредов за один крон-тик
+  SPREAD_TARGET_MIN_CONSECUTIVE_HITS: 3, // Минимум 3 тика (~2-3 мин) подряд для подтверждения (отсекает секундные сопли/wicks)
   MUTE_FOREVER_TIMESTAMP: 2147483647, // 2038 год (сентинел "до включения")
 };
 
@@ -70,11 +71,11 @@ export const CONFIG = {
  */
 export function getLighterAuthToken(env?: any, network?: LighterNetwork): string | undefined {
   if (!env) return undefined;
-  if (network === "mainnet" && env.LIGHTER_API_KEY_MAINNET) {
+  if (network === LIGHTER_NETWORKS.MAINNET && env.LIGHTER_API_KEY_MAINNET) {
     const val = String(env.LIGHTER_API_KEY_MAINNET).trim();
     if (val) return val;
   }
-  if (network === "rh" && env.LIGHTER_API_KEY_RH) {
+  if (network === LIGHTER_NETWORKS.RH && env.LIGHTER_API_KEY_RH) {
     const val = String(env.LIGHTER_API_KEY_RH).trim();
     if (val) return val;
   }

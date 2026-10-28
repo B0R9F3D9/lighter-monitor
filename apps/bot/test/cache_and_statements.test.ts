@@ -89,17 +89,17 @@ describe("In-Memory State & Statements", () => {
 
     resetCachedStatements();
     const stmts1 = getCronStatements(mockDb);
-    expect(prepareCount).toBe(10);
+    expect(prepareCount).toBe(12);
 
     // Second call with same DB should return cached without preparing again
     const stmts2 = getCronStatements(mockDb);
     expect(stmts1).toBe(stmts2);
-    expect(prepareCount).toBe(10);
+    expect(prepareCount).toBe(12);
 
     // Resetting cached statements causes re-prepare
     resetCachedStatements();
     getCronStatements(mockDb);
-    expect(prepareCount).toBe(20);
+    expect(prepareCount).toBe(24);
   });
 
   it("buildBatchUpdatePositionsCacheStmts preserves user alias in memory", () => {

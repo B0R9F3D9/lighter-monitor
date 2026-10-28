@@ -1,5 +1,13 @@
 import { Bot, InlineKeyboard, Keyboard } from "grammy";
-import { Env, PositionRiskAnalysis, LighterNetwork, SpreadDirection } from "../types";
+import {
+  Env,
+  PositionRiskAnalysis,
+  LighterNetwork,
+  LIGHTER_NETWORKS,
+  SpreadDirection,
+  SPREAD_DIRECTIONS,
+  SPREAD_UNITS,
+} from "../types";
 import { CONFIG, getLighterAuthToken } from "../config";
 import {
   fetchLighterAccountWithStatus,
@@ -237,14 +245,22 @@ export function getBot(env: Env): Bot {
 
     const activeSet = new Set([normSym]);
     const [snapRh, snapMainnet] = await Promise.all([
-      fetchExchangeStats("rh", activeSet, getLighterAuthToken(env, "rh")),
-      fetchExchangeStats("mainnet", activeSet, getLighterAuthToken(env, "mainnet")),
+      fetchExchangeStats(
+        LIGHTER_NETWORKS.RH,
+        activeSet,
+        getLighterAuthToken(env, LIGHTER_NETWORKS.RH),
+      ),
+      fetchExchangeStats(
+        LIGHTER_NETWORKS.MAINNET,
+        activeSet,
+        getLighterAuthToken(env, LIGHTER_NETWORKS.MAINNET),
+      ),
     ]);
     const rhMarket = findMarketPrice(snapRh, normSym);
     const coreMarket = findMarketPrice(snapMainnet, normSym);
 
-    const rhPrice = rhMarket?.price ?? getMemoryPrice("rh", normSym) ?? 0;
-    const corePrice = coreMarket?.price ?? getMemoryPrice("mainnet", normSym) ?? 0;
+    const rhPrice = rhMarket?.price ?? getMemoryPrice(LIGHTER_NETWORKS.RH, normSym) ?? 0;
+    const corePrice = coreMarket?.price ?? getMemoryPrice(LIGHTER_NETWORKS.MAINNET, normSym) ?? 0;
 
     if (rhPrice <= 0 || corePrice <= 0) {
       return null;
@@ -317,9 +333,9 @@ export function getBot(env: Env): Bot {
       `🔵 <b>RH &gt; Core</b> (Robinhood дороже Core)`;
 
     const kb = new InlineKeyboard()
-      .text("🟢 RH < Core", `sp_dir:${normSym}:rh_cheaper`)
+      .text("🟢 RH < Core", `sp_dir:${normSym}:${SPREAD_DIRECTIONS.RH_CHEAPER}`)
       .row()
-      .text("🔵 RH > Core", `sp_dir:${normSym}:rh_expensive`)
+      .text("🔵 RH > Core", `sp_dir:${normSym}:${SPREAD_DIRECTIONS.RH_EXPENSIVE}`)
       .row()
       .text("❌ Отмена", "spread_menu");
 
@@ -342,8 +358,11 @@ export function getBot(env: Env): Bot {
     const refPrice =
       quote && quote.corePrice > 0
         ? quote.corePrice
-        : getMemoryPrice("mainnet", symbol) || getMemoryPrice("rh", symbol) || 0;
-    const dirLabel = direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+        : getMemoryPrice(LIGHTER_NETWORKS.MAINNET, symbol) ||
+          getMemoryPrice(LIGHTER_NETWORKS.RH, symbol) ||
+          0;
+    const dirLabel =
+      direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
 
     let text = editTargetId
       ? `✏️ <b>Изменение таргета ${symbol}</b>\nУсловие: <b>${dirLabel}</b>\n\n`
@@ -362,7 +381,7 @@ export function getBot(env: Env): Bot {
     const kb = new InlineKeyboard();
     const presets = CONFIG.SPREAD_DEFAULT_BPS_PRESETS;
     const idSuffix = editTargetId ? `:${editTargetId}` : "";
-    const dirSign = direction === "rh_cheaper" ? "-" : "+";
+    const dirSign = direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "-" : "+";
 
     for (let i = 0; i < presets.length; i++) {
       const bps = presets[i]!;
@@ -379,8 +398,12 @@ export function getBot(env: Env): Bot {
     kb.row().text("✏️ Ввести свой ($ или bps)", `sp_custom:${symbol}:${direction}${idSuffix}`);
 
     if (editTargetId) {
-      const otherDir: SpreadDirection = direction === "rh_cheaper" ? "rh_expensive" : "rh_cheaper";
-      const otherDirLabel = otherDir === "rh_cheaper" ? "🟢 RH < Core" : "🔵 RH > Core";
+      const otherDir: SpreadDirection =
+        direction === SPREAD_DIRECTIONS.RH_CHEAPER
+          ? SPREAD_DIRECTIONS.RH_EXPENSIVE
+          : SPREAD_DIRECTIONS.RH_CHEAPER;
+      const otherDirLabel =
+        otherDir === SPREAD_DIRECTIONS.RH_CHEAPER ? "🟢 RH < Core" : "🔵 RH > Core";
       kb.row().text(`🔄 Условие: ${otherDirLabel}`, `sp_flip_dir:${editTargetId}:${otherDir}`);
       kb.row().text("« Назад к таргету", `sp_target:${editTargetId}`);
     } else {
@@ -408,14 +431,22 @@ export function getBot(env: Env): Bot {
     if (uniqueSymbols.length > 0) {
       const activeSet = new Set(uniqueSymbols);
       const [snapRh, snapMainnet] = await Promise.all([
-        fetchExchangeStats("rh", activeSet, getLighterAuthToken(env, "rh")),
-        fetchExchangeStats("mainnet", activeSet, getLighterAuthToken(env, "mainnet")),
+        fetchExchangeStats(
+          LIGHTER_NETWORKS.RH,
+          activeSet,
+          getLighterAuthToken(env, LIGHTER_NETWORKS.RH),
+        ),
+        fetchExchangeStats(
+          LIGHTER_NETWORKS.MAINNET,
+          activeSet,
+          getLighterAuthToken(env, LIGHTER_NETWORKS.MAINNET),
+        ),
       ]);
       for (const sym of uniqueSymbols) {
         const rhM = findMarketPrice(snapRh, sym);
         const coreM = findMarketPrice(snapMainnet, sym);
-        const rhPrice = rhM?.price ?? getMemoryPrice("rh", sym) ?? 0;
-        const corePrice = coreM?.price ?? getMemoryPrice("mainnet", sym) ?? 0;
+        const rhPrice = rhM?.price ?? getMemoryPrice(LIGHTER_NETWORKS.RH, sym) ?? 0;
+        const corePrice = coreM?.price ?? getMemoryPrice(LIGHTER_NETWORKS.MAINNET, sym) ?? 0;
         if (rhPrice > 0 && corePrice > 0) {
           quotes.set(sym, { rhPrice, corePrice });
           liveSpreadCache.set(sym, { rhPrice, corePrice, expiresAt: Date.now() + 8000 });
@@ -476,10 +507,13 @@ export function getBot(env: Env): Bot {
 
     // Кнопки по каждому существующему таргету (как в Мои аккаунты)
     for (const t of targets) {
-      const dirIcon = t.direction === "rh_cheaper" ? "🟢" : "🔵";
-      const dirShort = t.direction === "rh_cheaper" ? "RH < Core" : "RH > Core";
+      const isCheaper = t.direction === SPREAD_DIRECTIONS.RH_CHEAPER;
+      const dirIcon = isCheaper ? "🟢" : "🔵";
+      const dirShort = isCheaper ? "RH < Core" : "RH > Core";
       const val =
-        t.unit === "bps" ? `${t.target_delta.toFixed(1)} bps` : `$${t.target_delta.toFixed(2)}`;
+        t.unit === SPREAD_UNITS.BPS
+          ? `${t.target_delta.toFixed(1)} bps`
+          : `$${t.target_delta.toFixed(2)}`;
       const statusIcon = t.is_active === 0 ? "⏸" : "✅";
       const label = `${t.symbol} ${dirIcon} ${dirShort} ≥${val} [${statusIcon}]`;
       kb.text(label, `sp_target:${t.id}`).row();
@@ -522,17 +556,18 @@ export function getBot(env: Env): Bot {
     }
 
     const quote = await getLiveSpreadQuote(target.symbol);
-    const dirLabel = target.direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
-    const dirSign = target.direction === "rh_cheaper" ? "-" : "+";
+    const isCheaper = target.direction === SPREAD_DIRECTIONS.RH_CHEAPER;
+    const dirLabel = isCheaper ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+    const dirSign = isCheaper ? "-" : "+";
     const refPrice =
       quote && quote.corePrice > 0
         ? quote.corePrice
         : quote?.rhPrice ||
-          getMemoryPrice("mainnet", target.symbol) ||
-          getMemoryPrice("rh", target.symbol) ||
+          getMemoryPrice(LIGHTER_NETWORKS.MAINNET, target.symbol) ||
+          getMemoryPrice(LIGHTER_NETWORKS.RH, target.symbol) ||
           0;
     let targetVal = "";
-    if (target.unit === "bps") {
+    if (target.unit === SPREAD_UNITS.BPS) {
       if (refPrice > 0) {
         const cents = (refPrice * target.target_delta) / 10000;
         const centsFormatted = cents >= 1 ? cents.toFixed(2) : cents.toFixed(3);
@@ -708,9 +743,9 @@ export function getBot(env: Env): Bot {
 
     const text = `➕ <b>Подключение аккаунта Lighter</b>\n\nВыберите сеть биржи для подключения:`;
     const kb = new InlineKeyboard()
-      .text("🟠 Robinhood Lighter", "wizard_net:rh")
+      .text("🟠 Robinhood Lighter", `wizard_net:${LIGHTER_NETWORKS.RH}`)
       .row()
-      .text("⚡️ Lighter Mainnet", "wizard_net:mainnet")
+      .text("⚡️ Lighter Mainnet", `wizard_net:${LIGHTER_NETWORKS.MAINNET}`)
       .row()
       .text("❌ Отмена", "wizard_cancel");
 
@@ -733,7 +768,7 @@ export function getBot(env: Env): Bot {
     await setUserWizardState(env.DB, ctx.from!.id, { step: "AWAIT_INDEX", network });
     await ctx.answerCallbackQuery();
 
-    const exampleIdx = network === "rh" ? "31704" : "749329";
+    const exampleIdx = network === LIGHTER_NETWORKS.RH ? "31704" : "749329";
     const text =
       `➕ <b>Подключение ${netConfig.name}</b> <code>${netConfig.badge}</code>\n\n` +
       `Отправьте в чат числовой индекс аккаунта (например: <code>${exampleIdx}</code>):`;
@@ -869,7 +904,7 @@ export function getBot(env: Env): Bot {
       const netConfig = CONFIG.NETWORKS[state.network];
       if (!/^\d+$/.test(text)) {
         return ctx.reply(
-          `⚠️ Пожалуйста, отправьте только числовой индекс аккаунта (например: <code>${state.network === "rh" ? "31704" : "749329"}</code>):`,
+          `⚠️ Пожалуйста, отправьте только числовой индекс аккаунта (например: <code>${state.network === LIGHTER_NETWORKS.RH ? "31704" : "749329"}</code>):`,
           {
             parse_mode: "HTML",
             reply_markup: new InlineKeyboard().text("❌ Отмена", "wizard_cancel"),
@@ -909,7 +944,7 @@ export function getBot(env: Env): Bot {
 
       if (!result.account) {
         const explorerLink =
-          state.network === "mainnet"
+          state.network === LIGHTER_NETWORKS.MAINNET
             ? `\nПроверьте индекс: https://app.lighter.xyz/explorer/accounts/${accountIndex}`
             : "";
         return ctx.reply(
@@ -1015,9 +1050,11 @@ export function getBot(env: Env): Bot {
       let initialArmed = 1;
       if (state.corePrice > 0 && state.rhPrice > 0) {
         const { basisUsd, basisBps } = computeSpreadBasis(state.rhPrice, state.corePrice);
-        const actualDiffUsd = state.direction === "rh_cheaper" ? -basisUsd : basisUsd;
-        const actualDiffBps = state.direction === "rh_cheaper" ? -basisBps : basisBps;
-        const currentMetric = parsed.unit === "bps" ? actualDiffBps : actualDiffUsd;
+        const actualDiffUsd =
+          state.direction === SPREAD_DIRECTIONS.RH_CHEAPER ? -basisUsd : basisUsd;
+        const actualDiffBps =
+          state.direction === SPREAD_DIRECTIONS.RH_CHEAPER ? -basisBps : basisBps;
+        const currentMetric = parsed.unit === SPREAD_UNITS.BPS ? actualDiffBps : actualDiffUsd;
         if (currentMetric >= parsed.value) {
           initialArmed = 0;
         }
@@ -1050,14 +1087,15 @@ export function getBot(env: Env): Bot {
       invalidateActiveSymbolsCache();
       await setUserWizardState(env.DB, ctx.from!.id, null);
 
-      const dirLabel = state.direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
-      const dirSign = state.direction === "rh_cheaper" ? "-" : "+";
-      let targetStr = parsed.unit === "bps" ? `${parsed.value} bps` : `$${parsed.value}`;
-      if (parsed.unit === "bps" && state.corePrice > 0) {
+      const dirLabel =
+        state.direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+      const dirSign = state.direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "-" : "+";
+      let targetStr = parsed.unit === SPREAD_UNITS.BPS ? `${parsed.value} bps` : `$${parsed.value}`;
+      if (parsed.unit === SPREAD_UNITS.BPS && state.corePrice > 0) {
         const cents = (state.corePrice * parsed.value) / 10000;
         const centsFormatted = cents >= 1 ? cents.toFixed(2) : cents.toFixed(3);
         targetStr = `${parsed.value} bps (${dirSign}$${centsFormatted})`;
-      } else if (parsed.unit === "usd" && state.corePrice > 0) {
+      } else if (parsed.unit === SPREAD_UNITS.USD && state.corePrice > 0) {
         const bps = (parsed.value / state.corePrice) * 10000;
         targetStr = `$${parsed.value} (${dirSign}${bps.toFixed(1)} bps)`;
       }
@@ -1227,7 +1265,7 @@ export function getBot(env: Env): Bot {
 
       const kb = new InlineKeyboard();
       for (const r of results) {
-        const netIcon = r.network === "rh" ? "🟠" : "⚡️";
+        const netIcon = r.network === LIGHTER_NETWORKS.RH ? "🟠" : "⚡️";
         const aliasStr = r.alias ? ` (${r.alias})` : "";
         const label = `${netIcon} #${r.account_index}${aliasStr}`;
         kb.text(label, `manage_acc:${r.network}:${r.account_index}`).row();
@@ -1311,8 +1349,8 @@ export function getBot(env: Env): Bot {
         trackedList = filterNetwork
           ? [{ network: filterNetwork, account_index: filterIndex, alias: null }]
           : [
-              { network: "rh", account_index: filterIndex, alias: null },
-              { network: "mainnet", account_index: filterIndex, alias: null },
+              { network: LIGHTER_NETWORKS.RH, account_index: filterIndex, alias: null },
+              { network: LIGHTER_NETWORKS.MAINNET, account_index: filterIndex, alias: null },
             ];
         cacheMap = await getAccountsPositionsCache(env.DB, trackedList);
       }
@@ -2178,14 +2216,16 @@ export function getBot(env: Env): Bot {
       const refPrice =
         quote && quote.corePrice > 0
           ? quote.corePrice
-          : getMemoryPrice("mainnet", symbol) || getMemoryPrice("rh", symbol) || 0;
+          : getMemoryPrice(LIGHTER_NETWORKS.MAINNET, symbol) ||
+            getMemoryPrice(LIGHTER_NETWORKS.RH, symbol) ||
+            0;
       const targetDeltaUsd = refPrice > 0 ? (refPrice * bps) / 10000 : 0;
 
       let initialArmed = 1;
       let currentBasisBps = 0;
       if (quote) {
         const { basisBps } = computeSpreadBasis(quote.rhPrice, quote.corePrice);
-        currentBasisBps = direction === "rh_cheaper" ? -basisBps : basisBps;
+        currentBasisBps = direction === SPREAD_DIRECTIONS.RH_CHEAPER ? -basisBps : basisBps;
         if (currentBasisBps >= bps) {
           initialArmed = 0;
         }
@@ -2199,20 +2239,29 @@ export function getBot(env: Env): Bot {
           editTargetId,
           direction,
           bps,
-          "bps",
+          SPREAD_UNITS.BPS,
           initialArmed,
         );
         await ctx.answerCallbackQuery({ text: `Таргет изменен на ${bps} bps!` });
       } else {
-        await addSpreadTarget(env.DB, ctx.from!.id, symbol, direction, bps, "bps", initialArmed);
+        await addSpreadTarget(
+          env.DB,
+          ctx.from!.id,
+          symbol,
+          direction,
+          bps,
+          SPREAD_UNITS.BPS,
+          initialArmed,
+        );
         await ctx.answerCallbackQuery({ text: `Таргет ${bps} bps добавлен!` });
       }
 
       invalidateActiveSymbolsCache();
       await setUserWizardState(env.DB, ctx.from!.id, null);
 
-      const dirLabel = direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
-      const dirSign = direction === "rh_cheaper" ? "-" : "+";
+      const dirLabel =
+        direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+      const dirSign = direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "-" : "+";
       const centsFormatted =
         targetDeltaUsd >= 1 ? targetDeltaUsd.toFixed(2) : targetDeltaUsd.toFixed(3);
 
@@ -2267,7 +2316,8 @@ export function getBot(env: Env): Bot {
       });
       await ctx.answerCallbackQuery();
 
-      const dirLabel = direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+      const dirLabel =
+        direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
       const title = editTargetId
         ? `✏️ <b>Изменение целевого спреда для ${symbol}</b>\n`
         : `✏️ <b>Введите целевой спред для ${symbol}</b>\n`;

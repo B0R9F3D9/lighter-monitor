@@ -1,4 +1,9 @@
-export type LighterNetwork = "rh" | "mainnet";
+export const LIGHTER_NETWORKS = {
+  RH: "rh",
+  MAINNET: "mainnet",
+} as const;
+
+export type LighterNetwork = (typeof LIGHTER_NETWORKS)[keyof typeof LIGHTER_NETWORKS];
 
 export interface Env {
   DB: D1Database;
@@ -74,8 +79,19 @@ export interface CachedPositionPayload {
   tier: AlertTier;
 }
 
-export type SpreadDirection = "rh_cheaper" | "rh_expensive";
-export type SpreadUnit = "usd" | "bps";
+export const SPREAD_DIRECTIONS = {
+  RH_CHEAPER: "rh_cheaper",
+  RH_EXPENSIVE: "rh_expensive",
+} as const;
+
+export type SpreadDirection = (typeof SPREAD_DIRECTIONS)[keyof typeof SPREAD_DIRECTIONS];
+
+export const SPREAD_UNITS = {
+  USD: "usd",
+  BPS: "bps",
+} as const;
+
+export type SpreadUnit = (typeof SPREAD_UNITS)[keyof typeof SPREAD_UNITS];
 
 export interface SpreadTargetRow {
   id: number;
@@ -90,12 +106,31 @@ export interface SpreadTargetRow {
   last_alerted_at: number | null;
   last_spread: number | null;
   created_at: number;
+  consecutive_hits?: number;
   user_spread_muted_until?: number;
   symbol_muted_until?: number;
 }
 
+export interface TopOrderBook {
+  bestBid: number;
+  bestBidSize: number;
+  bestAsk: number;
+  bestAskSize: number;
+}
+
+export interface SpreadAlertOrderBookLeg {
+  rhPrice: number;
+  rhSize: number;
+  rhType: "Ask" | "Bid";
+  corePrice: number;
+  coreSize: number;
+  coreType: "Ask" | "Bid";
+  execBps: number;
+  execUsd: number;
+}
+
 export interface SpreadAlertParams {
-  targetId: number;
+  targetId: number | string;
   symbol: string;
   direction: SpreadDirection;
   targetDelta: number;
@@ -105,6 +140,9 @@ export interface SpreadAlertParams {
   actualDiff: number;
   basisSigned: number;
   basisBps: number;
+  confirmedTicks?: number;
+  minTicks?: number;
+  orderBook?: SpreadAlertOrderBookLeg;
 }
 
 export type WizardState = (

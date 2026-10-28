@@ -7,6 +7,10 @@ import {
   ActivePositionWatchItem,
   TrackedAccountKey,
   SpreadTargetRow,
+  SpreadAlertOrderBookLeg,
+  LIGHTER_NETWORKS,
+  SPREAD_DIRECTIONS,
+  SPREAD_UNITS,
 } from "../types";
 import { CONFIG, getLighterAuthToken } from "../config";
 import {
@@ -27,6 +31,7 @@ import {
   fetchInChunks,
   fetchExchangeStats,
   findMarketPrice,
+  verifyExecutableSpread,
 } from "../lighter/api";
 import { computePositionsFingerprint } from "../lighter/math";
 import { getMemoryAccount, setLastCronMetrics } from "../cache/memory";
@@ -158,15 +163,23 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     const [uniqueSymbols, spreadTargets, snapRh, snapMainnet] = await Promise.all([
       getDistinctActiveSymbols(env.DB),
       getActiveSpreadTargetsForMonitoring(env.DB, now),
-      fetchExchangeStats("rh", cachedActiveSymbolsSet, getLighterAuthToken(env, "rh")),
-      fetchExchangeStats("mainnet", cachedActiveSymbolsSet, getLighterAuthToken(env, "mainnet")),
+      fetchExchangeStats(
+        LIGHTER_NETWORKS.RH,
+        cachedActiveSymbolsSet,
+        getLighterAuthToken(env, LIGHTER_NETWORKS.RH),
+      ),
+      fetchExchangeStats(
+        LIGHTER_NETWORKS.MAINNET,
+        cachedActiveSymbolsSet,
+        getLighterAuthToken(env, LIGHTER_NETWORKS.MAINNET),
+      ),
     ]);
     subrequestsUsed += 2;
     cachedActiveSymbolsSet = uniqueSymbols.length > 0 ? new Set(uniqueSymbols) : undefined;
 
     const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
-    priceSnapshots.set("rh", snapRh);
-    priceSnapshots.set("mainnet", snapMainnet);
+    priceSnapshots.set(LIGHTER_NETWORKS.RH, snapRh);
+    priceSnapshots.set(LIGHTER_NETWORKS.MAINNET, snapMainnet);
 
     // 1b. МОНИТОРИНГ ТАРГЕТОВ СПРЕДА RH vs CORE
     let spreadAlertsSent = 0;
@@ -181,6 +194,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
           basisSigned: number;
           basisBps: number;
           metric: number;
+          confirmedTicks?: number;
           shadowed?: SpreadCand[];
         }
         const candidates: SpreadCand[] = [];
@@ -204,10 +218,12 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
           const basisBps = (basisSigned / corePrice) * 10000;
 
           const actualDiffUsd =
-            target.direction === "rh_cheaper" ? corePrice - rhPrice : rhPrice - corePrice;
+            target.direction === SPREAD_DIRECTIONS.RH_CHEAPER
+              ? corePrice - rhPrice
+              : rhPrice - corePrice;
           const actualDiffBps = (actualDiffUsd / corePrice) * 10000;
 
-          const metric = target.unit === "bps" ? actualDiffBps : actualDiffUsd;
+          const metric = target.unit === SPREAD_UNITS.BPS ? actualDiffBps : actualDiffUsd;
 
           if (target.armed === 1) {
             if (metric >= target.target_delta) {
@@ -228,16 +244,29 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                 continue;
               }
 
-              candidates.push({
-                target,
-                rhPrice,
-                corePrice,
-                actualDiffUsd,
-                actualDiffBps,
-                basisSigned,
-                basisBps,
-                metric,
-              });
+              const nextHits = (target.consecutive_hits || 0) + 1;
+              const minHits = CONFIG.SPREAD_TARGET_MIN_CONSECUTIVE_HITS || 3;
+
+              if (nextHits >= minHits) {
+                candidates.push({
+                  target,
+                  rhPrice,
+                  corePrice,
+                  actualDiffUsd,
+                  actualDiffBps,
+                  basisSigned,
+                  basisBps,
+                  metric,
+                  confirmedTicks: nextHits,
+                });
+              } else {
+                allUpdates.push(stmts.updateSpreadHits.bind(nextHits, target.id));
+              }
+            } else {
+              // Спред не пробит на этом тике: если были накоплены хиты, сбрасываем в 0
+              if ((target.consecutive_hits || 0) > 0) {
+                allUpdates.push(stmts.resetSpreadHits.bind(target.id));
+              }
             }
           } else {
             // Re-arm: сработавшая цель снова взводится, когда спред откатился ниже threshold * 0.8
@@ -262,11 +291,11 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
             } else {
               // Сравниваем пороги в единой метрике (bps)
               const cBps =
-                c.target.unit === "bps"
+                c.target.unit === SPREAD_UNITS.BPS
                   ? c.target.target_delta
                   : (c.target.target_delta / c.corePrice) * 10000;
               const exBps =
-                existing.target.unit === "bps"
+                existing.target.unit === SPREAD_UNITS.BPS
                   ? existing.target.target_delta
                   : (existing.target.target_delta / existing.corePrice) * 10000;
               if (cBps >= exBps) {
@@ -293,6 +322,31 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
             const toSend = deduplicatedCandidates.slice(0, maxSpreadSends);
 
             const sendPromises = toSend.map(async (cand) => {
+              const authTokenRh = getLighterAuthToken(env, LIGHTER_NETWORKS.RH);
+              const authTokenCore = getLighterAuthToken(env, LIGHTER_NETWORKS.MAINNET);
+
+              let orderBookLeg: SpreadAlertOrderBookLeg | undefined;
+              try {
+                const bookCheck = await verifyExecutableSpread(
+                  cand.target.symbol,
+                  cand.target.direction,
+                  cand.target.target_delta,
+                  cand.target.unit,
+                  authTokenRh,
+                  authTokenCore,
+                );
+
+                if (!bookCheck.isValid) {
+                  console.log(
+                    `[spread] Target #${cand.target.id} (${cand.target.symbol}) suppressed by JIT book check: ${bookCheck.reason}`,
+                  );
+                  return { success: false, cand, err: null, suppressedByBook: true };
+                }
+                orderBookLeg = bookCheck.orderBook;
+              } catch (err) {
+                console.warn(`[spread] JIT book check exception for ${cand.target.symbol}:`, err);
+              }
+
               const alertText = formatSpreadAlert({
                 targetId: cand.target.id,
                 symbol: cand.target.symbol,
@@ -304,6 +358,9 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                 actualDiff: cand.actualDiffUsd,
                 basisSigned: cand.basisSigned,
                 basisBps: cand.basisBps,
+                confirmedTicks: cand.confirmedTicks || CONFIG.SPREAD_TARGET_MIN_CONSECUTIVE_HITS,
+                minTicks: CONFIG.SPREAD_TARGET_MIN_CONSECUTIVE_HITS,
+                orderBook: orderBookLeg,
               });
 
               try {
@@ -311,9 +368,9 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                   parse_mode: "HTML",
                   reply_markup: getSpreadAlertKeyboard(cand.target.id, cand.target.symbol),
                 });
-                return { success: true, cand, err: null };
+                return { success: true, cand, err: null, suppressedByBook: false };
               } catch (err: any) {
-                return { success: false, cand, err };
+                return { success: false, cand, err, suppressedByBook: false };
               }
             });
 
@@ -322,7 +379,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
 
             for (const r of results) {
               if (r.status !== "fulfilled") continue;
-              const { success, cand, err } = r.value;
+              const { success, cand, err, suppressedByBook } = r.value;
               if (success) {
                 spreadAlertsSent++;
                 allUpdates.push(stmts.updateSpreadAlertSent.bind(now, cand.metric, cand.target.id));
@@ -330,6 +387,15 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                   for (let sIdx = 0; sIdx < cand.shadowed.length; sIdx++) {
                     const sh = cand.shadowed[sIdx]!;
                     allUpdates.push(stmts.updateSpreadAlertSent.bind(now, sh.metric, sh.target.id));
+                  }
+                }
+              } else if (suppressedByBook) {
+                // Ложный спайк отфильтрован стаканом! Сбрасываем накопленные тики
+                allUpdates.push(stmts.resetSpreadHits.bind(cand.target.id));
+                if (cand.shadowed && cand.shadowed.length > 0) {
+                  for (let sIdx = 0; sIdx < cand.shadowed.length; sIdx++) {
+                    const sh = cand.shadowed[sIdx]!;
+                    allUpdates.push(stmts.resetSpreadHits.bind(sh.target.id));
                   }
                 }
               } else {
@@ -761,7 +827,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
               if (alerts.length === 1) {
                 const first = alerts[0]!;
                 const lighterUrl =
-                  first.item.network === "mainnet"
+                  first.item.network === LIGHTER_NETWORKS.MAINNET
                     ? "https://app.lighter.xyz/"
                     : "https://rh.lighter.xyz/";
                 keyboard = new InlineKeyboard()
