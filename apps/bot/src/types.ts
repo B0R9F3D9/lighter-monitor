@@ -18,6 +18,8 @@ export interface TrackedAccountKey {
   network: LighterNetwork;
   accountIndex: number;
   positionsJson?: string | null;
+  lastUpdatedAt?: number | null;
+  collateral?: number | null;
 }
 
 export interface LighterPosition {

@@ -52,7 +52,6 @@ CREATE TABLE IF NOT EXISTS account_open_positions (
     PRIMARY KEY (network, account_index, market_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_open_pos_market ON account_open_positions(network, market_id);
 CREATE INDEX IF NOT EXISTS idx_open_pos_symbol ON account_open_positions(symbol);
 
 -- 5. Базовые отметки цен и анти-флаппинг кулдаун (Price-Driven Alerting)
@@ -91,10 +90,8 @@ CREATE TABLE IF NOT EXISTS user_spread_targets (
     UNIQUE(telegram_id, symbol, direction, target_delta, unit)
 );
 
-CREATE INDEX IF NOT EXISTS idx_spread_targets_active 
-    ON user_spread_targets(is_active, armed, symbol);
-CREATE INDEX IF NOT EXISTS idx_spread_targets_user 
-    ON user_spread_targets(telegram_id, symbol);
+CREATE INDEX IF NOT EXISTS idx_spread_targets_active_v2 
+    ON user_spread_targets(is_active, symbol);
 
 -- 8. Мьюты алертов по отдельным символам
 CREATE TABLE IF NOT EXISTS spread_symbol_mutes (

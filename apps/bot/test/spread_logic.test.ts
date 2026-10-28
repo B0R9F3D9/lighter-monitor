@@ -283,4 +283,108 @@ describe("Spread Alert Logic & State Machine", () => {
       expect(text).toContain("[⏸ Выключен]");
     });
   });
+
+  describe("Multi-Target Deduplication & Subrequest Protection", () => {
+    it("deduplicates multiple triggered targets for the same user, symbol, and direction", () => {
+      // User set targets at 2 bps, 5 bps, and 10 bps. Market jumped to 12 bps.
+      const candidates: Array<{
+        target: any;
+        corePrice: number;
+        metric: number;
+        shadowed?: any[];
+      }> = [
+        {
+          target: {
+            id: 101,
+            telegram_id: 111,
+            symbol: "SPY",
+            direction: "rh_cheaper",
+            target_delta: 2.0,
+            unit: "bps",
+          },
+          corePrice: 770.0,
+          metric: 12.0,
+        },
+        {
+          target: {
+            id: 102,
+            telegram_id: 111,
+            symbol: "SPY",
+            direction: "rh_cheaper",
+            target_delta: 10.0,
+            unit: "bps",
+          },
+          corePrice: 770.0,
+          metric: 12.0,
+        },
+        {
+          target: {
+            id: 103,
+            telegram_id: 111,
+            symbol: "SPY",
+            direction: "rh_cheaper",
+            target_delta: 5.0,
+            unit: "bps",
+          },
+          corePrice: 770.0,
+          metric: 12.0,
+        },
+        // Different user is preserved
+        {
+          target: {
+            id: 104,
+            telegram_id: 222,
+            symbol: "SPY",
+            direction: "rh_cheaper",
+            target_delta: 4.0,
+            unit: "bps",
+          },
+          corePrice: 770.0,
+          metric: 12.0,
+        },
+      ];
+
+      const bestBySymbolDir = new Map<string, any>();
+
+      for (let i = 0; i < candidates.length; i++) {
+        const c = candidates[i]!;
+        const key = `${c.target.telegram_id}:${c.target.symbol}:${c.target.direction}`;
+        const existing = bestBySymbolDir.get(key);
+        if (!existing) {
+          c.shadowed = [];
+          bestBySymbolDir.set(key, c);
+        } else {
+          const cBps =
+            c.target.unit === "bps"
+              ? c.target.target_delta
+              : (c.target.target_delta / c.corePrice) * 10000;
+          const exBps =
+            existing.target.unit === "bps"
+              ? existing.target.target_delta
+              : (existing.target.target_delta / existing.corePrice) * 10000;
+          if (cBps >= exBps) {
+            const prevShadowed = existing.shadowed || [];
+            existing.shadowed = undefined;
+            c.shadowed = [existing, ...prevShadowed];
+            bestBySymbolDir.set(key, c);
+          } else {
+            existing.shadowed = existing.shadowed || [];
+            existing.shadowed.push(c);
+          }
+        }
+      }
+
+      const deduplicated = Array.from(bestBySymbolDir.values());
+
+      // Only 2 alerts to send (1 for user 111 @ 10 bps, 1 for user 222 @ 4 bps)
+      expect(deduplicated.length).toBe(2);
+      const user111Winner = deduplicated.find((c) => c.target.telegram_id === 111);
+      expect(user111Winner?.target.id).toBe(102);
+      expect(deduplicated.find((c) => c.target.telegram_id === 222)?.target.id).toBe(104);
+
+      // Shadowed targets contains 2 bps and 5 bps attached to winner for disarming only on send success
+      expect(user111Winner?.shadowed?.length).toBe(2);
+      expect(user111Winner?.shadowed?.map((s: any) => s.target.id).toSorted()).toEqual([101, 103]);
+    });
+  });
 });

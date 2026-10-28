@@ -14,6 +14,7 @@ import {
   buildTouchFailedAccountsStmts,
   buildBatchUpdatePositionsCacheStmts,
   buildSyncAccountOpenPositionsStmts,
+  updateMemoryAccountOnly,
   getActivePositionsForMonitoring,
   getDistinctActiveSymbols,
   getActiveSpreadTargetsForMonitoring,
@@ -28,9 +29,16 @@ import {
   findMarketPrice,
 } from "../lighter/api";
 import { computePositionsFingerprint } from "../lighter/math";
-import { getMemoryAccount } from "../cache/memory";
+import { getMemoryAccount, setLastCronMetrics } from "../cache/memory";
 import { formatPriceStepAlert, formatSpreadAlert, getSpreadAlertKeyboard } from "../bot/formatters";
 import { pingHealthcheckSuccess, pingHealthcheckFail } from "../utils/healthcheck";
+
+// In-memory isolate cache for hot loop acceleration
+let cachedActiveSymbolsSet: Set<string> | undefined;
+
+export function invalidateActiveSymbolsCache(): void {
+  cachedActiveSymbolsSet = undefined;
+}
 
 // Динамический умный кулдаун на лету от порога пользователя
 export function getSmartCooldownSeconds(threshold: number): number {
@@ -146,107 +154,143 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     // 0. Гарантируем актуальность схемы БД (Cold-start auto-migration)
     await ensureDatabaseSchema(env.DB);
 
-    // 1. ЗАГРУЖАЕМ СРЕЗЫ ЦЕН БИРЖИ ПАРАЛЛЕЛЬНО (Целевой парсинг только активных инструментов)
-    const uniqueSymbols = await getDistinctActiveSymbols(env.DB);
-    const activeSymbolsSet = uniqueSymbols.length > 0 ? new Set(uniqueSymbols) : undefined;
-
-    const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
-    const [snapRh, snapMainnet] = await Promise.all([
-      fetchExchangeStats("rh", activeSymbolsSet, getLighterAuthToken(env, "rh")),
-      fetchExchangeStats("mainnet", activeSymbolsSet, getLighterAuthToken(env, "mainnet")),
+    // 1. ПАРАЛЛЕЛЬНЫЙ СТАРТ ТИКА: читаем символы, таргеты спреда и запрашиваем биржи в 0-ю мс!
+    const [uniqueSymbols, spreadTargets, snapRh, snapMainnet] = await Promise.all([
+      getDistinctActiveSymbols(env.DB),
+      getActiveSpreadTargetsForMonitoring(env.DB, now),
+      fetchExchangeStats("rh", cachedActiveSymbolsSet, getLighterAuthToken(env, "rh")),
+      fetchExchangeStats("mainnet", cachedActiveSymbolsSet, getLighterAuthToken(env, "mainnet")),
     ]);
     subrequestsUsed += 2;
+    cachedActiveSymbolsSet = uniqueSymbols.length > 0 ? new Set(uniqueSymbols) : undefined;
+
+    const priceSnapshots = new Map<LighterNetwork, Map<string, MarketPriceSnapshot>>();
     priceSnapshots.set("rh", snapRh);
     priceSnapshots.set("mainnet", snapMainnet);
 
     // 1b. МОНИТОРИНГ ТАРГЕТОВ СПРЕДА RH vs CORE
     let spreadAlertsSent = 0;
-    if (snapRh.size > 0 && snapMainnet.size > 0) {
+    if (snapRh.size > 0 && snapMainnet.size > 0 && spreadTargets.length > 0) {
       try {
-        const spreadTargets = await getActiveSpreadTargetsForMonitoring(env.DB, now);
-        if (spreadTargets.length > 0) {
-          interface SpreadCand {
-            target: SpreadTargetRow;
-            rhPrice: number;
-            corePrice: number;
-            actualDiffUsd: number;
-            actualDiffBps: number;
-            basisSigned: number;
-            basisBps: number;
-            metric: number;
+        interface SpreadCand {
+          target: SpreadTargetRow;
+          rhPrice: number;
+          corePrice: number;
+          actualDiffUsd: number;
+          actualDiffBps: number;
+          basisSigned: number;
+          basisBps: number;
+          metric: number;
+          shadowed?: SpreadCand[];
+        }
+        const candidates: SpreadCand[] = [];
+
+        for (let i = 0; i < spreadTargets.length; i++) {
+          const target = spreadTargets[i]!;
+          const rhSnap = findMarketPrice(snapRh, target.symbol);
+          const coreSnap = findMarketPrice(snapMainnet, target.symbol);
+
+          if (!rhSnap || rhSnap.price <= 0 || !coreSnap || coreSnap.price <= 0) continue;
+
+          const rhPrice = rhSnap.price;
+          const corePrice = coreSnap.price;
+
+          // Санитарный лимит расхождения цен (>10% от цены Core считается аномалией)
+          if (Math.abs(rhPrice - corePrice) / corePrice > CONFIG.SPREAD_MAX_PRICE_DIFF_RATIO) {
+            continue;
           }
-          const candidates: SpreadCand[] = [];
 
-          for (let i = 0; i < spreadTargets.length; i++) {
-            const target = spreadTargets[i]!;
-            const rhSnap = findMarketPrice(snapRh, target.symbol);
-            const coreSnap = findMarketPrice(snapMainnet, target.symbol);
+          const basisSigned = rhPrice - corePrice;
+          const basisBps = (basisSigned / corePrice) * 10000;
 
-            if (!rhSnap || rhSnap.price <= 0 || !coreSnap || coreSnap.price <= 0) continue;
+          const actualDiffUsd =
+            target.direction === "rh_cheaper" ? corePrice - rhPrice : rhPrice - corePrice;
+          const actualDiffBps = (actualDiffUsd / corePrice) * 10000;
 
-            const rhPrice = rhSnap.price;
-            const corePrice = coreSnap.price;
+          const metric = target.unit === "bps" ? actualDiffBps : actualDiffUsd;
 
-            // Санитарный лимит расхождения цен (>10% от цены Core считается аномалией)
-            if (Math.abs(rhPrice - corePrice) / corePrice > CONFIG.SPREAD_MAX_PRICE_DIFF_RATIO) {
-              continue;
-            }
+          if (target.armed === 1) {
+            if (metric >= target.target_delta) {
+              // Проверка мьютов
+              const isUserMuted = (target.user_spread_muted_until ?? 0) > now;
+              const isSymMuted = (target.symbol_muted_until ?? 0) > now;
+              const isTargetMuted = target.muted_until > now;
 
-            const basisSigned = rhPrice - corePrice;
-            const basisBps = (basisSigned / corePrice) * 10000;
-
-            const actualDiffUsd =
-              target.direction === "rh_cheaper" ? corePrice - rhPrice : rhPrice - corePrice;
-            const actualDiffBps = (actualDiffUsd / corePrice) * 10000;
-
-            const metric = target.unit === "bps" ? actualDiffBps : actualDiffUsd;
-
-            if (target.armed === 1) {
-              if (metric >= target.target_delta) {
-                // Проверка мьютов
-                const isUserMuted = (target.user_spread_muted_until ?? 0) > now;
-                const isSymMuted = (target.symbol_muted_until ?? 0) > now;
-                const isTargetMuted = target.muted_until > now;
-
-                if (isUserMuted || isSymMuted || isTargetMuted) {
-                  continue;
-                }
-
-                // Проверка кулдауна
-                const timeSinceLast = target.last_alerted_at
-                  ? now - target.last_alerted_at
-                  : Infinity;
-                if (timeSinceLast < CONFIG.SPREAD_ALERT_COOLDOWN_SECONDS) {
-                  continue;
-                }
-
-                candidates.push({
-                  target,
-                  rhPrice,
-                  corePrice,
-                  actualDiffUsd,
-                  actualDiffBps,
-                  basisSigned,
-                  basisBps,
-                  metric,
-                });
+              if (isUserMuted || isSymMuted || isTargetMuted) {
+                continue;
               }
+
+              // Проверка кулдауна
+              const timeSinceLast = target.last_alerted_at
+                ? now - target.last_alerted_at
+                : Infinity;
+              if (timeSinceLast < CONFIG.SPREAD_ALERT_COOLDOWN_SECONDS) {
+                continue;
+              }
+
+              candidates.push({
+                target,
+                rhPrice,
+                corePrice,
+                actualDiffUsd,
+                actualDiffBps,
+                basisSigned,
+                basisBps,
+                metric,
+              });
+            }
+          } else {
+            // Re-arm: сработавшая цель снова взводится, когда спред откатился ниже threshold * 0.8
+            if (metric <= target.target_delta * CONFIG.SPREAD_REARM_RATIO) {
+              allUpdates.push(stmts.updateSpreadRearm.bind(target.id));
+            }
+          }
+        }
+
+        if (candidates.length > 0) {
+          // Дедупликация кандидатов по ключу `${telegram_id}:${symbol}:${direction}`
+          // Оставляем для отправки самый высокий пробитый порог, сохраняя младшие ступени в shadowed
+          const bestBySymbolDir = new Map<string, SpreadCand>();
+
+          for (let i = 0; i < candidates.length; i++) {
+            const c = candidates[i]!;
+            const key = `${c.target.telegram_id}:${c.target.symbol}:${c.target.direction}`;
+            const existing = bestBySymbolDir.get(key);
+            if (!existing) {
+              c.shadowed = [];
+              bestBySymbolDir.set(key, c);
             } else {
-              // Re-arm: сработавшая цель снова взводится, когда спред откатился ниже threshold * 0.8
-              if (metric <= target.target_delta * CONFIG.SPREAD_REARM_RATIO) {
-                allUpdates.push(stmts.updateSpreadRearm.bind(target.id));
+              // Сравниваем пороги в единой метрике (bps)
+              const cBps =
+                c.target.unit === "bps"
+                  ? c.target.target_delta
+                  : (c.target.target_delta / c.corePrice) * 10000;
+              const exBps =
+                existing.target.unit === "bps"
+                  ? existing.target.target_delta
+                  : (existing.target.target_delta / existing.corePrice) * 10000;
+              if (cBps >= exBps) {
+                const prevShadowed = existing.shadowed || [];
+                existing.shadowed = undefined;
+                c.shadowed = [existing, ...prevShadowed];
+                bestBySymbolDir.set(key, c);
+              } else {
+                existing.shadowed = existing.shadowed || [];
+                existing.shadowed.push(c);
               }
             }
           }
 
-          if (candidates.length > 0 && env.TELEGRAM_BOT_TOKEN) {
+          const deduplicatedCandidates = Array.from(bestBySymbolDir.values());
+
+          if (deduplicatedCandidates.length > 0 && env.TELEGRAM_BOT_TOKEN) {
             const api = new Api(env.TELEGRAM_BOT_TOKEN);
             const remainingSubreqs = Math.max(
               0,
               CONFIG.MAX_SUBREQUESTS_PER_CRON - subrequestsUsed - 15,
             );
             const maxSpreadSends = Math.min(CONFIG.MAX_SPREAD_ALERTS_PER_TICK, remainingSubreqs);
-            const toSend = candidates.slice(0, maxSpreadSends);
+            const toSend = deduplicatedCandidates.slice(0, maxSpreadSends);
 
             const sendPromises = toSend.map(async (cand) => {
               const alertText = formatSpreadAlert({
@@ -282,6 +326,12 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
               if (success) {
                 spreadAlertsSent++;
                 allUpdates.push(stmts.updateSpreadAlertSent.bind(now, cand.metric, cand.target.id));
+                if (cand.shadowed && cand.shadowed.length > 0) {
+                  for (let sIdx = 0; sIdx < cand.shadowed.length; sIdx++) {
+                    const sh = cand.shadowed[sIdx]!;
+                    allUpdates.push(stmts.updateSpreadAlertSent.bind(now, sh.metric, sh.target.id));
+                  }
+                }
               } else {
                 if (err?.error_code === 403) {
                   await removeBlockedUser(env.DB, cand.target.telegram_id);
@@ -455,11 +505,21 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
               );
             }
 
-            cacheUpdates.push({
-              network: accKey.network,
-              account: syncedData,
-              cachedPositions: syncedData.positions,
-            });
+            const prevCollateral = memAcc?.collateral ?? accKey.collateral ?? 0;
+            const newCollateral = parseFloat(syncedData.collateral || "0");
+            const collateralChanged = Math.abs(newCollateral - prevCollateral) > 0.01;
+            const dbLastUpdated = accKey.lastUpdatedAt ?? memAcc?.lastUpdated ?? 0;
+            const isStaleInDb = dbLastUpdated === 0 || now - dbLastUpdated >= 900;
+
+            if (hasChanged || collateralChanged || isStaleInDb) {
+              cacheUpdates.push({
+                network: accKey.network,
+                account: syncedData,
+                cachedPositions: syncedData.positions,
+              });
+            } else {
+              updateMemoryAccountOnly(accKey.network, syncedData, now);
+            }
           } else {
             failedAccounts.push(accKey);
           }
@@ -503,6 +563,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
           pendingJitKeys.push({
             network: item.network,
             accountIndex: item.account_index,
+            lastUpdatedAt: item.last_updated_at,
           });
           if (pendingJitKeys.length >= maxJitForThisTick) break;
         }
@@ -564,20 +625,30 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                 ),
               );
             }
-            allUpdates.push(
-              ...buildBatchUpdatePositionsCacheStmts(
-                env.DB,
-                [
-                  {
-                    network: acc.network,
-                    account: syncedData,
-                    cachedPositions: syncedData.positions,
-                  },
-                ],
-                now,
-                stmts.upsertCache,
-              ),
-            );
+            const prevCollateral = memAcc?.collateral ?? acc.collateral ?? 0;
+            const newCollateral = parseFloat(syncedData.collateral || "0");
+            const collateralChanged = Math.abs(newCollateral - prevCollateral) > 0.01;
+            const dbLastUpdated = acc.lastUpdatedAt ?? memAcc?.lastUpdated ?? 0;
+            const isStaleInDb = dbLastUpdated === 0 || now - dbLastUpdated >= 900;
+
+            if (hasChanged || collateralChanged || isStaleInDb) {
+              allUpdates.push(
+                ...buildBatchUpdatePositionsCacheStmts(
+                  env.DB,
+                  [
+                    {
+                      network: acc.network,
+                      account: syncedData,
+                      cachedPositions: syncedData.positions,
+                    },
+                  ],
+                  now,
+                  stmts.upsertCache,
+                ),
+              );
+            } else {
+              updateMemoryAccountOnly(acc.network, syncedData, now);
+            }
           }
         }
       }
@@ -767,7 +838,13 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       timestamp: now,
     };
 
-    allUpdates.push(stmts.saveMetrics.bind(JSON.stringify(executionMetrics), now));
+    setLastCronMetrics(executionMetrics);
+
+    const shouldSaveMetricsToDb = alertsSentCount > 0 || spreadAlertsSent > 0 || now % 600 < 60;
+
+    if (shouldSaveMetricsToDb) {
+      allUpdates.push(stmts.saveMetrics.bind(JSON.stringify(executionMetrics), now));
+    }
 
     if (allUpdates.length > 0) {
       await executeD1BatchInChunks(env.DB, allUpdates);

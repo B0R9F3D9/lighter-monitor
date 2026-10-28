@@ -61,19 +61,22 @@ export function computePositionsFingerprint(positions: any[]): number {
     if (Array.isArray(p)) {
       mId = p[0] || 0;
       sizeInt = Math.round(Math.abs(p[4] || 0) * 100_000) | 0;
+      if (sizeInt === 0) continue; // Synchronize with packPositions: ignore closed positions
       sign = p[2] ? 1 : 2;
     } else {
-      mId = p.market_id ?? p.marketId ?? 0;
       const rawSize = p.position ?? p.size ?? "0";
       const sizeNum = typeof rawSize === "number" ? rawSize : parseFloat(rawSize || "0");
       sizeInt = Math.round(Math.abs(sizeNum) * 100_000) | 0;
+      if (sizeInt === 0) continue; // Synchronize with packPositions: ignore closed positions
+      mId = p.market_id ?? p.marketId ?? 0;
       sign =
         (p.sign ?? (p.isLong !== undefined ? (p.isLong ? 1 : -1) : sizeNum > 0 ? 1 : -1)) > 0
           ? 1
           : 2;
     }
 
-    hash = (hash ^ (mId * 31 + sizeInt * 7 + sign)) | 0;
+    // Commutative XOR hash (order-independent)
+    hash = (hash ^ Math.imul(mId * 31 + sign, sizeInt)) | 0;
   }
   return hash;
 }

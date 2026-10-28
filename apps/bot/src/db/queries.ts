@@ -12,7 +12,13 @@ import {
   SpreadUnit,
 } from "../types";
 import { packPositions, computePositionsFingerprint } from "../lighter/math";
-import { setMemoryAccount, getMemoryAccount, FastPosition } from "../cache/memory";
+import {
+  setMemoryAccount,
+  getMemoryAccount,
+  FastPosition,
+  IN_MEMORY_RR_CHECKED,
+  getLastCronMetrics,
+} from "../cache/memory";
 
 // 2. Обновление last_updated_at ТОЛЬКО для упавших запросов (экономия 50% квоты D1)
 export function buildTouchFailedAccountsStmts(
@@ -46,6 +52,43 @@ export async function touchFailedAccounts(
   if (stmts.length > 0) {
     await db.batch(stmts);
   }
+}
+
+export function updateMemoryAccountOnly(
+  network: LighterNetwork,
+  account: LighterAccount,
+  now: number = Math.floor(Date.now() / 1000),
+  alias?: string | null,
+): void {
+  const rawPositions = account.positions || [];
+  const packed = packPositions(rawPositions);
+  const collateralNum = parseFloat(account.collateral || "0");
+
+  const fastPositions: FastPosition[] = packed.map(
+    ([mId, sym, isLong, entry, size, liq, mark, pnl]) => ({
+      marketId: mId,
+      symbol: sym,
+      isLong: isLong === 1,
+      entryPrice: entry,
+      size,
+      liqPrice: liq,
+      markPrice: mark ?? entry,
+      unrealizedPnl: pnl ?? 0,
+    }),
+  );
+  const fp = computePositionsFingerprint(fastPositions);
+  const prevMem = getMemoryAccount(network, account.index);
+  setMemoryAccount({
+    network,
+    accountIndex: account.index,
+    alias: alias !== undefined ? alias : (prevMem?.alias ?? null),
+    l1Address: account.l1_address,
+    collateral: collateralNum,
+    lastUpdated: now,
+    fingerprint: fp,
+    positions: fastPositions,
+  });
+  IN_MEMORY_RR_CHECKED.set(`${network}:${account.index}`, now);
 }
 
 // 3. Пакетное обновление детального кэша для успешно опрошенных аккаунтов (Compact Flat Tuple format)
@@ -96,30 +139,7 @@ export function buildBatchUpdatePositionsCacheStmts(
     );
 
     // Warm up In-Memory Fast State
-    const fastPositions: FastPosition[] = packed.map(
-      ([mId, sym, isLong, entry, size, liq, mark, pnl]) => ({
-        marketId: mId,
-        symbol: sym,
-        isLong: isLong === 1,
-        entryPrice: entry,
-        size,
-        liqPrice: liq,
-        markPrice: mark ?? entry,
-        unrealizedPnl: pnl ?? 0,
-      }),
-    );
-    const fp = computePositionsFingerprint(fastPositions);
-    const prevMem = getMemoryAccount(item.network, acc.index);
-    setMemoryAccount({
-      network: item.network,
-      accountIndex: acc.index,
-      alias: item.alias !== undefined ? item.alias : (prevMem?.alias ?? null),
-      l1Address: acc.l1_address,
-      collateral: collateralNum,
-      lastUpdated: now,
-      fingerprint: fp,
-      positions: fastPositions,
-    });
+    updateMemoryAccountOnly(item.network, acc, now, item.alias);
   }
   return res;
 }
@@ -274,7 +294,7 @@ export async function getNextAccountsForSync(
   minStalenessSec: number = 0, // 0 = без задержки, проверяем пачку на каждом тике
 ): Promise<TrackedAccountKey[]> {
   const query = `
-    SELECT DISTINCT uta.network, uta.account_index, c.positions_json
+    SELECT DISTINCT uta.network, uta.account_index, c.positions_json, c.last_updated_at, c.collateral
     FROM user_tracked_accounts uta
     LEFT JOIN account_positions_cache c
       ON uta.network = c.network AND uta.account_index = c.account_index
@@ -290,17 +310,40 @@ export async function getNextAccountsForSync(
         ELSE 3
       END ASC,
       COALESCE(c.last_updated_at, 0) ASC
-    LIMIT ?;
+    LIMIT 50;
   `;
-  const { results } = await db
-    .prepare(query)
-    .bind(nowSec, minStalenessSec, limit)
-    .all<{ network: LighterNetwork; account_index: number; positions_json: string | null }>();
+  const { results } = await db.prepare(query).bind(nowSec, minStalenessSec).all<{
+    network: LighterNetwork;
+    account_index: number;
+    positions_json: string | null;
+    last_updated_at: number | null;
+    collateral: number | null;
+  }>();
   if (!results || results.length === 0) return [];
-  return results.map((row) => ({
-    network: row.network,
-    accountIndex: row.account_index,
-    positionsJson: row.positions_json,
+
+  // Sort candidates by in-memory effective last synced timestamp
+  const sorted = results
+    .map((row) => {
+      const key = `${row.network}:${row.account_index}`;
+      const inMemTime = IN_MEMORY_RR_CHECKED.get(key);
+      const effectiveTime = inMemTime !== undefined ? inMemTime : (row.last_updated_at ?? 0);
+      return {
+        network: row.network,
+        accountIndex: row.account_index,
+        positionsJson: row.positions_json,
+        lastUpdatedAt: row.last_updated_at,
+        collateral: row.collateral,
+        effectiveTime,
+      };
+    })
+    .toSorted((a, b) => a.effectiveTime - b.effectiveTime);
+
+  return sorted.slice(0, limit).map((c) => ({
+    network: c.network,
+    accountIndex: c.accountIndex,
+    positionsJson: c.positionsJson,
+    lastUpdatedAt: c.lastUpdatedAt,
+    collateral: c.collateral,
   }));
 }
 
@@ -459,16 +502,16 @@ export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
       .run();
   } catch {}
   try {
-    await db
-      .prepare(
-        "CREATE INDEX IF NOT EXISTS idx_spread_targets_active ON user_spread_targets(is_active, armed, symbol)",
-      )
-      .run();
+    await db.prepare("DROP INDEX IF EXISTS idx_spread_targets_user").run();
   } catch {}
   try {
+    await db.prepare("DROP INDEX IF EXISTS idx_open_pos_market").run();
+  } catch {}
+  try {
+    await db.prepare("DROP INDEX IF EXISTS idx_spread_targets_active").run();
     await db
       .prepare(
-        "CREATE INDEX IF NOT EXISTS idx_spread_targets_user ON user_spread_targets(telegram_id, symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_spread_targets_active_v2 ON user_spread_targets(is_active, symbol)",
       )
       .run();
   } catch {}
@@ -541,6 +584,10 @@ export function buildSyncAccountOpenPositionsStmts(
         size = excluded.size,
         liquidation_price = excluded.liquidation_price,
         last_updated_at = excluded.last_updated_at
+      WHERE account_open_positions.size != excluded.size
+         OR account_open_positions.entry_price != excluded.entry_price
+         OR account_open_positions.is_long != excluded.is_long
+         OR ABS(account_open_positions.liquidation_price - excluded.liquidation_price) > 0.01
     `);
 
   for (let i = 0; i < active.length; i++) {
@@ -657,6 +704,11 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
         lastCronError = JSON.parse(row.value_json);
       } catch {}
     }
+  }
+
+  const memCron = getLastCronMetrics();
+  if (memCron && (!lastCron || (memCron.timestamp ?? 0) >= (lastCron.timestamp ?? 0))) {
+    lastCron = memCron;
   }
 
   const oldest = summary.oldest_cache;

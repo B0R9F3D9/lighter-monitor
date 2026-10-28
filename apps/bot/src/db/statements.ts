@@ -53,6 +53,10 @@ export function getCronStatements(db: D1Database): CachedStatements {
         size = excluded.size,
         liquidation_price = excluded.liquidation_price,
         last_updated_at = excluded.last_updated_at
+      WHERE account_open_positions.size != excluded.size
+         OR account_open_positions.entry_price != excluded.entry_price
+         OR account_open_positions.is_long != excluded.is_long
+         OR ABS(account_open_positions.liquidation_price - excluded.liquidation_price) > 0.01
     `),
     upsertCache: db.prepare(`
       INSERT INTO account_positions_cache (

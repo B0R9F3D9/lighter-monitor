@@ -186,6 +186,21 @@ describe("computePositionsFingerprint and pack/unpack", () => {
     const micro1 = [{ market_id: 1, position: "0.0004", sign: 1 }];
     const micro2 = [{ market_id: 1, position: "0.0008", sign: 1 }];
     expect(computePositionsFingerprint(micro1)).not.toBe(computePositionsFingerprint(micro2));
+
+    // Closed positions with size 0 do not change fingerprint (identical to packPositions)
+    const withClosed = [
+      { market_id: 1, position: "0.5", sign: 1 },
+      { market_id: 40, position: "-3.1", sign: -1 },
+      { market_id: 99, position: "0.000", sign: 1 },
+    ];
+    expect(computePositionsFingerprint(withClosed)).toBe(fp1);
+
+    // Order commutativity: reversed array produces identical fingerprint
+    const reversed = [
+      { market_id: 40, position: "-3.1", sign: -1 },
+      { market_id: 1, position: "0.5", sign: 1 },
+    ];
+    expect(computePositionsFingerprint(reversed)).toBe(fp1);
   });
 
   it("packs positions to compact tuple format and unpacks correctly", () => {

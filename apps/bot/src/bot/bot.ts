@@ -45,6 +45,7 @@ import {
 } from "../db/queries";
 import { formatPositionsReport, formatSpreadHubView, getSpreadAlertKeyboard } from "./formatters";
 import { runInBackground } from "../utils/background";
+import { invalidateActiveSymbolsCache } from "../cron/monitor";
 
 let botInstance: Bot | null = null;
 let currentEnv: Env | null = null;
@@ -768,6 +769,7 @@ export function getBot(env: Env): Bot {
       `)
         .bind(ctx.from!.id, state.network, state.accountIndex, alias, now)
         .run();
+      invalidateActiveSymbolsCache();
 
       const activePositions = (state.positions || []).filter(
         (p: any) => Math.abs(parseFloat(p.position || p.size || "0")) > 0,
@@ -1045,6 +1047,7 @@ export function getBot(env: Env): Bot {
           initialArmed,
         );
       }
+      invalidateActiveSymbolsCache();
       await setUserWizardState(env.DB, ctx.from!.id, null);
 
       const dirLabel = state.direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
@@ -2205,6 +2208,7 @@ export function getBot(env: Env): Bot {
         await ctx.answerCallbackQuery({ text: `Таргет ${bps} bps добавлен!` });
       }
 
+      invalidateActiveSymbolsCache();
       await setUserWizardState(env.DB, ctx.from!.id, null);
 
       const dirLabel = direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";

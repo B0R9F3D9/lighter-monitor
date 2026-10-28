@@ -8,6 +8,8 @@ import {
   getMemoryPrice,
   setMemoryAccount,
   setMemoryPrice,
+  setLastCronMetrics,
+  getLastCronMetrics,
 } from "../src/cache/memory";
 import { getCronStatements, resetCachedStatements } from "../src/db/statements";
 import { fetchTargetedMarketPrices } from "../src/lighter/api";
@@ -138,5 +140,20 @@ describe("In-Memory State & Statements", () => {
     expect(updated).toBeDefined();
     expect(updated?.alias).toBe("MyCustomAlias");
     expect(updated?.collateral).toBe(1200);
+  });
+
+  it("stores and clears lastCronMetrics in memory", () => {
+    clearMemoryCache();
+    expect(getLastCronMetrics()).toBeNull();
+
+    setLastCronMetrics({ duration_ms: 45, alerts_sent: 2, timestamp: 1700000000 });
+    expect(getLastCronMetrics()).toEqual({
+      duration_ms: 45,
+      alerts_sent: 2,
+      timestamp: 1700000000,
+    });
+
+    clearMemoryCache();
+    expect(getLastCronMetrics()).toBeNull();
   });
 });

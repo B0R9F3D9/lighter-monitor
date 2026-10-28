@@ -175,6 +175,40 @@ export async function fetchInChunks<T, R>(
   return results;
 }
 
+interface NormalizedSymbol {
+  upper: string;
+  clean: string;
+  hasSeparator: boolean;
+  baseSym: string;
+  isPerp: boolean;
+}
+
+const SYMBOL_NORM_CACHE = new Map<string, NormalizedSymbol>();
+
+function normalizeMarketSymbolFast(rawSymbol: string): NormalizedSymbol {
+  let cached = SYMBOL_NORM_CACHE.get(rawSymbol);
+  if (cached !== undefined) return cached;
+
+  const upper = String(rawSymbol).toUpperCase();
+  const dash = upper.indexOf("-");
+  const slash = upper.indexOf("/");
+  const under = upper.indexOf("_");
+  const sep = dash !== -1 ? dash : slash !== -1 ? slash : under;
+  const hasSeparator = sep !== -1;
+  const baseSym = hasSeparator ? upper.slice(0, sep) : upper;
+  const isPerp = upper.endsWith("PERP");
+
+  cached = {
+    upper,
+    clean: baseSym,
+    hasSeparator,
+    baseSym,
+    isPerp,
+  };
+  SYMBOL_NORM_CACHE.set(rawSymbol, cached);
+  return cached;
+}
+
 export async function fetchExchangeStats(
   network: LighterNetwork,
   activeSymbolsOrToken?: Set<string> | string,
@@ -228,35 +262,28 @@ export async function fetchExchangeStats(
       for (let i = 0; i < count; i++) {
         const item = stats[i];
         if (!item || !item.symbol || !item.last_trade_price) continue;
-        const sym = String(item.symbol).toUpperCase();
-
-        const dash = sym.indexOf("-");
-        const slash = sym.indexOf("/");
-        const under = sym.indexOf("_");
-        const sep = dash !== -1 ? dash : slash !== -1 ? slash : under;
-        const cleanSym = sep !== -1 ? sym.slice(0, sep) : sym;
+        const norm = normalizeMarketSymbolFast(item.symbol);
 
         // Predicate Filtering: if activeSymbols is provided, skip tickers not in activeSymbols!
-        if (activeSymbols && !activeSymbols.has(sym) && !activeSymbols.has(cleanSym)) {
+        if (activeSymbols && !activeSymbols.has(norm.upper) && !activeSymbols.has(norm.clean)) {
           continue;
         }
 
         const price = parseFloat(item.last_trade_price);
         const snapshot: MarketPriceSnapshot = {
-          symbol: sym,
+          symbol: norm.upper,
           price,
           dailyChange: item.daily_price_change ? parseFloat(item.daily_price_change) : 0,
         };
-        map.set(sym, snapshot);
-        MEMORY_PRICES.set(`${network}:${sym}`, price);
-        MEMORY_PRICES.set(sym, price);
+        map.set(norm.upper, snapshot);
+        MEMORY_PRICES.set(`${network}:${norm.upper}`, price);
+        MEMORY_PRICES.set(norm.upper, price);
 
-        if (sep !== -1) {
-          const baseSym = sym.slice(0, sep);
-          if (!map.has(baseSym) || sym.endsWith("PERP")) {
-            map.set(baseSym, snapshot);
-            MEMORY_PRICES.set(`${network}:${baseSym}`, price);
-            MEMORY_PRICES.set(baseSym, price);
+        if (norm.hasSeparator) {
+          if (!map.has(norm.baseSym) || norm.isPerp) {
+            map.set(norm.baseSym, snapshot);
+            MEMORY_PRICES.set(`${network}:${norm.baseSym}`, price);
+            MEMORY_PRICES.set(norm.baseSym, price);
           }
         }
       }

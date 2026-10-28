@@ -25,6 +25,17 @@ export interface FastAccountState {
 // Global In-Memory state preserved across requests in warm isolates
 export const MEMORY_ACCOUNTS = new Map<string, FastAccountState>();
 export const MEMORY_PRICES = new Map<string, number>(); // symbol -> price
+export const IN_MEMORY_RR_CHECKED = new Map<string, number>(); // `${network}:${accountIndex}` -> last synced timestamp
+
+let lastCronMetrics: any = null;
+
+export function setLastCronMetrics(metrics: any): void {
+  lastCronMetrics = metrics;
+}
+
+export function getLastCronMetrics(): any {
+  return lastCronMetrics;
+}
 
 export function getMemoryAccountKey(network: LighterNetwork, accountIndex: number): string {
   return `${network}:${accountIndex}`;
@@ -94,4 +105,6 @@ export function setMemoryPrice(
 export function clearMemoryCache(): void {
   MEMORY_ACCOUNTS.clear();
   MEMORY_PRICES.clear();
+  IN_MEMORY_RR_CHECKED.clear();
+  lastCronMetrics = null;
 }
