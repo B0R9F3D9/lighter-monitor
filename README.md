@@ -287,4 +287,4 @@ curl "https://<ВАШ_ВОРКЕР>.workers.dev/setup-commands"
 
 ## ⚖️ Лицензия
 
-MIT
+Распространяется под лицензией [MIT](LICENSE).
