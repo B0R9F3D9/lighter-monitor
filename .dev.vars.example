@@ -1,0 +1,24 @@
+# ==============================================================================
+# Cloudflare Workers Local Environment Variables (.dev.vars)
+# Copy this file to .dev.vars for local development: cp .dev.vars.example .dev.vars
+# ==============================================================================
+
+# Required: Telegram Bot Token from @BotFather
+TELEGRAM_BOT_TOKEN="123456789:ABCdefGHIjklMNOpqrsTUVwxyz123456789"
+
+# Optional: Secret token for webhook verification (X-Telegram-Bot-Api-Secret-Token)
+TELEGRAM_SECRET_TOKEN=""
+
+# Optional: Admin Telegram ID or Username for /stats and admin controls (comma-separated if multiple)
+# Example: ADMIN_TELEGRAM_ID="123456789, @my_username"
+ADMIN_TELEGRAM_ID=""
+
+# Optional: Heartbeat URL for monitoring cron execution (Healthchecks.io / Cronitor)
+HEALTHCHECK_URL=""
+
+# Optional: Read-Only API token from Lighter DEX (https://app.lighter.xyz/read-only-tokens/)
+# Raises rate limit from 60 req/min to 24,000+ req/min
+LIGHTER_API_KEY=""
+
+# Optional: Secret key for manually triggering /api/cron endpoint
+CRON_SECRET=""

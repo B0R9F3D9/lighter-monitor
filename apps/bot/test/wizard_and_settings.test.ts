@@ -111,8 +111,8 @@ describe("Wizard State & Settings Logic", () => {
 
   describe("isUserAdmin Access Control", () => {
     it("allows access when ADMIN_TELEGRAM_ID is undefined or empty", () => {
-      expect(isUserAdmin(mockEnv(), 999888777, "b0r9f3d9")).toBe(true);
-      expect(isUserAdmin(mockEnv("   "), 999888777, "b0r9f3d9")).toBe(true);
+      expect(isUserAdmin(mockEnv(), 999888777, "admin_user")).toBe(true);
+      expect(isUserAdmin(mockEnv("   "), 999888777, "admin_user")).toBe(true);
     });
 
     it("matches numeric telegram ID", () => {
@@ -121,24 +121,24 @@ describe("Wizard State & Settings Logic", () => {
     });
 
     it("matches username with or without @ prefix, case-insensitive", () => {
-      expect(isUserAdmin(mockEnv("b0r9f3d9"), 123, "b0r9f3d9")).toBe(true);
-      expect(isUserAdmin(mockEnv("@B0R9F3D9"), 123, "b0r9f3d9")).toBe(true);
-      expect(isUserAdmin(mockEnv("b0r9f3d9"), 123, "B0R9F3D9")).toBe(true);
-      expect(isUserAdmin(mockEnv("@b0r9f3d9"), 123, "someone_else")).toBe(false);
+      expect(isUserAdmin(mockEnv("admin_user"), 123, "admin_user")).toBe(true);
+      expect(isUserAdmin(mockEnv("@Admin_User"), 123, "admin_user")).toBe(true);
+      expect(isUserAdmin(mockEnv("admin_user"), 123, "ADMIN_USER")).toBe(true);
+      expect(isUserAdmin(mockEnv("@admin_user"), 123, "someone_else")).toBe(false);
     });
 
     it("cleans accidental quotes or variable prefix", () => {
       expect(isUserAdmin(mockEnv('"999888777"'), 999888777)).toBe(true);
       expect(isUserAdmin(mockEnv("'999888777'"), 999888777)).toBe(true);
       expect(isUserAdmin(mockEnv("ADMIN_TELEGRAM_ID=999888777"), 999888777)).toBe(true);
-      expect(isUserAdmin(mockEnv("ADMIN_TELEGRAM_ID = @b0r9f3d9"), 123, "b0r9f3d9")).toBe(true);
+      expect(isUserAdmin(mockEnv("ADMIN_TELEGRAM_ID = @admin_user"), 123, "admin_user")).toBe(true);
     });
 
     it("supports comma-separated list of multiple admins", () => {
-      const env = mockEnv("999888777, @second_admin, 999999");
+      const env = mockEnv("999888777, @second_admin, 111222333");
       expect(isUserAdmin(env, 999888777)).toBe(true);
       expect(isUserAdmin(env, 123456, "second_admin")).toBe(true);
-      expect(isUserAdmin(env, 999999)).toBe(true);
+      expect(isUserAdmin(env, 111222333)).toBe(true);
       expect(isUserAdmin(env, 111111, "stranger")).toBe(false);
     });
   });
