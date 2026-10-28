@@ -342,11 +342,15 @@ export interface IndividualAccountMetrics {
 export interface MarketSummaryStat {
   marketSymbol: string;
   volumeUsd: number;
-  transactionsCount: number;
-  avgVolumeSizeUsd: number;
-  avgHoldingDurationMs: number;
-  pairsCount: number;
-  unhedgedCount: number;
+  slippagePnlUsd?: number;
+  fundingPnlUsd?: number;
+  feeUsd?: number;
+  netPnlUsd?: number;
+  transactionsCount?: number;
+  avgVolumeSizeUsd?: number;
+  avgHoldingDurationMs?: number;
+  pairsCount?: number;
+  unhedgedCount?: number;
   totalTokenSize?: number;
   avgTokenSize?: number;
   realizedPnlUsd?: number;
@@ -355,6 +359,10 @@ export interface MarketSummaryStat {
 export type MarketSummarySortColumn =
   | "marketSymbol"
   | "volumeUsd"
+  | "slippagePnlUsd"
+  | "fundingPnlUsd"
+  | "feeUsd"
+  | "netPnlUsd"
   | "transactionsCount"
   | "avgVolumeSizeUsd"
   | "avgHoldingDurationMs"

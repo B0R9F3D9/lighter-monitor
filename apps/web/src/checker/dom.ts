@@ -965,10 +965,13 @@ export function formatDisplayFileName(fileName: string, maxLen = 22): string {
 
 /**
  * Renders per-token / per-market summary cards showing:
- * - Volume (formatMoney)
- * - Number of transactions (transactionsCount)
- * - Average holding duration (formatCompactDuration)
- * - Average volume size (formatCompactUsd / formatMoney)
+ * - Ticker (marketSymbol)
+ * - Volume (RH) (volumeUsd)
+ * - Avg Hold (avgHoldingDurationMs)
+ * - Slippage PnL (slippagePnlUsd)
+ * - Funding PnL (fundingPnlUsd)
+ * - Fees (feeUsd)
+ * - Net PnL (netPnlUsd)
  * Grouped by token / market for the selected date filter period.
  */
 export function renderMarketSummaryCards(
@@ -1007,36 +1010,54 @@ export function renderMarketSummaryCards(
         : "hover:bg-terminal-surfaceHover/80";
 
       const holdDurationFormatted =
-        stat.avgHoldingDurationMs > 0 ? formatCompactDuration(stat.avgHoldingDurationMs) : "—";
+        (stat.avgHoldingDurationMs ?? 0) > 0
+          ? formatCompactDuration(stat.avgHoldingDurationMs)
+          : "—";
 
-      const avgVolumeSizeFormatted =
-        stat.avgVolumeSizeUsd > 0 ? formatCompactUsd(stat.avgVolumeSizeUsd) : "$0";
-
-      const pnl = stat.realizedPnlUsd ?? 0;
-      const pnlClass =
-        pnl > 0.001
+      const slip = stat.slippagePnlUsd ?? 0;
+      const slipClass =
+        slip > 0.001
           ? "text-terminal-emerald font-semibold"
-          : pnl < -0.001
+          : slip < -0.001
             ? "text-terminal-coral font-semibold"
             : "text-terminal-muted";
-      const sign = pnl > 0.0001 ? "+" : "";
-      const pnlFormatted = `${sign}${formatMoney(pnl)}`;
+      const slipSign = slip > 0.0001 ? "+" : "";
+      const slipFormatted = `${slipSign}${formatMoney(slip)}`;
+
+      const fund = stat.fundingPnlUsd ?? 0;
+      const fundClass =
+        fund > 0.001
+          ? "text-terminal-emerald font-semibold"
+          : fund < -0.001
+            ? "text-terminal-coral font-semibold"
+            : "text-terminal-muted";
+      const fundSign = fund > 0.0001 ? "+" : "";
+      const fundFormatted = `${fundSign}${formatMoney(fund)}`;
+
+      const fee = stat.feeUsd ?? 0;
+      const feeFormatted = formatFee(fee);
+      const feeClass = fee > 0.0001 ? "text-white" : "text-terminal-muted";
+
+      const net = stat.netPnlUsd ?? stat.realizedPnlUsd ?? 0;
+      const netClass =
+        net > 0.001
+          ? "text-terminal-emerald font-semibold"
+          : net < -0.001
+            ? "text-terminal-coral font-semibold"
+            : "text-terminal-muted";
+      const netSign = net > 0.0001 ? "+" : "";
+      const netFormatted = `${netSign}${formatMoney(net)}`;
 
       const tooltipLines = [
-        `Market: ${stat.marketSymbol}`,
+        `Ticker: ${stat.marketSymbol}`,
         `Volume (RH): ${formatMoney(stat.volumeUsd)}`,
-        `Transactions: ${stat.transactionsCount} (${stat.pairsCount} hedged pairs, ${stat.unhedgedCount} unhedged)`,
-        `Avg Volume Size: ${formatMoney(stat.avgVolumeSizeUsd)}`,
-        stat.totalTokenSize
-          ? `Total Size: ${formatSmartSize(stat.totalTokenSize)} ${stat.marketSymbol}`
+        stat.avgHoldingDurationMs
+          ? `Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}`
           : null,
-        stat.avgTokenSize
-          ? `Avg Size: ${formatSmartSize(stat.avgTokenSize)} ${stat.marketSymbol}`
-          : null,
-        `Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}`,
-        stat.realizedPnlUsd !== 0
-          ? `Net PnL: ${stat.realizedPnlUsd && stat.realizedPnlUsd > 0 ? "+" : ""}${formatMoney(stat.realizedPnlUsd)}`
-          : null,
+        `Slippage PnL: ${slipFormatted}`,
+        `Funding PnL: ${fundFormatted}`,
+        `Fees: ${feeFormatted}`,
+        `Net PnL: ${netFormatted}`,
         "Click to select trades and view summary for this market",
       ]
         .filter(Boolean)
@@ -1048,31 +1069,31 @@ export function renderMarketSummaryCards(
           title="${tooltipLines}"
           data-market="${stat.marketSymbol}"
         >
-          <td class="h-8 py-0 px-3 text-center text-terminal-muted tabular-nums text-[11px] w-8">
+          <td class="h-8 py-0 px-2 sm:px-3 text-center text-terminal-muted tabular-nums text-[11px] w-8">
             ${idx + 1}
           </td>
-          <td class="h-8 py-0 px-3 whitespace-nowrap">
+          <td class="h-8 py-0 px-2 sm:px-3 whitespace-nowrap">
             <span class="font-bold text-white transition-colors">
               ${stat.marketSymbol}
             </span>
           </td>
-          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap">
+          <td class="h-8 py-0 px-2 sm:px-3 text-right font-bold text-white tabular-nums whitespace-nowrap">
             ${formatMoney(stat.volumeUsd)}
           </td>
-          <td class="h-8 py-0 px-3 text-right text-white tabular-nums whitespace-nowrap">
-            ${stat.transactionsCount} <span class="text-terminal-muted text-[10px] font-normal font-sans">txs</span>
-          </td>
-          <td class="h-8 py-0 px-3 text-right text-terminal-secondary tabular-nums whitespace-nowrap" title="Avg Size: ${formatMoney(stat.avgVolumeSizeUsd)}">
-            ${avgVolumeSizeFormatted}
-          </td>
-          <td class="h-8 py-0 px-3 text-right tabular-nums whitespace-nowrap ${stat.avgHoldingDurationMs > 0 ? "text-terminal-secondary" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}">
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${(stat.avgHoldingDurationMs ?? 0) > 0 ? "text-terminal-secondary" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}">
             ${holdDurationFormatted}
           </td>
-          <td class="h-8 py-0 px-3 text-right text-terminal-muted tabular-nums whitespace-nowrap">
-            ${stat.totalTokenSize ? `<span class="text-terminal-primary">${formatSmartSize(stat.totalTokenSize)}</span> <span class="text-terminal-muted text-[10px] font-sans">${stat.marketSymbol}</span>` : "—"}
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${slipClass}">
+            ${slipFormatted}
           </td>
-          <td class="h-8 py-0 px-3 text-right tabular-nums whitespace-nowrap ${pnlClass}">
-            ${pnlFormatted}
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${fundClass}">
+            ${fundFormatted}
+          </td>
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${feeClass}">
+            ${feeFormatted}
+          </td>
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${netClass}">
+            ${netFormatted}
           </td>
         </tr>
       `;
@@ -1081,25 +1102,52 @@ export function renderMarketSummaryCards(
 
   const totalVolumeUsd = stats.reduce((acc, s) => acc + (s.volumeUsd || 0), 0);
   const totalTransactions = stats.reduce((acc, s) => acc + (s.transactionsCount || 0), 0);
-  const totalPairs = stats.reduce((acc, s) => acc + (s.pairsCount || 0), 0);
-  const totalUnhedged = stats.reduce((acc, s) => acc + (s.unhedgedCount || 0), 0);
-  const totalNetPnlUsd = stats.reduce((acc, s) => acc + (s.realizedPnlUsd || 0), 0);
-  const overallAvgVolumeSizeUsd = totalTransactions > 0 ? totalVolumeUsd / totalTransactions : 0;
   const totalHoldingWeight = stats.reduce(
-    (acc, s) => acc + (s.avgHoldingDurationMs || 0) * (s.transactionsCount || 0),
+    (acc, s) =>
+      acc +
+      (s.avgHoldingDurationMs || 0) * (s.transactionsCount || (s.avgHoldingDurationMs ? 1 : 0)),
     0,
   );
-  const overallAvgHoldingMs = totalTransactions > 0 ? totalHoldingWeight / totalTransactions : 0;
+  const totalHoldingCount =
+    totalTransactions > 0
+      ? totalTransactions
+      : stats.reduce((acc, s) => acc + (s.avgHoldingDurationMs ? 1 : 0), 0);
+  const overallAvgHoldingMs = totalHoldingCount > 0 ? totalHoldingWeight / totalHoldingCount : 0;
 
-  const totalPnl = totalNetPnlUsd;
-  const totalPnlClass =
-    totalPnl > 0.001
+  const totalSlippageUsd = stats.reduce((acc, s) => acc + (s.slippagePnlUsd || 0), 0);
+  const totalFundingUsd = stats.reduce((acc, s) => acc + (s.fundingPnlUsd || 0), 0);
+  const totalFeeUsd = stats.reduce((acc, s) => acc + (s.feeUsd || 0), 0);
+  const totalNetPnlUsd = stats.reduce((acc, s) => acc + (s.netPnlUsd ?? s.realizedPnlUsd ?? 0), 0);
+
+  const totalSlipClass =
+    totalSlippageUsd > 0.001
       ? "text-terminal-emerald font-semibold"
-      : totalPnl < -0.001
+      : totalSlippageUsd < -0.001
         ? "text-terminal-coral font-semibold"
         : "text-terminal-muted";
-  const totalSign = totalPnl > 0.0001 ? "+" : "";
-  const totalPnlFormatted = `${totalSign}${formatMoney(totalPnl)}`;
+  const totalSlipSign = totalSlippageUsd > 0.0001 ? "+" : "";
+  const totalSlipFormatted = `${totalSlipSign}${formatMoney(totalSlippageUsd)}`;
+
+  const totalFundClass =
+    totalFundingUsd > 0.001
+      ? "text-terminal-emerald font-semibold"
+      : totalFundingUsd < -0.001
+        ? "text-terminal-coral font-semibold"
+        : "text-terminal-muted";
+  const totalFundSign = totalFundingUsd > 0.0001 ? "+" : "";
+  const totalFundFormatted = `${totalFundSign}${formatMoney(totalFundingUsd)}`;
+
+  const totalFeeFormatted = formatFee(totalFeeUsd);
+  const totalFeeClass = totalFeeUsd > 0.0001 ? "text-white" : "text-terminal-muted";
+
+  const totalNetClass =
+    totalNetPnlUsd > 0.001
+      ? "text-terminal-emerald font-semibold"
+      : totalNetPnlUsd < -0.001
+        ? "text-terminal-coral font-semibold"
+        : "text-terminal-muted";
+  const totalNetSign = totalNetPnlUsd > 0.0001 ? "+" : "";
+  const totalNetFormatted = `${totalNetSign}${formatMoney(totalNetPnlUsd)}`;
 
   const isTotalActive = !activeMarketFilter;
   const totalRowClass = isTotalActive
@@ -1109,10 +1157,11 @@ export function renderMarketSummaryCards(
   const totalTooltipLines = [
     `Total: ${stats.length} markets`,
     `Volume (RH): ${formatMoney(totalVolumeUsd)}`,
-    `Transactions: ${totalTransactions} (${totalPairs} hedged pairs, ${totalUnhedged} unhedged)`,
-    `Avg Volume Size: ${formatMoney(overallAvgVolumeSizeUsd)}`,
     overallAvgHoldingMs > 0 ? `Avg Hold: ${formatCompactDuration(overallAvgHoldingMs)}` : null,
-    totalNetPnlUsd !== 0 ? `Net PnL: ${totalPnlFormatted}` : null,
+    `Slippage PnL: ${totalSlipFormatted}`,
+    `Funding PnL: ${totalFundFormatted}`,
+    `Fees: ${totalFeeFormatted}`,
+    `Net PnL: ${totalNetFormatted}`,
     "Click to view all markets",
   ]
     .filter(Boolean)
@@ -1122,27 +1171,27 @@ export function renderMarketSummaryCards(
     <table class="w-full h-full border-collapse text-left text-xs font-mono">
       <thead>
         <tr class="h-8 border-b border-terminal-border bg-terminal-surface/95 text-terminal-muted text-[11px] select-none sticky top-0 z-10 backdrop-blur-xs font-sans">
-          <th class="h-8 py-0 px-3 font-semibold w-8 text-center">#</th>
-          <th class="h-8 py-0 px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap" data-sort="marketSymbol">
-            Market ${renderSortIndicator("marketSymbol")}
+          <th class="h-8 py-0 px-2 sm:px-3 font-semibold w-8 text-center">#</th>
+          <th class="h-8 py-0 px-2 sm:px-3 font-semibold cursor-pointer hover:text-white whitespace-nowrap" data-sort="marketSymbol">
+            Ticker ${renderSortIndicator("marketSymbol")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volumeUsd" title="Robinhood (RH) volume over selected period">
+          <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="volumeUsd" title="Robinhood (RH) volume over selected period">
             Volume (RH) ${renderSortIndicator("volumeUsd")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="transactionsCount">
-            Trades ${renderSortIndicator("transactionsCount")}
-          </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgVolumeSizeUsd" title="Average volume size per transaction">
-            Avg Size ${renderSortIndicator("avgVolumeSizeUsd")}
-          </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgHoldingDurationMs" title="Average position holding duration (FIFO)">
+          <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="avgHoldingDurationMs" title="Average position holding duration (FIFO)">
             Avg Hold ${renderSortIndicator("avgHoldingDurationMs")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="totalTokenSize" title="Total token base size traded">
-            Token Size ${renderSortIndicator("totalTokenSize")}
+          <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="slippagePnlUsd" title="Gross slippage PnL">
+            Slippage PnL ${renderSortIndicator("slippagePnlUsd")}
           </th>
-          <th class="h-8 py-0 px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="realizedPnlUsd" title="Realized price PnL - fees">
-            Net PnL ${renderSortIndicator("realizedPnlUsd")}
+          <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="fundingPnlUsd" title="Net funding paid or received (RH + Core)">
+            Funding PnL ${renderSortIndicator("fundingPnlUsd")}
+          </th>
+          <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="feeUsd" title="Trading fees (RH + Core)">
+            Fees ${renderSortIndicator("feeUsd")}
+          </th>
+          <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="netPnlUsd" title="Net PnL = Slippage + Funding - Fees">
+            Net PnL ${renderSortIndicator("netPnlUsd")}
           </th>
         </tr>
       </thead>
@@ -1158,31 +1207,31 @@ export function renderMarketSummaryCards(
           data-market-total="true"
           title="${totalTooltipLines}"
         >
-          <td class="h-8 py-0 px-3 text-center text-terminal-accent font-bold tabular-nums text-xs w-8">
+          <td class="h-8 py-0 px-2 sm:px-3 text-center text-terminal-accent font-bold tabular-nums text-xs w-8">
             Σ
           </td>
-          <td class="h-8 py-0 px-3 whitespace-nowrap">
+          <td class="h-8 py-0 px-2 sm:px-3 whitespace-nowrap">
             <span class="font-bold text-white transition-colors">
               Total (${stats.length})
             </span>
           </td>
-          <td class="h-8 py-0 px-3 text-right font-bold text-white tabular-nums whitespace-nowrap">
+          <td class="h-8 py-0 px-2 sm:px-3 text-right font-bold text-white tabular-nums whitespace-nowrap">
             ${formatMoney(totalVolumeUsd)}
           </td>
-          <td class="h-8 py-0 px-3 text-right text-white tabular-nums whitespace-nowrap">
-            ${totalTransactions} <span class="text-terminal-muted text-[10px] font-normal font-sans">txs</span>
-          </td>
-          <td class="h-8 py-0 px-3 text-right text-terminal-secondary tabular-nums whitespace-nowrap" title="Avg Size: ${formatMoney(overallAvgVolumeSizeUsd)}">
-            ${overallAvgVolumeSizeUsd > 0 ? formatCompactUsd(overallAvgVolumeSizeUsd) : "$0"}
-          </td>
-          <td class="h-8 py-0 px-3 text-right tabular-nums whitespace-nowrap ${overallAvgHoldingMs > 0 ? "text-terminal-secondary" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(overallAvgHoldingMs)}">
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${overallAvgHoldingMs > 0 ? "text-terminal-secondary" : "text-terminal-muted"}" title="Avg Hold: ${formatCompactDuration(overallAvgHoldingMs)}">
             ${overallAvgHoldingMs > 0 ? formatCompactDuration(overallAvgHoldingMs) : "—"}
           </td>
-          <td class="h-8 py-0 px-3 text-right text-terminal-muted tabular-nums whitespace-nowrap">
-            —
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${totalSlipClass}">
+            ${totalSlipFormatted}
           </td>
-          <td class="h-8 py-0 px-3 text-right tabular-nums whitespace-nowrap ${totalPnlClass}">
-            ${totalPnlFormatted}
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${totalFundClass}">
+            ${totalFundFormatted}
+          </td>
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${totalFeeClass}">
+            ${totalFeeFormatted}
+          </td>
+          <td class="h-8 py-0 px-2 sm:px-3 text-right tabular-nums whitespace-nowrap ${totalNetClass}">
+            ${totalNetFormatted}
           </td>
         </tr>
       </tfoot>

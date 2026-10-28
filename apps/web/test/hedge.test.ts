@@ -2763,31 +2763,39 @@ describe("Hedge Matching Engine", () => {
       expect(container.innerHTML).toContain("No token activity for selected period");
     });
 
-    it("renderMarketSummaryCards renders styled token cards with volume, tx count, avg hold and avg size", () => {
+    it("renderMarketSummaryCards renders styled token table with ticker, volume, avg hold, slippage pnl, funding pnl, fees, and net pnl", () => {
       const container = { innerHTML: "", querySelectorAll: () => [] } as unknown as HTMLElement;
       const stats: MarketSummaryStat[] = [
         {
           marketSymbol: "ETH",
           volumeUsd: 145000,
-          transactionsCount: 18,
-          avgVolumeSizeUsd: 8055.56,
           avgHoldingDurationMs: 14 * 60 * 1000 + 22 * 1000,
-          pairsCount: 18,
-          unhedgedCount: 0,
+          slippagePnlUsd: 120.5,
+          fundingPnlUsd: -15.2,
+          feeUsd: 8.5,
+          netPnlUsd: 96.8,
         },
       ];
 
       renderMarketSummaryCards(container, stats);
 
       const html = container.innerHTML;
+      expect(html).toContain("Ticker");
       expect(html).toContain("ETH");
-      expect(html).toContain("18");
-      expect(html).toContain("txs");
+      expect(html).toContain("Volume (RH)");
       expect(html).toContain("$145.0K");
       expect(html).toContain("Avg Hold");
       expect(html).toContain("14m");
-      expect(html).toContain("Avg Size");
-      expect(html).toContain("$8.1k");
+      expect(html).toContain("Slippage PnL");
+      expect(html).toContain("+$120.50");
+      expect(html).toContain("Funding PnL");
+      expect(html).toContain("-$15.20");
+      expect(html).toContain("Fees");
+      expect(html).toContain("$8.50");
+      expect(html).toContain("Net PnL");
+      expect(html).toContain("+$96.80");
+      expect(html).toContain("text-terminal-emerald");
+      expect(html).toContain("text-terminal-coral");
     });
 
     it("renderMarketSummaryCards renders total row with Σ, sums, spacer row, and handles total row click", () => {
@@ -2817,21 +2825,19 @@ describe("Hedge Matching Engine", () => {
         {
           marketSymbol: "NVDA",
           volumeUsd: 100000,
-          transactionsCount: 10,
-          avgVolumeSizeUsd: 10000,
-          avgHoldingDurationMs: 60000,
-          pairsCount: 10,
-          unhedgedCount: 0,
+          slippagePnlUsd: -130,
+          fundingPnlUsd: -10,
+          feeUsd: 10,
+          netPnlUsd: -150,
           realizedPnlUsd: -150,
         },
         {
           marketSymbol: "AAPL",
           volumeUsd: 50000,
-          transactionsCount: 5,
-          avgVolumeSizeUsd: 10000,
-          avgHoldingDurationMs: 30000,
-          pairsCount: 5,
-          unhedgedCount: 0,
+          slippagePnlUsd: 60,
+          fundingPnlUsd: 0,
+          feeUsd: 10,
+          netPnlUsd: 50,
           realizedPnlUsd: 50,
         },
       ];
@@ -2846,10 +2852,11 @@ describe("Hedge Matching Engine", () => {
       expect(renderedHtml).toContain("Total (2)");
       expect(renderedHtml).toContain("Σ");
       expect(renderedHtml).toContain("$150.0K"); // 100k + 50k
-      expect(renderedHtml).toContain("15");
-      expect(renderedHtml).toContain("txs");
+      expect(renderedHtml).toContain("-$70.00"); // Slippage: -130 + 60
+      expect(renderedHtml).toContain("-$10.00"); // Funding: -10 + 0
+      expect(renderedHtml).toContain("$20.00"); // Fees: 10 + 10
       expect(renderedHtml).toContain("spacer-row");
-      expect(renderedHtml).toContain("-$100.00"); // -150 + 50
+      expect(renderedHtml).toContain("-$100.00"); // Net PnL: -150 + 50
 
       // Click total row
       expect(totalClickHandler).not.toBeNull();
@@ -2904,6 +2911,10 @@ describe("Hedge Matching Engine", () => {
         {
           marketSymbol: "SOL",
           volumeUsd: 15000,
+          slippagePnlUsd: 120,
+          fundingPnlUsd: -10,
+          feeUsd: 10,
+          netPnlUsd: 100,
           transactionsCount: 20,
           avgVolumeSizeUsd: 750,
           avgHoldingDurationMs: 30000,
@@ -2914,6 +2925,10 @@ describe("Hedge Matching Engine", () => {
         {
           marketSymbol: "ETH",
           volumeUsd: 50000,
+          slippagePnlUsd: -40,
+          fundingPnlUsd: 5,
+          feeUsd: 15,
+          netPnlUsd: -50,
           transactionsCount: 5,
           avgVolumeSizeUsd: 10000,
           avgHoldingDurationMs: 120000,
@@ -2924,6 +2939,10 @@ describe("Hedge Matching Engine", () => {
         {
           marketSymbol: "BTC",
           volumeUsd: 30000,
+          slippagePnlUsd: 30,
+          fundingPnlUsd: 0,
+          feeUsd: 5,
+          netPnlUsd: 25,
           transactionsCount: 10,
           avgVolumeSizeUsd: 3000,
           avgHoldingDurationMs: 60000,
@@ -2956,6 +2975,22 @@ describe("Hedge Matching Engine", () => {
       // realizedPnlUsd descending
       const byPnlDesc = sortMarketSummaryStats([...stats], "realizedPnlUsd", "desc");
       expect(byPnlDesc.map((s) => s.marketSymbol)).toEqual(["SOL", "BTC", "ETH"]);
+
+      // slippagePnlUsd descending
+      const bySlipDesc = sortMarketSummaryStats([...stats], "slippagePnlUsd", "desc");
+      expect(bySlipDesc.map((s) => s.marketSymbol)).toEqual(["SOL", "BTC", "ETH"]);
+
+      // fundingPnlUsd descending
+      const byFundDesc = sortMarketSummaryStats([...stats], "fundingPnlUsd", "desc");
+      expect(byFundDesc.map((s) => s.marketSymbol)).toEqual(["ETH", "BTC", "SOL"]);
+
+      // feeUsd descending
+      const byFeeDesc = sortMarketSummaryStats([...stats], "feeUsd", "desc");
+      expect(byFeeDesc.map((s) => s.marketSymbol)).toEqual(["ETH", "SOL", "BTC"]);
+
+      // netPnlUsd descending
+      const byNetDesc = sortMarketSummaryStats([...stats], "netPnlUsd", "desc");
+      expect(byNetDesc.map((s) => s.marketSymbol)).toEqual(["SOL", "BTC", "ETH"]);
     });
 
     it("renderMarketSummaryCards displays sort indicators ▲ and ▼ and triggers onSortClick", () => {

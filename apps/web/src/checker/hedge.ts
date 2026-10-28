@@ -1673,10 +1673,12 @@ export function calculateMarketSummaryStats(
     string,
     {
       volumeUsd: number;
+      slippagePnlUsd: number;
+      fundingPnlUsd: number;
+      feeUsd: number;
       pairsCount: number;
       unhedgedCount: number;
       totalTokenSize: number;
-      realizedPnlUsd: number;
     }
   >();
 
@@ -1684,7 +1686,15 @@ export function calculateMarketSummaryStats(
     const sym = (p.marketSymbol || "UNKNOWN").toUpperCase();
     let m = marketMap.get(sym);
     if (!m) {
-      m = { volumeUsd: 0, pairsCount: 0, unhedgedCount: 0, totalTokenSize: 0, realizedPnlUsd: 0 };
+      m = {
+        volumeUsd: 0,
+        slippagePnlUsd: 0,
+        fundingPnlUsd: 0,
+        feeUsd: 0,
+        pairsCount: 0,
+        unhedgedCount: 0,
+        totalTokenSize: 0,
+      };
       marketMap.set(sym, m);
     }
     // Strictly Robinhood volume: matchedSize * rhPrice
@@ -1692,21 +1702,37 @@ export function calculateMarketSummaryStats(
     m.volumeUsd += p.matchedSize * rhPrice;
     m.pairsCount++;
     m.totalTokenSize += p.matchedSize;
-    m.realizedPnlUsd += p.netPnlUsd;
+    m.slippagePnlUsd += p.pricePnlUsd || 0;
+    m.feeUsd += p.totalFeesUsd || 0;
+    if (p.totalFundingUsd !== null && p.totalFundingUsd !== undefined) {
+      m.fundingPnlUsd += p.totalFundingUsd;
+    }
   }
 
   for (const u of unhedged) {
+    const sym = (u.marketSymbol || "UNKNOWN").toUpperCase();
+    let m = marketMap.get(sym);
+    if (!m) {
+      m = {
+        volumeUsd: 0,
+        slippagePnlUsd: 0,
+        fundingPnlUsd: 0,
+        feeUsd: 0,
+        pairsCount: 0,
+        unhedgedCount: 0,
+        totalTokenSize: 0,
+      };
+      marketMap.set(sym, m);
+    }
     // Only count Robinhood trades for volume & transaction counts
     if (u.network === "RH") {
-      const sym = (u.marketSymbol || "UNKNOWN").toUpperCase();
-      let m = marketMap.get(sym);
-      if (!m) {
-        m = { volumeUsd: 0, pairsCount: 0, unhedgedCount: 0, totalTokenSize: 0, realizedPnlUsd: 0 };
-        marketMap.set(sym, m);
-      }
       m.volumeUsd += u.usdValue;
       m.unhedgedCount++;
       m.totalTokenSize += u.unhedgedSize;
+    }
+    m.feeUsd += u.feeUsd || 0;
+    if (u.fundingUsd !== null && u.fundingUsd !== undefined) {
+      m.fundingPnlUsd += u.fundingUsd;
     }
   }
 
@@ -1759,9 +1785,16 @@ export function calculateMarketSummaryStats(
       avgHoldingDurationMs = rhHold > 0 ? rhHold : coreHold;
     }
 
+    const netPnlUsd = data.slippagePnlUsd + data.fundingPnlUsd - data.feeUsd;
+
     result.push({
       marketSymbol: sym,
       volumeUsd: data.volumeUsd,
+      slippagePnlUsd: data.slippagePnlUsd,
+      fundingPnlUsd: data.fundingPnlUsd,
+      feeUsd: data.feeUsd,
+      netPnlUsd,
+      realizedPnlUsd: netPnlUsd,
       transactionsCount,
       avgVolumeSizeUsd,
       avgHoldingDurationMs,
@@ -1769,7 +1802,6 @@ export function calculateMarketSummaryStats(
       unhedgedCount: data.unhedgedCount,
       totalTokenSize: data.totalTokenSize,
       avgTokenSize,
-      realizedPnlUsd: data.realizedPnlUsd,
     });
   }
 
@@ -1791,8 +1823,14 @@ export function sortMarketSummaryStats(
     if (sortColumn === "marketSymbol") {
       return a.marketSymbol.localeCompare(b.marketSymbol) * dir;
     }
-    const valA = (a[sortColumn] as number) || 0;
-    const valB = (b[sortColumn] as number) || 0;
+    const getVal = (item: MarketSummaryStat): number => {
+      if (sortColumn === "netPnlUsd" || sortColumn === "realizedPnlUsd") {
+        return item.netPnlUsd ?? item.realizedPnlUsd ?? 0;
+      }
+      return (item[sortColumn] as number) ?? 0;
+    };
+    const valA = getVal(a);
+    const valB = getVal(b);
     if (Math.abs(valA - valB) > 0.00001) {
       return (valA - valB) * dir;
     }
