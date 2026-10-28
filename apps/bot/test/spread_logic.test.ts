@@ -216,5 +216,71 @@ describe("Spread Alert Logic & State Machine", () => {
       expect(text).not.toContain("Цены:");
       expect(text).toContain("Обновлено:");
     });
+
+    it("displays global mute notice when _isMutedAll is true", () => {
+      const targets: SpreadTargetRow[] = [
+        {
+          id: 1,
+          telegram_id: 12345,
+          symbol: "SPY",
+          direction: "rh_cheaper",
+          target_delta: 2.0,
+          unit: "bps",
+          is_active: 1,
+          armed: 1,
+          muted_until: 0,
+          last_alerted_at: 0,
+          last_spread: null,
+          created_at: 0,
+        },
+      ];
+      const quotes = new Map<string, { rhPrice: number; corePrice: number }>();
+      quotes.set("SPY", { rhPrice: 772.1, corePrice: 772.23 });
+
+      const text = formatSpreadHubView(targets, quotes, true, 1700000000);
+      expect(text).toContain("🔕 <i>Все таргеты спреда заглушены в настройках.</i>");
+    });
+
+    it("displays symbol-level mute badges correctly", () => {
+      const targets: SpreadTargetRow[] = [
+        {
+          id: 1,
+          telegram_id: 12345,
+          symbol: "SPY",
+          direction: "rh_cheaper",
+          target_delta: 2.0,
+          unit: "bps",
+          is_active: 1,
+          armed: 1,
+          muted_until: 0,
+          symbol_muted_until: 1700003600, // muted for 1 hour
+          last_alerted_at: 0,
+          last_spread: null,
+          created_at: 0,
+        },
+        {
+          id: 2,
+          telegram_id: 12345,
+          symbol: "QQQ",
+          direction: "rh_cheaper",
+          target_delta: 3.0,
+          unit: "bps",
+          is_active: 1,
+          armed: 1,
+          muted_until: 0,
+          symbol_muted_until: 2147483647, // muted forever
+          last_alerted_at: 0,
+          last_spread: null,
+          created_at: 0,
+        },
+      ];
+      const quotes = new Map<string, { rhPrice: number; corePrice: number }>();
+      quotes.set("SPY", { rhPrice: 772.1, corePrice: 772.23 });
+      quotes.set("QQQ", { rhPrice: 722.5, corePrice: 722.5 });
+
+      const text = formatSpreadHubView(targets, quotes, false, 1700000000);
+      expect(text).toContain("[🔕 еще 60м]");
+      expect(text).toContain("[⏸ Выключен]");
+    });
   });
 });

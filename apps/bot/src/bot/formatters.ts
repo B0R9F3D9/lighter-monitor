@@ -187,12 +187,17 @@ export function formatSpreadHubView(
         }
       }
 
+      const effectiveMutedUntil = Math.max(t.muted_until || 0, t.symbol_muted_until || 0);
       let statusBadge = "";
       if (t.is_active === 0) {
         statusBadge = " [⏸ Выключен]";
-      } else if (t.muted_until > nowSec) {
-        const leftMin = Math.ceil((t.muted_until - nowSec) / 60);
-        statusBadge = ` [🔕 еще ${leftMin}м]`;
+      } else if (effectiveMutedUntil > nowSec) {
+        if (effectiveMutedUntil >= 2000000000) {
+          statusBadge = " [⏸ Выключен]";
+        } else {
+          const leftMin = Math.ceil((effectiveMutedUntil - nowSec) / 60);
+          statusBadge = ` [🔕 еще ${leftMin}м]`;
+        }
       } else if (t.armed === 0) {
         statusBadge = " [⏳ Ждет отката]";
       }
@@ -205,6 +210,9 @@ export function formatSpreadHubView(
   }
 
   let text = cards.join(separator);
+  if (_isMutedAll) {
+    text = `🔕 <i>Все таргеты спреда заглушены в настройках.</i>\n\n` + text;
+  }
   text += `\n\n🕒 <i>Обновлено: ${timeStr} UTC</i>`;
 
   return text;

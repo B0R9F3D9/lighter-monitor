@@ -241,17 +241,14 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
 
           if (candidates.length > 0 && env.TELEGRAM_BOT_TOKEN) {
             const api = new Api(env.TELEGRAM_BOT_TOKEN);
-            const maxSpreadSends = Math.min(
-              CONFIG.MAX_SPREAD_ALERTS_PER_TICK,
-              Math.max(0, CONFIG.MAX_SUBREQUESTS_PER_CRON - subrequestsUsed - 15),
+            const remainingSubreqs = Math.max(
+              0,
+              CONFIG.MAX_SUBREQUESTS_PER_CRON - subrequestsUsed - 15,
             );
+            const maxSpreadSends = Math.min(CONFIG.MAX_SPREAD_ALERTS_PER_TICK, remainingSubreqs);
             const toSend = candidates.slice(0, maxSpreadSends);
 
-            for (let i = 0; i < toSend.length; i++) {
-              if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 1) break;
-              if (Date.now() - startTime > MAX_WALL_CLOCK_MS) break;
-
-              const cand = toSend[i]!;
+            const sendPromises = toSend.map(async (cand) => {
               const alertText = formatSpreadAlert({
                 targetId: cand.target.id,
                 symbol: cand.target.symbol,
@@ -270,10 +267,22 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                   parse_mode: "HTML",
                   reply_markup: getSpreadAlertKeyboard(cand.target.id, cand.target.symbol),
                 });
-                subrequestsUsed++;
+                return { success: true, cand, err: null };
+              } catch (err: any) {
+                return { success: false, cand, err };
+              }
+            });
+
+            const results = await Promise.allSettled(sendPromises);
+            subrequestsUsed += results.length;
+
+            for (const r of results) {
+              if (r.status !== "fulfilled") continue;
+              const { success, cand, err } = r.value;
+              if (success) {
                 spreadAlertsSent++;
                 allUpdates.push(stmts.updateSpreadAlertSent.bind(now, cand.metric, cand.target.id));
-              } catch (err: any) {
+              } else {
                 if (err?.error_code === 403) {
                   await removeBlockedUser(env.DB, cand.target.telegram_id);
                 } else if (err?.error_code === 429) {
@@ -281,10 +290,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                 } else {
                   console.error(
                     `[spread] Failed to send alert to ${cand.target.telegram_id}:`,
-                    err,
-                  );
-                  allUpdates.push(
-                    stmts.updateSpreadAlertSent.bind(now, cand.metric, cand.target.id),
+                    err?.message || err,
                   );
                 }
               }

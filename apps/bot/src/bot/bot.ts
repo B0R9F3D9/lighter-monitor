@@ -15,7 +15,7 @@ import {
   parseSpreadThresholdInput,
   isMuted as checkIsMuted,
 } from "../lighter/math";
-import { MEMORY_PRICES } from "../cache/memory";
+import { MEMORY_PRICES, getMemoryPrice } from "../cache/memory";
 import {
   batchUpdatePositionsCache,
   getUserThreshold,
@@ -36,10 +36,8 @@ import {
   getUserSpreadStats,
   addSpreadTarget,
   deleteSpreadTarget,
-  deleteSpreadTargetsBySymbol,
   toggleSpreadTargetActive,
-  updateSpreadTargetThreshold,
-  updateSpreadTargetDirection,
+  updateSpreadTarget,
   setSpreadTargetMute,
   setSpreadSymbolMute,
   setUserSpreadMute,
@@ -221,10 +219,21 @@ export function getBot(env: Env): Bot {
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
   const getMainKb = (ctx?: any) => getMainKeyboard(env, ctx?.from?.id, ctx?.from?.username);
 
+  const liveSpreadCache = new Map<
+    string,
+    { rhPrice: number; corePrice: number; expiresAt: number }
+  >();
+
   const getLiveSpreadQuote = async (
     symbol: string,
   ): Promise<{ rhPrice: number; corePrice: number } | null> => {
     const normSym = symbol.trim().toUpperCase();
+    const now = Date.now();
+    const cached = liveSpreadCache.get(normSym);
+    if (cached && cached.expiresAt > now) {
+      return { rhPrice: cached.rhPrice, corePrice: cached.corePrice };
+    }
+
     const activeSet = new Set([normSym]);
     const [snapRh, snapMainnet] = await Promise.all([
       fetchExchangeStats("rh", activeSet, getLighterAuthToken(env, "rh")),
@@ -232,10 +241,16 @@ export function getBot(env: Env): Bot {
     ]);
     const rhMarket = findMarketPrice(snapRh, normSym);
     const coreMarket = findMarketPrice(snapMainnet, normSym);
-    if (!rhMarket || rhMarket.price <= 0 || !coreMarket || coreMarket.price <= 0) {
+
+    const rhPrice = rhMarket?.price ?? getMemoryPrice("rh", normSym) ?? 0;
+    const corePrice = coreMarket?.price ?? getMemoryPrice("mainnet", normSym) ?? 0;
+
+    if (rhPrice <= 0 || corePrice <= 0) {
       return null;
     }
-    return { rhPrice: rhMarket.price, corePrice: coreMarket.price };
+
+    liveSpreadCache.set(normSym, { rhPrice, corePrice, expiresAt: now + 8000 });
+    return { rhPrice, corePrice };
   };
 
   const showDirectionPicker = async (ctx: any, symbol: string, isEdit: boolean = false) => {
@@ -323,7 +338,10 @@ export function getBot(env: Env): Bot {
     editTargetId?: number,
   ) => {
     const quote = await getLiveSpreadQuote(symbol);
-    const refPrice = quote ? quote.corePrice : 100;
+    const refPrice =
+      quote && quote.corePrice > 0
+        ? quote.corePrice
+        : getMemoryPrice("mainnet", symbol) || getMemoryPrice("rh", symbol) || 0;
     const dirLabel = direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
 
     let text = editTargetId
@@ -347,12 +365,13 @@ export function getBot(env: Env): Bot {
 
     for (let i = 0; i < presets.length; i++) {
       const bps = presets[i]!;
-      const cents = (refPrice * bps) / 10000;
-      const centsFormatted = cents >= 1 ? cents.toFixed(2) : cents.toFixed(3);
-      kb.text(
-        `${bps} bps (${dirSign}$${centsFormatted})`,
-        `sp_pr:${symbol}:${direction}:${bps}${idSuffix}`,
-      );
+      let btnLabel = `${bps} bps`;
+      if (refPrice > 0) {
+        const cents = (refPrice * bps) / 10000;
+        const centsFormatted = cents >= 1 ? cents.toFixed(2) : cents.toFixed(3);
+        btnLabel = `${bps} bps (${dirSign}$${centsFormatted})`;
+      }
+      kb.text(btnLabel, `sp_pr:${symbol}:${direction}:${bps}${idSuffix}`);
       if (i % 2 === 1) kb.row();
     }
 
@@ -394,8 +413,11 @@ export function getBot(env: Env): Bot {
       for (const sym of uniqueSymbols) {
         const rhM = findMarketPrice(snapRh, sym);
         const coreM = findMarketPrice(snapMainnet, sym);
-        if (rhM && rhM.price > 0 && coreM && coreM.price > 0) {
-          quotes.set(sym, { rhPrice: rhM.price, corePrice: coreM.price });
+        const rhPrice = rhM?.price ?? getMemoryPrice("rh", sym) ?? 0;
+        const corePrice = coreM?.price ?? getMemoryPrice("mainnet", sym) ?? 0;
+        if (rhPrice > 0 && corePrice > 0) {
+          quotes.set(sym, { rhPrice, corePrice });
+          liveSpreadCache.set(sym, { rhPrice, corePrice, expiresAt: Date.now() + 8000 });
         }
       }
     }
@@ -501,7 +523,13 @@ export function getBot(env: Env): Bot {
     const quote = await getLiveSpreadQuote(target.symbol);
     const dirLabel = target.direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
     const dirSign = target.direction === "rh_cheaper" ? "-" : "+";
-    const refPrice = quote && quote.corePrice > 0 ? quote.corePrice : quote?.rhPrice || 0;
+    const refPrice =
+      quote && quote.corePrice > 0
+        ? quote.corePrice
+        : quote?.rhPrice ||
+          getMemoryPrice("mainnet", target.symbol) ||
+          getMemoryPrice("rh", target.symbol) ||
+          0;
     let targetVal = "";
     if (target.unit === "bps") {
       if (refPrice > 0) {
@@ -520,12 +548,19 @@ export function getBot(env: Env): Bot {
       }
     }
 
+    const nowSec = Math.floor(Date.now() / 1000);
+    const effectiveMutedUntil = Math.max(target.muted_until || 0, target.symbol_muted_until || 0);
+
     let statusBadge = "Активен (взведен)";
     if (target.is_active === 0) {
       statusBadge = "⏸ Выключен";
-    } else if (target.muted_until > Math.floor(Date.now() / 1000)) {
-      const leftMin = Math.ceil((target.muted_until - Math.floor(Date.now() / 1000)) / 60);
-      statusBadge = `🔕 Заглушен (еще ${leftMin}м)`;
+    } else if (effectiveMutedUntil > nowSec) {
+      if (effectiveMutedUntil >= 2000000000) {
+        statusBadge = "⏸ Выключен (в настройках / токен)";
+      } else {
+        const leftMin = Math.ceil((effectiveMutedUntil - nowSec) / 60);
+        statusBadge = `🔕 Заглушен (еще ${leftMin}м)`;
+      }
     } else if (target.armed === 0) {
       statusBadge = "⏳ Ждет отката";
     }
@@ -548,8 +583,17 @@ export function getBot(env: Env): Bot {
     const kb = new InlineKeyboard();
     const toggleLabel = target.is_active === 1 ? "⏸ Приостановить" : "▶️ Включить";
     kb.text(toggleLabel, `sp_tog:${target.id}`)
-      .row()
-      .text("✏️ Изменить", `sp_edit:${target.id}`)
+      .text(`➕ Еще для ${target.symbol}`, `sp_sym:${target.symbol}`)
+      .row();
+
+    if (effectiveMutedUntil > nowSec) {
+      kb.text(
+        `🔔 Размьютить ${target.symbol}`,
+        `sp_sym_unmute_card:${target.symbol}:${target.id}`,
+      ).row();
+    }
+
+    kb.text("✏️ Изменить", `sp_edit:${target.id}`)
       .text("🗑 Удалить", `sp_del:${target.id}`)
       .row()
       .text("« Назад к списку таргетов", "sp_manage");
@@ -791,10 +835,20 @@ export function getBot(env: Env): Bot {
       [
         "📊 Мои позиции",
         "Мои позиции",
+        "📊 Мои сделки",
+        "Мои сделки",
         "📐 Мои таргеты",
         "Мои таргеты",
+        "📈 Таргеты спреда",
+        "Таргеты спреда",
         "💼 Мои аккаунты",
         "Мои аккаунты",
+        "💼 Мои кошельки",
+        "Мои кошельки",
+        "➕ Добавить кошелек",
+        "➕ Добавить аккаунт",
+        "Добавить кошелек",
+        "Добавить аккаунт",
         "⚙️ Настройки",
         "Настройки",
         "📈 Админ статистика",
@@ -971,10 +1025,11 @@ export function getBot(env: Env): Bot {
       const editTargetId = state.editTargetId;
 
       if (editTargetId) {
-        await updateSpreadTargetThreshold(
+        await updateSpreadTarget(
           env.DB,
           ctx.from!.id,
           editTargetId,
+          state.direction,
           parsed.value,
           parsed.unit,
           initialArmed,
@@ -2022,14 +2077,8 @@ export function getBot(env: Env): Bot {
   });
 
   bot.callbackQuery("sp_wiz_start", async (ctx) => {
-    const stats = await getUserSpreadStats(env.DB, ctx.from!.id);
-    if (stats.tokenCount >= CONFIG.MAX_SPREAD_TOKENS_PER_USER) {
-      await ctx.answerCallbackQuery({
-        text: `⚠️ Лимит токенов исчерпан (${stats.tokenCount}/${CONFIG.MAX_SPREAD_TOKENS_PER_USER})`,
-        show_alert: true,
-      });
-      return;
-    }
+    const telegramId = ctx.from!.id;
+    const stats = await getUserSpreadStats(env.DB, telegramId);
     if (stats.totalTargets >= CONFIG.MAX_SPREAD_TARGETS_PER_USER) {
       await ctx.answerCallbackQuery({
         text: `⚠️ Лимит таргетов исчерпан (${stats.totalTargets}/${CONFIG.MAX_SPREAD_TARGETS_PER_USER})`,
@@ -2038,8 +2087,35 @@ export function getBot(env: Env): Bot {
       return;
     }
 
-    await setUserWizardState(env.DB, ctx.from!.id, { step: "SPREAD_AWAIT_SYMBOL" });
+    const allTargets = await getUserSpreadTargets(env.DB, telegramId);
+    const userTrackedTokens = Array.from(new Set(allTargets.map((t) => t.symbol)));
+
     await ctx.answerCallbackQuery();
+
+    if (stats.tokenCount >= CONFIG.MAX_SPREAD_TOKENS_PER_USER) {
+      await setUserWizardState(env.DB, telegramId, null);
+      const promptText =
+        `🎯 <b>Добавление таргета спреда</b>\n\n` +
+        `⚠️ Достигнут лимит уникальных токенов (<b>${stats.tokenCount}/${CONFIG.MAX_SPREAD_TOKENS_PER_USER}</b>).\n` +
+        `Вы можете добавить еще таргет к вашим уже отслеживаемым токенам (всего таргетов: ${stats.totalTargets}/${CONFIG.MAX_SPREAD_TARGETS_PER_USER}):\n\n` +
+        `Выберите токен:`;
+
+      const kb = new InlineKeyboard();
+      for (let i = 0; i < userTrackedTokens.length; i++) {
+        kb.text(userTrackedTokens[i]!, `sp_sym:${userTrackedTokens[i]}`);
+        if (i % 3 === 2) kb.row();
+      }
+      kb.row().text("❌ Отмена", "sp_manage");
+
+      try {
+        await ctx.editMessageText(promptText, { parse_mode: "HTML", reply_markup: kb });
+      } catch {
+        await ctx.reply(promptText, { parse_mode: "HTML", reply_markup: kb });
+      }
+      return;
+    }
+
+    await setUserWizardState(env.DB, telegramId, { step: "SPREAD_AWAIT_SYMBOL" });
 
     const promptText =
       `🎯 <b>Добавление таргета спреда</b>\n\n` +
@@ -2052,9 +2128,19 @@ export function getBot(env: Env): Bot {
       .text("XAU", "sp_sym:XAU")
       .row()
       .text("NVDA", "sp_sym:NVDA")
-      .text("AAPL", "sp_sym:AAPL")
-      .row()
-      .text("❌ Отмена", "sp_manage");
+      .text("AAPL", "sp_sym:AAPL");
+
+    const extraTokens = userTrackedTokens.filter(
+      (t) => !["SPY", "QQQ", "XAU", "NVDA", "AAPL"].includes(t),
+    );
+    if (extraTokens.length > 0) {
+      kb.row();
+      for (let i = 0; i < extraTokens.length; i++) {
+        kb.text(extraTokens[i]!, `sp_sym:${extraTokens[i]}`);
+        if (i % 3 === 2) kb.row();
+      }
+    }
+    kb.row().text("❌ Отмена", "sp_manage");
 
     try {
       await ctx.editMessageText(promptText, { parse_mode: "HTML", reply_markup: kb });
@@ -2086,8 +2172,11 @@ export function getBot(env: Env): Bot {
       const editTargetId = ctx.match[5] ? parseInt(ctx.match[5]!, 10) : undefined;
 
       const quote = await getLiveSpreadQuote(symbol);
-      const refPrice = quote ? quote.corePrice : 100;
-      const targetDeltaUsd = (refPrice * bps) / 10000;
+      const refPrice =
+        quote && quote.corePrice > 0
+          ? quote.corePrice
+          : getMemoryPrice("mainnet", symbol) || getMemoryPrice("rh", symbol) || 0;
+      const targetDeltaUsd = refPrice > 0 ? (refPrice * bps) / 10000 : 0;
 
       let initialArmed = 1;
       let currentBasisBps = 0;
@@ -2101,10 +2190,11 @@ export function getBot(env: Env): Bot {
 
       const isEditing = Boolean(editTargetId);
       if (editTargetId) {
-        await updateSpreadTargetThreshold(
+        await updateSpreadTarget(
           env.DB,
           ctx.from!.id,
           editTargetId,
+          direction,
           bps,
           "bps",
           initialArmed,
@@ -2214,8 +2304,7 @@ export function getBot(env: Env): Bot {
       await ctx.answerCallbackQuery({ text: "Таргет не найден" });
       return;
     }
-    await updateSpreadTargetDirection(env.DB, ctx.from!.id, targetId, newDir);
-    await ctx.answerCallbackQuery({ text: "Условие изменено" });
+    await ctx.answerCallbackQuery({ text: "Условие изменено (выберите порог)" });
     await showPresetPicker(ctx, target.symbol, newDir, true, targetId);
   });
 
@@ -2255,78 +2344,13 @@ export function getBot(env: Env): Bot {
     await showSpreadTargetCard(ctx, targetId, true);
   });
 
-  bot.callbackQuery(/^sp_del_sym(?:_ask|_confirm)?:([A-Za-z0-9._-]+)$/, async (ctx) => {
+  bot.callbackQuery(/^sp_sym_unmute_card:([A-Za-z0-9._-]+):(\d+)$/, async (ctx) => {
     const symbol = ctx.match[1]!;
-    await deleteSpreadTargetsBySymbol(env.DB, ctx.from!.id, symbol);
-    await ctx.answerCallbackQuery({ text: `Все таргеты ${symbol} удалены` });
-    await handleSpreadManage(ctx, true);
-  });
-
-  bot.callbackQuery(/^sp_mute:(\d+):(3600|14400|off)$/, async (ctx) => {
-    const targetId = parseInt(ctx.match[1], 10);
-    const dur = ctx.match[2];
-    const nowSec = Math.floor(Date.now() / 1000);
-
-    if (dur === "off") {
-      await toggleSpreadTargetActive(env.DB, ctx.from!.id, targetId, 0);
-      await ctx.answerCallbackQuery({ text: "⏸ Таргет выключен (до включения)" });
-    } else {
-      const mutedUntil = nowSec + parseInt(dur, 10);
-      await setSpreadTargetMute(env.DB, ctx.from!.id, targetId, mutedUntil);
-      const hours = dur === "3600" ? "1 час" : "4 часа";
-      await ctx.answerCallbackQuery({ text: `🔕 Таргет заглушен на ${hours}` });
-    }
-
-    try {
-      const currentMarkup = ctx.callbackQuery.message?.reply_markup;
-      if (currentMarkup?.inline_keyboard) {
-        const newKeyboard = new InlineKeyboard();
-        for (const row of currentMarkup.inline_keyboard) {
-          const isMuteRow = row.some((btn: any) => btn.callback_data?.startsWith("sp_mute:"));
-          if (isMuteRow) {
-            newKeyboard.text("🔔 Включить таргет обратно", `sp_unmute:${targetId}`).row();
-          } else {
-            for (const btn of row as any[]) {
-              if (btn.url) newKeyboard.url(btn.text, btn.url);
-              else if (btn.callback_data) newKeyboard.text(btn.text, btn.callback_data);
-            }
-            newKeyboard.row();
-          }
-        }
-        await ctx.editMessageReplyMarkup({ reply_markup: newKeyboard });
-      }
-    } catch {}
-  });
-
-  bot.callbackQuery(/^sp_unmute:(\d+)$/, async (ctx) => {
-    const targetId = parseInt(ctx.match[1], 10);
-    await toggleSpreadTargetActive(env.DB, ctx.from!.id, targetId, 1);
+    const targetId = parseInt(ctx.match[2]!, 10);
+    await setSpreadSymbolMute(env.DB, ctx.from!.id, symbol, 0);
     await setSpreadTargetMute(env.DB, ctx.from!.id, targetId, 0);
-    await ctx.answerCallbackQuery({ text: "🔔 Таргет снова активен" });
-
-    try {
-      const currentMarkup = ctx.callbackQuery.message?.reply_markup;
-      if (currentMarkup?.inline_keyboard) {
-        const newKeyboard = new InlineKeyboard();
-        for (const row of currentMarkup.inline_keyboard) {
-          const isUnmuteRow = row.some((btn: any) => btn.callback_data?.startsWith("sp_unmute:"));
-          if (isUnmuteRow) {
-            newKeyboard
-              .text("🔕 1ч", `sp_mute:${targetId}:3600`)
-              .text("🔕 4ч", `sp_mute:${targetId}:14400`)
-              .text("⏸ Выкл", `sp_mute:${targetId}:off`)
-              .row();
-          } else {
-            for (const btn of row as any[]) {
-              if (btn.url) newKeyboard.url(btn.text, btn.url);
-              else if (btn.callback_data) newKeyboard.text(btn.text, btn.callback_data);
-            }
-            newKeyboard.row();
-          }
-        }
-        await ctx.editMessageReplyMarkup({ reply_markup: newKeyboard });
-      }
-    } catch {}
+    await ctx.answerCallbackQuery({ text: `🔔 Алерты ${symbol} включены` });
+    await showSpreadTargetCard(ctx, targetId, true);
   });
 
   bot.callbackQuery(/^sp_sym_mute:([A-Za-z0-9._-]+):(\d+|off)$/, async (ctx) => {
@@ -2370,30 +2394,31 @@ export function getBot(env: Env): Bot {
     } catch {}
   });
 
-  bot.callbackQuery(/^sp_mt_all:(\d+)$/, async (ctx) => {
-    const sec = parseInt(ctx.match[1], 10);
-    const mutedUntil = sec === 0 ? 0 : Math.floor(Date.now() / 1000) + sec;
-    await setUserSpreadMute(env.DB, ctx.from!.id, mutedUntil);
-    const label = sec === 0 ? "🔔 Алерты спреда включены" : "🔕 Все спреды заглушены на 4ч";
-    await ctx.answerCallbackQuery({ text: label });
-    await handleSpreadMenu(ctx, true);
-  });
-
   // ==========================================
   // КНОПКИ НИЖНЕЙ КЛАВИАТУРЫ (REPLY KEYBOARD)
   // ==========================================
 
-  bot.hears(["📊 Мои позиции", "Мои позиции"], async (ctx) => {
+  bot.hears(["📊 Мои позиции", "Мои позиции", "📊 Мои сделки", "Мои сделки"], async (ctx) => {
     await handlePositions(ctx);
   });
 
-  bot.hears(["📐 Мои таргеты", "Мои таргеты"], async (ctx) => {
-    await handleSpreadMenu(ctx);
-  });
+  bot.hears(
+    ["📐 Мои таргеты", "Мои таргеты", "📈 Таргеты спреда", "Таргеты спреда"],
+    async (ctx) => {
+      await handleSpreadMenu(ctx);
+    },
+  );
 
-  bot.hears(["💼 Мои аккаунты", "Мои аккаунты"], async (ctx) => {
+  bot.hears(["💼 Мои аккаунты", "Мои аккаунты", "💼 Мои кошельки", "Мои кошельки"], async (ctx) => {
     await handleList(ctx);
   });
+
+  bot.hears(
+    ["➕ Добавить кошелек", "➕ Добавить аккаунт", "Добавить кошелек", "Добавить аккаунт"],
+    async (ctx) => {
+      await startAddWizard(ctx, false);
+    },
+  );
 
   bot.hears(["⚙️ Настройки", "Настройки"], async (ctx) => {
     await handleSettingsMain(ctx);

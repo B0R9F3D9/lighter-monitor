@@ -1,9 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import {
+  getUserSpreadTargets,
   addSpreadTarget,
   deleteSpreadTarget,
   deleteSpreadTargetsBySymbol,
   toggleSpreadTargetActive,
+  updateSpreadTarget,
+  updateSpreadTargetThreshold,
+  updateSpreadTargetDirection,
   setSpreadTargetMute,
   setSpreadSymbolMute,
   setUserSpreadMute,
@@ -221,6 +225,171 @@ describe("Spread DB Queries & UNION Filtering", () => {
 
     const targets = await getActiveSpreadTargetsForMonitoring(mockDb);
     expect(targets).toEqual([]);
+  });
+
+  it("getUserSpreadTargets joins spread_symbol_mutes to fetch symbol_muted_until", async () => {
+    let executedSql = "";
+    let boundId: any = null;
+    const mockDb: any = {
+      prepare: (sql: string) => {
+        executedSql = sql;
+        return {
+          bind: (id: any) => {
+            boundId = id;
+            return {
+              all: async () => ({
+                results: [
+                  {
+                    id: 1,
+                    symbol: "SPY",
+                    symbol_muted_until: 1700014400,
+                  },
+                ],
+              }),
+            };
+          },
+        };
+      },
+    };
+
+    const targets = await getUserSpreadTargets(mockDb, 12345);
+    expect(targets.length).toBe(1);
+    expect(targets[0]!.symbol_muted_until).toBe(1700014400);
+    expect(executedSql).toContain("LEFT JOIN spread_symbol_mutes");
+    expect(boundId).toBe(12345);
+  });
+
+  it("updateSpreadTarget uses UPDATE OR REPLACE and updates direction, threshold and armed atomically", async () => {
+    let executedSql = "";
+    let boundParams: any[] = [];
+    const mockDb: any = {
+      prepare: (sql: string) => {
+        executedSql = sql;
+        return {
+          bind: (...params: any[]) => {
+            boundParams = params;
+            return {
+              run: async () => ({ meta: { changes: 1 } }),
+            };
+          },
+        };
+      },
+    };
+
+    const success = await updateSpreadTarget(mockDb, 12345, 10, "rh_expensive", 3.5, "bps", 1);
+
+    expect(success).toBe(true);
+    expect(executedSql).toContain("UPDATE OR REPLACE user_spread_targets");
+    expect(boundParams).toEqual(["rh_expensive", 3.5, "bps", 1, 10, 12345]);
+
+    await updateSpreadTargetThreshold(mockDb, 12345, 10, 4.0, "bps", 1);
+    expect(executedSql).toContain("UPDATE OR REPLACE user_spread_targets");
+    expect(boundParams).toEqual([4.0, "bps", 1, 10, 12345]);
+
+    await updateSpreadTargetDirection(mockDb, 12345, 10, "rh_cheaper", 1);
+    expect(executedSql).toContain("UPDATE OR REPLACE user_spread_targets");
+    expect(boundParams).toEqual(["rh_cheaper", 1, 10, 12345]);
+  });
+
+  it("setUserSpreadMute with 0 deletes symbol mutes from spread_symbol_mutes", async () => {
+    const executedStmts: { sql: string; params: any[] }[] = [];
+    const mockDb: any = {
+      prepare: (sql: string) => ({
+        bind: (...params: any[]) => {
+          const stmtObj = { sql, params };
+          return {
+            ...stmtObj,
+            run: async () => {
+              executedStmts.push(stmtObj);
+              return { meta: { changes: 1 } };
+            },
+          };
+        },
+      }),
+      batch: async (stmts: any[]) => {
+        for (const s of stmts) {
+          executedStmts.push({ sql: s.sql, params: s.params });
+        }
+        return stmts.map(() => ({ meta: { changes: 1 } }));
+      },
+    };
+
+    await setUserSpreadMute(mockDb, 999, 0);
+
+    expect(
+      executedStmts.some((s) => s.sql.includes("UPDATE users SET spread_muted_until = ?")),
+    ).toBe(true);
+    expect(
+      executedStmts.some((s) =>
+        s.sql.includes("DELETE FROM spread_symbol_mutes WHERE telegram_id = ?"),
+      ),
+    ).toBe(true);
+  });
+
+  it("toggleSpreadTargetActive with 1 un-mutes target and deletes symbol mute", async () => {
+    const executedStmts: { sql: string; params: any[] }[] = [];
+    const mockDb: any = {
+      prepare: (sql: string) => ({
+        bind: (...params: any[]) => {
+          const stmtObj = { sql, params };
+          return {
+            ...stmtObj,
+            first: async () => ({ symbol: "SPY" }),
+            run: async () => {
+              executedStmts.push(stmtObj);
+              return { meta: { changes: 1 } };
+            },
+          };
+        },
+      }),
+      batch: async (stmts: any[]) => {
+        for (const s of stmts) {
+          executedStmts.push({ sql: s.sql, params: s.params });
+        }
+        return stmts.map(() => ({ meta: { changes: 1 } }));
+      },
+    };
+
+    const success = await toggleSpreadTargetActive(mockDb, 999, 42, 1);
+    expect(success).toBe(true);
+    expect(
+      executedStmts.some((s) =>
+        s.sql.includes("UPDATE user_spread_targets SET is_active = 1, muted_until = 0"),
+      ),
+    ).toBe(true);
+    expect(
+      executedStmts.some((s) =>
+        s.sql.includes("DELETE FROM spread_symbol_mutes WHERE telegram_id = ? AND symbol = ?"),
+      ),
+    ).toBe(true);
+  });
+
+  it("getActiveSpreadTargetsForMonitoring binds nowSec and filters armed=1 mutes while retaining armed=0", async () => {
+    let executedSql = "";
+    let boundParams: any[] = [];
+    const mockDb: any = {
+      prepare: (sql: string) => {
+        executedSql = sql;
+        return {
+          bind: (...params: any[]) => {
+            boundParams = params;
+            return {
+              all: async () => ({ results: [] }),
+            };
+          },
+        };
+      },
+    };
+
+    const nowSec = 1700000000;
+    await getActiveSpreadTargetsForMonitoring(mockDb, nowSec);
+
+    expect(executedSql).toContain("t.armed = 0");
+    expect(executedSql).toContain("t.muted_until <= ?");
+    expect(executedSql).toContain("COALESCE(u.spread_muted_until, 0) <= ?");
+    expect(executedSql).toContain("COALESCE(sm.muted_until, 0) <= ?");
+    expect(executedSql).toContain("ORDER BY COALESCE(t.last_alerted_at, 0) ASC, t.id ASC");
+    expect(boundParams).toEqual([nowSec, nowSec, nowSec]);
   });
 
   it("ensureDatabaseSchema executes all DDL queries without throwing", async () => {

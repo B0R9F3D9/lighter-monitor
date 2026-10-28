@@ -34,6 +34,8 @@ export async function handleBotWebhook(
     env.WEBAPP_URL = url.origin;
   }
 
+  await ensureDatabaseSchema(env.DB);
+
   const bot = getBot(env);
   if (!cachedWebhookHandler) {
     cachedWebhookHandler = webhookCallback(bot, "cloudflare-mod");

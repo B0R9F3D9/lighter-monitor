@@ -864,11 +864,13 @@ export async function getUserSpreadTargets(
   const { results } = await db
     .prepare(`
       SELECT 
-        id, telegram_id, symbol, direction, target_delta, unit,
-        is_active, armed, muted_until, last_alerted_at, last_spread, created_at
-      FROM user_spread_targets
-      WHERE telegram_id = ?
-      ORDER BY symbol ASC, direction ASC, target_delta ASC
+        t.id, t.telegram_id, t.symbol, t.direction, t.target_delta, t.unit,
+        t.is_active, t.armed, t.muted_until, t.last_alerted_at, t.last_spread, t.created_at,
+        COALESCE(sm.muted_until, 0) as symbol_muted_until
+      FROM user_spread_targets t
+      LEFT JOIN spread_symbol_mutes sm ON t.telegram_id = sm.telegram_id AND t.symbol = sm.symbol
+      WHERE t.telegram_id = ?
+      ORDER BY t.symbol ASC, t.direction ASC, t.target_delta ASC
     `)
     .bind(telegramId)
     .all<SpreadTargetRow>();
@@ -955,9 +957,60 @@ export async function toggleSpreadTargetActive(
   targetId: number,
   isActive: number,
 ): Promise<boolean> {
+  if (isActive === 1) {
+    const target = await db
+      .prepare("SELECT symbol FROM user_spread_targets WHERE id = ? AND telegram_id = ?")
+      .bind(targetId, telegramId)
+      .first<{ symbol: string }>();
+
+    const stmts: D1PreparedStatement[] = [
+      db
+        .prepare(
+          "UPDATE user_spread_targets SET is_active = 1, muted_until = 0 WHERE id = ? AND telegram_id = ?",
+        )
+        .bind(targetId, telegramId),
+    ];
+    if (target?.symbol) {
+      stmts.push(
+        db
+          .prepare("DELETE FROM spread_symbol_mutes WHERE telegram_id = ? AND symbol = ?")
+          .bind(telegramId, target.symbol),
+      );
+    }
+    if (db.batch) {
+      const res = await db.batch(stmts);
+      return (res[0].meta.changes ?? 0) > 0;
+    } else {
+      let changed = false;
+      for (const stmt of stmts) {
+        const res = await stmt.run();
+        if ((res.meta.changes ?? 0) > 0) changed = true;
+      }
+      return changed;
+    }
+  }
+
   const res = await db
     .prepare("UPDATE user_spread_targets SET is_active = ? WHERE id = ? AND telegram_id = ?")
     .bind(isActive, targetId, telegramId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+export async function updateSpreadTarget(
+  db: D1Database,
+  telegramId: number,
+  targetId: number,
+  direction: SpreadDirection,
+  targetDelta: number,
+  unit: SpreadUnit,
+  armed: number = 1,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      "UPDATE OR REPLACE user_spread_targets SET direction = ?, target_delta = ?, unit = ?, armed = ?, is_active = 1, muted_until = 0 WHERE id = ? AND telegram_id = ?",
+    )
+    .bind(direction, targetDelta, unit, armed, targetId, telegramId)
     .run();
   return (res.meta.changes ?? 0) > 0;
 }
@@ -972,7 +1025,7 @@ export async function updateSpreadTargetThreshold(
 ): Promise<boolean> {
   const res = await db
     .prepare(
-      "UPDATE user_spread_targets SET target_delta = ?, unit = ?, armed = ?, is_active = 1 WHERE id = ? AND telegram_id = ?",
+      "UPDATE OR REPLACE user_spread_targets SET target_delta = ?, unit = ?, armed = ?, is_active = 1, muted_until = 0 WHERE id = ? AND telegram_id = ?",
     )
     .bind(targetDelta, unit, armed, targetId, telegramId)
     .run();
@@ -988,7 +1041,7 @@ export async function updateSpreadTargetDirection(
 ): Promise<boolean> {
   const res = await db
     .prepare(
-      "UPDATE user_spread_targets SET direction = ?, armed = ?, is_active = 1 WHERE id = ? AND telegram_id = ?",
+      "UPDATE OR REPLACE user_spread_targets SET direction = ?, armed = ?, is_active = 1, muted_until = 0 WHERE id = ? AND telegram_id = ?",
     )
     .bind(direction, armed, targetId, telegramId)
     .run();
@@ -1030,10 +1083,23 @@ export async function setUserSpreadMute(
   telegramId: number,
   mutedUntil: number,
 ): Promise<void> {
-  await db
-    .prepare("UPDATE users SET spread_muted_until = ? WHERE telegram_id = ?")
-    .bind(mutedUntil, telegramId)
-    .run();
+  const stmts: D1PreparedStatement[] = [
+    db
+      .prepare("UPDATE users SET spread_muted_until = ? WHERE telegram_id = ?")
+      .bind(mutedUntil, telegramId),
+  ];
+  if (mutedUntil === 0) {
+    stmts.push(
+      db.prepare("DELETE FROM spread_symbol_mutes WHERE telegram_id = ?").bind(telegramId),
+    );
+  }
+  if (db.batch) {
+    await db.batch(stmts);
+  } else {
+    for (const stmt of stmts) {
+      await stmt.run();
+    }
+  }
 }
 
 export async function getUserSpreadMute(db: D1Database, telegramId: number): Promise<number> {
@@ -1046,7 +1112,7 @@ export async function getUserSpreadMute(db: D1Database, telegramId: number): Pro
 
 export async function getActiveSpreadTargetsForMonitoring(
   db: D1Database,
-  _nowSec: number = Math.floor(Date.now() / 1000),
+  nowSec: number = Math.floor(Date.now() / 1000),
 ): Promise<SpreadTargetRow[]> {
   try {
     const { results } = await db
@@ -1070,7 +1136,17 @@ export async function getActiveSpreadTargetsForMonitoring(
         JOIN users u ON t.telegram_id = u.telegram_id
         LEFT JOIN spread_symbol_mutes sm ON t.telegram_id = sm.telegram_id AND t.symbol = sm.symbol
         WHERE t.is_active = 1
+          AND (
+            t.armed = 0
+            OR (
+              t.muted_until <= ?
+              AND COALESCE(u.spread_muted_until, 0) <= ?
+              AND COALESCE(sm.muted_until, 0) <= ?
+            )
+          )
+        ORDER BY COALESCE(t.last_alerted_at, 0) ASC, t.id ASC
       `)
+      .bind(nowSec, nowSec, nowSec)
       .all<SpreadTargetRow>();
 
     return results || [];
