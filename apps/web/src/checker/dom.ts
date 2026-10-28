@@ -1054,8 +1054,8 @@ export function renderMarketSummaryCards(
         stat.avgHoldingDurationMs
           ? `Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}`
           : null,
-        `Slippage PnL: ${slipFormatted}`,
-        `Funding PnL: ${fundFormatted}`,
+        `Slippage: ${slipFormatted}`,
+        `Funding: ${fundFormatted}`,
         `Fees: ${feeFormatted}`,
         `Net PnL: ${netFormatted}`,
         "Click to select trades and view summary for this market",
@@ -1158,8 +1158,8 @@ export function renderMarketSummaryCards(
     `Total: ${stats.length} markets`,
     `Volume (RH): ${formatMoney(totalVolumeUsd)}`,
     overallAvgHoldingMs > 0 ? `Avg Hold: ${formatCompactDuration(overallAvgHoldingMs)}` : null,
-    `Slippage PnL: ${totalSlipFormatted}`,
-    `Funding PnL: ${totalFundFormatted}`,
+    `Slippage: ${totalSlipFormatted}`,
+    `Funding: ${totalFundFormatted}`,
     `Fees: ${totalFeeFormatted}`,
     `Net PnL: ${totalNetFormatted}`,
     "Click to view all markets",
@@ -1182,10 +1182,10 @@ export function renderMarketSummaryCards(
             Avg Hold ${renderSortIndicator("avgHoldingDurationMs")}
           </th>
           <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="slippagePnlUsd" title="Gross slippage PnL">
-            Slippage PnL ${renderSortIndicator("slippagePnlUsd")}
+            Slippage ${renderSortIndicator("slippagePnlUsd")}
           </th>
           <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="fundingPnlUsd" title="Net funding paid or received (RH + Core)">
-            Funding PnL ${renderSortIndicator("fundingPnlUsd")}
+            Funding ${renderSortIndicator("fundingPnlUsd")}
           </th>
           <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="feeUsd" title="Trading fees (RH + Core)">
             Fees ${renderSortIndicator("feeUsd")}

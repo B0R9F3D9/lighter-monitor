@@ -2786,9 +2786,9 @@ describe("Hedge Matching Engine", () => {
       expect(html).toContain("$145.0K");
       expect(html).toContain("Avg Hold");
       expect(html).toContain("14m");
-      expect(html).toContain("Slippage PnL");
+      expect(html).toContain("Slippage");
       expect(html).toContain("+$120.50");
-      expect(html).toContain("Funding PnL");
+      expect(html).toContain("Funding");
       expect(html).toContain("-$15.20");
       expect(html).toContain("Fees");
       expect(html).toContain("$8.50");

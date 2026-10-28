@@ -737,9 +737,9 @@
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1 select-text">
             <span class="font-bold text-terminal-secondary select-text">Basis &amp; Spread</span>
             <span class="select-none">•</span>
-            <span class="text-terminal-emerald select-text">RH Cheaper (≤ 0)</span>
+            <span class="text-terminal-emerald select-text">RH Cheaper (Core More Expensive)</span>
             <span class="select-none">•</span>
-            <span class="text-terminal-accent select-text">RH More Expensive (&gt; 0)</span>
+            <span class="text-terminal-accent select-text">RH More Expensive (Core Cheaper)</span>
           </div>
           <div class="flex items-center gap-2.5 shrink-0 select-text">
             <button
@@ -783,8 +783,8 @@
               24-Hour Execution Clock (Time-of-Day Heatmap)
             </div>
             <div class="text-[10px] text-terminal-muted">
-              Average basis grouped by hour of the day (Local Time). Muted green = optimal entry
-              hours; coral = peak spread.
+              Average basis by hour (Local Time). Green = optimal entry to open; coral = peak spread
+              to exit.
             </div>
           </div>
           <div class="flex items-center gap-3 text-[10px] text-terminal-muted shrink-0 select-none">
@@ -792,13 +792,13 @@
               ><span
                 class="w-2 h-2 rounded bg-terminal-emeraldMuted border border-terminal-emerald/40"
               ></span>
-              Low Spread</span
+              Low Spread (Entry)</span
             >
             <span class="flex items-center gap-1"
               ><span
                 class="w-2 h-2 rounded bg-terminal-coralMuted border border-terminal-coral/40"
               ></span>
-              High Spread</span
+              High Spread (Exit)</span
             >
           </div>
         </div>
