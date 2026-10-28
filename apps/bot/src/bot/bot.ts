@@ -1,8 +1,20 @@
 import { Bot, InlineKeyboard, Keyboard } from "grammy";
-import { Env, PositionRiskAnalysis, LighterNetwork } from "../types";
+import { Env, PositionRiskAnalysis, LighterNetwork, SpreadDirection } from "../types";
 import { CONFIG, getLighterAuthToken } from "../config";
-import { fetchLighterAccountWithStatus, fetchInChunks } from "../lighter/api";
-import { analyzePositionRisk, unpackPosition } from "../lighter/math";
+import {
+  fetchLighterAccountWithStatus,
+  fetchInChunks,
+  fetchExchangeStats,
+  findMarketPrice,
+} from "../lighter/api";
+import {
+  analyzePositionRisk,
+  unpackPosition,
+  formatPriceFine,
+  computeSpreadBasis,
+  parseSpreadThresholdInput,
+  isMuted as checkIsMuted,
+} from "../lighter/math";
 import { MEMORY_PRICES } from "../cache/memory";
 import {
   batchUpdatePositionsCache,
@@ -20,8 +32,20 @@ import {
   getUserPositionsFullState,
   getAccountsPositionsCache,
   getUserAccountCardDetails,
+  getUserSpreadTargets,
+  getUserSpreadStats,
+  addSpreadTarget,
+  deleteSpreadTarget,
+  deleteSpreadTargetsBySymbol,
+  toggleSpreadTargetActive,
+  updateSpreadTargetThreshold,
+  updateSpreadTargetDirection,
+  setSpreadTargetMute,
+  setSpreadSymbolMute,
+  setUserSpreadMute,
+  getUserSpreadMute,
 } from "../db/queries";
-import { formatPositionsReport } from "./formatters";
+import { formatPositionsReport, formatSpreadHubView, getSpreadAlertKeyboard } from "./formatters";
 import { runInBackground } from "../utils/background";
 
 let botInstance: Bot | null = null;
@@ -71,28 +95,25 @@ function getPositionsKeyboard(
   return new InlineKeyboard().text("🔄 Обновить", refreshCb);
 }
 
-function getSettingsKeyboard(threshold: number, mutedUntil: number): InlineKeyboard {
-  const presets = [0.3, 0.5, 0.8, 1.0, 1.5, 2.0];
-  const kb = new InlineKeyboard();
-  for (let i = 0; i < presets.length; i++) {
-    const p = presets[i]!;
-    const label = Math.abs(p - threshold) < 0.001 ? `✅ ${p}%` : `${p}%`;
-    kb.text(label, `set_thresh_${p}`);
-    if (i === 2) kb.row();
+function formatAlertMuteStatus(mutedUntil: number, nowSec: number): string {
+  if (mutedUntil <= nowSec) {
+    return "🔔 Включены";
   }
-  kb.row();
-  const isCustom = !presets.some((p) => Math.abs(p - threshold) < 0.001);
-  const customLabel = isCustom ? `✏️ Свой % (сейчас ${threshold.toFixed(1)}%)` : `✏️ Ввести свой %`;
-  kb.text(customLabel, "custom_threshold");
-  kb.row();
+  if (mutedUntil >= CONFIG.MUTE_FOREVER_TIMESTAMP) {
+    return "⏸ Выключены (до включения)";
+  }
+  const remainingMinutes = Math.ceil((mutedUntil - nowSec) / 60);
+  if (remainingMinutes >= 60) {
+    const hours = Math.floor(remainingMinutes / 60);
+    const mins = remainingMinutes % 60;
+    return mins > 0 ? `🔕 Заглушены (еще ${hours}ч ${mins}м)` : `🔕 Заглушены (еще ${hours}ч)`;
+  }
+  return `🔕 Заглушены (еще ${remainingMinutes}м)`;
+}
 
-  const isMuted = mutedUntil > Math.floor(Date.now() / 1000);
-  if (isMuted) {
-    kb.text("🔔 Включить уведомления", "settings_unmute");
-  } else {
-    kb.text("🔕 Заглушить на 4 часа", "settings_mute_4h");
-  }
-  return kb;
+function formatThreshold(val: number): string {
+  const str = Number(val.toFixed(4)).toString();
+  return str.includes(".") ? str : `${str}.0`;
 }
 
 export function getStatsKeyboard(): InlineKeyboard {
@@ -103,16 +124,11 @@ export function getMainKeyboard(env?: Env, userId?: number, username?: string): 
   const activeEnv = env || currentEnv;
   const isAdmin = activeEnv ? isUserAdmin(activeEnv, userId, username) : false;
   const kb = new Keyboard()
-    .text("📊 Мои сделки")
-    .text("💼 Мои кошельки")
+    .text("📊 Мои позиции")
+    .text("📐 Мои таргеты")
     .row()
-    .text("➕ Добавить кошелек")
+    .text("💼 Мои аккаунты")
     .text("⚙️ Настройки");
-
-  const webAppUrl = activeEnv?.WEBAPP_URL?.trim().replace(/\/$/, "");
-  if (webAppUrl && webAppUrl.startsWith("https://")) {
-    kb.row().webApp("🚀 Web App", webAppUrl);
-  }
 
   if (isAdmin) {
     kb.row().text("📈 Админ статистика");
@@ -181,7 +197,7 @@ async function renderAdminDashboard(env: Env): Promise<string> {
   return (
     `👥 <b>Пользователи и счета:</b>\n` +
     `  • Пользователи: <b>${stats.totalUsers}</b> (новых за 24ч: <b>+${stats.users24h}</b>)\n` +
-    `  • Всего кошельков: <b>${stats.totalTracked}</b> (🟠 RH: ${stats.trackedRh} | ⚡️ Mainnet: ${stats.trackedMainnet})\n` +
+    `  • Всего аккаунтов: <b>${stats.totalTracked}</b> (🟠 RH: ${stats.trackedRh} | ⚡️ Mainnet: ${stats.trackedMainnet})\n` +
     `  • Активных счетов: <b>${stats.activeAccountsCount}</b>\n\n` +
     `💰 <b>Объем портфеля:</b>\n` +
     `  • Совокупный залог: <b>$${stats.totalCollateralUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>\n` +
@@ -204,6 +220,352 @@ export function getBot(env: Env): Bot {
 
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN);
   const getMainKb = (ctx?: any) => getMainKeyboard(env, ctx?.from?.id, ctx?.from?.username);
+
+  const getLiveSpreadQuote = async (
+    symbol: string,
+  ): Promise<{ rhPrice: number; corePrice: number } | null> => {
+    const normSym = symbol.trim().toUpperCase();
+    const activeSet = new Set([normSym]);
+    const [snapRh, snapMainnet] = await Promise.all([
+      fetchExchangeStats("rh", activeSet, getLighterAuthToken(env, "rh")),
+      fetchExchangeStats("mainnet", activeSet, getLighterAuthToken(env, "mainnet")),
+    ]);
+    const rhMarket = findMarketPrice(snapRh, normSym);
+    const coreMarket = findMarketPrice(snapMainnet, normSym);
+    if (!rhMarket || rhMarket.price <= 0 || !coreMarket || coreMarket.price <= 0) {
+      return null;
+    }
+    return { rhPrice: rhMarket.price, corePrice: coreMarket.price };
+  };
+
+  const showDirectionPicker = async (ctx: any, symbol: string, isEdit: boolean = false) => {
+    const normSym = symbol.trim().toUpperCase();
+    const stats = await getUserSpreadStats(env.DB, ctx.from!.id);
+    const existingTargets = await getUserSpreadTargets(env.DB, ctx.from!.id);
+    const isAlreadyTracking = existingTargets.some((t) => t.symbol === normSym);
+
+    if (!isAlreadyTracking && stats.tokenCount >= CONFIG.MAX_SPREAD_TOKENS_PER_USER) {
+      const warnText = `⚠️ Вы уже отслеживаете максимум <b>${CONFIG.MAX_SPREAD_TOKENS_PER_USER}</b> токенов. Удалите ненужные токены в меню спредов перед добавлением новых.`;
+      const kb = new InlineKeyboard().text("« К спредам", "spread_menu");
+      if (isEdit) {
+        try {
+          return await ctx.editMessageText(warnText, { parse_mode: "HTML", reply_markup: kb });
+        } catch {}
+      }
+      return ctx.reply(warnText, { parse_mode: "HTML", reply_markup: kb });
+    }
+
+    if (stats.totalTargets >= CONFIG.MAX_SPREAD_TARGETS_PER_USER) {
+      const warnText = `⚠️ Вы достигли лимита в <b>${CONFIG.MAX_SPREAD_TARGETS_PER_USER}</b> таргетов. Удалите старые таргеты перед добавлением новых.`;
+      const kb = new InlineKeyboard().text("« К спредам", "spread_menu");
+      if (isEdit) {
+        try {
+          return await ctx.editMessageText(warnText, { parse_mode: "HTML", reply_markup: kb });
+        } catch {}
+      }
+      return ctx.reply(warnText, { parse_mode: "HTML", reply_markup: kb });
+    }
+
+    const quote = await getLiveSpreadQuote(normSym);
+    if (!quote) {
+      const errText =
+        `⚠️ Инструмент <b>${normSym}</b> не найден или не торгуется одновременно на Robinhood Lighter и Lighter Core.\n\n` +
+        `Проверьте тикер (например: <code>SPY</code>, <code>QQQ</code>, <code>XAU</code>, <code>NVDA</code>, <code>AAPL</code>):`;
+      const kb = new InlineKeyboard()
+        .text("SPY", "sp_sym:SPY")
+        .text("QQQ", "sp_sym:QQQ")
+        .text("XAU", "sp_sym:XAU")
+        .row()
+        .text("NVDA", "sp_sym:NVDA")
+        .text("AAPL", "sp_sym:AAPL")
+        .row()
+        .text("❌ Отмена", "spread_menu");
+      if (isEdit) {
+        try {
+          return await ctx.editMessageText(errText, { parse_mode: "HTML", reply_markup: kb });
+        } catch {}
+      }
+      return ctx.reply(errText, { parse_mode: "HTML", reply_markup: kb });
+    }
+
+    const { basisUsd, basisBps } = computeSpreadBasis(quote.rhPrice, quote.corePrice);
+    const sign = basisUsd >= 0 ? "+" : "-";
+
+    const text =
+      `🎯 <b>Настройка таргета спреда: ${normSym}</b>\n\n` +
+      `• 🟠 RH Price: <b>$${formatPriceFine(quote.rhPrice)}</b>\n` +
+      `• ⚡️ Core Price: <b>$${formatPriceFine(quote.corePrice)}</b>\n` +
+      `• 📐 Текущий базис: <b>${sign}$${Math.abs(basisUsd).toFixed(3)}</b> (<code>${basisBps >= 0 ? "+" : ""}${basisBps.toFixed(2)} bps</code>)\n\n` +
+      `Выберите условие для алерта:\n\n` +
+      `🟢 <b>RH &lt; Core</b> (Robinhood дешевле Core)\n` +
+      `🔵 <b>RH &gt; Core</b> (Robinhood дороже Core)`;
+
+    const kb = new InlineKeyboard()
+      .text("🟢 RH < Core", `sp_dir:${normSym}:rh_cheaper`)
+      .row()
+      .text("🔵 RH > Core", `sp_dir:${normSym}:rh_expensive`)
+      .row()
+      .text("❌ Отмена", "spread_menu");
+
+    if (isEdit) {
+      try {
+        return await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch {}
+    }
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+  };
+
+  const showPresetPicker = async (
+    ctx: any,
+    symbol: string,
+    direction: SpreadDirection,
+    isEdit: boolean = false,
+    editTargetId?: number,
+  ) => {
+    const quote = await getLiveSpreadQuote(symbol);
+    const refPrice = quote ? quote.corePrice : 100;
+    const dirLabel = direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+
+    let text = editTargetId
+      ? `✏️ <b>Изменение таргета ${symbol}</b>\nУсловие: <b>${dirLabel}</b>\n\n`
+      : `🎯 <b>Целевой спред для ${symbol}</b>\nУсловие: <b>${dirLabel}</b>\n\n`;
+
+    if (quote) {
+      const { basisUsd, basisBps } = computeSpreadBasis(quote.rhPrice, quote.corePrice);
+      const sign = basisUsd >= 0 ? "+" : "-";
+      text +=
+        `• Текущая цена Core: <b>$${formatPriceFine(quote.corePrice)}</b>\n` +
+        `• Текущий базис: <b>${sign}$${Math.abs(basisUsd).toFixed(3)}</b> (<code>${basisBps >= 0 ? "+" : ""}${basisBps.toFixed(2)} bps</code>)\n\n`;
+    }
+
+    text += `Выберите порог bps (в скобках расчет в $) или введите свой вариант:`;
+
+    const kb = new InlineKeyboard();
+    const presets = CONFIG.SPREAD_DEFAULT_BPS_PRESETS;
+    const idSuffix = editTargetId ? `:${editTargetId}` : "";
+    const dirSign = direction === "rh_cheaper" ? "-" : "+";
+
+    for (let i = 0; i < presets.length; i++) {
+      const bps = presets[i]!;
+      const cents = (refPrice * bps) / 10000;
+      const centsFormatted = cents >= 1 ? cents.toFixed(2) : cents.toFixed(3);
+      kb.text(
+        `${bps} bps (${dirSign}$${centsFormatted})`,
+        `sp_pr:${symbol}:${direction}:${bps}${idSuffix}`,
+      );
+      if (i % 2 === 1) kb.row();
+    }
+
+    kb.row().text("✏️ Ввести свой ($ или bps)", `sp_custom:${symbol}:${direction}${idSuffix}`);
+
+    if (editTargetId) {
+      const otherDir: SpreadDirection = direction === "rh_cheaper" ? "rh_expensive" : "rh_cheaper";
+      const otherDirLabel = otherDir === "rh_cheaper" ? "🟢 RH < Core" : "🔵 RH > Core";
+      kb.row().text(`🔄 Условие: ${otherDirLabel}`, `sp_flip_dir:${editTargetId}:${otherDir}`);
+      kb.row().text("« Назад к таргету", `sp_target:${editTargetId}`);
+    } else {
+      kb.row().text("« Назад", `sp_sym:${symbol}`).text("❌ Отмена", "spread_menu");
+    }
+
+    if (isEdit) {
+      try {
+        return await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch {}
+    }
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+  };
+
+  const handleSpreadMenu = async (ctx: any, isEdit: boolean = false) => {
+    const telegramId = ctx.from!.id;
+    const targets = await getUserSpreadTargets(env.DB, telegramId);
+    const spreadMutedUntil = await getUserSpreadMute(env.DB, telegramId);
+    const isMutedAll = checkIsMuted(spreadMutedUntil);
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    const uniqueSymbols = Array.from(new Set(targets.map((t) => t.symbol)));
+    const quotes = new Map<string, { rhPrice: number; corePrice: number }>();
+
+    if (uniqueSymbols.length > 0) {
+      const activeSet = new Set(uniqueSymbols);
+      const [snapRh, snapMainnet] = await Promise.all([
+        fetchExchangeStats("rh", activeSet, getLighterAuthToken(env, "rh")),
+        fetchExchangeStats("mainnet", activeSet, getLighterAuthToken(env, "mainnet")),
+      ]);
+      for (const sym of uniqueSymbols) {
+        const rhM = findMarketPrice(snapRh, sym);
+        const coreM = findMarketPrice(snapMainnet, sym);
+        if (rhM && rhM.price > 0 && coreM && coreM.price > 0) {
+          quotes.set(sym, { rhPrice: rhM.price, corePrice: coreM.price });
+        }
+      }
+    }
+
+    const text = formatSpreadHubView(targets, quotes, isMutedAll, nowSec);
+    const kb = new InlineKeyboard()
+      .text("✏️ Изменить", "sp_manage")
+      .text("🔄 Обновить", "spread_menu");
+
+    if (isEdit) {
+      try {
+        await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch (err: any) {
+        if (!err?.message?.includes("message is not modified")) {
+          console.warn("[handleSpreadMenu] editMessageText error:", err?.message || err);
+        }
+      }
+      return;
+    }
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+  };
+
+  const handleSpreadManage = async (ctx: any, isEdit: boolean = true) => {
+    const telegramId = ctx.from!.id;
+    const targets = await getUserSpreadTargets(env.DB, telegramId);
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    const now = new Date(nowSec * 1000);
+    const timeStr = now.toLocaleTimeString("ru-RU", {
+      timeZone: "UTC",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+
+    const kb = new InlineKeyboard();
+    // Большая кнопка "+ Добавить"
+    kb.text("➕ Добавить таргет", "sp_wiz_start").row();
+
+    if (targets.length === 0) {
+      const emptyText =
+        `⚙️ <b>Управление таргетами</b>\n\n` +
+        `У вас пока нет настроенных таргетов спреда.\n` +
+        `Нажмите <b>➕ Добавить таргет</b> выше, чтобы создать первый.\n\n` +
+        `🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+      kb.text("« Назад к просмотру", "spread_menu");
+
+      if (isEdit) {
+        try {
+          return await ctx.editMessageText(emptyText, { parse_mode: "HTML", reply_markup: kb });
+        } catch {}
+      }
+      return ctx.reply(emptyText, { parse_mode: "HTML", reply_markup: kb });
+    }
+
+    // Кнопки по каждому существующему таргету (как в Мои аккаунты)
+    for (const t of targets) {
+      const dirIcon = t.direction === "rh_cheaper" ? "🟢" : "🔵";
+      const dirShort = t.direction === "rh_cheaper" ? "RH < Core" : "RH > Core";
+      const val =
+        t.unit === "bps" ? `${t.target_delta.toFixed(1)} bps` : `$${t.target_delta.toFixed(2)}`;
+      const statusIcon = t.is_active === 0 ? "⏸" : "✅";
+      const label = `${t.symbol} ${dirIcon} ${dirShort} ≥${val} [${statusIcon}]`;
+      kb.text(label, `sp_target:${t.id}`).row();
+    }
+
+    kb.text("« Назад к просмотру", "spread_menu");
+
+    const text =
+      `⚙️ <b>Управление таргетами (${targets.length}/${CONFIG.MAX_SPREAD_TARGETS_PER_USER}):</b>\n\n` +
+      `Нажмите на таргет ниже для управления (пауза, удаление) или добавьте новый:\n\n` +
+      `🕒 <i>Обновлено: ${timeStr} UTC</i>`;
+
+    if (isEdit) {
+      try {
+        await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch (err: any) {
+        if (!err?.message?.includes("message is not modified")) {
+          console.warn("[handleSpreadManage] editMessageText error:", err?.message || err);
+        }
+      }
+      return;
+    }
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+  };
+
+  const showSpreadTargetCard = async (ctx: any, targetId: number, isEdit: boolean = true) => {
+    const telegramId = ctx.from!.id;
+    const allTargets = await getUserSpreadTargets(env.DB, telegramId);
+    const target = allTargets.find((t) => t.id === targetId);
+
+    if (!target) {
+      const notFoundText = `⚠️ Таргет не найден или уже удален.`;
+      const kb = new InlineKeyboard().text("« Назад к списку", "sp_manage");
+      if (isEdit) {
+        try {
+          return await ctx.editMessageText(notFoundText, { parse_mode: "HTML", reply_markup: kb });
+        } catch {}
+      }
+      return ctx.reply(notFoundText, { parse_mode: "HTML", reply_markup: kb });
+    }
+
+    const quote = await getLiveSpreadQuote(target.symbol);
+    const dirLabel = target.direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+    const dirSign = target.direction === "rh_cheaper" ? "-" : "+";
+    const refPrice = quote && quote.corePrice > 0 ? quote.corePrice : quote?.rhPrice || 0;
+    let targetVal = "";
+    if (target.unit === "bps") {
+      if (refPrice > 0) {
+        const cents = (refPrice * target.target_delta) / 10000;
+        const centsFormatted = cents >= 1 ? cents.toFixed(2) : cents.toFixed(3);
+        targetVal = `${target.target_delta.toFixed(1)} bps (${dirSign}$${centsFormatted})`;
+      } else {
+        targetVal = `${target.target_delta.toFixed(1)} bps`;
+      }
+    } else {
+      if (refPrice > 0) {
+        const bps = (target.target_delta / refPrice) * 10000;
+        targetVal = `$${target.target_delta.toFixed(2)} (${dirSign}${bps.toFixed(1)} bps)`;
+      } else {
+        targetVal = `$${target.target_delta.toFixed(2)}`;
+      }
+    }
+
+    let statusBadge = "Активен (взведен)";
+    if (target.is_active === 0) {
+      statusBadge = "⏸ Выключен";
+    } else if (target.muted_until > Math.floor(Date.now() / 1000)) {
+      const leftMin = Math.ceil((target.muted_until - Math.floor(Date.now() / 1000)) / 60);
+      statusBadge = `🔕 Заглушен (еще ${leftMin}м)`;
+    } else if (target.armed === 0) {
+      statusBadge = "⏳ Ждет отката";
+    }
+
+    let text =
+      `🎯 <b>Таргет: ${target.symbol}</b>\n\n` +
+      `• Инструмент: <b>${target.symbol}</b>\n` +
+      `• Условие: <b>${dirLabel}</b> (<b>≥${targetVal}</b>)\n` +
+      `• Статус: <b>${statusBadge}</b>\n`;
+
+    if (quote) {
+      const { basisUsd, basisBps } = computeSpreadBasis(quote.rhPrice, quote.corePrice);
+      const sign = basisUsd >= 0 ? "+" : "-";
+      text +=
+        `\n• 🟠 RH Price: <b>$${formatPriceFine(quote.rhPrice)}</b>\n` +
+        `• ⚡️ Core Price: <b>$${formatPriceFine(quote.corePrice)}</b>\n` +
+        `• 📐 Текущий базис: <b>${sign}$${Math.abs(basisUsd).toFixed(3)}</b> (<code>${basisBps >= 0 ? "+" : ""}${basisBps.toFixed(2)} bps</code>)\n`;
+    }
+
+    const kb = new InlineKeyboard();
+    const toggleLabel = target.is_active === 1 ? "⏸ Приостановить" : "▶️ Включить";
+    kb.text(toggleLabel, `sp_tog:${target.id}`)
+      .row()
+      .text("✏️ Изменить", `sp_edit:${target.id}`)
+      .text("🗑 Удалить", `sp_del:${target.id}`)
+      .row()
+      .text("« Назад к списку таргетов", "sp_manage");
+
+    if (isEdit) {
+      try {
+        await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch (err: any) {
+        if (!err?.message?.includes("message is not modified")) {
+          console.warn("[showSpreadTargetCard] editMessageText error:", err?.message || err);
+        }
+      }
+      return;
+    }
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+  };
 
   bot.catch((err) => {
     console.error("Unhandled error in bot handler:", err.error || err);
@@ -256,7 +618,7 @@ export function getBot(env: Env): Bot {
         `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
         `Бот в реальном времени мониторит ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
         `рассчитывает риски ликвидации и присылает сигналы при импульсах цены.\n\n` +
-        `Подключите ваш первый кошелек для мониторинга:`;
+        `Подключите ваш первый аккаунт для мониторинга:`;
       const kb = new InlineKeyboard();
       const webAppUrl = (currentEnv?.WEBAPP_URL || env.WEBAPP_URL)?.trim().replace(/\/$/, "");
       if (webAppUrl && webAppUrl.startsWith("https://")) {
@@ -269,7 +631,7 @@ export function getBot(env: Env): Bot {
 
     await ctx.reply(
       `👋 <b>С возвращением в Lighter Monitor!</b>\n\n` +
-        `Используйте кнопки меню ниже для управления кошельками, просмотра сделок и настройки алертов.`,
+        `Используйте кнопки меню ниже для управления аккаунтами, позициями и таргетами спреда.`,
       { parse_mode: "HTML", reply_markup: getMainKb(ctx) },
     );
   });
@@ -292,7 +654,7 @@ export function getBot(env: Env): Bot {
       if (isEdit) {
         return ctx
           .editMessageText(msg, {
-            reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list"),
+            reply_markup: new InlineKeyboard().text("💼 Мои аккаунты", "action_list"),
           })
           .catch(() => {});
       }
@@ -344,7 +706,7 @@ export function getBot(env: Env): Bot {
     await ctx.answerCallbackQuery({ text: "Отменено" });
     try {
       await ctx.editMessageText("❌ Действие отменено.", {
-        reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list"),
+        reply_markup: new InlineKeyboard().text("💼 Мои аккаунты", "action_list"),
       });
     } catch {
       await ctx.reply("❌ Действие отменено.", { reply_markup: getMainKb(ctx) });
@@ -394,14 +756,14 @@ export function getBot(env: Env): Bot {
     await setUserWizardState(env.DB, ctx.from!.id, null);
 
     const postKb = new InlineKeyboard()
-      .text("📊 Показать сделки", "action_positions")
+      .text("📊 Мои позиции", "action_positions")
       .row()
-      .text("💼 Мои кошельки", "action_list");
+      .text("💼 Мои аккаунты", "action_list");
 
     await ctx.reply(
       `🎉 Аккаунт <b>#${state.accountIndex}</b> <code>${netConfig.badge}</code> успешно подключен!\n` +
         `🏷 Имя: ${alias ? `<b>${alias}</b>` : "<i>нет</i>"}\n` +
-        `💳 Кошелек: <code>${state.l1Address}</code>\n` +
+        `💳 Адрес: <code>${state.l1Address}</code>\n` +
         `💰 Залог: <b>$${Number(state.collateral).toFixed(2)}</b>\n\n` +
         `Мониторинг активен. Проверка рисков выполняется каждую минуту.`,
       { parse_mode: "HTML", reply_markup: postKb },
@@ -427,28 +789,16 @@ export function getBot(env: Env): Bot {
     if (
       text.startsWith("/") ||
       [
-        "📊 Мои сделки",
-        "Мои сделки",
-        "📊 Позиции",
-        "Позиции",
-        "💼 Мои кошельки",
-        "Мои кошельки",
-        "📋 Аккаунты",
-        "Аккаунты",
-        "📋 Мои аккаунты",
-        "➕ Добавить кошелек",
-        "➕ Добавить",
-        "Добавить кошелек",
+        "📊 Мои позиции",
+        "Мои позиции",
+        "📐 Мои таргеты",
+        "Мои таргеты",
+        "💼 Мои аккаунты",
+        "Мои аккаунты",
         "⚙️ Настройки",
         "Настройки",
-        "⚙️ Порог алертов",
-        "Порог алертов",
         "📈 Админ статистика",
         "Админ статистика",
-        "👑 Админ-панель",
-        "Админ-панель",
-        "📊 Статистика",
-        "Статистика",
       ].includes(text)
     ) {
       await setUserWizardState(env.DB, ctx.from!.id, null);
@@ -534,7 +884,7 @@ export function getBot(env: Env): Bot {
 
       return ctx.reply(
         `✅ <b>Аккаунт #${accountIndex} найден!</b>\n` +
-          `💳 Кошелек: <code>${shortAddr}</code>\n` +
+          `💳 Адрес: <code>${shortAddr}</code>\n` +
           `💰 Залог: <b>$${collateral.toFixed(2)}</b>\n\n` +
           `Теперь отправьте понятное имя (алиас), например: <b>Мейн</b> или <b>Хедж</b>:`,
         { parse_mode: "HTML", reply_markup: kb },
@@ -576,181 +926,114 @@ export function getBot(env: Env): Bot {
       }
       await setUserThreshold(env.DB, ctx.from!.id, val);
       await setUserWizardState(env.DB, ctx.from!.id, null);
-      await ctx.reply(`✅ Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.`, {
+      await ctx.reply(`✅ Шаг цены для алертов установлен на <b>${formatThreshold(val)}%</b>.`, {
         parse_mode: "HTML",
         reply_markup: getMainKb(ctx),
       });
-      await handleSettings(ctx);
+      await handleSettingsSpikes(ctx);
       return;
+    }
+
+    // 5. Шаг ввода тикера спреда
+    if (state.step === "SPREAD_AWAIT_SYMBOL") {
+      const symbol = text.trim().toUpperCase();
+      await setUserWizardState(env.DB, ctx.from!.id, null);
+      await showDirectionPicker(ctx, symbol, false);
+      return;
+    }
+
+    // 6. Шаг ввода дельты спреда (в долларах или bps)
+    if (state.step === "SPREAD_AWAIT_DELTA") {
+      const parsed = parseSpreadThresholdInput(text, state.corePrice);
+      if (!parsed) {
+        const cancelCb = state.editTargetId ? `sp_target:${state.editTargetId}` : "sp_manage";
+        return ctx.reply(
+          `⚠️ Не удалось распознать порог. Пожалуйста, укажите число в долларах (например: <code>0.15</code> или <code>$0.15</code>) или в bps (например: <code>5bps</code> или <code>0.05%</code>):`,
+          {
+            parse_mode: "HTML",
+            reply_markup: new InlineKeyboard().text("❌ Отмена", cancelCb),
+          },
+        );
+      }
+
+      let initialArmed = 1;
+      if (state.corePrice > 0 && state.rhPrice > 0) {
+        const { basisUsd, basisBps } = computeSpreadBasis(state.rhPrice, state.corePrice);
+        const actualDiffUsd = state.direction === "rh_cheaper" ? -basisUsd : basisUsd;
+        const actualDiffBps = state.direction === "rh_cheaper" ? -basisBps : basisBps;
+        const currentMetric = parsed.unit === "bps" ? actualDiffBps : actualDiffUsd;
+        if (currentMetric >= parsed.value) {
+          initialArmed = 0;
+        }
+      }
+
+      const isEditing = Boolean(state.editTargetId);
+      const editTargetId = state.editTargetId;
+
+      if (editTargetId) {
+        await updateSpreadTargetThreshold(
+          env.DB,
+          ctx.from!.id,
+          editTargetId,
+          parsed.value,
+          parsed.unit,
+          initialArmed,
+        );
+      } else {
+        await addSpreadTarget(
+          env.DB,
+          ctx.from!.id,
+          state.symbol,
+          state.direction,
+          parsed.value,
+          parsed.unit,
+          initialArmed,
+        );
+      }
+      await setUserWizardState(env.DB, ctx.from!.id, null);
+
+      const dirLabel = state.direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+      const dirSign = state.direction === "rh_cheaper" ? "-" : "+";
+      let targetStr = parsed.unit === "bps" ? `${parsed.value} bps` : `$${parsed.value}`;
+      if (parsed.unit === "bps" && state.corePrice > 0) {
+        const cents = (state.corePrice * parsed.value) / 10000;
+        const centsFormatted = cents >= 1 ? cents.toFixed(2) : cents.toFixed(3);
+        targetStr = `${parsed.value} bps (${dirSign}$${centsFormatted})`;
+      } else if (parsed.unit === "usd" && state.corePrice > 0) {
+        const bps = (parsed.value / state.corePrice) * 10000;
+        targetStr = `$${parsed.value} (${dirSign}${bps.toFixed(1)} bps)`;
+      }
+
+      let confirmText = isEditing
+        ? `✅ <b>Таргет спреда успешно изменен!</b>\n\n`
+        : `✅ <b>Таргет спреда успешно добавлен!</b>\n\n`;
+      confirmText +=
+        `• Инструмент: <b>${state.symbol}</b>\n` +
+        `• Условие: <b>${dirLabel}</b>\n` +
+        `• Целевой спред: <b>${targetStr}</b>\n`;
+
+      if (initialArmed === 0) {
+        confirmText += `\n⚠️ <i>Текущий спред уже достиг цели. Таргет взведется автоматически при откате ниже 80% порога.</i>`;
+      } else {
+        confirmText += `• Статус: <b>Взведен и активен</b>`;
+      }
+
+      const kb = new InlineKeyboard();
+      if (isEditing && editTargetId) {
+        kb.text(`🎯 К таргету`, `sp_target:${editTargetId}`).row();
+      } else {
+        kb.text(`➕ Еще таргет для ${state.symbol}`, `sp_sym:${state.symbol}`).row();
+      }
+      kb.text(`📐 Мои таргеты`, "spread_menu");
+
+      return ctx.reply(confirmText, { parse_mode: "HTML", reply_markup: kb });
     }
 
     return next();
   });
 
-  // CLI-команда добавления (для совместимости)
-  const handleAdd = async (ctx: any, network: LighterNetwork, rawMatch: string) => {
-    const args = (rawMatch || "").trim().split(/\s+/).filter(Boolean);
-    const indexStr = args[0];
-    const alias = args.slice(1).join(" ") || null;
-    const netConfig = CONFIG.NETWORKS[network];
-
-    if (!indexStr || !/^\d+$/.test(indexStr)) {
-      const cmdName = network === "rh" ? "/add_rh" : "/add_mainnet";
-      const exampleIdx = network === "rh" ? "31704" : "749329";
-      return ctx.reply(
-        `Укажите числовой индекс аккаунта ${netConfig.name}.\n` +
-          `Пример: <code>${cmdName} ${exampleIdx} ${alias || "Основной"}</code>`,
-        { parse_mode: "HTML" },
-      );
-    }
-
-    const accountIndex = parseInt(indexStr, 10);
-    const countRes = await env.DB.prepare(
-      "SELECT COUNT(*) as cnt FROM user_tracked_accounts WHERE telegram_id = ?",
-    )
-      .bind(ctx.from!.id)
-      .first<{ cnt: number }>();
-
-    if (countRes && countRes.cnt >= CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER) {
-      return ctx.reply(
-        `Достигнут лимит: нельзя отслеживать более ${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER} аккаунтов суммарно.`,
-        { reply_markup: getMainKb(ctx) },
-      );
-    }
-
-    await ctx.reply(`Проверяем аккаунт в ${netConfig.name}...`);
-    const authToken = getLighterAuthToken(currentEnv || env, network);
-    const result = await fetchLighterAccountWithStatus(network, accountIndex, false, authToken);
-
-    if (result.status === "RATE_LIMIT") {
-      return ctx.reply(
-        `⚠️ Биржа ${netConfig.name} временно перегружена запросами. Попробуйте через 30 секунд.`,
-        { reply_markup: getMainKb(ctx) },
-      );
-    }
-
-    if (!result.account) {
-      return ctx.reply(`Аккаунт #${accountIndex} не найден в ${netConfig.name}.`, {
-        reply_markup: getMainKb(ctx),
-      });
-    }
-
-    const account = result.account;
-    try {
-      await env.DB.prepare(`
-        INSERT INTO user_tracked_accounts (telegram_id, network, account_index, alias, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `)
-        .bind(ctx.from!.id, network, accountIndex, alias, Math.floor(Date.now() / 1000))
-        .run();
-
-      const activePositions = account.positions.filter(
-        (p) => Math.abs(parseFloat(p.position || "0")) > 0,
-      );
-      const risks = activePositions.map(analyzePositionRisk).filter(Boolean);
-      await batchUpdatePositionsCache(env.DB, [
-        {
-          network,
-          account,
-          cachedPositions: risks as any,
-        },
-      ]);
-      await syncAccountOpenPositions(env.DB, network, accountIndex, account.positions);
-
-      await ctx.reply(
-        `Аккаунт <b>#${accountIndex}</b> добавлен в <b>${netConfig.name}</b> <code>${netConfig.badge}</code>.\n` +
-          `Алиас: ${alias ? `<b>${alias}</b>` : "<i>нет</i>"}\n` +
-          `Кошелек: <code>${account.l1_address}</code>\n\n` +
-          `Мониторинг активен.`,
-        { parse_mode: "HTML", reply_markup: getMainKb(ctx) },
-      );
-    } catch (e: any) {
-      if (e?.message && e.message.includes("UNIQUE")) {
-        return ctx.reply(`Вы уже отслеживаете аккаунт #${accountIndex} в сети ${netConfig.name}.`, {
-          reply_markup: getMainKb(ctx),
-        });
-      }
-      throw e;
-    }
-  };
-
-  bot.command("add_rh", async (ctx) => {
-    await handleAdd(ctx, "rh", ctx.match);
-  });
-
-  bot.command("add_mainnet", async (ctx) => {
-    await handleAdd(ctx, "mainnet", ctx.match);
-  });
-
-  bot.command("add", async (ctx) => {
-    const rawMatch = ctx.match ? ctx.match.trim() : "";
-    const args = rawMatch.split(/\s+/).filter(Boolean);
-    const firstArg = args[0]?.toLowerCase();
-
-    if (firstArg === "rh" || firstArg === "robinhood") {
-      await handleAdd(ctx, "rh", args.slice(1).join(" "));
-    } else if (firstArg === "mainnet" || firstArg === "main") {
-      await handleAdd(ctx, "mainnet", args.slice(1).join(" "));
-    } else if (firstArg && /^\d+$/.test(firstArg)) {
-      await handleAdd(ctx, "rh", rawMatch);
-    } else {
-      await startAddWizard(ctx);
-    }
-  });
-
-  // CLI-команда удаления (для совместимости)
-  const handleRemove = async (ctx: any, network: LighterNetwork, rawMatch: string) => {
-    const indexStr = (rawMatch || "").trim();
-    const netConfig = CONFIG.NETWORKS[network];
-
-    if (!indexStr || !/^\d+$/.test(indexStr)) {
-      const cmdName = network === "rh" ? "/remove_rh" : "/remove_mainnet";
-      return ctx.reply(
-        `Укажите индекс для удаления из ${netConfig.name}: <code>${cmdName} 31704</code>`,
-        { parse_mode: "HTML" },
-      );
-    }
-
-    const accountIndex = parseInt(indexStr, 10);
-    const removed = await removeTrackedAccount(env.DB, ctx.from!.id, network, accountIndex);
-
-    if (!removed) {
-      return ctx.reply(
-        `Аккаунт #${accountIndex} не найден среди ваших отслеживаемых в ${netConfig.name}.`,
-        { reply_markup: getMainKb(ctx) },
-      );
-    }
-
-    await ctx.reply(
-      `Аккаунт #${accountIndex} <code>${netConfig.badge}</code> удален из отслеживания.`,
-      { parse_mode: "HTML", reply_markup: getMainKb(ctx) },
-    );
-  };
-
-  bot.command("remove_rh", async (ctx) => {
-    await handleRemove(ctx, "rh", ctx.match);
-  });
-
-  bot.command("remove_mainnet", async (ctx) => {
-    await handleRemove(ctx, "mainnet", ctx.match);
-  });
-
-  bot.command("remove", async (ctx) => {
-    const rawMatch = ctx.match ? ctx.match.trim() : "";
-    const args = rawMatch.split(/\s+/).filter(Boolean);
-    const firstArg = args[0]?.toLowerCase();
-
-    if (firstArg === "rh") {
-      await handleRemove(ctx, "rh", args.slice(1).join(" "));
-    } else if (firstArg === "mainnet") {
-      await handleRemove(ctx, "mainnet", args.slice(1).join(" "));
-    } else {
-      await handleList(ctx);
-    }
-  });
-
   // ==========================================
-  // ИНТЕРАКТИВНОЕ УПРАВЛЕНИЕ КОШЕЛЬКАМИ
+  // ИНТЕРАКТИВНОЕ УПРАВЛЕНИЕ АККАУНТАМИ
   // ==========================================
 
   const showAccountCard = async (
@@ -766,7 +1049,7 @@ export function getBot(env: Env): Bot {
       if (isEdit) {
         return ctx
           .editMessageText(notFoundMsg, {
-            reply_markup: new InlineKeyboard().text("💼 Мои кошельки", "action_list"),
+            reply_markup: new InlineKeyboard().text("💼 Мои аккаунты", "action_list"),
           })
           .catch(() => {});
       }
@@ -799,17 +1082,17 @@ export function getBot(env: Env): Bot {
     const card =
       `💼 <b>Управление аккаунтом #${accountIndex}</b> <code>${netConfig.badge}</code>\n\n` +
       `🏷 <b>Имя:</b> ${cardData.alias ? `<b>${cardData.alias}</b>` : "<i>не задано</i>"}\n` +
-      `💳 <b>Кошелек:</b> <code>${shortAddr}</code>\n` +
+      `💳 <b>Адрес:</b> <code>${shortAddr}</code>\n` +
       `💰 <b>Залог:</b> $${collateral.toFixed(2)}\n` +
-      `📊 <b>Открытых сделок:</b> ${positionsCount}${symbolsSummary}\n`;
+      `📊 <b>Открытых позиций:</b> ${positionsCount}${symbolsSummary}\n`;
 
     const kb = new InlineKeyboard()
-      .text("📊 Сделки", `refresh:${network}:${accountIndex}`)
+      .text("📊 Позиции", `refresh:${network}:${accountIndex}`)
       .text("✏️ Сменить имя", `rename_acc:${network}:${accountIndex}`)
       .row()
       .text("🗑 Удалить из бота", `confirm_del_acc:${network}:${accountIndex}`)
       .row()
-      .text("⬅️ К списку кошельков", "action_list");
+      .text("⬅️ К списку аккаунтов", "action_list");
 
     if (isEdit) {
       try {
@@ -863,7 +1146,7 @@ export function getBot(env: Env): Bot {
     await handleList(ctx, true);
   });
 
-  // Функция вывода списка кошельков /list
+  // Функция вывода списка аккаунтов /accounts
   const handleList = async (ctx: any, isEdit: boolean = false) => {
     try {
       const results = await getUserTrackedAccounts(env.DB, ctx.from!.id);
@@ -873,7 +1156,7 @@ export function getBot(env: Env): Bot {
           `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
           `Бот отслеживает ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
           `рассчитывает риски и защищает от ликвидации.\n\n` +
-          `У вас пока нет подключенных кошельков. Давайте подключим первый:`;
+          `У вас пока нет подключенных аккаунтов. Давайте подключим первый:`;
         const emptyKb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
 
         if (isEdit) {
@@ -891,7 +1174,7 @@ export function getBot(env: Env): Bot {
         const label = `${netIcon} #${r.account_index}${aliasStr}`;
         kb.text(label, `manage_acc:${r.network}:${r.account_index}`).row();
       }
-      kb.text("➕ Добавить кошелек", "wizard_start_add").text("🔄 Обновить", "refresh_list");
+      kb.text("➕ Добавить аккаунт", "wizard_start_add").text("🔄 Обновить", "refresh_list");
 
       const now = new Date();
       const timeStr = now.toLocaleTimeString("ru-RU", {
@@ -901,8 +1184,8 @@ export function getBot(env: Env): Bot {
         second: "2-digit",
       });
       const msg =
-        `📋 <b>Ваши отслеживаемые кошельки (${results.length}/${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER}):</b>\n\n` +
-        `Нажмите на кошелек для управления:\n\n` +
+        `📋 <b>Ваши отслеживаемые аккаунты (${results.length}/${CONFIG.MAX_TRACKED_ACCOUNTS_PER_USER}):</b>\n\n` +
+        `Нажмите на аккаунт для управления:\n\n` +
         `🕒 <i>Обновлено: ${timeStr} UTC</i>`;
 
       if (isEdit) {
@@ -921,9 +1204,7 @@ export function getBot(env: Env): Bot {
     }
   };
 
-  bot.command("list", (ctx) => handleList(ctx));
   bot.command("accounts", (ctx) => handleList(ctx));
-  bot.command("wallets", (ctx) => handleList(ctx));
 
   bot.callbackQuery("refresh_list", async (ctx) => {
     await ctx.answerCallbackQuery({ text: "🔄 Обновляем..." });
@@ -988,7 +1269,7 @@ export function getBot(env: Env): Bot {
           `👋 <b>Добро пожаловать в Lighter Monitor!</b>\n\n` +
           `Бот в реальном времени отслеживает ваши позиции на <b>Robinhood Lighter</b> и <b>Lighter Mainnet</b>, ` +
           `рассчитывает риски и защищает от ликвидации.\n\n` +
-          `У вас пока нет подключенных кошельков. Давайте подключим первый:`;
+          `У вас пока нет подключенных аккаунтов. Давайте подключим первый:`;
         const emptyKb = new InlineKeyboard().text("➕ Подключить аккаунт", "wizard_start_add");
         if (isEdit) {
           return ctx
@@ -1152,7 +1433,7 @@ export function getBot(env: Env): Bot {
       const posKeyboard = getPositionsKeyboard(filterIndex, filterNetwork);
 
       if (cards.length > 0) {
-        const separator = "\n───────────────────\n";
+        const separator = "\n─────────────\n";
         let combinedReport = cards.join(separator);
 
         const pnlSign = totalUnPnl >= 0 ? "📈 +" : "📉 -";
@@ -1242,10 +1523,6 @@ export function getBot(env: Env): Bot {
     await handlePositions(ctx, filter);
   });
 
-  bot.command("deals", async (ctx) => {
-    await handlePositions(ctx);
-  });
-
   bot.callbackQuery("action_positions", async (ctx) => {
     await ctx.answerCallbackQuery();
     await handlePositions(ctx);
@@ -1268,62 +1545,206 @@ export function getBot(env: Env): Bot {
   // МЕНЮ НАСТРОЕК (ПОРОГ И ТИХИЙ СОН)
   // ==========================================
 
-  const handleSettings = async (ctx: any, isEdit: boolean = false) => {
-    const settings = await getUserSettings(env.DB, ctx.from!.id);
+  const handleSettingsMain = async (ctx: any, isEdit: boolean = false) => {
+    const telegramId = ctx.from!.id;
     const nowSec = Math.floor(Date.now() / 1000);
-    const isMuted = settings.mutedUntil > nowSec;
+    const [settings, targetsMutedUntil, spreadStats] = await Promise.all([
+      getUserSettings(env.DB, telegramId),
+      getUserSpreadMute(env.DB, telegramId),
+      getUserSpreadStats(env.DB, telegramId),
+    ]);
 
-    let muteText = "🔔 <b>Уведомления:</b> Активны";
-    if (isMuted) {
-      const remainingMinutes = Math.ceil((settings.mutedUntil - nowSec) / 60);
-      const muteUntilDate = new Date(settings.mutedUntil * 1000);
-      const timeStr = muteUntilDate.toLocaleTimeString("ru-RU", {
-        timeZone: "UTC",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      muteText = `🔕 <b>Уведомления заглушены:</b> еще ${remainingMinutes} мин (до ${timeStr} UTC)`;
+    const spikesMuted = settings.mutedUntil > nowSec;
+    const targetsMuted = targetsMutedUntil > nowSec;
+    const allMuted = spikesMuted && targetsMuted;
+    const anyMuted = spikesMuted || targetsMuted;
+
+    let globalStatus = "🔔 Все уведомления активны";
+    if (allMuted) {
+      if (
+        settings.mutedUntil >= CONFIG.MUTE_FOREVER_TIMESTAMP &&
+        targetsMutedUntil >= CONFIG.MUTE_FOREVER_TIMESTAMP
+      ) {
+        globalStatus = "⏸ Все уведомления выключены";
+      } else {
+        globalStatus = "🔕 Бот полностью заглушен";
+      }
+    } else if (anyMuted) {
+      globalStatus = "🔕 Частично заглушен";
     }
 
     const text =
-      `⚙️ <b>Настройки Lighter Monitor</b>\n\n` +
-      `🎯 <b>Шаг цены для алертов:</b> <b>${settings.alertThreshold.toFixed(1)}%</b>\n` +
-      `<i>(Для золота XAU на плече 15–25x рекомендуется 0.3%–0.5%)</i>\n\n` +
-      `${muteText}\n\n` +
-      `Выберите шаг цены или режим сна:`;
+      `⚙️ <b>Центр настроек уведомлений</b>\n\n` +
+      `⚡️ <b>Спайки цен (позиции):</b>\n` +
+      `• Порог: <b>±${formatThreshold(settings.alertThreshold)}%</b>\n` +
+      `• Статус: <b>${formatAlertMuteStatus(settings.mutedUntil, nowSec)}</b>\n\n` +
+      `📐 <b>Таргеты спреда (RH ↔ Core):</b>\n` +
+      `• Настроено: <b>${spreadStats.totalTargets}/${CONFIG.MAX_SPREAD_TARGETS_PER_USER}</b> (токенов: <b>${spreadStats.tokenCount}/${CONFIG.MAX_SPREAD_TOKENS_PER_USER}</b>)\n` +
+      `• Статус: <b>${formatAlertMuteStatus(targetsMutedUntil, nowSec)}</b>\n\n` +
+      `🔕 <b>Общий статус бота:</b>\n` +
+      `• <b>${globalStatus}</b>\n\n` +
+      `<i>Выберите раздел для настройки или режим сна:</i>`;
 
-    const kb = getSettingsKeyboard(settings.alertThreshold, settings.mutedUntil);
+    const kb = new InlineKeyboard()
+      .text("⚡️ Спайки цен", "cfg_spikes")
+      .text("📐 Таргеты спреда", "cfg_targets")
+      .row();
+
+    if (anyMuted) {
+      kb.text("🔔 Включить всё", "cfg_mute_all:0").row();
+    }
+    kb.text("🔕 Заглушить всего бота", "cfg_menu_all");
+
     if (isEdit) {
       try {
         return await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
-      } catch {}
+      } catch (err: any) {
+        if (!err?.message?.includes("message is not modified")) {
+          console.warn("[handleSettingsMain] edit error:", err?.message || err);
+        }
+      }
+      return;
     }
-    await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
   };
 
-  bot.command("threshold", async (ctx) => {
-    const arg = ctx.match ? ctx.match.trim() : "";
-    if (arg) {
-      const cleaned = arg.replace(",", ".");
-      const val = parseFloat(cleaned);
-      if (isNaN(val) || val < CONFIG.MIN_ALERT_THRESHOLD || val > CONFIG.MAX_ALERT_THRESHOLD) {
-        return ctx.reply(
-          `Укажите процент от ${CONFIG.MIN_ALERT_THRESHOLD}% до ${CONFIG.MAX_ALERT_THRESHOLD}%.\n` +
-            `Пример: <code>/threshold 0.5</code>`,
-          { parse_mode: "HTML" },
-        );
-      }
-      await setUserThreshold(env.DB, ctx.from!.id, val);
-      return ctx.reply(`Шаг цены для алертов установлен на <b>${val.toFixed(1)}%</b>.`, {
-        parse_mode: "HTML",
-        reply_markup: getMainKb(ctx),
-      });
+  const handleSettingsSpikes = async (ctx: any, isEdit: boolean = false) => {
+    const telegramId = ctx.from!.id;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const settings = await getUserSettings(env.DB, telegramId);
+    const isMuted = settings.mutedUntil > nowSec;
+
+    const text =
+      `⚡️ <b>Настройки алертов спайков цен</b>\n\n` +
+      `Отслеживание резких движений цены по открытым позициям аккаунтов.\n\n` +
+      `🎯 <b>Текущий шаг цены:</b> <b>±${formatThreshold(settings.alertThreshold)}%</b>\n` +
+      `<i>(Для золота XAU на плече 15–25x рекомендуется 0.3%–0.5%)</i>\n\n` +
+      `🔔 <b>Статус уведомлений:</b> <b>${formatAlertMuteStatus(settings.mutedUntil, nowSec)}</b>\n\n` +
+      `Выберите шаг цены или режим сна:`;
+
+    const kb = new InlineKeyboard();
+    const presets = [0.3, 0.5, 0.8, 1.0, 1.5, 2.0];
+    for (let i = 0; i < presets.length; i++) {
+      const p = presets[i]!;
+      const label = Math.abs(p - settings.alertThreshold) < 0.001 ? `✅ ${p}%` : `${p}%`;
+      kb.text(label, `set_thresh_${p}`);
+      if (i === 2) kb.row();
     }
-    await handleSettings(ctx);
-  });
+    kb.row();
+    const isCustom = !presets.some((p) => Math.abs(p - settings.alertThreshold) < 0.001);
+    const customLabel = isCustom
+      ? `✏️ Свой % (сейчас ${formatThreshold(settings.alertThreshold)}%)`
+      : `✏️ Ввести свой %`;
+    kb.text(customLabel, "custom_threshold").row();
+
+    if (isMuted) {
+      kb.text("🔔 Включить спайки", "cfg_mute_spikes:0").row();
+    }
+    kb.text("🔕 1ч", "cfg_mute_spikes:3600")
+      .text("🔕 4ч", "cfg_mute_spikes:14400")
+      .text("🔕 24ч", "cfg_mute_spikes:86400")
+      .row()
+      .text("⏸ Выключить (до включения)", "cfg_mute_spikes:forever")
+      .row()
+      .text("« Назад в настройки", "cfg_main");
+
+    if (isEdit) {
+      try {
+        return await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch (err: any) {
+        if (!err?.message?.includes("message is not modified")) {
+          console.warn("[handleSettingsSpikes] edit error:", err?.message || err);
+        }
+      }
+      return;
+    }
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+  };
+
+  const handleSettingsTargets = async (ctx: any, isEdit: boolean = false) => {
+    const telegramId = ctx.from!.id;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const [targetsMutedUntil, spreadStats] = await Promise.all([
+      getUserSpreadMute(env.DB, telegramId),
+      getUserSpreadStats(env.DB, telegramId),
+    ]);
+    const isMuted = targetsMutedUntil > nowSec;
+
+    const text =
+      `📐 <b>Настройки алертов таргетов спреда</b>\n\n` +
+      `Уведомления о достижении целевого спреда между Robinhood Lighter и Lighter Core.\n\n` +
+      `🎯 <b>Настроено таргетов:</b> <b>${spreadStats.totalTargets}/${CONFIG.MAX_SPREAD_TARGETS_PER_USER}</b> (токенов: <b>${spreadStats.tokenCount}/${CONFIG.MAX_SPREAD_TOKENS_PER_USER}</b>)\n` +
+      `🔔 <b>Статус уведомлений:</b> <b>${formatAlertMuteStatus(targetsMutedUntil, nowSec)}</b>\n\n` +
+      `Выберите режим сна для всех таргетов спреда:`;
+
+    const kb = new InlineKeyboard();
+    if (isMuted) {
+      kb.text("🔔 Включить таргеты", "cfg_mute_targets:0").row();
+    }
+    kb.text("🔕 1ч", "cfg_mute_targets:3600")
+      .text("🔕 4ч", "cfg_mute_targets:14400")
+      .text("🔕 24ч", "cfg_mute_targets:86400")
+      .row()
+      .text("⏸ Выключить (до включения)", "cfg_mute_targets:forever")
+      .row()
+      .text("« Назад в настройки", "cfg_main");
+
+    if (isEdit) {
+      try {
+        return await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch (err: any) {
+        if (!err?.message?.includes("message is not modified")) {
+          console.warn("[handleSettingsTargets] edit error:", err?.message || err);
+        }
+      }
+      return;
+    }
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+  };
+
+  const handleSettingsAll = async (ctx: any, isEdit: boolean = false) => {
+    const telegramId = ctx.from!.id;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const [settings, targetsMutedUntil] = await Promise.all([
+      getUserSettings(env.DB, telegramId),
+      getUserSpreadMute(env.DB, telegramId),
+    ]);
+    const anyMuted = settings.mutedUntil > nowSec || targetsMutedUntil > nowSec;
+
+    const text =
+      `🔕 <b>Управление всеми уведомлениями бота</b>\n\n` +
+      `Режим действует одновременно на <b>спайки цен</b> и на <b>таргеты спреда</b>.\n\n` +
+      `• Спайки позиций: <b>${formatAlertMuteStatus(settings.mutedUntil, nowSec)}</b>\n` +
+      `• Таргеты спреда: <b>${formatAlertMuteStatus(targetsMutedUntil, nowSec)}</b>\n\n` +
+      `Выберите режим сна для всего бота:`;
+
+    const kb = new InlineKeyboard();
+    if (anyMuted) {
+      kb.text("🔔 Включить все уведомления", "cfg_mute_all:0").row();
+    }
+    kb.text("🔕 1ч", "cfg_mute_all:3600")
+      .text("🔕 4ч", "cfg_mute_all:14400")
+      .text("🔕 24ч", "cfg_mute_all:86400")
+      .row()
+      .text("⏸ Выключить всё (до включения)", "cfg_mute_all:forever")
+      .row()
+      .text("« Назад в настройки", "cfg_main");
+
+    if (isEdit) {
+      try {
+        return await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch (err: any) {
+        if (!err?.message?.includes("message is not modified")) {
+          console.warn("[handleSettingsAll] edit error:", err?.message || err);
+        }
+      }
+      return;
+    }
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+  };
 
   bot.command("settings", async (ctx) => {
-    await handleSettings(ctx);
+    await handleSettingsMain(ctx);
   });
 
   const handleStats = async (ctx: any) => {
@@ -1350,7 +1771,7 @@ export function getBot(env: Env): Bot {
     }
   };
 
-  bot.command(["stats", "admin"], handleStats);
+  bot.command("stats", handleStats);
 
   bot.callbackQuery("refresh_stats", async (ctx) => {
     const activeEnv = currentEnv || env;
@@ -1391,10 +1812,109 @@ export function getBot(env: Env): Bot {
     );
   });
 
+  bot.callbackQuery("cfg_main", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleSettingsMain(ctx, true);
+  });
+
+  bot.callbackQuery("cfg_spikes", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleSettingsSpikes(ctx, true);
+  });
+
+  bot.callbackQuery("cfg_targets", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleSettingsTargets(ctx, true);
+  });
+
+  bot.callbackQuery("cfg_menu_all", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleSettingsAll(ctx, true);
+  });
+
+  bot.callbackQuery(/^cfg_mute_spikes:(3600|14400|86400|forever|0)$/, async (ctx) => {
+    const dur = ctx.match[1];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const mutedUntil =
+      dur === "0"
+        ? 0
+        : dur === "forever"
+          ? CONFIG.MUTE_FOREVER_TIMESTAMP
+          : nowSec + parseInt(dur, 10);
+    await setUserMute(env.DB, ctx.from!.id, mutedUntil);
+    const toast =
+      dur === "0"
+        ? "🔔 Спайки цен включены"
+        : dur === "forever"
+          ? "⏸ Спайки выключены (до включения)"
+          : dur === "3600"
+            ? "🔕 Спайки заглушены на 1 час"
+            : dur === "14400"
+              ? "🔕 Спайки заглушены на 4 часа"
+              : "🔕 Спайки заглушены на 24 часа";
+    await ctx.answerCallbackQuery({ text: toast });
+    await handleSettingsSpikes(ctx, true);
+  });
+
+  bot.callbackQuery(/^cfg_mute_targets:(3600|14400|86400|forever|0)$/, async (ctx) => {
+    const dur = ctx.match[1];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const mutedUntil =
+      dur === "0"
+        ? 0
+        : dur === "forever"
+          ? CONFIG.MUTE_FOREVER_TIMESTAMP
+          : nowSec + parseInt(dur, 10);
+    await setUserSpreadMute(env.DB, ctx.from!.id, mutedUntil);
+    const toast =
+      dur === "0"
+        ? "🔔 Таргеты спреда включены"
+        : dur === "forever"
+          ? "⏸ Таргеты выключены (до включения)"
+          : dur === "3600"
+            ? "🔕 Таргеты заглушены на 1 час"
+            : dur === "14400"
+              ? "🔕 Таргеты заглушены на 4 часа"
+              : "🔕 Таргеты заглушены на 24 часа";
+    await ctx.answerCallbackQuery({ text: toast });
+    await handleSettingsTargets(ctx, true);
+  });
+
+  bot.callbackQuery(/^cfg_mute_all:(3600|14400|86400|forever|0)$/, async (ctx) => {
+    const dur = ctx.match[1];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const mutedUntil =
+      dur === "0"
+        ? 0
+        : dur === "forever"
+          ? CONFIG.MUTE_FOREVER_TIMESTAMP
+          : nowSec + parseInt(dur, 10);
+    await Promise.all([
+      setUserMute(env.DB, ctx.from!.id, mutedUntil),
+      setUserSpreadMute(env.DB, ctx.from!.id, mutedUntil),
+    ]);
+    const toast =
+      dur === "0"
+        ? "🔔 Все уведомления включены"
+        : dur === "forever"
+          ? "⏸ Все уведомления выключены (до включения)"
+          : dur === "3600"
+            ? "🔕 Все уведомления заглушены на 1 час"
+            : dur === "14400"
+              ? "🔕 Все уведомления заглушены на 4 часа"
+              : "🔕 Все уведомления заглушены на 24 часа";
+    await ctx.answerCallbackQuery({ text: toast });
+    if (dur === "0") {
+      await handleSettingsMain(ctx, true);
+    } else {
+      await handleSettingsAll(ctx, true);
+    }
+  });
+
   bot.callbackQuery("action_threshold", async (ctx) => {
     await setUserWizardState(env.DB, ctx.from!.id, null);
     await ctx.answerCallbackQuery();
-    await handleSettings(ctx, true);
+    await handleSettingsSpikes(ctx, true);
   });
 
   bot.callbackQuery(/^set_thresh_(\d+(\.\d+)?)$/, async (ctx) => {
@@ -1402,82 +1922,511 @@ export function getBot(env: Env): Bot {
     await setUserWizardState(env.DB, ctx.from!.id, null);
     await setUserThreshold(env.DB, ctx.from!.id, val);
     await ctx.answerCallbackQuery({ text: `Шаг установлен: ${val}%` });
-    await handleSettings(ctx, true);
+    await handleSettingsSpikes(ctx, true);
   });
 
   bot.callbackQuery("settings_mute_4h", async (ctx) => {
     const mutedUntil = Math.floor(Date.now() / 1000) + 4 * 3600;
     await setUserMute(env.DB, ctx.from!.id, mutedUntil);
-    await ctx.answerCallbackQuery({ text: "🔕 Уведомления заглушены на 4 часа" });
-    await handleSettings(ctx, true);
+    await ctx.answerCallbackQuery({ text: "🔕 Спайки заглушены на 4 часа" });
+    await handleSettingsSpikes(ctx, true);
+  });
+
+  bot.callbackQuery("settings_mute_forever", async (ctx) => {
+    await setUserMute(env.DB, ctx.from!.id, CONFIG.MUTE_FOREVER_TIMESTAMP);
+    await ctx.answerCallbackQuery({ text: "⏸ Спайки выключены (до включения)" });
+    await handleSettingsSpikes(ctx, true);
   });
 
   bot.callbackQuery("settings_unmute", async (ctx) => {
     await setUserMute(env.DB, ctx.from!.id, 0);
-    await ctx.answerCallbackQuery({ text: "🔔 Уведомления включены" });
-    await handleSettings(ctx, true);
+    await ctx.answerCallbackQuery({ text: "🔔 Спайки включены" });
+    await handleSettingsSpikes(ctx, true);
+  });
+
+  // ==========================================
+  // МЬЮТЫ ПОЗИЦИЙ ИЗ СООБЩЕНИЙ АЛЕРТОВ
+  // ==========================================
+
+  bot.callbackQuery(/^pos_mute:(3600|14400|forever)$/, async (ctx) => {
+    const dur = ctx.match[1];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const mutedUntil =
+      dur === "forever" ? CONFIG.MUTE_FOREVER_TIMESTAMP : nowSec + parseInt(dur, 10);
+    await setUserMute(env.DB, ctx.from!.id, mutedUntil);
+    const label =
+      dur === "forever" ? "выключены (до включения)" : dur === "3600" ? "на 1 час" : "на 4 часа";
+    await ctx.answerCallbackQuery({ text: `🔕 Уведомления заглушены ${label}` });
+
+    try {
+      const currentMarkup = ctx.callbackQuery.message?.reply_markup;
+      if (currentMarkup?.inline_keyboard) {
+        const newKeyboard = new InlineKeyboard();
+        for (const row of currentMarkup.inline_keyboard) {
+          const isMuteRow = row.some((btn: any) => btn.callback_data?.startsWith("pos_mute:"));
+          if (isMuteRow) {
+            newKeyboard.text("🔔 Включить уведомления", "pos_unmute").row();
+          } else {
+            for (const btn of row as any[]) {
+              if (btn.url) newKeyboard.url(btn.text, btn.url);
+              else if (btn.callback_data) newKeyboard.text(btn.text, btn.callback_data);
+            }
+            newKeyboard.row();
+          }
+        }
+        await ctx.editMessageReplyMarkup({ reply_markup: newKeyboard });
+      }
+    } catch {}
+  });
+
+  bot.callbackQuery("pos_unmute", async (ctx) => {
+    await setUserMute(env.DB, ctx.from!.id, 0);
+    await ctx.answerCallbackQuery({ text: "🔔 Уведомления снова включены" });
+    try {
+      const currentMarkup = ctx.callbackQuery.message?.reply_markup;
+      if (currentMarkup?.inline_keyboard) {
+        const newKeyboard = new InlineKeyboard();
+        for (const row of currentMarkup.inline_keyboard) {
+          const isUnmuteRow = row.some((btn: any) => btn.callback_data === "pos_unmute");
+          if (isUnmuteRow) {
+            newKeyboard
+              .text("🔕 1ч", "pos_mute:3600")
+              .text("🔕 4ч", "pos_mute:14400")
+              .text("⏸ Выкл", "pos_mute:forever")
+              .row();
+          } else {
+            for (const btn of row as any[]) {
+              if (btn.url) newKeyboard.url(btn.text, btn.url);
+              else if (btn.callback_data) newKeyboard.text(btn.text, btn.callback_data);
+            }
+            newKeyboard.row();
+          }
+        }
+        await ctx.editMessageReplyMarkup({ reply_markup: newKeyboard });
+      }
+    } catch {}
+  });
+
+  // ==========================================
+  // КОМАНДЫ И ОБРАБОТЧИКИ ТАРГЕТОВ СПРЕДА
+  // ==========================================
+
+  bot.command("targets", async (ctx) => {
+    await handleSpreadMenu(ctx);
+  });
+
+  bot.callbackQuery("spread_menu", async (ctx) => {
+    await setUserWizardState(env.DB, ctx.from!.id, null);
+    await ctx.answerCallbackQuery();
+    await handleSpreadMenu(ctx, true);
+  });
+
+  bot.callbackQuery("sp_wiz_start", async (ctx) => {
+    const stats = await getUserSpreadStats(env.DB, ctx.from!.id);
+    if (stats.tokenCount >= CONFIG.MAX_SPREAD_TOKENS_PER_USER) {
+      await ctx.answerCallbackQuery({
+        text: `⚠️ Лимит токенов исчерпан (${stats.tokenCount}/${CONFIG.MAX_SPREAD_TOKENS_PER_USER})`,
+        show_alert: true,
+      });
+      return;
+    }
+    if (stats.totalTargets >= CONFIG.MAX_SPREAD_TARGETS_PER_USER) {
+      await ctx.answerCallbackQuery({
+        text: `⚠️ Лимит таргетов исчерпан (${stats.totalTargets}/${CONFIG.MAX_SPREAD_TARGETS_PER_USER})`,
+        show_alert: true,
+      });
+      return;
+    }
+
+    await setUserWizardState(env.DB, ctx.from!.id, { step: "SPREAD_AWAIT_SYMBOL" });
+    await ctx.answerCallbackQuery();
+
+    const promptText =
+      `🎯 <b>Добавление таргета спреда</b>\n\n` +
+      `Введите тикер токена (например: <code>SPY</code>, <code>QQQ</code>, <code>XAU</code>, <code>NVDA</code>, <code>AAPL</code>) ` +
+      `или выберите из популярных ниже:`;
+
+    const kb = new InlineKeyboard()
+      .text("SPY", "sp_sym:SPY")
+      .text("QQQ", "sp_sym:QQQ")
+      .text("XAU", "sp_sym:XAU")
+      .row()
+      .text("NVDA", "sp_sym:NVDA")
+      .text("AAPL", "sp_sym:AAPL")
+      .row()
+      .text("❌ Отмена", "sp_manage");
+
+    try {
+      await ctx.editMessageText(promptText, { parse_mode: "HTML", reply_markup: kb });
+    } catch {
+      await ctx.reply(promptText, { parse_mode: "HTML", reply_markup: kb });
+    }
+  });
+
+  bot.callbackQuery(/^sp_sym:([A-Za-z0-9._-]+)$/, async (ctx) => {
+    const symbol = ctx.match[1];
+    await setUserWizardState(env.DB, ctx.from!.id, null);
+    await ctx.answerCallbackQuery();
+    await showDirectionPicker(ctx, symbol, true);
+  });
+
+  bot.callbackQuery(/^sp_dir:([A-Za-z0-9._-]+):(rh_cheaper|rh_expensive)$/, async (ctx) => {
+    const symbol = ctx.match[1];
+    const dir = ctx.match[2] as SpreadDirection;
+    await ctx.answerCallbackQuery();
+    await showPresetPicker(ctx, symbol, dir, true);
+  });
+
+  bot.callbackQuery(
+    /^sp_pr:([A-Za-z0-9._-]+):(rh_cheaper|rh_expensive):(\d+(\.\d+)?)(?::(\d+))?$/,
+    async (ctx) => {
+      const symbol = ctx.match[1]!.toUpperCase();
+      const direction = ctx.match[2] as SpreadDirection;
+      const bps = parseFloat(ctx.match[3]!);
+      const editTargetId = ctx.match[5] ? parseInt(ctx.match[5]!, 10) : undefined;
+
+      const quote = await getLiveSpreadQuote(symbol);
+      const refPrice = quote ? quote.corePrice : 100;
+      const targetDeltaUsd = (refPrice * bps) / 10000;
+
+      let initialArmed = 1;
+      let currentBasisBps = 0;
+      if (quote) {
+        const { basisBps } = computeSpreadBasis(quote.rhPrice, quote.corePrice);
+        currentBasisBps = direction === "rh_cheaper" ? -basisBps : basisBps;
+        if (currentBasisBps >= bps) {
+          initialArmed = 0;
+        }
+      }
+
+      const isEditing = Boolean(editTargetId);
+      if (editTargetId) {
+        await updateSpreadTargetThreshold(
+          env.DB,
+          ctx.from!.id,
+          editTargetId,
+          bps,
+          "bps",
+          initialArmed,
+        );
+        await ctx.answerCallbackQuery({ text: `Таргет изменен на ${bps} bps!` });
+      } else {
+        await addSpreadTarget(env.DB, ctx.from!.id, symbol, direction, bps, "bps", initialArmed);
+        await ctx.answerCallbackQuery({ text: `Таргет ${bps} bps добавлен!` });
+      }
+
+      await setUserWizardState(env.DB, ctx.from!.id, null);
+
+      const dirLabel = direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+      const dirSign = direction === "rh_cheaper" ? "-" : "+";
+      const centsFormatted =
+        targetDeltaUsd >= 1 ? targetDeltaUsd.toFixed(2) : targetDeltaUsd.toFixed(3);
+
+      let confirmText = isEditing
+        ? `✅ <b>Таргет спреда успешно изменен!</b>\n\n`
+        : `✅ <b>Таргет спреда успешно добавлен!</b>\n\n`;
+
+      confirmText +=
+        `• Инструмент: <b>${symbol}</b>\n` +
+        `• Условие: <b>${dirLabel}</b>\n` +
+        `• Целевой спред: <b>${bps} bps</b> (${dirSign}$${centsFormatted})\n`;
+
+      if (initialArmed === 0) {
+        confirmText += `\n⚠️ <i>Текущий спред (${currentBasisBps.toFixed(1)} bps) уже достиг цели. Таргет взведется автоматически при откате ниже ${(bps * CONFIG.SPREAD_REARM_RATIO).toFixed(1)} bps (80%).</i>`;
+      } else {
+        confirmText += `• Статус: <b>Взведен и активен</b>`;
+      }
+
+      const kb = new InlineKeyboard();
+      if (isEditing && editTargetId) {
+        kb.text(`🎯 К таргету`, `sp_target:${editTargetId}`).row();
+      } else {
+        kb.text(`➕ Еще таргет для ${symbol}`, `sp_sym:${symbol}`).row();
+      }
+      kb.text(`📐 Мои таргеты`, "spread_menu");
+
+      try {
+        await ctx.editMessageText(confirmText, { parse_mode: "HTML", reply_markup: kb });
+      } catch {
+        await ctx.reply(confirmText, { parse_mode: "HTML", reply_markup: kb });
+      }
+    },
+  );
+
+  bot.callbackQuery(
+    /^sp_custom:([A-Za-z0-9._-]+):(rh_cheaper|rh_expensive)(?::(\d+))?$/,
+    async (ctx) => {
+      const symbol = ctx.match[1]!.toUpperCase();
+      const direction = ctx.match[2] as SpreadDirection;
+      const editTargetId = ctx.match[3] ? parseInt(ctx.match[3]!, 10) : undefined;
+      const quote = await getLiveSpreadQuote(symbol);
+      const rhPrice = quote ? quote.rhPrice : 0;
+      const corePrice = quote ? quote.corePrice : 0;
+
+      await setUserWizardState(env.DB, ctx.from!.id, {
+        step: "SPREAD_AWAIT_DELTA",
+        symbol,
+        direction,
+        rhPrice,
+        corePrice,
+        editTargetId,
+      });
+      await ctx.answerCallbackQuery();
+
+      const dirLabel = direction === "rh_cheaper" ? "🟢 RH &lt; Core" : "🔵 RH &gt; Core";
+      const title = editTargetId
+        ? `✏️ <b>Изменение целевого спреда для ${symbol}</b>\n`
+        : `✏️ <b>Введите целевой спред для ${symbol}</b>\n`;
+
+      const prompt =
+        title +
+        `Условие: <b>${dirLabel}</b>\n\n` +
+        `Отправьте желаемое значение в долларах или в bps:\n` +
+        `• В долларах/центах: <code>0.15</code> или <code>$0.15</code>\n` +
+        `• В базисных пунктах: <code>5bps</code> или <code>0.05%</code>\n\n` +
+        `<i>Текущая цена ${symbol}: ~$${formatPriceFine(corePrice)}</i>`;
+
+      const cancelCb = editTargetId ? `sp_target:${editTargetId}` : "sp_manage";
+      const kb = new InlineKeyboard().text("❌ Отмена", cancelCb);
+      await ctx.reply(prompt, { parse_mode: "HTML", reply_markup: kb });
+    },
+  );
+
+  bot.callbackQuery(/^sp_edit:(\d+)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1]!, 10);
+    const targets = await getUserSpreadTargets(env.DB, ctx.from!.id);
+    const target = targets.find((t) => t.id === targetId);
+    if (!target) {
+      await ctx.answerCallbackQuery({ text: "Таргет не найден" });
+      await handleSpreadManage(ctx, true);
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await showPresetPicker(ctx, target.symbol, target.direction, true, target.id);
+  });
+
+  bot.callbackQuery(/^sp_flip_dir:(\d+):(rh_cheaper|rh_expensive)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1]!, 10);
+    const newDir = ctx.match[2] as SpreadDirection;
+    const targets = await getUserSpreadTargets(env.DB, ctx.from!.id);
+    const target = targets.find((t) => t.id === targetId);
+    if (!target) {
+      await ctx.answerCallbackQuery({ text: "Таргет не найден" });
+      return;
+    }
+    await updateSpreadTargetDirection(env.DB, ctx.from!.id, targetId, newDir);
+    await ctx.answerCallbackQuery({ text: "Условие изменено" });
+    await showPresetPicker(ctx, target.symbol, newDir, true, targetId);
+  });
+
+  bot.callbackQuery("sp_manage", async (ctx) => {
+    await setUserWizardState(env.DB, ctx.from!.id, null);
+    await ctx.answerCallbackQuery();
+    await handleSpreadManage(ctx, true);
+  });
+
+  bot.callbackQuery(/^sp_target:(\d+)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1]!, 10);
+    await ctx.answerCallbackQuery();
+    await showSpreadTargetCard(ctx, targetId, true);
+  });
+
+  bot.callbackQuery(/^sp_del(?:_ask|_confirm)?:(\d+)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1]!, 10);
+    await deleteSpreadTarget(env.DB, ctx.from!.id, targetId);
+    await ctx.answerCallbackQuery({ text: "🗑 Таргет удален" });
+    await handleSpreadManage(ctx, true);
+  });
+
+  bot.callbackQuery(/^sp_tog:(\d+)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1], 10);
+    const targets = await getUserSpreadTargets(env.DB, ctx.from!.id);
+    const target = targets.find((t) => t.id === targetId);
+    if (!target) {
+      await ctx.answerCallbackQuery({ text: "Таргет не найден" });
+      return;
+    }
+
+    const newActive = target.is_active === 1 ? 0 : 1;
+    await toggleSpreadTargetActive(env.DB, ctx.from!.id, targetId, newActive);
+    await ctx.answerCallbackQuery({
+      text: newActive === 1 ? "▶️ Таргет включен" : "⏸ Таргет поставлен на паузу",
+    });
+    await showSpreadTargetCard(ctx, targetId, true);
+  });
+
+  bot.callbackQuery(/^sp_del_sym(?:_ask|_confirm)?:([A-Za-z0-9._-]+)$/, async (ctx) => {
+    const symbol = ctx.match[1]!;
+    await deleteSpreadTargetsBySymbol(env.DB, ctx.from!.id, symbol);
+    await ctx.answerCallbackQuery({ text: `Все таргеты ${symbol} удалены` });
+    await handleSpreadManage(ctx, true);
+  });
+
+  bot.callbackQuery(/^sp_mute:(\d+):(3600|14400|off)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1], 10);
+    const dur = ctx.match[2];
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    if (dur === "off") {
+      await toggleSpreadTargetActive(env.DB, ctx.from!.id, targetId, 0);
+      await ctx.answerCallbackQuery({ text: "⏸ Таргет выключен (до включения)" });
+    } else {
+      const mutedUntil = nowSec + parseInt(dur, 10);
+      await setSpreadTargetMute(env.DB, ctx.from!.id, targetId, mutedUntil);
+      const hours = dur === "3600" ? "1 час" : "4 часа";
+      await ctx.answerCallbackQuery({ text: `🔕 Таргет заглушен на ${hours}` });
+    }
+
+    try {
+      const currentMarkup = ctx.callbackQuery.message?.reply_markup;
+      if (currentMarkup?.inline_keyboard) {
+        const newKeyboard = new InlineKeyboard();
+        for (const row of currentMarkup.inline_keyboard) {
+          const isMuteRow = row.some((btn: any) => btn.callback_data?.startsWith("sp_mute:"));
+          if (isMuteRow) {
+            newKeyboard.text("🔔 Включить таргет обратно", `sp_unmute:${targetId}`).row();
+          } else {
+            for (const btn of row as any[]) {
+              if (btn.url) newKeyboard.url(btn.text, btn.url);
+              else if (btn.callback_data) newKeyboard.text(btn.text, btn.callback_data);
+            }
+            newKeyboard.row();
+          }
+        }
+        await ctx.editMessageReplyMarkup({ reply_markup: newKeyboard });
+      }
+    } catch {}
+  });
+
+  bot.callbackQuery(/^sp_unmute:(\d+)$/, async (ctx) => {
+    const targetId = parseInt(ctx.match[1], 10);
+    await toggleSpreadTargetActive(env.DB, ctx.from!.id, targetId, 1);
+    await setSpreadTargetMute(env.DB, ctx.from!.id, targetId, 0);
+    await ctx.answerCallbackQuery({ text: "🔔 Таргет снова активен" });
+
+    try {
+      const currentMarkup = ctx.callbackQuery.message?.reply_markup;
+      if (currentMarkup?.inline_keyboard) {
+        const newKeyboard = new InlineKeyboard();
+        for (const row of currentMarkup.inline_keyboard) {
+          const isUnmuteRow = row.some((btn: any) => btn.callback_data?.startsWith("sp_unmute:"));
+          if (isUnmuteRow) {
+            newKeyboard
+              .text("🔕 1ч", `sp_mute:${targetId}:3600`)
+              .text("🔕 4ч", `sp_mute:${targetId}:14400`)
+              .text("⏸ Выкл", `sp_mute:${targetId}:off`)
+              .row();
+          } else {
+            for (const btn of row as any[]) {
+              if (btn.url) newKeyboard.url(btn.text, btn.url);
+              else if (btn.callback_data) newKeyboard.text(btn.text, btn.callback_data);
+            }
+            newKeyboard.row();
+          }
+        }
+        await ctx.editMessageReplyMarkup({ reply_markup: newKeyboard });
+      }
+    } catch {}
+  });
+
+  bot.callbackQuery(/^sp_sym_mute:([A-Za-z0-9._-]+):(\d+|off)$/, async (ctx) => {
+    const symbol = ctx.match[1];
+    const dur = ctx.match[2];
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    let mutedUntil = nowSec;
+    let label = "";
+
+    if (dur === "off") {
+      mutedUntil = CONFIG.MUTE_FOREVER_TIMESTAMP;
+      label = `⏸ Все алерты ${symbol} выключены (до включения)`;
+    } else {
+      const sec = parseInt(dur, 10);
+      mutedUntil = nowSec + sec;
+      const hours = Math.round(sec / 3600);
+      label = `🔕 Все алерты ${symbol} заглушены на ${hours}ч`;
+    }
+
+    await setSpreadSymbolMute(env.DB, ctx.from!.id, symbol, mutedUntil);
+    await ctx.answerCallbackQuery({ text: label });
+
+    try {
+      const unMuteKb = new InlineKeyboard().text(
+        `🔔 Включить алерты ${symbol}`,
+        `sp_sym_unmute:${symbol}`,
+      );
+      await ctx.editMessageReplyMarkup({ reply_markup: unMuteKb });
+    } catch {}
+  });
+
+  bot.callbackQuery(/^sp_sym_unmute:([A-Za-z0-9._-]+)$/, async (ctx) => {
+    const symbol = ctx.match[1];
+    await setSpreadSymbolMute(env.DB, ctx.from!.id, symbol, 0);
+    await ctx.answerCallbackQuery({ text: `🔔 Алерты ${symbol} снова активны` });
+
+    try {
+      const kb = getSpreadAlertKeyboard(0, symbol);
+      await ctx.editMessageReplyMarkup({ reply_markup: kb });
+    } catch {}
+  });
+
+  bot.callbackQuery(/^sp_mt_all:(\d+)$/, async (ctx) => {
+    const sec = parseInt(ctx.match[1], 10);
+    const mutedUntil = sec === 0 ? 0 : Math.floor(Date.now() / 1000) + sec;
+    await setUserSpreadMute(env.DB, ctx.from!.id, mutedUntil);
+    const label = sec === 0 ? "🔔 Алерты спреда включены" : "🔕 Все спреды заглушены на 4ч";
+    await ctx.answerCallbackQuery({ text: label });
+    await handleSpreadMenu(ctx, true);
   });
 
   // ==========================================
   // КНОПКИ НИЖНЕЙ КЛАВИАТУРЫ (REPLY KEYBOARD)
   // ==========================================
 
-  bot.hears(["📊 Мои сделки", "Мои сделки", "📊 Позиции", "Позиции"], async (ctx) => {
+  bot.hears(["📊 Мои позиции", "Мои позиции"], async (ctx) => {
     await handlePositions(ctx);
   });
 
-  bot.hears(
-    ["💼 Мои кошельки", "Мои кошельки", "📋 Аккаунты", "Аккаунты", "📋 Мои аккаунты"],
-    async (ctx) => {
-      await handleList(ctx);
-    },
-  );
-
-  bot.hears(["➕ Добавить кошелек", "➕ Добавить", "Добавить кошелек"], async (ctx) => {
-    await startAddWizard(ctx);
+  bot.hears(["📐 Мои таргеты", "Мои таргеты"], async (ctx) => {
+    await handleSpreadMenu(ctx);
   });
 
-  bot.hears(["⚙️ Настройки", "Настройки", "⚙️ Порог алертов", "Порог алертов"], async (ctx) => {
-    await handleSettings(ctx);
+  bot.hears(["💼 Мои аккаунты", "Мои аккаунты"], async (ctx) => {
+    await handleList(ctx);
   });
 
-  bot.hears(
-    [
-      "📈 Админ статистика",
-      "Админ статистика",
-      "👑 Админ-панель",
-      "Админ-панель",
-      "📊 Статистика",
-      "Статистика",
-    ],
-    async (ctx) => {
-      await handleStats(ctx);
-    },
-  );
+  bot.hears(["⚙️ Настройки", "Настройки"], async (ctx) => {
+    await handleSettingsMain(ctx);
+  });
+
+  bot.hears(["📈 Админ статистика", "Админ статистика"], async (ctx) => {
+    await handleStats(ctx);
+  });
 
   // ==========================================
-  // СПРАВКА И ПОМОЩЬ (/help, /menu)
+  // СПРАВКА И ПОМОЩЬ (/help)
   // ==========================================
   const handleHelp = async (ctx: any) => {
     const helpText =
       `🤖 <b>Lighter Monitor — Справка</b>\n\n` +
-      `Бот отслеживает ваши позиции на DEX Lighter в двух сетях:\n` +
+      `Бот отслеживает позиции и спред цен на DEX Lighter в двух сетях:\n` +
       `• 🟠 <b>Robinhood Lighter</b> (RH)\n` +
       `• ⚡️ <b>Lighter Mainnet</b>\n\n` +
-      `<b>Основные команды:</b>\n` +
-      `• /positions (или 📊 Мои сделки) — сводка по всем открытым позициям, PnL, марже и расстоянию до ликвидации\n` +
-      `• /list (или 💼 Мои кошельки) — список подключенных аккаунтов с управлением\n` +
-      `• /add — подключение кошелька\n` +
-      `• /threshold — настройка шага цены для алертов (по умолчанию 0.5%)\n` +
-      `• /settings — параметры уведомлений и режим сна\n` +
-      `• /stats — системная статистика и метрики\n\n` +
+      `<b>Доступные команды:</b>\n` +
+      `• /positions — 📊 Открытые позиции, PnL, маржа и риск ликвидации\n` +
+      `• /accounts — 💼 Подключенные аккаунты и управление\n` +
+      `• /targets — 📐 Таргеты спреда между Robinhood Lighter и Lighter Core\n` +
+      `• /settings — ⚙️ Параметры уведомлений и режим сна\n` +
+      `• /start — 🚀 Главное меню\n` +
+      `• /stats — 📈 Системная статистика (для админа)\n` +
+      `• /help — ℹ️ Справка и возможности\n\n` +
       `<b>Как работают алерты:</b>\n` +
-      `Крон каждую минуту проверяет цены. Уведомление приходит только при движении против позиции (рост риска/просадка) на установленный шаг. При прибыли бот не спамит.`;
+      `Крон каждую минуту проверяет цены. Уведомление приходит при движении против позиции (рост риска/просадка) на установленный шаг, либо при достижении таргета спреда.`;
 
     await ctx.reply(helpText, { parse_mode: "HTML", reply_markup: getMainKb(ctx) });
   };
 
-  bot.command(["help", "menu"], handleHelp);
+  bot.command("help", handleHelp);
 
   // ==========================================
   // ДЕФОЛТНЫЙ FALLBACK (ОТВЕТ НА ЛЮБОЙ НЕРАСПОЗНАННЫЙ ТЕКСТ)
@@ -1486,11 +2435,13 @@ export function getBot(env: Env): Bot {
     const fallbackText =
       `ℹ️ <b>Команда не распознана.</b>\n\n` +
       `Используйте кнопки меню внизу экрана или стандартные команды:\n` +
-      `• /positions — 📊 Открытые сделки и риски\n` +
-      `• /list — 💼 Мои кошельки\n` +
-      `• /add — ➕ Добавить кошелек\n` +
-      `• /threshold — ⚙️ Шаг цены для алертов\n` +
-      `• /help — ℹ️ Подробная справка`;
+      `• /positions — 📊 Мои позиции\n` +
+      `• /accounts — 💼 Мои аккаунты\n` +
+      `• /targets — 📐 Мои таргеты\n` +
+      `• /settings — ⚙️ Настройки\n` +
+      `• /start — 🚀 Главное меню\n` +
+      `• /stats — 📈 Статистика\n` +
+      `• /help — ℹ️ Справка`;
     await ctx.reply(fallbackText, { parse_mode: "HTML", reply_markup: getMainKb(ctx) });
   });
 

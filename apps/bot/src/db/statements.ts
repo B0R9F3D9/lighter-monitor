@@ -7,6 +7,8 @@ export interface CachedStatements {
   upsertCache: D1PreparedStatement;
   touchFailed: D1PreparedStatement;
   saveMetrics: D1PreparedStatement;
+  updateSpreadAlertSent: D1PreparedStatement;
+  updateSpreadRearm: D1PreparedStatement;
 }
 
 let cachedStmts: CachedStatements | null = null;
@@ -72,6 +74,16 @@ export function getCronStatements(db: D1Database): CachedStatements {
       INSERT INTO bot_system_metrics (key, value_json, updated_at)
       VALUES ('last_cron', ?, ?)
       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+    `),
+    updateSpreadAlertSent: db.prepare(`
+      UPDATE user_spread_targets
+      SET armed = 0, last_alerted_at = ?, last_spread = ?
+      WHERE id = ?
+    `),
+    updateSpreadRearm: db.prepare(`
+      UPDATE user_spread_targets
+      SET armed = 1
+      WHERE id = ?
     `),
   };
 

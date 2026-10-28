@@ -72,6 +72,39 @@ export interface CachedPositionPayload {
   tier: AlertTier;
 }
 
+export type SpreadDirection = "rh_cheaper" | "rh_expensive";
+export type SpreadUnit = "usd" | "bps";
+
+export interface SpreadTargetRow {
+  id: number;
+  telegram_id: number;
+  symbol: string;
+  direction: SpreadDirection;
+  target_delta: number;
+  unit: SpreadUnit;
+  is_active: number;
+  armed: number;
+  muted_until: number;
+  last_alerted_at: number | null;
+  last_spread: number | null;
+  created_at: number;
+  user_spread_muted_until?: number;
+  symbol_muted_until?: number;
+}
+
+export interface SpreadAlertParams {
+  targetId: number;
+  symbol: string;
+  direction: SpreadDirection;
+  targetDelta: number;
+  unit: SpreadUnit;
+  rhPrice: number;
+  corePrice: number;
+  actualDiff: number;
+  basisSigned: number;
+  basisBps: number;
+}
+
 export type WizardState = (
   | { step: "AWAIT_INDEX"; network: LighterNetwork }
   | {
@@ -84,6 +117,16 @@ export type WizardState = (
     }
   | { step: "AWAIT_RENAME"; network: LighterNetwork; accountIndex: number }
   | { step: "AWAIT_THRESHOLD" }
+  | { step: "SPREAD_AWAIT_SYMBOL" }
+  | { step: "SPREAD_AWAIT_DIRECTION"; symbol: string; rhPrice: number; corePrice: number }
+  | {
+      step: "SPREAD_AWAIT_DELTA";
+      symbol: string;
+      direction: SpreadDirection;
+      rhPrice: number;
+      corePrice: number;
+      editTargetId?: number;
+    }
 ) & { ts?: number };
 
 export interface ActivePositionWatchItem {

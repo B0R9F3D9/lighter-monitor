@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     alert_threshold REAL NOT NULL DEFAULT 0.5,
     wizard_state TEXT DEFAULT NULL,
     muted_until INTEGER NOT NULL DEFAULT 0,
+    spread_muted_until INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );
 
@@ -71,5 +72,35 @@ CREATE TABLE IF NOT EXISTS bot_system_metrics (
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL,
     updated_at INTEGER NOT NULL
+);
+
+-- 7. Таргеты спреда Robinhood Lighter vs Lighter Core
+CREATE TABLE IF NOT EXISTS user_spread_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('rh_cheaper', 'rh_expensive')),
+    target_delta REAL NOT NULL CHECK (target_delta > 0),
+    unit TEXT NOT NULL DEFAULT 'usd' CHECK (unit IN ('usd', 'bps')),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    armed INTEGER NOT NULL DEFAULT 1,
+    muted_until INTEGER NOT NULL DEFAULT 0,
+    last_alerted_at INTEGER DEFAULT NULL,
+    last_spread REAL DEFAULT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(telegram_id, symbol, direction, target_delta, unit)
+);
+
+CREATE INDEX IF NOT EXISTS idx_spread_targets_active 
+    ON user_spread_targets(is_active, armed, symbol);
+CREATE INDEX IF NOT EXISTS idx_spread_targets_user 
+    ON user_spread_targets(telegram_id, symbol);
+
+-- 8. Мьюты алертов по отдельным символам
+CREATE TABLE IF NOT EXISTS spread_symbol_mutes (
+    telegram_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    muted_until INTEGER NOT NULL,
+    PRIMARY KEY (telegram_id, symbol)
 );
 

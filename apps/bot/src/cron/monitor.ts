@@ -6,6 +6,7 @@ import {
   MarketPriceSnapshot,
   ActivePositionWatchItem,
   TrackedAccountKey,
+  SpreadTargetRow,
 } from "../types";
 import { CONFIG, getLighterAuthToken } from "../config";
 import {
@@ -15,7 +16,9 @@ import {
   buildSyncAccountOpenPositionsStmts,
   getActivePositionsForMonitoring,
   getDistinctActiveSymbols,
+  getActiveSpreadTargetsForMonitoring,
   removeBlockedUser,
+  ensureDatabaseSchema,
 } from "../db/queries";
 import { getCronStatements } from "../db/statements";
 import {
@@ -26,7 +29,7 @@ import {
 } from "../lighter/api";
 import { computePositionsFingerprint } from "../lighter/math";
 import { getMemoryAccount } from "../cache/memory";
-import { formatPriceStepAlert } from "../bot/formatters";
+import { formatPriceStepAlert, formatSpreadAlert, getSpreadAlertKeyboard } from "../bot/formatters";
 import { pingHealthcheckSuccess, pingHealthcheckFail } from "../utils/healthcheck";
 
 // Динамический умный кулдаун на лету от порога пользователя
@@ -140,6 +143,9 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     // Пре-компиляция D1 стейтментов из кэша (Zero-Alloc на горячем пути)
     const stmts = getCronStatements(env.DB);
 
+    // 0. Гарантируем актуальность схемы БД (Cold-start auto-migration)
+    await ensureDatabaseSchema(env.DB);
+
     // 1. ЗАГРУЖАЕМ СРЕЗЫ ЦЕН БИРЖИ ПАРАЛЛЕЛЬНО (Целевой парсинг только активных инструментов)
     const uniqueSymbols = await getDistinctActiveSymbols(env.DB);
     const activeSymbolsSet = uniqueSymbols.length > 0 ? new Set(uniqueSymbols) : undefined;
@@ -152,6 +158,143 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     subrequestsUsed += 2;
     priceSnapshots.set("rh", snapRh);
     priceSnapshots.set("mainnet", snapMainnet);
+
+    // 1b. МОНИТОРИНГ ТАРГЕТОВ СПРЕДА RH vs CORE
+    let spreadAlertsSent = 0;
+    if (snapRh.size > 0 && snapMainnet.size > 0) {
+      try {
+        const spreadTargets = await getActiveSpreadTargetsForMonitoring(env.DB, now);
+        if (spreadTargets.length > 0) {
+          interface SpreadCand {
+            target: SpreadTargetRow;
+            rhPrice: number;
+            corePrice: number;
+            actualDiffUsd: number;
+            actualDiffBps: number;
+            basisSigned: number;
+            basisBps: number;
+            metric: number;
+          }
+          const candidates: SpreadCand[] = [];
+
+          for (let i = 0; i < spreadTargets.length; i++) {
+            const target = spreadTargets[i]!;
+            const rhSnap = findMarketPrice(snapRh, target.symbol);
+            const coreSnap = findMarketPrice(snapMainnet, target.symbol);
+
+            if (!rhSnap || rhSnap.price <= 0 || !coreSnap || coreSnap.price <= 0) continue;
+
+            const rhPrice = rhSnap.price;
+            const corePrice = coreSnap.price;
+
+            // Санитарный лимит расхождения цен (>10% от цены Core считается аномалией)
+            if (Math.abs(rhPrice - corePrice) / corePrice > CONFIG.SPREAD_MAX_PRICE_DIFF_RATIO) {
+              continue;
+            }
+
+            const basisSigned = rhPrice - corePrice;
+            const basisBps = (basisSigned / corePrice) * 10000;
+
+            const actualDiffUsd =
+              target.direction === "rh_cheaper" ? corePrice - rhPrice : rhPrice - corePrice;
+            const actualDiffBps = (actualDiffUsd / corePrice) * 10000;
+
+            const metric = target.unit === "bps" ? actualDiffBps : actualDiffUsd;
+
+            if (target.armed === 1) {
+              if (metric >= target.target_delta) {
+                // Проверка мьютов
+                const isUserMuted = (target.user_spread_muted_until ?? 0) > now;
+                const isSymMuted = (target.symbol_muted_until ?? 0) > now;
+                const isTargetMuted = target.muted_until > now;
+
+                if (isUserMuted || isSymMuted || isTargetMuted) {
+                  continue;
+                }
+
+                // Проверка кулдауна
+                const timeSinceLast = target.last_alerted_at
+                  ? now - target.last_alerted_at
+                  : Infinity;
+                if (timeSinceLast < CONFIG.SPREAD_ALERT_COOLDOWN_SECONDS) {
+                  continue;
+                }
+
+                candidates.push({
+                  target,
+                  rhPrice,
+                  corePrice,
+                  actualDiffUsd,
+                  actualDiffBps,
+                  basisSigned,
+                  basisBps,
+                  metric,
+                });
+              }
+            } else {
+              // Re-arm: сработавшая цель снова взводится, когда спред откатился ниже threshold * 0.8
+              if (metric <= target.target_delta * CONFIG.SPREAD_REARM_RATIO) {
+                allUpdates.push(stmts.updateSpreadRearm.bind(target.id));
+              }
+            }
+          }
+
+          if (candidates.length > 0 && env.TELEGRAM_BOT_TOKEN) {
+            const api = new Api(env.TELEGRAM_BOT_TOKEN);
+            const maxSpreadSends = Math.min(
+              CONFIG.MAX_SPREAD_ALERTS_PER_TICK,
+              Math.max(0, CONFIG.MAX_SUBREQUESTS_PER_CRON - subrequestsUsed - 15),
+            );
+            const toSend = candidates.slice(0, maxSpreadSends);
+
+            for (let i = 0; i < toSend.length; i++) {
+              if (subrequestsUsed >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 1) break;
+              if (Date.now() - startTime > MAX_WALL_CLOCK_MS) break;
+
+              const cand = toSend[i]!;
+              const alertText = formatSpreadAlert({
+                targetId: cand.target.id,
+                symbol: cand.target.symbol,
+                direction: cand.target.direction,
+                targetDelta: cand.target.target_delta,
+                unit: cand.target.unit,
+                rhPrice: cand.rhPrice,
+                corePrice: cand.corePrice,
+                actualDiff: cand.actualDiffUsd,
+                basisSigned: cand.basisSigned,
+                basisBps: cand.basisBps,
+              });
+
+              try {
+                await api.sendMessage(cand.target.telegram_id, alertText, {
+                  parse_mode: "HTML",
+                  reply_markup: getSpreadAlertKeyboard(cand.target.id, cand.target.symbol),
+                });
+                subrequestsUsed++;
+                spreadAlertsSent++;
+                allUpdates.push(stmts.updateSpreadAlertSent.bind(now, cand.metric, cand.target.id));
+              } catch (err: any) {
+                if (err?.error_code === 403) {
+                  await removeBlockedUser(env.DB, cand.target.telegram_id);
+                } else if (err?.error_code === 429) {
+                  console.warn(`[spread] Rate limited (429) for user ${cand.target.telegram_id}`);
+                } else {
+                  console.error(
+                    `[spread] Failed to send alert to ${cand.target.telegram_id}:`,
+                    err,
+                  );
+                  allUpdates.push(
+                    stmts.updateSpreadAlertSent.bind(now, cand.metric, cand.target.id),
+                  );
+                }
+              }
+            }
+          }
+        }
+      } catch (spreadErr) {
+        console.error("[spread] Error in checkSpreadAlerts:", spreadErr);
+      }
+    }
 
     // 2. REVERSE INDEXING: Вычисляем инструменты с реальным импульсом
     const { movedSymbols, isFullSweep } = getMovedSymbols(priceSnapshots, now);
@@ -546,11 +689,19 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                     : "https://rh.lighter.xyz/";
                 keyboard = new InlineKeyboard()
                   .text("🔄 Обновить", `refresh:${first.item.network}:${first.item.account_index}`)
-                  .url("🌐 Открыть биржу", lighterUrl);
+                  .url("🌐 Открыть биржу", lighterUrl)
+                  .row()
+                  .text("🔕 1ч", "pos_mute:3600")
+                  .text("🔕 4ч", "pos_mute:14400")
+                  .text("⏸ Выкл", "pos_mute:forever");
               } else {
                 keyboard = new InlineKeyboard()
-                  .text("📊 Мои сделки", "action_positions")
-                  .url("🌐 Открыть биржу", "https://app.lighter.xyz/");
+                  .text("📊 Мои позиции", "action_positions")
+                  .url("🌐 Открыть биржу", "https://app.lighter.xyz/")
+                  .row()
+                  .text("🔕 1ч", "pos_mute:3600")
+                  .text("🔕 4ч", "pos_mute:14400")
+                  .text("⏸ Выкл", "pos_mute:forever");
               }
 
               try {
@@ -605,6 +756,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       candidates_count: candidateAlerts.length,
       jit_checks_performed: jitChecksDone,
       alerts_sent: alertsSentCount,
+      spread_alerts_sent: spreadAlertsSent,
       zombies_cleaned: cleanedZombieKeys.size,
       timestamp: now,
     };

@@ -256,3 +256,112 @@ export function formatSmartPriceFast(price: number): string {
 export function formatSmartPrice(price: number): string {
   return formatSmartPriceFast(price);
 }
+
+/**
+ * Высокоточное форматирование цен (до 4 знаков), предотвращающее
+ * округление центов на инструментах уровня SPY (~$600)
+ */
+export function formatPriceFine(price: number): string {
+  if (price >= 1000) {
+    const fixed = price.toFixed(4);
+    const dot = fixed.indexOf(".");
+    const intPart = fixed.substring(0, dot);
+    let decPart = fixed.substring(dot);
+    // Оставляем минимум 2 знака, убирая лишние хвостовые нули
+    decPart = decPart.replace(/0+$/, "");
+    if (decPart.length < 3) decPart = decPart.padEnd(3, "0");
+
+    let res = "";
+    const len = intPart.length;
+    for (let i = 0; i < len; i++) {
+      if (i > 0 && (len - i) % 3 === 0) res += ",";
+      res += intPart[i];
+    }
+    return res + decPart;
+  }
+  if (price >= 1) {
+    const fixed = price.toFixed(4);
+    let decPart = fixed.substring(fixed.indexOf(".")).replace(/0+$/, "");
+    if (decPart.length < 3) decPart = decPart.padEnd(3, "0");
+    return fixed.substring(0, fixed.indexOf(".")) + decPart;
+  }
+  if (price >= 0.0001) return price.toFixed(6);
+  return price.toFixed(8);
+}
+
+/**
+ * Расчет базиса в $ и в bps относительно Core
+ */
+export function computeSpreadBasis(
+  rhPrice: number,
+  corePrice: number,
+): { basisUsd: number; basisBps: number } {
+  const basisUsd = rhPrice - corePrice;
+  const basisBps = corePrice > 0 ? (basisUsd / corePrice) * 10000 : 0;
+  return { basisUsd, basisBps };
+}
+
+/**
+ * Парсинг пользовательского ввода порога спреда:
+ * Принимает '0.15', '$0.15', '0,15', '5bps', '5 bps', '0.05%'
+ */
+export function parseSpreadThresholdInput(
+  raw: string,
+  referencePrice: number = 0,
+): { value: number; unit: "usd" | "bps" } | null {
+  if (!raw) return null;
+  const cleaned = raw.trim().toLowerCase().replace(",", ".");
+
+  // BPS ввод (например: 5bps, 7.5 bps)
+  if (cleaned.includes("bps")) {
+    const numStr = cleaned.replace("bps", "").trim();
+    const val = Math.abs(parseFloat(numStr));
+    if (!isNaN(val) && val > 0 && val <= 500) {
+      return { value: val, unit: "bps" };
+    }
+    return null;
+  }
+
+  // Процентный ввод (например: 0.05%) -> переводим в bps (1% = 100 bps)
+  if (cleaned.includes("%")) {
+    const numStr = cleaned.replace("%", "").trim();
+    const val = Math.abs(parseFloat(numStr));
+    if (!isNaN(val) && val > 0 && val <= 5) {
+      return { value: Math.round(val * 100 * 10) / 10, unit: "bps" };
+    }
+    return null;
+  }
+
+  // Долларовый ввод (например: $0.15 или 0.15)
+  const numStr = cleaned.replace("$", "").trim();
+  const val = Math.abs(parseFloat(numStr));
+  if (!isNaN(val) && val > 0) {
+    if (referencePrice > 0 && val > referencePrice * 0.5) return null; // Защита от опечаток
+    return { value: val, unit: "usd" };
+  }
+
+  return null;
+}
+
+export function isMuted(
+  mutedUntil: number,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): boolean {
+  return mutedUntil > nowSec;
+}
+
+export function formatMuteStatus(
+  mutedUntil: number,
+  nowSec: number = Math.floor(Date.now() / 1000),
+  foreverTimestamp: number = 2147483647,
+): string {
+  if (mutedUntil <= nowSec) return "Активны 🔔";
+  if (mutedUntil >= foreverTimestamp) return "Выключены (до включения) ⏸";
+  const remainingMin = Math.ceil((mutedUntil - nowSec) / 60);
+  if (remainingMin >= 60) {
+    const hours = Math.floor(remainingMin / 60);
+    const mins = remainingMin % 60;
+    return mins > 0 ? `Заглушены еще ${hours}ч ${mins}м 🔕` : `Заглушены еще ${hours}ч 🔕`;
+  }
+  return `Заглушены еще ${remainingMin}м 🔕`;
+}

@@ -7,6 +7,9 @@ import {
   ActivePositionWatchItem,
   WizardState,
   SystemStats,
+  SpreadTargetRow,
+  SpreadDirection,
+  SpreadUnit,
 } from "../types";
 import { packPositions, computePositionsFingerprint } from "../lighter/math";
 import { setMemoryAccount, getMemoryAccount, FastPosition } from "../cache/memory";
@@ -257,6 +260,8 @@ export async function removeBlockedUser(db: D1Database, telegramId: number): Pro
   await db.batch([
     db.prepare("DELETE FROM user_token_alerts WHERE telegram_id = ?").bind(telegramId),
     db.prepare("DELETE FROM user_tracked_accounts WHERE telegram_id = ?").bind(telegramId),
+    db.prepare("DELETE FROM user_spread_targets WHERE telegram_id = ?").bind(telegramId),
+    db.prepare("DELETE FROM spread_symbol_mutes WHERE telegram_id = ?").bind(telegramId),
     db.prepare("DELETE FROM users WHERE telegram_id = ?").bind(telegramId),
   ]);
 }
@@ -368,18 +373,37 @@ export async function getActivePositionsForMonitoring(
 
 // 7b. Выборка уникальных активных символов для предикатной фильтрации цен
 export async function getDistinctActiveSymbols(db: D1Database): Promise<string[]> {
-  const { results } = await db
-    .prepare("SELECT DISTINCT symbol FROM account_open_positions")
-    .all<{ symbol: string }>();
-  if (!results || results.length === 0) return [];
-  return results.map((r) => r.symbol.toUpperCase());
+  try {
+    const { results } = await db
+      .prepare(`
+        SELECT DISTINCT UPPER(symbol) as symbol FROM account_open_positions
+        UNION
+        SELECT DISTINCT UPPER(symbol) as symbol FROM user_spread_targets WHERE is_active = 1
+      `)
+      .all<{ symbol: string }>();
+    if (!results || results.length === 0) return [];
+    return results.map((r) => r.symbol);
+  } catch (err: any) {
+    console.warn("[db] Fallback in getDistinctActiveSymbols:", err?.message || err);
+    try {
+      const { results } = await db
+        .prepare(`SELECT DISTINCT UPPER(symbol) as symbol FROM account_open_positions`)
+        .all<{ symbol: string }>();
+      return results ? results.map((r) => r.symbol) : [];
+    } catch {
+      return [];
+    }
+  }
 }
 
 // 8. Авто-миграция схемы базы данных для безопасного запуска
 let isSchemaEnsured = false;
+export function resetSchemaEnsured(): void {
+  isSchemaEnsured = false;
+}
+
 export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
   if (isSchemaEnsured) return;
-  isSchemaEnsured = true;
   try {
     await db
       .prepare("ALTER TABLE account_open_positions ADD COLUMN liquidation_price REAL DEFAULT 0")
@@ -408,6 +432,60 @@ export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
       `)
       .run();
   } catch {}
+  try {
+    await db
+      .prepare("ALTER TABLE users ADD COLUMN spread_muted_until INTEGER NOT NULL DEFAULT 0")
+      .run();
+  } catch {}
+  try {
+    await db
+      .prepare(`
+        CREATE TABLE IF NOT EXISTS user_spread_targets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          telegram_id INTEGER NOT NULL,
+          symbol TEXT NOT NULL,
+          direction TEXT NOT NULL CHECK (direction IN ('rh_cheaper', 'rh_expensive')),
+          target_delta REAL NOT NULL CHECK (target_delta > 0),
+          unit TEXT NOT NULL DEFAULT 'usd' CHECK (unit IN ('usd', 'bps')),
+          is_active INTEGER NOT NULL DEFAULT 1,
+          armed INTEGER NOT NULL DEFAULT 1,
+          muted_until INTEGER NOT NULL DEFAULT 0,
+          last_alerted_at INTEGER DEFAULT NULL,
+          last_spread REAL DEFAULT NULL,
+          created_at INTEGER NOT NULL,
+          UNIQUE(telegram_id, symbol, direction, target_delta, unit)
+        )
+      `)
+      .run();
+  } catch {}
+  try {
+    await db
+      .prepare(
+        "CREATE INDEX IF NOT EXISTS idx_spread_targets_active ON user_spread_targets(is_active, armed, symbol)",
+      )
+      .run();
+  } catch {}
+  try {
+    await db
+      .prepare(
+        "CREATE INDEX IF NOT EXISTS idx_spread_targets_user ON user_spread_targets(telegram_id, symbol)",
+      )
+      .run();
+  } catch {}
+  try {
+    await db
+      .prepare(`
+        CREATE TABLE IF NOT EXISTS spread_symbol_mutes (
+          telegram_id INTEGER NOT NULL,
+          symbol TEXT NOT NULL,
+          muted_until INTEGER NOT NULL,
+          PRIMARY KEY (telegram_id, symbol)
+        )
+      `)
+      .run();
+  } catch {}
+
+  isSchemaEnsured = true;
 }
 
 // 9. Синхронизация открытых позиций аккаунта (удаление закрытых, добавление новых)
@@ -773,4 +851,231 @@ export async function getUserAccountCardDetails(
     .first<UserAccountCardDetails>();
 
   return cardData || null;
+}
+
+// ==========================================
+// 17. ТАРГЕТЫ СПРЕДА RH vs CORE (MAINNET)
+// ==========================================
+
+export async function getUserSpreadTargets(
+  db: D1Database,
+  telegramId: number,
+): Promise<SpreadTargetRow[]> {
+  const { results } = await db
+    .prepare(`
+      SELECT 
+        id, telegram_id, symbol, direction, target_delta, unit,
+        is_active, armed, muted_until, last_alerted_at, last_spread, created_at
+      FROM user_spread_targets
+      WHERE telegram_id = ?
+      ORDER BY symbol ASC, direction ASC, target_delta ASC
+    `)
+    .bind(telegramId)
+    .all<SpreadTargetRow>();
+
+  return results || [];
+}
+
+export async function getUserSpreadStats(
+  db: D1Database,
+  telegramId: number,
+): Promise<{ tokenCount: number; totalTargets: number }> {
+  const row = await db
+    .prepare(`
+      SELECT 
+        COUNT(DISTINCT symbol) as token_count,
+        COUNT(*) as total_targets
+      FROM user_spread_targets
+      WHERE telegram_id = ?
+    `)
+    .bind(telegramId)
+    .first<{ token_count: number | null; total_targets: number | null }>();
+
+  return {
+    tokenCount: row?.token_count ?? 0,
+    totalTargets: row?.total_targets ?? 0,
+  };
+}
+
+export async function addSpreadTarget(
+  db: D1Database,
+  telegramId: number,
+  symbol: string,
+  direction: SpreadDirection,
+  targetDelta: number,
+  unit: SpreadUnit = "usd",
+  armed: number = 1,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): Promise<boolean> {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const res = await db
+    .prepare(`
+      INSERT INTO user_spread_targets (
+        telegram_id, symbol, direction, target_delta, unit, is_active, armed, muted_until, created_at
+      ) VALUES (?, ?, ?, ?, ?, 1, ?, 0, ?)
+      ON CONFLICT(telegram_id, symbol, direction, target_delta, unit) DO UPDATE SET
+        is_active = 1,
+        armed = excluded.armed,
+        muted_until = 0
+    `)
+    .bind(telegramId, normalizedSymbol, direction, targetDelta, unit, armed, nowSec)
+    .run();
+
+  return (res.meta.changes ?? 0) > 0;
+}
+
+export async function deleteSpreadTarget(
+  db: D1Database,
+  telegramId: number,
+  targetId: number,
+): Promise<boolean> {
+  const res = await db
+    .prepare("DELETE FROM user_spread_targets WHERE id = ? AND telegram_id = ?")
+    .bind(targetId, telegramId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+export async function deleteSpreadTargetsBySymbol(
+  db: D1Database,
+  telegramId: number,
+  symbol: string,
+): Promise<number> {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const res = await db
+    .prepare("DELETE FROM user_spread_targets WHERE telegram_id = ? AND symbol = ?")
+    .bind(telegramId, normalizedSymbol)
+    .run();
+  return res.meta.changes ?? 0;
+}
+
+export async function toggleSpreadTargetActive(
+  db: D1Database,
+  telegramId: number,
+  targetId: number,
+  isActive: number,
+): Promise<boolean> {
+  const res = await db
+    .prepare("UPDATE user_spread_targets SET is_active = ? WHERE id = ? AND telegram_id = ?")
+    .bind(isActive, targetId, telegramId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+export async function updateSpreadTargetThreshold(
+  db: D1Database,
+  telegramId: number,
+  targetId: number,
+  targetDelta: number,
+  unit: SpreadUnit,
+  armed: number = 1,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      "UPDATE user_spread_targets SET target_delta = ?, unit = ?, armed = ?, is_active = 1 WHERE id = ? AND telegram_id = ?",
+    )
+    .bind(targetDelta, unit, armed, targetId, telegramId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+export async function updateSpreadTargetDirection(
+  db: D1Database,
+  telegramId: number,
+  targetId: number,
+  direction: SpreadDirection,
+  armed: number = 1,
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      "UPDATE user_spread_targets SET direction = ?, armed = ?, is_active = 1 WHERE id = ? AND telegram_id = ?",
+    )
+    .bind(direction, armed, targetId, telegramId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+export async function setSpreadTargetMute(
+  db: D1Database,
+  telegramId: number,
+  targetId: number,
+  mutedUntil: number,
+): Promise<boolean> {
+  const res = await db
+    .prepare("UPDATE user_spread_targets SET muted_until = ? WHERE id = ? AND telegram_id = ?")
+    .bind(mutedUntil, targetId, telegramId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+export async function setSpreadSymbolMute(
+  db: D1Database,
+  telegramId: number,
+  symbol: string,
+  mutedUntil: number,
+): Promise<void> {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  await db
+    .prepare(`
+      INSERT INTO spread_symbol_mutes (telegram_id, symbol, muted_until)
+      VALUES (?, ?, ?)
+      ON CONFLICT(telegram_id, symbol) DO UPDATE SET muted_until = excluded.muted_until
+    `)
+    .bind(telegramId, normalizedSymbol, mutedUntil)
+    .run();
+}
+
+export async function setUserSpreadMute(
+  db: D1Database,
+  telegramId: number,
+  mutedUntil: number,
+): Promise<void> {
+  await db
+    .prepare("UPDATE users SET spread_muted_until = ? WHERE telegram_id = ?")
+    .bind(mutedUntil, telegramId)
+    .run();
+}
+
+export async function getUserSpreadMute(db: D1Database, telegramId: number): Promise<number> {
+  const row = await db
+    .prepare("SELECT spread_muted_until FROM users WHERE telegram_id = ?")
+    .bind(telegramId)
+    .first<{ spread_muted_until: number | null }>();
+  return row?.spread_muted_until ?? 0;
+}
+
+export async function getActiveSpreadTargetsForMonitoring(
+  db: D1Database,
+  _nowSec: number = Math.floor(Date.now() / 1000),
+): Promise<SpreadTargetRow[]> {
+  try {
+    const { results } = await db
+      .prepare(`
+        SELECT 
+          t.id,
+          t.telegram_id,
+          t.symbol,
+          t.direction,
+          t.target_delta,
+          t.unit,
+          t.is_active,
+          t.armed,
+          t.muted_until,
+          t.last_alerted_at,
+          t.last_spread,
+          t.created_at,
+          COALESCE(u.spread_muted_until, 0) as user_spread_muted_until,
+          COALESCE(sm.muted_until, 0) as symbol_muted_until
+        FROM user_spread_targets t
+        JOIN users u ON t.telegram_id = u.telegram_id
+        LEFT JOIN spread_symbol_mutes sm ON t.telegram_id = sm.telegram_id AND t.symbol = sm.symbol
+        WHERE t.is_active = 1
+      `)
+      .all<SpreadTargetRow>();
+
+    return results || [];
+  } catch (err: any) {
+    console.warn("[db] Error in getActiveSpreadTargetsForMonitoring:", err?.message || err);
+    return [];
+  }
 }

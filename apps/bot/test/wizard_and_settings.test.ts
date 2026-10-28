@@ -2,6 +2,11 @@ import { describe, expect, it } from "bun:test";
 import { WizardState, Env } from "../src/types";
 import { isUserAdmin } from "../src/bot/bot";
 
+function formatThreshold(val: number): string {
+  const str = Number(val.toFixed(4)).toString();
+  return str.includes(".") ? str : `${str}.0`;
+}
+
 function parseThresholdInput(raw: string): number | null {
   const cleaned = raw.replace(",", ".");
   const val = parseFloat(cleaned);
@@ -159,26 +164,22 @@ describe("Wizard State & Settings Logic", () => {
       expect(kb.keyboard[2][0].text).toBe("📈 Админ статистика");
     });
 
-    it("returns 3-row keyboard with wide web app button at bottom for normal user with WEBAPP_URL", () => {
+    it("does not include web app button in reply keyboard for normal user even with WEBAPP_URL", () => {
       const env = { ...mockEnv("999888777"), WEBAPP_URL: "https://example.com" };
       const kb = getMainKeyboard(env, 12345, "normal_user");
-      expect(kb.keyboard.length).toBe(3);
-      expect(kb.keyboard[2].length).toBe(1);
-      expect(kb.keyboard[2][0].text).toBe("🚀 Web App");
-      expect(kb.keyboard[2][0].web_app?.url).toBe("https://example.com");
+      expect(kb.keyboard.length).toBe(2);
+      const json = JSON.stringify(kb);
+      expect(json).not.toContain("Web App");
     });
 
-    it("places wide web app button before admin button for admin user", () => {
+    it("does not include web app button in reply keyboard for admin user, keeping exactly 3 rows", () => {
       const env = { ...mockEnv("999888777"), WEBAPP_URL: "https://example.com" };
       const kb = getMainKeyboard(env, 999888777, "admin");
-      expect(kb.keyboard.length).toBe(4);
-      // Row 2 is Web App (wide)
+      expect(kb.keyboard.length).toBe(3);
       expect(kb.keyboard[2].length).toBe(1);
-      expect(kb.keyboard[2][0].text).toBe("🚀 Web App");
-      expect(kb.keyboard[2][0].web_app?.url).toBe("https://example.com");
-      // Row 3 is Admin stats (last)
-      expect(kb.keyboard[3].length).toBe(1);
-      expect(kb.keyboard[3][0].text).toBe("📈 Админ статистика");
+      expect(kb.keyboard[2][0].text).toBe("📈 Админ статистика");
+      const json = JSON.stringify(kb);
+      expect(json).not.toContain("Web App");
     });
 
     it("creates stats inline keyboard with refresh button", () => {
@@ -186,6 +187,41 @@ describe("Wizard State & Settings Logic", () => {
       const json = JSON.stringify(kb);
       expect(json).toContain("🔄 Обновить");
       expect(json).toContain("refresh_stats");
+    });
+  });
+
+  describe("Unified Settings Mute Durations (Spikes, Targets, All)", () => {
+    const now = 1700000000;
+    const durations = [
+      { key: "3600", seconds: 3600, label: "1 hour" },
+      { key: "14400", seconds: 14400, label: "4 hours" },
+      { key: "86400", seconds: 86400, label: "24 hours" },
+      { key: "forever", seconds: 2147483647, label: "forever" },
+      { key: "0", seconds: 0, label: "unmute" },
+    ];
+
+    it("correctly calculates target timestamp for each duration option", () => {
+      for (const d of durations) {
+        const computed =
+          d.key === "0" ? 0 : d.key === "forever" ? 2147483647 : now + parseInt(d.key, 10);
+
+        if (d.key === "0") {
+          expect(computed).toBe(0);
+        } else if (d.key === "forever") {
+          expect(computed).toBe(2147483647);
+        } else {
+          expect(computed).toBe(now + d.seconds);
+        }
+      }
+    });
+
+    it("formats spike alert thresholds preserving full precision (e.g. 0.256%)", () => {
+      expect(formatThreshold(0.256)).toBe("0.256");
+      expect(formatThreshold(0.5)).toBe("0.5");
+      expect(formatThreshold(1)).toBe("1.0");
+      expect(formatThreshold(1.5)).toBe("1.5");
+      expect(formatThreshold(2)).toBe("2.0");
+      expect(formatThreshold(0.125)).toBe("0.125");
     });
   });
 });

@@ -50,6 +50,17 @@ export const CONFIG = {
     WARN_10: 1,
     SAFE: 0,
   } as Record<string, number>,
+
+  // Настройки таргетов спреда (RH vs Core)
+  MAX_SPREAD_TOKENS_PER_USER: 10,
+  MAX_SPREAD_TARGETS_PER_USER: 30,
+  SPREAD_POPULAR_SYMBOLS: ["SPY", "QQQ", "XAU", "NVDA", "AAPL"] as const,
+  SPREAD_DEFAULT_BPS_PRESETS: [1, 2, 3, 5, 7, 10] as const,
+  SPREAD_ALERT_COOLDOWN_SECONDS: 300, // 5 минут базовый кулдаун между повторами
+  SPREAD_REARM_RATIO: 0.8, // Откат до 80% порога для повторного взведения
+  SPREAD_MAX_PRICE_DIFF_RATIO: 0.1, // 10% санитарный лимит расхождения цен
+  MAX_SPREAD_ALERTS_PER_TICK: 8, // Кап отправок спредов за один крон-тик
+  MUTE_FOREVER_TIMESTAMP: 2147483647, // 2038 год (сентинел "до включения")
 };
 
 /**

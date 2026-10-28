@@ -14,6 +14,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "d1:init": "wrangler d1 execute lighter-db --local --file=./apps/bot/schema.sql",
+    "d1:migrate": "wrangler d1 execute lighter-db --remote --file=./apps/bot/schema.sql",
     "seed": "bun apps/bot/load-tests/seed.ts > apps/bot/load-tests/seed.sql && wrangler d1 execute lighter-db --local --file=./apps/bot/load-tests/seed.sql",
     "profile": "bun apps/bot/load-tests/profile_engine.ts",
     "simulate": "bun apps/bot/load-tests/simulate_cron_tick.ts",
