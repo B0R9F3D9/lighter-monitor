@@ -67,6 +67,7 @@ export async function setupBotCommands(
     { command: "accounts", description: "💼 Мои подключенные аккаунты" },
     { command: "targets", description: "📐 Мои таргеты спреда RH ↔ Core" },
     { command: "settings", description: "⚙️ Настройки параметров и алертов" },
+    { command: "changelog", description: "📋 Что нового в этой версии" },
     { command: "start", description: "🚀 Главное меню" },
     { command: "stats", description: "📈 Системная статистика (админ)" },
     { command: "help", description: "ℹ️ Справка и возможности" },

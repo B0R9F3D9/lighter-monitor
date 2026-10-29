@@ -24,6 +24,7 @@ export const CONFIG = {
   MAX_SUBREQUESTS_PER_CRON: 45,
   ACCOUNTS_BATCH_SIZE: 20,
   LIGHTER_CHUNK_CONCURRENCY: 5,
+  RELEASE_NOTIFICATION_BATCH_SIZE: 5, // Пачка рассылки обновлений юзерам за один крон-тик
 
   // Wall-Clock защита
   FETCH_TIMEOUT_MS: 5000,

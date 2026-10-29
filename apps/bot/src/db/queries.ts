@@ -482,6 +482,14 @@ export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
       .run();
   } catch {}
   try {
+    await db.prepare("ALTER TABLE users ADD COLUMN last_seen_version TEXT DEFAULT NULL").run();
+  } catch {}
+  try {
+    await db
+      .prepare("CREATE INDEX IF NOT EXISTS idx_users_last_seen_version ON users(last_seen_version)")
+      .run();
+  } catch {}
+  try {
     await db
       .prepare(`
         CREATE TABLE IF NOT EXISTS user_spread_targets (
@@ -1215,4 +1223,50 @@ export async function getActiveSpreadTargetsForMonitoring(
     console.warn("[db] Error in getActiveSpreadTargetsForMonitoring:", err?.message || err);
     return [];
   }
+}
+
+export async function getUsersForReleaseNotification(
+  db: D1Database,
+  targetVersion: string,
+  limit: number = 5,
+): Promise<Array<{ telegram_id: number; last_seen_version: string | null }>> {
+  try {
+    const res = await db
+      .prepare(
+        `SELECT telegram_id, last_seen_version
+         FROM users
+         WHERE last_seen_version IS NULL OR last_seen_version != ?
+         ORDER BY telegram_id ASC
+         LIMIT ?`,
+      )
+      .bind(targetVersion, limit)
+      .all<{ telegram_id: number; last_seen_version: string | null }>();
+    return res.results || [];
+  } catch (err: any) {
+    console.warn("[db] Error in getUsersForReleaseNotification:", err?.message || err);
+    return [];
+  }
+}
+
+export async function updateUserLastSeenVersion(
+  db: D1Database,
+  telegramId: number,
+  version: string,
+): Promise<void> {
+  await db
+    .prepare("UPDATE users SET last_seen_version = ? WHERE telegram_id = ?")
+    .bind(version, telegramId)
+    .run();
+}
+
+export async function batchUpdateUsersLastSeenVersion(
+  db: D1Database,
+  telegramIds: number[],
+  version: string,
+): Promise<void> {
+  if (telegramIds.length === 0) return;
+  const stmts = telegramIds.map((id) =>
+    db.prepare("UPDATE users SET last_seen_version = ? WHERE telegram_id = ?").bind(version, id),
+  );
+  await db.batch(stmts);
 }

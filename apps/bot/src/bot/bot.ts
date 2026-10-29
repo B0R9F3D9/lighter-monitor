@@ -50,8 +50,11 @@ import {
   setSpreadSymbolMute,
   setUserSpreadMute,
   getUserSpreadMute,
+  updateUserLastSeenVersion,
 } from "../db/queries";
 import { formatPositionsReport, formatSpreadHubView, getSpreadAlertKeyboard } from "./formatters";
+import { formatReleaseNotification, getChangelogKeyboard } from "./release_notifier";
+import { APP_VERSION, RELEASE_TITLE, RELEASE_HIGHLIGHTS } from "../version";
 import { runInBackground } from "../utils/background";
 import { invalidateActiveSymbolsCache } from "../cron/monitor";
 
@@ -664,17 +667,19 @@ export function getBot(env: Env): Bot {
         knownUsers.add(userId);
         runInBackground(
           env.DB.prepare(`
-            INSERT INTO users (telegram_id, username, first_name, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (telegram_id, username, first_name, created_at, last_seen_version)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(telegram_id) DO UPDATE SET
               username = excluded.username,
-              first_name = excluded.first_name
+              first_name = excluded.first_name,
+              last_seen_version = COALESCE(users.last_seen_version, excluded.last_seen_version)
           `)
             .bind(
               userId,
               ctx.from.username || null,
               ctx.from.first_name || null,
               Math.floor(Date.now() / 1000),
+              APP_VERSION,
             )
             .run(),
         );
@@ -2496,6 +2501,7 @@ export function getBot(env: Env): Bot {
       `• /accounts — 💼 Подключенные аккаунты и управление\n` +
       `• /targets — 📐 Таргеты спреда между Robinhood Lighter и Lighter Core\n` +
       `• /settings — ⚙️ Параметры уведомлений и режим сна\n` +
+      `• /changelog — 📋 Что нового в этой версии\n` +
       `• /start — 🚀 Главное меню\n` +
       `• /stats — 📈 Системная статистика (для админа)\n` +
       `• /help — ℹ️ Справка и возможности\n\n` +
@@ -2508,6 +2514,22 @@ export function getBot(env: Env): Bot {
   bot.command("help", handleHelp);
 
   // ==========================================
+  // СПИСОК ИЗМЕНЕНИЙ И РЕЛИЗЫ (/changelog)
+  // ==========================================
+  bot.command("changelog", async (ctx) => {
+    const text = formatReleaseNotification(APP_VERSION, RELEASE_TITLE, RELEASE_HIGHLIGHTS);
+    const keyboard = getChangelogKeyboard(APP_VERSION, env.WEBAPP_URL);
+    if (ctx.from?.id) {
+      runInBackground(updateUserLastSeenVersion(env.DB, ctx.from.id, APP_VERSION));
+    }
+    await ctx.reply(text, {
+      parse_mode: "HTML",
+      reply_markup: keyboard,
+      link_preview_options: { is_disabled: true },
+    });
+  });
+
+  // ==========================================
   // ДЕФОЛТНЫЙ FALLBACK (ОТВЕТ НА ЛЮБОЙ НЕРАСПОЗНАННЫЙ ТЕКСТ)
   // ==========================================
   bot.on("message:text", async (ctx) => {
@@ -2518,6 +2540,7 @@ export function getBot(env: Env): Bot {
       `• /accounts — 💼 Мои аккаунты\n` +
       `• /targets — 📐 Мои таргеты\n` +
       `• /settings — ⚙️ Настройки\n` +
+      `• /changelog — 📋 Что нового\n` +
       `• /start — 🚀 Главное меню\n` +
       `• /stats — 📈 Статистика\n` +
       `• /help — ℹ️ Справка`;

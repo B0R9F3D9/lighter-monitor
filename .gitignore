@@ -49,4 +49,5 @@ apps/bot/load-tests/*.sql
 /src/*.html
 apps/web/dist/
 apps/web/src/version.ts
+apps/bot/src/version.ts
 

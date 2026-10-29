@@ -36,6 +36,7 @@ import {
 import { computePositionsFingerprint } from "../lighter/math";
 import { getMemoryAccount, setLastCronMetrics } from "../cache/memory";
 import { formatPriceStepAlert, formatSpreadAlert, getSpreadAlertKeyboard } from "../bot/formatters";
+import { checkAndBroadcastRelease } from "../bot/release_notifier";
 import { pingHealthcheckSuccess, pingHealthcheckFail } from "../utils/healthcheck";
 
 // In-memory isolate cache for hot loop acceleration
@@ -914,6 +915,21 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
 
     if (allUpdates.length > 0) {
       await executeD1BatchInChunks(env.DB, allUpdates);
+    }
+
+    // 5b. Фоновая рассылка обновлений пользователям (с защитой бюджета Subrequests)
+    const subrequestsRemaining = CONFIG.MAX_SUBREQUESTS_PER_CRON - subrequestsUsed;
+    if (subrequestsRemaining >= 6) {
+      try {
+        const relBatchSize = Math.min(
+          CONFIG.RELEASE_NOTIFICATION_BATCH_SIZE,
+          subrequestsRemaining - 1,
+        );
+        const relRes = await checkAndBroadcastRelease(env, _ctx, { batchSize: relBatchSize });
+        subrequestsUsed += relRes.sent;
+      } catch (relErr) {
+        console.error("Release notifier error in cron:", relErr);
+      }
     }
 
     // 6. СТРУКТУРИРОВАННЫЙ JSON-ЛОГ (Observability & Cloudflare Dashboard / Axiom)
