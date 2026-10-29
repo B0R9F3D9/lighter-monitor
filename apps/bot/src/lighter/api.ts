@@ -9,6 +9,7 @@ import {
   TopOrderBook,
   LIGHTER_NETWORKS,
   SPREAD_DIRECTIONS,
+  SPREAD_UNITS,
 } from "../types";
 import { MEMORY_PRICES } from "../cache/memory";
 
@@ -584,11 +585,30 @@ export async function verifyExecutableSpread(
     const execBasisSigned = rhPrice - corePrice;
     const execBasisBps = corePrice > 0 ? (execBasisSigned / corePrice) * 10000 : 0;
 
-    // Filter phantom wicks: If orderbook spread collapsed (RH Ask > Core Bid)
-    if (execDiffUsd <= 0 || execDiffBps < 0) {
+    // Filter phantom wicks: If orderbook spread collapsed (RH Ask >= Core Bid)
+    if (execDiffUsd <= 0 || execDiffBps <= 0) {
       return {
         isValid: false,
         reason: `Orderbook spread collapsed: RH Ask ($${rhPrice}) >= Core Bid ($${corePrice})`,
+      };
+    }
+
+    const execMetric = unit === SPREAD_UNITS.BPS ? execDiffBps : execDiffUsd;
+    if (execMetric < targetDelta - 1e-9) {
+      const unitLabel = unit === SPREAD_UNITS.BPS ? "bps" : "USD";
+      return {
+        isValid: false,
+        reason: `Orderbook spread (${execMetric.toFixed(2)} ${unitLabel}) did not reach target (≥${targetDelta} ${unitLabel})`,
+        orderBook: {
+          rhPrice,
+          rhSize,
+          rhType: "Ask",
+          corePrice,
+          coreSize,
+          coreType: "Bid",
+          execBps: execBasisBps,
+          execUsd: execBasisSigned,
+        },
       };
     }
 
@@ -618,11 +638,30 @@ export async function verifyExecutableSpread(
     const execBasisSigned = rhPrice - corePrice;
     const execBasisBps = corePrice > 0 ? (execBasisSigned / corePrice) * 10000 : 0;
 
-    // Filter phantom wicks: If orderbook spread collapsed (RH Bid < Core Ask)
-    if (execDiffUsd <= 0 || execDiffBps < 0) {
+    // Filter phantom wicks: If orderbook spread collapsed (RH Bid <= Core Ask)
+    if (execDiffUsd <= 0 || execDiffBps <= 0) {
       return {
         isValid: false,
         reason: `Orderbook spread collapsed: RH Bid ($${rhPrice}) <= Core Ask ($${corePrice})`,
+      };
+    }
+
+    const execMetric = unit === SPREAD_UNITS.BPS ? execDiffBps : execDiffUsd;
+    if (execMetric < targetDelta - 1e-9) {
+      const unitLabel = unit === SPREAD_UNITS.BPS ? "bps" : "USD";
+      return {
+        isValid: false,
+        reason: `Orderbook spread (${execMetric.toFixed(2)} ${unitLabel}) did not reach target (≥${targetDelta} ${unitLabel})`,
+        orderBook: {
+          rhPrice,
+          rhSize,
+          rhType: "Bid",
+          corePrice,
+          coreSize,
+          coreType: "Ask",
+          execBps: execBasisBps,
+          execUsd: execBasisSigned,
+        },
       };
     }
 

@@ -219,6 +219,166 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
         globalThis.fetch = origFetch;
       }
     });
+
+    it("rejects orderbook spread on rh_expensive when spread is positive but below target delta (exact user bug)", async () => {
+      const origFetch = globalThis.fetch;
+      try {
+        globalThis.fetch = (async (url: string | URL | Request) => {
+          const urlStr = url.toString();
+          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+            return new Response(
+              JSON.stringify({
+                code: 200,
+                asks: [{ price: "769.50", remaining_base_amount: "1.0" }],
+                bids: [{ price: "769.32", remaining_base_amount: "0.64" }],
+              }),
+              { status: 200 },
+            );
+          }
+          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+            return new Response(
+              JSON.stringify({
+                code: 200,
+                asks: [{ price: "769.22", remaining_base_amount: "0.06" }],
+                bids: [{ price: "769.00", remaining_base_amount: "5.0" }],
+              }),
+              { status: 200 },
+            );
+          }
+          return new Response("{}", { status: 404 });
+        }) as any;
+
+        // RH Bid: 769.32, Core Ask: 769.22 -> Diff = +0.100 USD (+1.30 bps)
+        // User target is 2.0 bps: 1.30 bps < 2.0 bps, so alert must be rejected!
+        const check = await verifyExecutableSpread("SPY", "rh_expensive", 2.0, "bps");
+        expect(check.isValid).toBe(false);
+        expect(check.reason).toContain("did not reach target (≥2 bps)");
+        expect(check.reason).toContain("1.30 bps");
+        expect(check.orderBook).toBeDefined();
+        expect(check.orderBook?.rhPrice).toBe(769.32);
+        expect(check.orderBook?.corePrice).toBe(769.22);
+      } finally {
+        globalThis.fetch = origFetch;
+      }
+    });
+
+    it("validates orderbook spread on rh_expensive when spread meets or exceeds target delta", async () => {
+      const origFetch = globalThis.fetch;
+      try {
+        globalThis.fetch = (async (url: string | URL | Request) => {
+          const urlStr = url.toString();
+          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+            return new Response(
+              JSON.stringify({
+                code: 200,
+                asks: [{ price: "770.00", remaining_base_amount: "1.0" }],
+                bids: [{ price: "769.50", remaining_base_amount: "1.0" }],
+              }),
+              { status: 200 },
+            );
+          }
+          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+            return new Response(
+              JSON.stringify({
+                code: 200,
+                asks: [{ price: "769.22", remaining_base_amount: "2.0" }],
+                bids: [{ price: "769.00", remaining_base_amount: "5.0" }],
+              }),
+              { status: 200 },
+            );
+          }
+          return new Response("{}", { status: 404 });
+        }) as any;
+
+        // RH Bid: 769.50, Core Ask: 769.22 -> Diff = +0.28 USD (+3.64 bps)
+        // Target is 2.0 bps: 3.64 bps >= 2.0 bps -> valid!
+        const check = await verifyExecutableSpread("SPY", "rh_expensive", 2.0, "bps");
+        expect(check.isValid).toBe(true);
+        expect(check.orderBook).toBeDefined();
+        expect(check.orderBook?.rhPrice).toBe(769.5);
+        expect(check.orderBook?.corePrice).toBe(769.22);
+      } finally {
+        globalThis.fetch = origFetch;
+      }
+    });
+
+    it("rejects orderbook spread on rh_cheaper when spread is positive but below target delta in bps", async () => {
+      const origFetch = globalThis.fetch;
+      try {
+        globalThis.fetch = (async (url: string | URL | Request) => {
+          const urlStr = url.toString();
+          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+            return new Response(
+              JSON.stringify({
+                code: 200,
+                asks: [{ price: "774.40", remaining_base_amount: "2.5" }],
+                bids: [{ price: "774.00", remaining_base_amount: "5.0" }],
+              }),
+              { status: 200 },
+            );
+          }
+          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+            return new Response(
+              JSON.stringify({
+                code: 200,
+                asks: [{ price: "774.80", remaining_base_amount: "10.0" }],
+                bids: [{ price: "774.50", remaining_base_amount: "20.0" }],
+              }),
+              { status: 200 },
+            );
+          }
+          return new Response("{}", { status: 404 });
+        }) as any;
+
+        // RH Ask: 774.40, Core Bid: 774.50 -> Diff = +0.10 USD (+1.29 bps)
+        // Target is 5.0 bps: 1.29 bps < 5.0 bps -> reject!
+        const check = await verifyExecutableSpread("SPY", "rh_cheaper", 5.0, "bps");
+        expect(check.isValid).toBe(false);
+        expect(check.reason).toContain("did not reach target (≥5 bps)");
+        expect(check.reason).toContain("1.29 bps");
+      } finally {
+        globalThis.fetch = origFetch;
+      }
+    });
+
+    it("rejects orderbook spread when spread in USD is below target delta in USD", async () => {
+      const origFetch = globalThis.fetch;
+      try {
+        globalThis.fetch = (async (url: string | URL | Request) => {
+          const urlStr = url.toString();
+          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+            return new Response(
+              JSON.stringify({
+                code: 200,
+                asks: [{ price: "770.50", remaining_base_amount: "1.0" }],
+                bids: [{ price: "770.20", remaining_base_amount: "1.0" }],
+              }),
+              { status: 200 },
+            );
+          }
+          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+            return new Response(
+              JSON.stringify({
+                code: 200,
+                asks: [{ price: "770.00", remaining_base_amount: "2.0" }],
+                bids: [{ price: "769.80", remaining_base_amount: "5.0" }],
+              }),
+              { status: 200 },
+            );
+          }
+          return new Response("{}", { status: 404 });
+        }) as any;
+
+        // RH Bid: 770.20, Core Ask: 770.00 -> Diff = +0.20 USD
+        // Target is 0.50 USD: 0.20 < 0.50 -> reject!
+        const check = await verifyExecutableSpread("SPY", "rh_expensive", 0.5, "usd");
+        expect(check.isValid).toBe(false);
+        expect(check.reason).toContain("did not reach target (≥0.5 USD)");
+        expect(check.reason).toContain("0.20 USD");
+      } finally {
+        globalThis.fetch = origFetch;
+      }
+    });
   });
 
   describe("Consecutive Hits State Progression", () => {

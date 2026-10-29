@@ -369,9 +369,21 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                   parse_mode: "HTML",
                   reply_markup: getSpreadAlertKeyboard(cand.target.id, cand.target.symbol),
                 });
-                return { success: true, cand, err: null, suppressedByBook: false };
+                return {
+                  success: true,
+                  cand,
+                  err: null,
+                  suppressedByBook: false,
+                  orderBook: orderBookLeg,
+                };
               } catch (err: any) {
-                return { success: false, cand, err, suppressedByBook: false };
+                return {
+                  success: false,
+                  cand,
+                  err,
+                  suppressedByBook: false,
+                  orderBook: orderBookLeg,
+                };
               }
             });
 
@@ -380,14 +392,28 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
 
             for (const r of results) {
               if (r.status !== "fulfilled") continue;
-              const { success, cand, err, suppressedByBook } = r.value;
+              const { success, cand, err, suppressedByBook, orderBook } = r.value;
               if (success) {
                 spreadAlertsSent++;
-                allUpdates.push(stmts.updateSpreadAlertSent.bind(now, cand.metric, cand.target.id));
+                const actualSpread = orderBook
+                  ? cand.target.unit === SPREAD_UNITS.BPS
+                    ? Math.abs(orderBook.execBps)
+                    : Math.abs(orderBook.execUsd)
+                  : cand.metric;
+                allUpdates.push(
+                  stmts.updateSpreadAlertSent.bind(now, actualSpread, cand.target.id),
+                );
                 if (cand.shadowed && cand.shadowed.length > 0) {
                   for (let sIdx = 0; sIdx < cand.shadowed.length; sIdx++) {
                     const sh = cand.shadowed[sIdx]!;
-                    allUpdates.push(stmts.updateSpreadAlertSent.bind(now, sh.metric, sh.target.id));
+                    const shActualSpread = orderBook
+                      ? sh.target.unit === SPREAD_UNITS.BPS
+                        ? Math.abs(orderBook.execBps)
+                        : Math.abs(orderBook.execUsd)
+                      : sh.metric;
+                    allUpdates.push(
+                      stmts.updateSpreadAlertSent.bind(now, shActualSpread, sh.target.id),
+                    );
                   }
                 }
               } else if (suppressedByBook) {
