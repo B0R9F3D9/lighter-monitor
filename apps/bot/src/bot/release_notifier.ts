@@ -14,8 +14,15 @@ import {
   batchUpdateUsersLastSeenVersion,
 } from "../db/queries";
 
-// In-memory cache at isolate level to skip queries/subrequests in 0ms when version is already handled
-let completedVersionCache: string | null = null;
+// In-memory cache with TTL (10 min) at isolate level to skip queries/subrequests in 0ms when version is already handled
+export const COMPLETED_RELEASE_CACHE_TTL_SEC = 600; // 10 minutes
+
+interface CompletedVersionCache {
+  version: string;
+  cachedAt: number;
+}
+
+let completedVersionCache: CompletedVersionCache | null = null;
 
 export function invalidateCompletedVersionCache(): void {
   completedVersionCache = null;
@@ -109,8 +116,14 @@ export async function checkAndBroadcastRelease(
     return { processed: 0, sent: 0, isCompleted: true };
   }
 
-  // Fast-path: 0 ms, 0 DB queries, 0 subrequests if all users have already been notified for this version
-  if (completedVersionCache === targetVersion) {
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // Fast-path: 0 ms, 0 DB queries, 0 subrequests if all users have already been notified for this version recently
+  if (
+    completedVersionCache &&
+    completedVersionCache.version === targetVersion &&
+    nowSec - completedVersionCache.cachedAt < COMPLETED_RELEASE_CACHE_TTL_SEC
+  ) {
     return { processed: 0, sent: 0, isCompleted: true };
   }
 
@@ -123,9 +136,14 @@ export async function checkAndBroadcastRelease(
     30,
   );
 
-  const pendingUsers = await getUsersForReleaseNotification(env.DB, targetVersion, batchLimit);
+  const pendingUsers = await getUsersForReleaseNotification(
+    env.DB,
+    targetVersion,
+    batchLimit,
+    nowSec,
+  );
   if (pendingUsers.length === 0) {
-    completedVersionCache = targetVersion;
+    completedVersionCache = { version: targetVersion, cachedAt: nowSec };
     return { processed: 0, sent: 0, isCompleted: true };
   }
 
@@ -199,7 +217,7 @@ export async function checkAndBroadcastRelease(
 
   const isCompleted = pendingUsers.length < batchLimit;
   if (isCompleted) {
-    completedVersionCache = targetVersion;
+    completedVersionCache = { version: targetVersion, cachedAt: nowSec };
   }
 
   console.log(

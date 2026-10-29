@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { WizardState, Env } from "../src/types";
-import { isUserAdmin } from "../src/bot/bot";
+import { isUserAdmin, formatAlertMuteStatus } from "../src/bot/bot";
 
 function formatThreshold(val: number): string {
   const str = Number(val.toFixed(4)).toString();
@@ -222,6 +222,74 @@ describe("Wizard State & Settings Logic", () => {
       expect(formatThreshold(1.5)).toBe("1.5");
       expect(formatThreshold(2)).toBe("2.0");
       expect(formatThreshold(0.125)).toBe("0.125");
+    });
+
+    it("formats alert mute statuses accurately for active, duration, and forever modes", () => {
+      const testNow = 1700000000;
+      expect(formatAlertMuteStatus(0, testNow)).toBe("🔔 Включены");
+      expect(formatAlertMuteStatus(testNow - 10, testNow)).toBe("🔔 Включены");
+      expect(formatAlertMuteStatus(2147483647, testNow)).toBe("⏸ Выключены (до включения)");
+      expect(formatAlertMuteStatus(testNow + 3600, testNow)).toBe("🔕 Заглушены (еще 1ч)");
+      expect(formatAlertMuteStatus(testNow + 5400, testNow)).toBe("🔕 Заглушены (еще 1ч 30м)");
+      expect(formatAlertMuteStatus(testNow + 900, testNow)).toBe("🔕 Заглушены (еще 15м)");
+    });
+
+    it("evaluates global status across spikes, spread targets, and release updates", () => {
+      const testNow = 1700000000;
+      const calcStatus = (spikes: number, targets: number, updates: number) => {
+        const spikesMuted = spikes > testNow;
+        const targetsMuted = targets > testNow;
+        const updatesMuted = updates > testNow;
+        const allMuted = spikesMuted && targetsMuted && updatesMuted;
+        const anyMuted = spikesMuted || targetsMuted || updatesMuted;
+
+        if (allMuted) {
+          if (spikes >= 2147483647 && targets >= 2147483647 && updates >= 2147483647) {
+            return "⏸ Все уведомления выключены";
+          }
+          return "🔕 Бот полностью заглушен";
+        }
+        if (anyMuted) {
+          return "🔕 Частично заглушен";
+        }
+        return "🔔 Все уведомления активны";
+      };
+
+      // All active
+      expect(calcStatus(0, 0, 0)).toBe("🔔 Все уведомления активны");
+
+      // Only updates muted
+      expect(calcStatus(0, 0, testNow + 3600)).toBe("🔕 Частично заглушен");
+
+      // Only spikes muted
+      expect(calcStatus(testNow + 3600, 0, 0)).toBe("🔕 Частично заглушен");
+
+      // Spikes and targets muted, but updates active
+      expect(calcStatus(testNow + 3600, testNow + 3600, 0)).toBe("🔕 Частично заглушен");
+
+      // All three muted temporarily
+      expect(calcStatus(testNow + 3600, testNow + 3600, testNow + 3600)).toBe(
+        "🔕 Бот полностью заглушен",
+      );
+
+      // All three muted forever
+      expect(calcStatus(2147483647, 2147483647, 2147483647)).toBe("⏸ Все уведомления выключены");
+    });
+
+    it("verifies callback regex patterns for update notifications and all-mute", () => {
+      const updatePattern = /^cfg_mute_updates:(3600|14400|86400|forever|0)$/;
+      const allPattern = /^cfg_mute_all:(3600|14400|86400|forever|0)$/;
+
+      expect(updatePattern.test("cfg_mute_updates:0")).toBe(true);
+      expect(updatePattern.test("cfg_mute_updates:3600")).toBe(true);
+      expect(updatePattern.test("cfg_mute_updates:14400")).toBe(true);
+      expect(updatePattern.test("cfg_mute_updates:86400")).toBe(true);
+      expect(updatePattern.test("cfg_mute_updates:forever")).toBe(true);
+      expect(updatePattern.test("cfg_mute_updates:999")).toBe(false);
+
+      expect(allPattern.test("cfg_mute_all:0")).toBe(true);
+      expect(allPattern.test("cfg_mute_all:forever")).toBe(true);
+      expect(allPattern.test("cfg_mute_all:123")).toBe(false);
     });
   });
 });

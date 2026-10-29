@@ -50,10 +50,17 @@ import {
   setSpreadSymbolMute,
   setUserSpreadMute,
   getUserSpreadMute,
+  setUserUpdatesMute,
+  getUserUpdatesMute,
+  setAllUserMutes,
   updateUserLastSeenVersion,
 } from "../db/queries";
 import { formatPositionsReport, formatSpreadHubView, getSpreadAlertKeyboard } from "./formatters";
-import { formatReleaseNotification, getChangelogKeyboard } from "./release_notifier";
+import {
+  formatReleaseNotification,
+  getChangelogKeyboard,
+  invalidateCompletedVersionCache,
+} from "./release_notifier";
 import { APP_VERSION, RELEASE_TITLE, RELEASE_HIGHLIGHTS } from "../version";
 import { runInBackground } from "../utils/background";
 import { invalidateActiveSymbolsCache } from "../cron/monitor";
@@ -105,7 +112,7 @@ function getPositionsKeyboard(
   return new InlineKeyboard().text("🔄 Обновить", refreshCb);
 }
 
-function formatAlertMuteStatus(mutedUntil: number, nowSec: number): string {
+export function formatAlertMuteStatus(mutedUntil: number, nowSec: number): string {
   if (mutedUntil <= nowSec) {
     return "🔔 Включены";
   }
@@ -1649,22 +1656,26 @@ export function getBot(env: Env): Bot {
   const handleSettingsMain = async (ctx: any, isEdit: boolean = false) => {
     const telegramId = ctx.from!.id;
     const nowSec = Math.floor(Date.now() / 1000);
-    const [settings, targetsMutedUntil, spreadStats] = await Promise.all([
+    const [settings, spreadStats] = await Promise.all([
       getUserSettings(env.DB, telegramId),
-      getUserSpreadMute(env.DB, telegramId),
       getUserSpreadStats(env.DB, telegramId),
     ]);
 
+    const targetsMutedUntil = settings.spreadMutedUntil;
+    const updatesMutedUntil = settings.updatesMutedUntil;
+
     const spikesMuted = settings.mutedUntil > nowSec;
     const targetsMuted = targetsMutedUntil > nowSec;
-    const allMuted = spikesMuted && targetsMuted;
-    const anyMuted = spikesMuted || targetsMuted;
+    const updatesMuted = updatesMutedUntil > nowSec;
+    const allMuted = spikesMuted && targetsMuted && updatesMuted;
+    const anyMuted = spikesMuted || targetsMuted || updatesMuted;
 
     let globalStatus = "🔔 Все уведомления активны";
     if (allMuted) {
       if (
         settings.mutedUntil >= CONFIG.MUTE_FOREVER_TIMESTAMP &&
-        targetsMutedUntil >= CONFIG.MUTE_FOREVER_TIMESTAMP
+        targetsMutedUntil >= CONFIG.MUTE_FOREVER_TIMESTAMP &&
+        updatesMutedUntil >= CONFIG.MUTE_FOREVER_TIMESTAMP
       ) {
         globalStatus = "⏸ Все уведомления выключены";
       } else {
@@ -1682,6 +1693,8 @@ export function getBot(env: Env): Bot {
       `📐 <b>Таргеты спреда (RH ↔ Core):</b>\n` +
       `• Настроено: <b>${spreadStats.totalTargets}/${CONFIG.MAX_SPREAD_TARGETS_PER_USER}</b> (токенов: <b>${spreadStats.tokenCount}/${CONFIG.MAX_SPREAD_TOKENS_PER_USER}</b>)\n` +
       `• Статус: <b>${formatAlertMuteStatus(targetsMutedUntil, nowSec)}</b>\n\n` +
+      `🚀 <b>Релизы и обновления:</b>\n` +
+      `• Статус: <b>${formatAlertMuteStatus(updatesMutedUntil, nowSec)}</b>\n\n` +
       `🔕 <b>Общий статус бота:</b>\n` +
       `• <b>${globalStatus}</b>\n\n` +
       `<i>Выберите раздел для настройки или режим сна:</i>`;
@@ -1689,6 +1702,8 @@ export function getBot(env: Env): Bot {
     const kb = new InlineKeyboard()
       .text("⚡️ Спайки цен", "cfg_spikes")
       .text("📐 Таргеты спреда", "cfg_targets")
+      .row()
+      .text("🚀 Релизы и обновления", "cfg_updates")
       .row();
 
     if (anyMuted) {
@@ -1709,18 +1724,23 @@ export function getBot(env: Env): Bot {
     return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
   };
 
-  const handleSettingsSpikes = async (ctx: any, isEdit: boolean = false) => {
+  const handleSettingsSpikes = async (
+    ctx: any,
+    isEdit: boolean = false,
+    knownMutedUntil?: number,
+  ) => {
     const telegramId = ctx.from!.id;
     const nowSec = Math.floor(Date.now() / 1000);
     const settings = await getUserSettings(env.DB, telegramId);
-    const isMuted = settings.mutedUntil > nowSec;
+    const mutedUntil = knownMutedUntil !== undefined ? knownMutedUntil : settings.mutedUntil;
+    const isMuted = mutedUntil > nowSec;
 
     const text =
       `⚡️ <b>Настройки алертов спайков цен</b>\n\n` +
       `Отслеживание резких движений цены по открытым позициям аккаунтов.\n\n` +
       `🎯 <b>Текущий шаг цены:</b> <b>±${formatThreshold(settings.alertThreshold)}%</b>\n` +
       `<i>(Для золота XAU на плече 15–25x рекомендуется 0.3%–0.5%)</i>\n\n` +
-      `🔔 <b>Статус уведомлений:</b> <b>${formatAlertMuteStatus(settings.mutedUntil, nowSec)}</b>\n\n` +
+      `🔔 <b>Статус уведомлений:</b> <b>${formatAlertMuteStatus(mutedUntil, nowSec)}</b>\n\n` +
       `Выберите шаг цены или режим сна:`;
 
     const kb = new InlineKeyboard();
@@ -1762,11 +1782,17 @@ export function getBot(env: Env): Bot {
     return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
   };
 
-  const handleSettingsTargets = async (ctx: any, isEdit: boolean = false) => {
+  const handleSettingsTargets = async (
+    ctx: any,
+    isEdit: boolean = false,
+    knownMutedUntil?: number,
+  ) => {
     const telegramId = ctx.from!.id;
     const nowSec = Math.floor(Date.now() / 1000);
     const [targetsMutedUntil, spreadStats] = await Promise.all([
-      getUserSpreadMute(env.DB, telegramId),
+      knownMutedUntil !== undefined
+        ? Promise.resolve(knownMutedUntil)
+        : getUserSpreadMute(env.DB, telegramId),
       getUserSpreadStats(env.DB, telegramId),
     ]);
     const isMuted = targetsMutedUntil > nowSec;
@@ -1803,20 +1829,76 @@ export function getBot(env: Env): Bot {
     return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
   };
 
-  const handleSettingsAll = async (ctx: any, isEdit: boolean = false) => {
+  const handleSettingsUpdates = async (
+    ctx: any,
+    isEdit: boolean = false,
+    knownMutedUntil?: number,
+  ) => {
     const telegramId = ctx.from!.id;
     const nowSec = Math.floor(Date.now() / 1000);
-    const [settings, targetsMutedUntil] = await Promise.all([
-      getUserSettings(env.DB, telegramId),
-      getUserSpreadMute(env.DB, telegramId),
-    ]);
-    const anyMuted = settings.mutedUntil > nowSec || targetsMutedUntil > nowSec;
+    const updatesMutedUntil =
+      knownMutedUntil !== undefined
+        ? knownMutedUntil
+        : await getUserUpdatesMute(env.DB, telegramId);
+    const isMuted = updatesMutedUntil > nowSec;
+
+    const text =
+      `🚀 <b>Настройки уведомлений об обновлениях</b>\n\n` +
+      `Краткие анонсы новых версий бота и веб-терминала со списком изменений и ссылкой на релиз.\n\n` +
+      `🔔 <b>Статус уведомлений:</b> <b>${formatAlertMuteStatus(updatesMutedUntil, nowSec)}</b>\n\n` +
+      `Выберите режим сна для обновлений:`;
+
+    const kb = new InlineKeyboard();
+    if (isMuted) {
+      kb.text("🔔 Включить обновления", "cfg_mute_updates:0").row();
+    }
+    kb.text("🔕 1ч", "cfg_mute_updates:3600")
+      .text("🔕 4ч", "cfg_mute_updates:14400")
+      .text("🔕 24ч", "cfg_mute_updates:86400")
+      .row()
+      .text("⏸ Выключить (до включения)", "cfg_mute_updates:forever")
+      .row()
+      .text("« Назад в настройки", "cfg_main");
+
+    if (isEdit) {
+      try {
+        return await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch (err: any) {
+        if (!err?.message?.includes("message is not modified")) {
+          console.warn("[handleSettingsUpdates] edit error:", err?.message || err);
+        }
+      }
+      return;
+    }
+    return ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+  };
+
+  const handleSettingsAll = async (ctx: any, isEdit: boolean = false, knownMutedUntil?: number) => {
+    const telegramId = ctx.from!.id;
+    const nowSec = Math.floor(Date.now() / 1000);
+    let spikesMutedUntil: number;
+    let targetsMutedUntil: number;
+    let updatesMutedUntil: number;
+
+    if (knownMutedUntil !== undefined) {
+      spikesMutedUntil = knownMutedUntil;
+      targetsMutedUntil = knownMutedUntil;
+      updatesMutedUntil = knownMutedUntil;
+    } else {
+      const settings = await getUserSettings(env.DB, telegramId);
+      spikesMutedUntil = settings.mutedUntil;
+      targetsMutedUntil = settings.spreadMutedUntil;
+      updatesMutedUntil = settings.updatesMutedUntil;
+    }
+    const anyMuted =
+      spikesMutedUntil > nowSec || targetsMutedUntil > nowSec || updatesMutedUntil > nowSec;
 
     const text =
       `🔕 <b>Управление всеми уведомлениями бота</b>\n\n` +
-      `Режим действует одновременно на <b>спайки цен</b> и на <b>таргеты спреда</b>.\n\n` +
-      `• Спайки позиций: <b>${formatAlertMuteStatus(settings.mutedUntil, nowSec)}</b>\n` +
-      `• Таргеты спреда: <b>${formatAlertMuteStatus(targetsMutedUntil, nowSec)}</b>\n\n` +
+      `Режим действует одновременно на <b>спайки цен</b>, <b>таргеты спреда</b> и <b>обновления бота</b>.\n\n` +
+      `• Спайки позиций: <b>${formatAlertMuteStatus(spikesMutedUntil, nowSec)}</b>\n` +
+      `• Таргеты спреда: <b>${formatAlertMuteStatus(targetsMutedUntil, nowSec)}</b>\n` +
+      `• Обновления бота: <b>${formatAlertMuteStatus(updatesMutedUntil, nowSec)}</b>\n\n` +
       `Выберите режим сна для всего бота:`;
 
     const kb = new InlineKeyboard();
@@ -1928,6 +2010,11 @@ export function getBot(env: Env): Bot {
     await handleSettingsTargets(ctx, true);
   });
 
+  bot.callbackQuery("cfg_updates", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await handleSettingsUpdates(ctx, true);
+  });
+
   bot.callbackQuery("cfg_menu_all", async (ctx) => {
     await ctx.answerCallbackQuery();
     await handleSettingsAll(ctx, true);
@@ -1953,8 +2040,10 @@ export function getBot(env: Env): Bot {
             : dur === "14400"
               ? "🔕 Спайки заглушены на 4 часа"
               : "🔕 Спайки заглушены на 24 часа";
-    await ctx.answerCallbackQuery({ text: toast });
-    await handleSettingsSpikes(ctx, true);
+    await Promise.all([
+      ctx.answerCallbackQuery({ text: toast }),
+      handleSettingsSpikes(ctx, true, mutedUntil),
+    ]);
   });
 
   bot.callbackQuery(/^cfg_mute_targets:(3600|14400|86400|forever|0)$/, async (ctx) => {
@@ -1977,8 +2066,41 @@ export function getBot(env: Env): Bot {
             : dur === "14400"
               ? "🔕 Таргеты заглушены на 4 часа"
               : "🔕 Таргеты заглушены на 24 часа";
-    await ctx.answerCallbackQuery({ text: toast });
-    await handleSettingsTargets(ctx, true);
+    await Promise.all([
+      ctx.answerCallbackQuery({ text: toast }),
+      handleSettingsTargets(ctx, true, mutedUntil),
+    ]);
+  });
+
+  bot.callbackQuery(/^cfg_mute_updates:(3600|14400|86400|forever|0)$/, async (ctx) => {
+    const dur = ctx.match[1];
+    const nowSec = Math.floor(Date.now() / 1000);
+    const mutedUntil =
+      dur === "0"
+        ? 0
+        : dur === "forever"
+          ? CONFIG.MUTE_FOREVER_TIMESTAMP
+          : nowSec + parseInt(dur, 10);
+    const dbOps: Promise<any>[] = [setUserUpdatesMute(env.DB, ctx.from!.id, mutedUntil)];
+    if (dur === "0") {
+      dbOps.push(updateUserLastSeenVersion(env.DB, ctx.from!.id, APP_VERSION));
+      invalidateCompletedVersionCache();
+    }
+    await Promise.all(dbOps);
+    const toast =
+      dur === "0"
+        ? "🔔 Обновления включены"
+        : dur === "forever"
+          ? "⏸ Обновления выключены (до включения)"
+          : dur === "3600"
+            ? "🔕 Обновления заглушены на 1 час"
+            : dur === "14400"
+              ? "🔕 Обновления заглушены на 4 часа"
+              : "🔕 Обновления заглушены на 24 часа";
+    await Promise.all([
+      ctx.answerCallbackQuery({ text: toast }),
+      handleSettingsUpdates(ctx, true, mutedUntil),
+    ]);
   });
 
   bot.callbackQuery(/^cfg_mute_all:(3600|14400|86400|forever|0)$/, async (ctx) => {
@@ -1990,10 +2112,12 @@ export function getBot(env: Env): Bot {
         : dur === "forever"
           ? CONFIG.MUTE_FOREVER_TIMESTAMP
           : nowSec + parseInt(dur, 10);
-    await Promise.all([
-      setUserMute(env.DB, ctx.from!.id, mutedUntil),
-      setUserSpreadMute(env.DB, ctx.from!.id, mutedUntil),
-    ]);
+    const dbOps: Promise<any>[] = [setAllUserMutes(env.DB, ctx.from!.id, mutedUntil)];
+    if (dur === "0") {
+      dbOps.push(updateUserLastSeenVersion(env.DB, ctx.from!.id, APP_VERSION));
+      invalidateCompletedVersionCache();
+    }
+    await Promise.all(dbOps);
     const toast =
       dur === "0"
         ? "🔔 Все уведомления включены"
@@ -2004,12 +2128,9 @@ export function getBot(env: Env): Bot {
             : dur === "14400"
               ? "🔕 Все уведомления заглушены на 4 часа"
               : "🔕 Все уведомления заглушены на 24 часа";
-    await ctx.answerCallbackQuery({ text: toast });
-    if (dur === "0") {
-      await handleSettingsMain(ctx, true);
-    } else {
-      await handleSettingsAll(ctx, true);
-    }
+    const nextScreen =
+      dur === "0" ? handleSettingsMain(ctx, true) : handleSettingsAll(ctx, true, mutedUntil);
+    await Promise.all([ctx.answerCallbackQuery({ text: toast }), nextScreen]);
   });
 
   bot.callbackQuery("action_threshold", async (ctx) => {

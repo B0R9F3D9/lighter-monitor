@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     wizard_state TEXT DEFAULT NULL,
     muted_until INTEGER NOT NULL DEFAULT 0,
     spread_muted_until INTEGER NOT NULL DEFAULT 0,
+    updates_muted_until INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
     last_seen_version TEXT DEFAULT NULL
 );

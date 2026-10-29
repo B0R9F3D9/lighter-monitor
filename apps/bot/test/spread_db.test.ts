@@ -408,5 +408,6 @@ describe("Spread DB Queries & UNION Filtering", () => {
     expect(executedStatements.some((s) => s.includes("user_spread_targets"))).toBe(true);
     expect(executedStatements.some((s) => s.includes("spread_symbol_mutes"))).toBe(true);
     expect(executedStatements.some((s) => s.includes("spread_muted_until"))).toBe(true);
+    expect(executedStatements.some((s) => s.includes("updates_muted_until"))).toBe(true);
   });
 });

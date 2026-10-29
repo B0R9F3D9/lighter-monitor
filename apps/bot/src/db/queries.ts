@@ -178,17 +178,31 @@ export async function setUserThreshold(
     .run();
 }
 
-export async function getUserSettings(
-  db: D1Database,
-  telegramId: number,
-): Promise<{ alertThreshold: number; mutedUntil: number }> {
+export interface UserSettings {
+  alertThreshold: number;
+  mutedUntil: number;
+  spreadMutedUntil: number;
+  updatesMutedUntil: number;
+}
+
+export async function getUserSettings(db: D1Database, telegramId: number): Promise<UserSettings> {
   const row = await db
-    .prepare("SELECT alert_threshold, muted_until FROM users WHERE telegram_id = ?")
+    .prepare(
+      `SELECT alert_threshold, muted_until, spread_muted_until, updates_muted_until
+       FROM users WHERE telegram_id = ?`,
+    )
     .bind(telegramId)
-    .first<{ alert_threshold: number | null; muted_until: number | null }>();
+    .first<{
+      alert_threshold: number | null;
+      muted_until: number | null;
+      spread_muted_until: number | null;
+      updates_muted_until: number | null;
+    }>();
   return {
     alertThreshold: row?.alert_threshold ?? 0.5,
     mutedUntil: row?.muted_until ?? 0,
+    spreadMutedUntil: row?.spread_muted_until ?? 0,
+    updatesMutedUntil: row?.updates_muted_until ?? 0,
   };
 }
 
@@ -479,6 +493,11 @@ export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
   try {
     await db
       .prepare("ALTER TABLE users ADD COLUMN spread_muted_until INTEGER NOT NULL DEFAULT 0")
+      .run();
+  } catch {}
+  try {
+    await db
+      .prepare("ALTER TABLE users ADD COLUMN updates_muted_until INTEGER NOT NULL DEFAULT 0")
       .run();
   } catch {}
   try {
@@ -1170,6 +1189,34 @@ export async function setUserSpreadMute(
   }
 }
 
+export async function setAllUserMutes(
+  db: D1Database,
+  telegramId: number,
+  mutedUntil: number,
+): Promise<void> {
+  const stmts: D1PreparedStatement[] = [
+    db
+      .prepare(
+        `UPDATE users
+         SET muted_until = ?, spread_muted_until = ?, updates_muted_until = ?
+         WHERE telegram_id = ?`,
+      )
+      .bind(mutedUntil, mutedUntil, mutedUntil, telegramId),
+  ];
+  if (mutedUntil === 0) {
+    stmts.push(
+      db.prepare("DELETE FROM spread_symbol_mutes WHERE telegram_id = ?").bind(telegramId),
+    );
+  }
+  if (db.batch) {
+    await db.batch(stmts);
+  } else {
+    for (const stmt of stmts) {
+      await stmt.run();
+    }
+  }
+}
+
 export async function getUserSpreadMute(db: D1Database, telegramId: number): Promise<number> {
   const row = await db
     .prepare("SELECT spread_muted_until FROM users WHERE telegram_id = ?")
@@ -1225,21 +1272,42 @@ export async function getActiveSpreadTargetsForMonitoring(
   }
 }
 
+export async function setUserUpdatesMute(
+  db: D1Database,
+  telegramId: number,
+  mutedUntil: number,
+): Promise<void> {
+  await db
+    .prepare("UPDATE users SET updates_muted_until = ? WHERE telegram_id = ?")
+    .bind(mutedUntil, telegramId)
+    .run();
+}
+
+export async function getUserUpdatesMute(db: D1Database, telegramId: number): Promise<number> {
+  const row = await db
+    .prepare("SELECT updates_muted_until FROM users WHERE telegram_id = ?")
+    .bind(telegramId)
+    .first<{ updates_muted_until: number | null }>();
+  return row?.updates_muted_until ?? 0;
+}
+
 export async function getUsersForReleaseNotification(
   db: D1Database,
   targetVersion: string,
   limit: number = 5,
+  nowSec: number = Math.floor(Date.now() / 1000),
 ): Promise<Array<{ telegram_id: number; last_seen_version: string | null }>> {
   try {
     const res = await db
       .prepare(
         `SELECT telegram_id, last_seen_version
          FROM users
-         WHERE last_seen_version IS NULL OR last_seen_version != ?
+         WHERE (last_seen_version IS NULL OR last_seen_version != ?)
+           AND COALESCE(updates_muted_until, 0) <= ?
          ORDER BY telegram_id ASC
          LIMIT ?`,
       )
-      .bind(targetVersion, limit)
+      .bind(targetVersion, nowSec, limit)
       .all<{ telegram_id: number; last_seen_version: string | null }>();
     return res.results || [];
   } catch (err: any) {

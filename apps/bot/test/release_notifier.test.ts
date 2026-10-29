@@ -9,7 +9,14 @@ import {
   checkAndBroadcastRelease,
   invalidateCompletedVersionCache,
 } from "../src/bot/release_notifier";
-import { getUsersForReleaseNotification, batchUpdateUsersLastSeenVersion } from "../src/db/queries";
+import {
+  getUsersForReleaseNotification,
+  batchUpdateUsersLastSeenVersion,
+  setUserUpdatesMute,
+  getUserUpdatesMute,
+  setAllUserMutes,
+  getUserSettings,
+} from "../src/db/queries";
 import { APP_VERSION } from "../src/version";
 import { getBot } from "../src/bot/bot";
 
@@ -126,12 +133,16 @@ describe("Release Notifier & Version Broadcast", () => {
         },
       };
 
-      const users = await getUsersForReleaseNotification(mockDb, "v1.0.1", 5);
+      const testNow = 1700000000;
+      const users = await getUsersForReleaseNotification(mockDb, "v1.0.1", 5, testNow);
       expect(users.length).toBe(2);
       expect(users[0]?.telegram_id).toBe(101);
       expect(executedSql).toContain("last_seen_version IS NULL OR last_seen_version != ?");
+      expect(executedSql).toContain("COALESCE(updates_muted_until, 0) <= ?");
+      expect(executedSql).not.toContain("COALESCE(muted_until");
       expect(boundParams[0]).toBe("v1.0.1");
-      expect(boundParams[1]).toBe(5);
+      expect(boundParams[1]).toBe(testNow);
+      expect(boundParams[2]).toBe(5);
     });
 
     it("batchUpdateUsersLastSeenVersion prepares batch updates", async () => {
@@ -150,6 +161,91 @@ describe("Release Notifier & Version Broadcast", () => {
       expect(batchedStmts[0]?.params).toEqual(["v1.0.1", 101]);
       expect(batchedStmts[1]?.params).toEqual(["v1.0.1", 102]);
       expect(batchedStmts[2]?.params).toEqual(["v1.0.1", 103]);
+    });
+
+    it("setUserUpdatesMute and getUserUpdatesMute update and fetch mute timestamp", async () => {
+      let executedSql = "";
+      let boundParams: any[] = [];
+      const mockDb: any = {
+        prepare: (sql: string) => {
+          executedSql = sql;
+          return {
+            bind: (...params: any[]) => {
+              boundParams = params;
+              return {
+                run: async () => ({ meta: { changes: 1 } }),
+                first: async () => ({ updates_muted_until: 1700086400 }),
+              };
+            },
+          };
+        },
+      };
+
+      await setUserUpdatesMute(mockDb, 999, 1700086400);
+      expect(executedSql).toContain(
+        "UPDATE users SET updates_muted_until = ? WHERE telegram_id = ?",
+      );
+      expect(boundParams).toEqual([1700086400, 999]);
+
+      const fetchedMute = await getUserUpdatesMute(mockDb, 999);
+      expect(executedSql).toContain("SELECT updates_muted_until FROM users WHERE telegram_id = ?");
+      expect(boundParams).toEqual([999]);
+      expect(fetchedMute).toBe(1700086400);
+    });
+
+    it("setAllUserMutes updates muted_until, spread_muted_until, and updates_muted_until atomically in 1 UPDATE", async () => {
+      let executedSql = "";
+      let boundParams: any[] = [];
+      const mockDb: any = {
+        prepare: (sql: string) => {
+          executedSql = sql;
+          return {
+            bind: (...params: any[]) => {
+              boundParams = params;
+              return {
+                run: async () => ({ meta: { changes: 1 } }),
+              };
+            },
+          };
+        },
+      };
+
+      await setAllUserMutes(mockDb, 777, 1700086400);
+      expect(executedSql).toContain("UPDATE users");
+      expect(executedSql).toContain(
+        "SET muted_until = ?, spread_muted_until = ?, updates_muted_until = ?",
+      );
+      expect(executedSql).toContain("WHERE telegram_id = ?");
+      expect(boundParams).toEqual([1700086400, 1700086400, 1700086400, 777]);
+    });
+
+    it("getUserSettings returns alertThreshold and all 3 mute timestamps in 1 single SELECT", async () => {
+      let executedSql = "";
+      const mockDb: any = {
+        prepare: (sql: string) => {
+          executedSql = sql;
+          return {
+            bind: () => ({
+              first: async () => ({
+                alert_threshold: 0.8,
+                muted_until: 1700001000,
+                spread_muted_until: 1700002000,
+                updates_muted_until: 1700003000,
+              }),
+            }),
+          };
+        },
+      };
+
+      const settings = await getUserSettings(mockDb, 777);
+      expect(executedSql).toContain(
+        "alert_threshold, muted_until, spread_muted_until, updates_muted_until",
+      );
+      expect(executedSql).toContain("FROM users WHERE telegram_id = ?");
+      expect(settings.alertThreshold).toBe(0.8);
+      expect(settings.mutedUntil).toBe(1700001000);
+      expect(settings.spreadMutedUntil).toBe(1700002000);
+      expect(settings.updatesMutedUntil).toBe(1700003000);
     });
   });
 
