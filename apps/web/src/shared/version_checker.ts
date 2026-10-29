@@ -232,8 +232,14 @@ export function showUpdateSonner(
 
   const onReload = options.onReload ?? (() => window.location.reload());
   const updateKey = options.updateKey ?? newVersion;
-  // Prioritize specific release URL if present, then changelog, then default repository changelog
-  const targetUrl = options.releaseUrl || options.changelogUrl || DEFAULT_CHANGELOG_URL;
+  const displayVersion = formatDisplayVersion(newVersion);
+  const defaultReleaseUrl =
+    displayVersion && displayVersion !== "dev"
+      ? `https://github.com/${DEFAULT_GITHUB_REPO}/releases/tag/${displayVersion}`
+      : DEFAULT_RELEASES_URL;
+
+  // Release URL takes user directly to GitHub release notes & changelog for this version
+  const releaseUrl = options.releaseUrl || defaultReleaseUrl;
 
   // Don't duplicate if already open
   if (activeSonnerElement && document.body.contains(activeSonnerElement)) {
@@ -252,9 +258,22 @@ export function showUpdateSonner(
     sonner.style.right = "1rem";
   }
 
-  const displayVersion = formatDisplayVersion(newVersion);
   const versionBadge = displayVersion
-    ? `<span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-accent font-medium tracking-tight" title="${displayVersion}">${displayVersion}</span>`
+    ? `<a
+        id="versionBadgeLink"
+        href="${releaseUrl}"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-terminal-accent hover:border-terminal-accent/50 hover:text-white font-medium tracking-tight transition cursor-pointer flex items-center gap-1 group"
+        title="View release ${displayVersion} on GitHub"
+      >
+        <span>${displayVersion}</span>
+        <svg class="w-2.5 h-2.5 opacity-60 group-hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+          <polyline points="15 3 21 3 21 9"></polyline>
+          <line x1="10" y1="14" x2="21" y2="3"></line>
+        </svg>
+      </a>`
     : "";
 
   sonner.innerHTML = `
@@ -271,13 +290,13 @@ export function showUpdateSonner(
     <div class="flex items-center justify-between gap-2 mt-2.5 pt-2 border-t border-terminal-border/60">
       <a
         id="versionChangelogLink"
-        href="${targetUrl}"
+        href="${releaseUrl}"
         target="_blank"
         rel="noopener noreferrer"
         class="text-[11px] text-terminal-accent hover:text-white flex items-center gap-1 transition-colors cursor-pointer group"
-        title="View details on GitHub"
+        title="View release notes and changelog on GitHub"
       >
-        <span>Changelog</span>
+        <span>Release notes</span>
         <svg class="w-3 h-3 text-terminal-accent/70 group-hover:text-white transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
           <polyline points="15 3 21 3 21 9"></polyline>

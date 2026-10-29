@@ -389,7 +389,8 @@ describe("Version Checker & Auto-Updater", () => {
         expect(sonner?.innerHTML).toContain("Update available");
         expect(sonner?.innerHTML).toContain("Reload");
         expect(sonner?.innerHTML).toContain("Dismiss");
-        expect(sonner?.innerHTML).toContain("Changelog");
+        expect(sonner?.innerHTML).toContain("Release notes");
+        expect(sonner?.innerHTML).toContain("versionBadgeLink");
         // Verify releaseUrl takes priority over generic changelogUrl
         expect(sonner?.innerHTML).toContain(specificReleaseUrl);
         expect(sonner?.innerHTML).toContain("v2.0.0");
