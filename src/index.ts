@@ -2,6 +2,7 @@ import type { Env } from "../apps/bot/src/types";
 import { handleBotWebhook, setupBotCommands, runBotScheduled } from "../apps/bot/src";
 import {
   APP_VERSION,
+  BUILD_HASH,
   HUB_HTML_HASH,
   SPREAD_HTML_HASH,
   ANALYTICS_HTML_HASH,
@@ -87,8 +88,12 @@ export default {
 
     // Version check endpoint for automatic client updates
     if (isGetOrHead && (url.pathname === "/api/version" || url.pathname === "/api/version/")) {
+      const etag = BUILD_HASH ? `"${APP_VERSION}-${BUILD_HASH}"` : `"${APP_VERSION}"`;
       const clientEtag = request.headers.get("if-none-match");
-      if (clientEtag && (clientEtag === APP_VERSION || clientEtag === `"${APP_VERSION}"`)) {
+      if (
+        clientEtag &&
+        (clientEtag === etag || (BUILD_HASH && clientEtag === `${APP_VERSION}-${BUILD_HASH}`))
+      ) {
         return new Response(null, { status: 304 });
       }
 
@@ -97,6 +102,9 @@ export default {
           ? null
           : JSON.stringify({
               version: APP_VERSION,
+              buildHash: BUILD_HASH,
+              changelogUrl: "https://github.com/B0R9F3D9/lighter-monitor/blob/main/CHANGELOG.md",
+              releaseUrl: `https://github.com/B0R9F3D9/lighter-monitor/releases/tag/${APP_VERSION}`,
               spreadHash: SPREAD_HTML_HASH,
               analyticsHash: ANALYTICS_HTML_HASH,
               checkerHash: CHECKER_HTML_HASH,
@@ -109,7 +117,7 @@ export default {
           "Content-Type": "application/json; charset=utf-8",
           "Cache-Control": "no-cache, no-store, must-revalidate",
           Pragma: "no-cache",
-          ETag: `"${APP_VERSION}"`,
+          ETag: etag,
         },
       });
     }

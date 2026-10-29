@@ -43,6 +43,7 @@ export default defineConfig({
   ],
   define: {
     APP_VERSION: JSON.stringify("dev"),
+    BUILD_HASH: JSON.stringify("dev"),
   },
   build: {
     outDir: path.resolve(import.meta.dirname, "dist"),
