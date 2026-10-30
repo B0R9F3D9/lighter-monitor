@@ -132,7 +132,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
       try {
         globalThis.fetch = (async (url: string | URL | Request) => {
           const urlStr = url.toString();
-          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders") ||
+            urlStr.includes("/rh/api/v1/orderBookOrders")
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -142,7 +145,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
               { status: 200 },
             );
           }
-          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders") ||
+            (urlStr.includes("/orderBookOrders") && !urlStr.includes("/rh/"))
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -169,7 +175,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
       try {
         globalThis.fetch = (async (url: string | URL | Request) => {
           const urlStr = url.toString();
-          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders") ||
+            urlStr.includes("/rh/api/v1/orderBookOrders")
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -179,7 +188,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
               { status: 200 },
             );
           }
-          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders") ||
+            (urlStr.includes("/orderBookOrders") && !urlStr.includes("/rh/"))
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -225,7 +237,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
       try {
         globalThis.fetch = (async (url: string | URL | Request) => {
           const urlStr = url.toString();
-          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders") ||
+            urlStr.includes("/rh/api/v1/orderBookOrders")
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -235,7 +250,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
               { status: 200 },
             );
           }
-          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders") ||
+            (urlStr.includes("/orderBookOrders") && !urlStr.includes("/rh/"))
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -267,7 +285,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
       try {
         globalThis.fetch = (async (url: string | URL | Request) => {
           const urlStr = url.toString();
-          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders") ||
+            urlStr.includes("/rh/api/v1/orderBookOrders")
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -277,7 +298,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
               { status: 200 },
             );
           }
-          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders") ||
+            (urlStr.includes("/orderBookOrders") && !urlStr.includes("/rh/"))
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -307,7 +331,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
       try {
         globalThis.fetch = (async (url: string | URL | Request) => {
           const urlStr = url.toString();
-          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders") ||
+            urlStr.includes("/rh/api/v1/orderBookOrders")
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -317,7 +344,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
               { status: 200 },
             );
           }
-          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders") ||
+            (urlStr.includes("/orderBookOrders") && !urlStr.includes("/rh/"))
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -346,7 +376,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
       try {
         globalThis.fetch = (async (url: string | URL | Request) => {
           const urlStr = url.toString();
-          if (urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("api.rh.lighter.xyz/api/v1/orderBookOrders") ||
+            urlStr.includes("/rh/api/v1/orderBookOrders")
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
@@ -356,7 +389,10 @@ describe("Spread Wick Filtering & JIT Orderbook Verification", () => {
               { status: 200 },
             );
           }
-          if (urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders")) {
+          if (
+            urlStr.includes("mainnet.zklighter.elliot.ai/api/v1/orderBookOrders") ||
+            (urlStr.includes("/orderBookOrders") && !urlStr.includes("/rh/"))
+          ) {
             return new Response(
               JSON.stringify({
                 code: 200,
