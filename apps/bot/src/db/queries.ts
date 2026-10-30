@@ -16,6 +16,7 @@ import { packPositions, computePositionsFingerprint } from "../lighter/math";
 import {
   setMemoryAccount,
   getMemoryAccount,
+  deleteMemoryAccount,
   FastPosition,
   IN_MEMORY_RR_CHECKED,
   getLastCronMetrics,
@@ -287,6 +288,27 @@ export async function removeTrackedAccount(
     .bind(telegramId, network, accountIndex)
     .run();
 
+  // Проверяем, отслеживает ли этот аккаунт кто-то еще
+  const remaining = await db
+    .prepare("SELECT 1 FROM user_tracked_accounts WHERE network = ? AND account_index = ? LIMIT 1")
+    .bind(network, accountIndex)
+    .first();
+
+  if (!remaining) {
+    await db.batch([
+      db
+        .prepare("DELETE FROM account_open_positions WHERE network = ? AND account_index = ?")
+        .bind(network, accountIndex),
+      db
+        .prepare("DELETE FROM account_positions_cache WHERE network = ? AND account_index = ?")
+        .bind(network, accountIndex),
+      db
+        .prepare("DELETE FROM user_token_alerts WHERE network = ? AND account_index = ?")
+        .bind(network, accountIndex),
+    ]);
+    deleteMemoryAccount(network, accountIndex);
+  }
+
   return (res.meta.changes ?? 0) > 0;
 }
 
@@ -298,6 +320,53 @@ export async function removeBlockedUser(db: D1Database, telegramId: number): Pro
     db.prepare("DELETE FROM user_spread_targets WHERE telegram_id = ?").bind(telegramId),
     db.prepare("DELETE FROM spread_symbol_mutes WHERE telegram_id = ?").bind(telegramId),
     db.prepare("DELETE FROM users WHERE telegram_id = ?").bind(telegramId),
+    db.prepare(`
+      DELETE FROM account_open_positions
+      WHERE NOT EXISTS (
+        SELECT 1 FROM user_tracked_accounts uta
+        WHERE uta.network = account_open_positions.network
+          AND uta.account_index = account_open_positions.account_index
+      )
+    `),
+    db.prepare(`
+      DELETE FROM account_positions_cache
+      WHERE NOT EXISTS (
+        SELECT 1 FROM user_tracked_accounts uta
+        WHERE uta.network = account_positions_cache.network
+          AND uta.account_index = account_positions_cache.account_index
+      )
+    `),
+  ]);
+}
+
+// 5b. Санитарная очистка орфанных записей (вызывается периодически кроном)
+export async function cleanOrphanData(db: D1Database): Promise<void> {
+  await db.batch([
+    db.prepare(`
+      DELETE FROM account_open_positions
+      WHERE NOT EXISTS (
+        SELECT 1 FROM user_tracked_accounts uta
+        WHERE uta.network = account_open_positions.network
+          AND uta.account_index = account_open_positions.account_index
+      )
+    `),
+    db.prepare(`
+      DELETE FROM account_positions_cache
+      WHERE NOT EXISTS (
+        SELECT 1 FROM user_tracked_accounts uta
+        WHERE uta.network = account_positions_cache.network
+          AND uta.account_index = account_positions_cache.account_index
+      )
+    `),
+    db.prepare(`
+      DELETE FROM user_token_alerts
+      WHERE NOT EXISTS (
+        SELECT 1 FROM user_tracked_accounts uta
+        WHERE uta.telegram_id = user_token_alerts.telegram_id
+          AND uta.network = user_token_alerts.network
+          AND uta.account_index = user_token_alerts.account_index
+      )
+    `),
   ]);
 }
 
@@ -434,7 +503,10 @@ export async function getDistinctActiveSymbols(db: D1Database): Promise<string[]
   try {
     const { results } = await db
       .prepare(`
-        SELECT DISTINCT UPPER(symbol) as symbol FROM account_open_positions
+        SELECT DISTINCT UPPER(aop.symbol) as symbol
+        FROM account_open_positions aop
+        JOIN user_tracked_accounts uta
+          ON aop.network = uta.network AND aop.account_index = uta.account_index
         UNION
         SELECT DISTINCT UPPER(symbol) as symbol FROM user_spread_targets WHERE is_active = 1
       `)
@@ -445,7 +517,12 @@ export async function getDistinctActiveSymbols(db: D1Database): Promise<string[]
     console.warn("[db] Fallback in getDistinctActiveSymbols:", err?.message || err);
     try {
       const { results } = await db
-        .prepare(`SELECT DISTINCT UPPER(symbol) as symbol FROM account_open_positions`)
+        .prepare(`
+          SELECT DISTINCT UPPER(aop.symbol) as symbol
+          FROM account_open_positions aop
+          JOIN user_tracked_accounts uta
+            ON aop.network = uta.network AND aop.account_index = uta.account_index
+        `)
         .all<{ symbol: string }>();
       return results ? results.map((r) => r.symbol) : [];
     } catch {
@@ -672,12 +749,32 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
         (SELECT COUNT(*) FROM user_tracked_accounts) as total_tracked,
         (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'rh') as tracked_rh,
         (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'mainnet') as tracked_mainnet,
-        (SELECT COUNT(DISTINCT network || ':' || account_index) FROM account_open_positions) as active_accounts_count,
-        (SELECT COUNT(*) FROM account_open_positions) as active_positions,
-        (SELECT COUNT(*) FROM account_open_positions WHERE is_long = 1) as total_longs,
-        (SELECT COUNT(*) FROM account_open_positions WHERE is_long = 0) as total_shorts,
-        (SELECT COALESCE(SUM(size * entry_price), 0) FROM account_open_positions) as total_open_interest,
-        (SELECT COALESCE(SUM(collateral), 0) FROM account_positions_cache) as total_collateral,
+        (SELECT COUNT(DISTINCT aop.network || ':' || aop.account_index)
+         FROM account_open_positions aop
+         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
+        ) as active_accounts_count,
+        (SELECT COUNT(*)
+         FROM account_open_positions aop
+         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
+        ) as active_positions,
+        (SELECT COUNT(*)
+         FROM account_open_positions aop
+         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
+         WHERE aop.is_long = 1
+        ) as total_longs,
+        (SELECT COUNT(*)
+         FROM account_open_positions aop
+         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
+         WHERE aop.is_long = 0
+        ) as total_shorts,
+        (SELECT COALESCE(SUM(aop.size * aop.entry_price), 0)
+         FROM account_open_positions aop
+         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
+        ) as total_open_interest,
+        (SELECT COALESCE(SUM(c.collateral), 0)
+         FROM account_positions_cache c
+         JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
+        ) as total_collateral,
         (SELECT MIN(c.last_updated_at)
          FROM account_positions_cache c
          JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
@@ -708,9 +805,10 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
     `)
       .bind(now),
     db.prepare(`
-      SELECT symbol, COUNT(*) as count 
-      FROM account_open_positions 
-      GROUP BY symbol 
+      SELECT aop.symbol, COUNT(*) as count 
+      FROM account_open_positions aop
+      JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
+      GROUP BY aop.symbol 
       ORDER BY count DESC 
       LIMIT 5
     `),

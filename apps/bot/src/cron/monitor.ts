@@ -939,6 +939,28 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       allUpdates.push(stmts.saveMetrics.bind(JSON.stringify(executionMetrics), now));
     }
 
+    // Санитарная фоновая зачистка орфанных записей (раз в ~10 минут)
+    if (now % 600 < 60) {
+      allUpdates.push(
+        env.DB.prepare(`
+          DELETE FROM account_open_positions
+          WHERE NOT EXISTS (
+            SELECT 1 FROM user_tracked_accounts uta
+            WHERE uta.network = account_open_positions.network
+              AND uta.account_index = account_open_positions.account_index
+          )
+        `),
+        env.DB.prepare(`
+          DELETE FROM account_positions_cache
+          WHERE NOT EXISTS (
+            SELECT 1 FROM user_tracked_accounts uta
+            WHERE uta.network = account_positions_cache.network
+              AND uta.account_index = account_positions_cache.account_index
+          )
+        `),
+      );
+    }
+
     if (allUpdates.length > 0) {
       await executeD1BatchInChunks(env.DB, allUpdates);
     }

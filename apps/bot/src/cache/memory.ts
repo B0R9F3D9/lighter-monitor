@@ -52,6 +52,12 @@ export function setMemoryAccount(state: FastAccountState): void {
   MEMORY_ACCOUNTS.set(getMemoryAccountKey(state.network, state.accountIndex), state);
 }
 
+export function deleteMemoryAccount(network: LighterNetwork, accountIndex: number): void {
+  const key = getMemoryAccountKey(network, accountIndex);
+  MEMORY_ACCOUNTS.delete(key);
+  IN_MEMORY_RR_CHECKED.delete(key);
+}
+
 export function getMemoryPrice(
   networkOrSymbol: LighterNetwork | string,
   symbolArg?: string,
