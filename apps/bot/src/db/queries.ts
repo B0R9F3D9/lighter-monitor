@@ -184,12 +184,13 @@ export interface UserSettings {
   mutedUntil: number;
   spreadMutedUntil: number;
   updatesMutedUntil: number;
+  targetHitsThreshold: number;
 }
 
 export async function getUserSettings(db: D1Database, telegramId: number): Promise<UserSettings> {
   const row = await db
     .prepare(
-      `SELECT alert_threshold, muted_until, spread_muted_until, updates_muted_until
+      `SELECT alert_threshold, muted_until, spread_muted_until, updates_muted_until, target_hits_threshold
        FROM users WHERE telegram_id = ?`,
     )
     .bind(telegramId)
@@ -198,13 +199,26 @@ export async function getUserSettings(db: D1Database, telegramId: number): Promi
       muted_until: number | null;
       spread_muted_until: number | null;
       updates_muted_until: number | null;
+      target_hits_threshold: number | null;
     }>();
   return {
     alertThreshold: row?.alert_threshold ?? 0.5,
     mutedUntil: row?.muted_until ?? 0,
     spreadMutedUntil: row?.spread_muted_until ?? 0,
     updatesMutedUntil: row?.updates_muted_until ?? 0,
+    targetHitsThreshold: row?.target_hits_threshold ?? 3,
   };
+}
+
+export async function setUserTargetHitsThreshold(
+  db: D1Database,
+  telegramId: number,
+  threshold: number,
+): Promise<void> {
+  await db
+    .prepare("UPDATE users SET target_hits_threshold = ? WHERE telegram_id = ?")
+    .bind(threshold, telegramId)
+    .run();
 }
 
 export async function setUserMute(
@@ -579,6 +593,11 @@ export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
   } catch {}
   try {
     await db.prepare("ALTER TABLE users ADD COLUMN last_seen_version TEXT DEFAULT NULL").run();
+  } catch {}
+  try {
+    await db
+      .prepare("ALTER TABLE users ADD COLUMN target_hits_threshold INTEGER NOT NULL DEFAULT 3")
+      .run();
   } catch {}
   try {
     await db
@@ -1345,7 +1364,8 @@ export async function getActiveSpreadTargetsForMonitoring(
           t.last_spread,
           t.created_at,
           COALESCE(u.spread_muted_until, 0) as user_spread_muted_until,
-          COALESCE(sm.muted_until, 0) as symbol_muted_until
+          COALESCE(sm.muted_until, 0) as symbol_muted_until,
+          COALESCE(u.target_hits_threshold, 3) as target_hits_threshold
         FROM user_spread_targets t
         JOIN users u ON t.telegram_id = u.telegram_id
         LEFT JOIN spread_symbol_mutes sm ON t.telegram_id = sm.telegram_id AND t.symbol = sm.symbol

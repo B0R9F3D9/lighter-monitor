@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { WizardState, Env } from "../src/types";
+import { WizardState, Env, WIZARD_STEPS } from "../src/types";
 import { isUserAdmin, formatAlertMuteStatus } from "../src/bot/bot";
 
 function formatThreshold(val: number): string {
@@ -27,20 +27,20 @@ const mockEnv = (adminVar?: string): Env => ({
 describe("Wizard State & Settings Logic", () => {
   it("serializes and deserializes AWAIT_INDEX wizard state correctly", () => {
     const state: WizardState = {
-      step: "AWAIT_INDEX",
+      step: WIZARD_STEPS.AWAIT_INDEX,
       network: "rh",
     };
     const json = JSON.stringify(state);
     const parsed = JSON.parse(json) as WizardState;
-    expect(parsed.step).toBe("AWAIT_INDEX");
-    if (parsed.step === "AWAIT_INDEX") {
+    expect(parsed.step).toBe(WIZARD_STEPS.AWAIT_INDEX);
+    if (parsed.step === WIZARD_STEPS.AWAIT_INDEX) {
       expect(parsed.network).toBe("rh");
     }
   });
 
   it("serializes and deserializes AWAIT_ALIAS wizard state correctly", () => {
     const state: WizardState = {
-      step: "AWAIT_ALIAS",
+      step: WIZARD_STEPS.AWAIT_ALIAS,
       network: "mainnet",
       accountIndex: 749329,
       l1Address: "0x0000000000000000000000000000000000000001",
@@ -49,8 +49,8 @@ describe("Wizard State & Settings Logic", () => {
     };
     const json = JSON.stringify(state);
     const parsed = JSON.parse(json) as WizardState;
-    expect(parsed.step).toBe("AWAIT_ALIAS");
-    if (parsed.step === "AWAIT_ALIAS") {
+    expect(parsed.step).toBe(WIZARD_STEPS.AWAIT_ALIAS);
+    if (parsed.step === WIZARD_STEPS.AWAIT_ALIAS) {
       expect(parsed.accountIndex).toBe(749329);
       expect(parsed.network).toBe("mainnet");
       expect(parsed.positions.length).toBe(1);
@@ -59,14 +59,14 @@ describe("Wizard State & Settings Logic", () => {
 
   it("serializes and deserializes AWAIT_RENAME wizard state correctly", () => {
     const state: WizardState = {
-      step: "AWAIT_RENAME",
+      step: WIZARD_STEPS.AWAIT_RENAME,
       network: "rh",
       accountIndex: 31704,
     };
     const json = JSON.stringify(state);
     const parsed = JSON.parse(json) as WizardState;
-    expect(parsed.step).toBe("AWAIT_RENAME");
-    if (parsed.step === "AWAIT_RENAME") {
+    expect(parsed.step).toBe(WIZARD_STEPS.AWAIT_RENAME);
+    if (parsed.step === WIZARD_STEPS.AWAIT_RENAME) {
       expect(parsed.accountIndex).toBe(31704);
       expect(parsed.network).toBe("rh");
     }
@@ -74,11 +74,20 @@ describe("Wizard State & Settings Logic", () => {
 
   it("serializes and deserializes AWAIT_THRESHOLD wizard state correctly", () => {
     const state: WizardState = {
-      step: "AWAIT_THRESHOLD",
+      step: WIZARD_STEPS.AWAIT_THRESHOLD,
     };
     const json = JSON.stringify(state);
     const parsed = JSON.parse(json) as WizardState;
-    expect(parsed.step).toBe("AWAIT_THRESHOLD");
+    expect(parsed.step).toBe(WIZARD_STEPS.AWAIT_THRESHOLD);
+  });
+
+  it("serializes and deserializes AWAIT_TARGET_HITS wizard state correctly", () => {
+    const state: WizardState = {
+      step: WIZARD_STEPS.AWAIT_TARGET_HITS,
+    };
+    const json = JSON.stringify(state);
+    const parsed = JSON.parse(json) as WizardState;
+    expect(parsed.step).toBe(WIZARD_STEPS.AWAIT_TARGET_HITS);
   });
 
   it("correctly identifies active vs expired mute periods", () => {
@@ -102,8 +111,16 @@ describe("Wizard State & Settings Logic", () => {
 
   it("identifies expired wizard states after 15 minutes TTL", () => {
     const now = Math.floor(Date.now() / 1000);
-    const freshState: WizardState = { step: "AWAIT_INDEX", network: "rh", ts: now - 300 }; // 5 min ago
-    const expiredState: WizardState = { step: "AWAIT_INDEX", network: "rh", ts: now - 901 }; // 15 min 1 sec ago
+    const freshState: WizardState = {
+      step: WIZARD_STEPS.AWAIT_INDEX,
+      network: "rh",
+      ts: now - 300,
+    }; // 5 min ago
+    const expiredState: WizardState = {
+      step: WIZARD_STEPS.AWAIT_INDEX,
+      network: "rh",
+      ts: now - 901,
+    }; // 15 min 1 sec ago
 
     expect(isWizardExpired(freshState, now)).toBe(false);
     expect(isWizardExpired(expiredState, now)).toBe(true);

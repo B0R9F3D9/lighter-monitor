@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS users (
     spread_muted_until INTEGER NOT NULL DEFAULT 0,
     updates_muted_until INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL,
-    last_seen_version TEXT DEFAULT NULL
+    last_seen_version TEXT DEFAULT NULL,
+    target_hits_threshold INTEGER NOT NULL DEFAULT 3
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_last_seen_version ON users(last_seen_version);

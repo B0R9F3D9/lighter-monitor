@@ -93,6 +93,15 @@ export function formatPriceStepAlert(params: PriceStepAlertParams): string {
 // ФОРМАТТЕРЫ ТАРГЕТОВ СПРЕДА RH vs CORE
 // ==========================================
 
+export function formatTicksWord(val: number): string {
+  const mod10 = val % 10;
+  const mod100 = val % 100;
+  if (mod100 >= 11 && mod100 <= 19) return "тиков";
+  if (mod10 === 1) return "тик";
+  if (mod10 >= 2 && mod10 <= 4) return "тика";
+  return "тиков";
+}
+
 export function formatSpreadAlert(params: SpreadAlertParams): string {
   const dirArrow =
     params.direction === SPREAD_DIRECTIONS.RH_CHEAPER ? "RH &lt; Core" : "RH &gt; Core";
@@ -123,6 +132,15 @@ export function formatSpreadAlert(params: SpreadAlertParams): string {
     lines += `📊 <b>Базис:</b> <b>${basisSign}$${Math.abs(params.basisSigned).toFixed(3)}</b> (<code>${bpsSign}${params.basisBps.toFixed(2)} bps</code>)\n`;
     lines += `• 🟠 RH: $${formatPriceFine(params.rhPrice)}\n`;
     lines += `• ⚡️ Core: $${formatPriceFine(params.corePrice)}`;
+  }
+
+  const ticks = params.confirmedTicks || params.minTicks;
+  if (ticks) {
+    if (ticks === 1) {
+      lines += `\n\n⏱ <i>Моментальный алерт (1 тик, крон 1 раз/мин)</i>`;
+    } else {
+      lines += `\n\n⏱ <i>Подтверждено: ${ticks} ${formatTicksWord(ticks)} подряд (крон 1 раз/мин)</i>`;
+    }
   }
 
   return lines;

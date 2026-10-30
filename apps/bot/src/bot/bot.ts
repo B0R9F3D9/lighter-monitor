@@ -7,6 +7,7 @@ import {
   SpreadDirection,
   SPREAD_DIRECTIONS,
   SPREAD_UNITS,
+  WIZARD_STEPS,
 } from "../types";
 import { CONFIG, getLighterAuthToken } from "../config";
 import {
@@ -53,9 +54,15 @@ import {
   setUserUpdatesMute,
   getUserUpdatesMute,
   setAllUserMutes,
+  setUserTargetHitsThreshold,
   updateUserLastSeenVersion,
 } from "../db/queries";
-import { formatPositionsReport, formatSpreadHubView, getSpreadAlertKeyboard } from "./formatters";
+import {
+  formatPositionsReport,
+  formatSpreadHubView,
+  getSpreadAlertKeyboard,
+  formatTicksWord,
+} from "./formatters";
 import {
   formatReleaseNotification,
   getChangelogKeyboard,
@@ -777,7 +784,10 @@ export function getBot(env: Env): Bot {
   bot.callbackQuery(/^wizard_net:(rh|mainnet)$/, async (ctx) => {
     const network = ctx.match[1] as LighterNetwork;
     const netConfig = CONFIG.NETWORKS[network];
-    await setUserWizardState(env.DB, ctx.from!.id, { step: "AWAIT_INDEX", network });
+    await setUserWizardState(env.DB, ctx.from!.id, {
+      step: WIZARD_STEPS.AWAIT_INDEX,
+      network,
+    });
     await ctx.answerCallbackQuery();
 
     const exampleIdx = network === LIGHTER_NETWORKS.RH ? "31704" : "749329";
@@ -865,7 +875,7 @@ export function getBot(env: Env): Bot {
 
   bot.callbackQuery("wizard_skip_alias", async (ctx) => {
     const state = await getUserWizardState(env.DB, ctx.from!.id);
-    if (!state || state.step !== "AWAIT_ALIAS") {
+    if (!state || state.step !== WIZARD_STEPS.AWAIT_ALIAS) {
       return ctx.answerCallbackQuery({ text: "Сессия истекла" });
     }
     await ctx.answerCallbackQuery();
@@ -912,7 +922,7 @@ export function getBot(env: Env): Bot {
     if (!state) return next();
 
     // 1. Шаг ввода индекса
-    if (state.step === "AWAIT_INDEX") {
+    if (state.step === WIZARD_STEPS.AWAIT_INDEX) {
       const netConfig = CONFIG.NETWORKS[state.network];
       if (!/^\d+$/.test(text)) {
         return ctx.reply(
@@ -972,7 +982,7 @@ export function getBot(env: Env): Bot {
       const collateral = parseFloat(acc.collateral || "0");
 
       await setUserWizardState(env.DB, ctx.from!.id, {
-        step: "AWAIT_ALIAS",
+        step: WIZARD_STEPS.AWAIT_ALIAS,
         network: state.network,
         accountIndex,
         l1Address: acc.l1_address,
@@ -995,14 +1005,14 @@ export function getBot(env: Env): Bot {
     }
 
     // 2. Шаг ввода алиаса
-    if (state.step === "AWAIT_ALIAS") {
+    if (state.step === WIZARD_STEPS.AWAIT_ALIAS) {
       const alias = text.slice(0, 32);
       await completeAccountCreation(ctx, state, alias);
       return;
     }
 
     // 3. Шаг переименования
-    if (state.step === "AWAIT_RENAME") {
+    if (state.step === WIZARD_STEPS.AWAIT_RENAME) {
       const newAlias = text.slice(0, 32);
       await updateAccountAlias(env.DB, ctx.from!.id, state.network, state.accountIndex, newAlias);
       await setUserWizardState(env.DB, ctx.from!.id, null);
@@ -1015,7 +1025,7 @@ export function getBot(env: Env): Bot {
     }
 
     // 4. Шаг ввода процента для алертов
-    if (state.step === "AWAIT_THRESHOLD") {
+    if (state.step === WIZARD_STEPS.AWAIT_THRESHOLD) {
       const cleaned = text.replace(",", ".");
       const val = parseFloat(cleaned);
       if (isNaN(val) || val < CONFIG.MIN_ALERT_THRESHOLD || val > CONFIG.MAX_ALERT_THRESHOLD) {
@@ -1037,8 +1047,35 @@ export function getBot(env: Env): Bot {
       return;
     }
 
+    // 4b. Шаг ввода порога подтверждения тиков для таргетов спреда
+    if (state.step === WIZARD_STEPS.AWAIT_TARGET_HITS) {
+      const val = parseInt(text.trim(), 10);
+      if (isNaN(val) || val < 1 || val > 60) {
+        return ctx.reply(
+          `⚠️ Пожалуйста, укажите целое число от <b>1</b> до <b>60</b> (например: <code>1</code>, <code>2</code>, <code>3</code> или <code>5</code>):\n\n` +
+            `<i>⏱ Крон запускается <b>раз в минуту</b>. Каждое совпадение — это 1 минута стабильного удержания спреда.</i>`,
+          {
+            parse_mode: "HTML",
+            reply_markup: new InlineKeyboard().text("❌ Отмена", "cfg_targets"),
+          },
+        );
+      }
+      await setUserTargetHitsThreshold(env.DB, ctx.from!.id, val);
+      await setUserWizardState(env.DB, ctx.from!.id, null);
+      await ctx.reply(
+        `✅ Порог подтверждения таргетов установлен на <b>${val}</b> ${formatTicksWord(val)} (~${val} мин удержания).\n\n` +
+          `<i>⏱ Крон запускается <b>раз в минуту</b>.</i>`,
+        {
+          parse_mode: "HTML",
+          reply_markup: getMainKb(ctx),
+        },
+      );
+      await handleSettingsTargets(ctx);
+      return;
+    }
+
     // 5. Шаг ввода тикера спреда
-    if (state.step === "SPREAD_AWAIT_SYMBOL") {
+    if (state.step === WIZARD_STEPS.SPREAD_AWAIT_SYMBOL) {
       const symbol = text.trim().toUpperCase();
       await setUserWizardState(env.DB, ctx.from!.id, null);
       await showDirectionPicker(ctx, symbol, false);
@@ -1046,7 +1083,7 @@ export function getBot(env: Env): Bot {
     }
 
     // 6. Шаг ввода дельты спреда (в долларах или bps)
-    if (state.step === "SPREAD_AWAIT_DELTA") {
+    if (state.step === WIZARD_STEPS.SPREAD_AWAIT_DELTA) {
       const parsed = parseSpreadThresholdInput(text, state.corePrice);
       if (!parsed) {
         const cancelCb = state.editTargetId ? `sp_target:${state.editTargetId}` : "sp_manage";
@@ -1220,7 +1257,11 @@ export function getBot(env: Env): Bot {
   bot.callbackQuery(/^rename_acc:([a-z0-9_-]+):(\d+)$/, async (ctx) => {
     const network = ctx.match[1] as LighterNetwork;
     const accountIndex = parseInt(ctx.match[2]!, 10);
-    await setUserWizardState(env.DB, ctx.from!.id, { step: "AWAIT_RENAME", network, accountIndex });
+    await setUserWizardState(env.DB, ctx.from!.id, {
+      step: WIZARD_STEPS.AWAIT_RENAME,
+      network,
+      accountIndex,
+    });
     await ctx.answerCallbackQuery();
     const netConfig = CONFIG.NETWORKS[network];
     const kb = new InlineKeyboard().text("❌ Отмена", `manage_acc:${network}:${accountIndex}`);
@@ -1692,6 +1733,7 @@ export function getBot(env: Env): Bot {
       `• Статус: <b>${formatAlertMuteStatus(settings.mutedUntil, nowSec)}</b>\n\n` +
       `📐 <b>Таргеты спреда (RH ↔ Core):</b>\n` +
       `• Настроено: <b>${spreadStats.totalTargets}/${CONFIG.MAX_SPREAD_TARGETS_PER_USER}</b> (токенов: <b>${spreadStats.tokenCount}/${CONFIG.MAX_SPREAD_TOKENS_PER_USER}</b>)\n` +
+      `• Порог: <b>${settings.targetHitsThreshold || 3} ${formatTicksWord(settings.targetHitsThreshold || 3)}</b> <i>(~${settings.targetHitsThreshold || 3} мин)</i>\n` +
       `• Статус: <b>${formatAlertMuteStatus(targetsMutedUntil, nowSec)}</b>\n\n` +
       `🚀 <b>Релизы и обновления:</b>\n` +
       `• Статус: <b>${formatAlertMuteStatus(updatesMutedUntil, nowSec)}</b>\n\n` +
@@ -1789,22 +1831,42 @@ export function getBot(env: Env): Bot {
   ) => {
     const telegramId = ctx.from!.id;
     const nowSec = Math.floor(Date.now() / 1000);
-    const [targetsMutedUntil, spreadStats] = await Promise.all([
-      knownMutedUntil !== undefined
-        ? Promise.resolve(knownMutedUntil)
-        : getUserSpreadMute(env.DB, telegramId),
+    const [settings, spreadStats] = await Promise.all([
+      getUserSettings(env.DB, telegramId),
       getUserSpreadStats(env.DB, telegramId),
     ]);
+    const targetsMutedUntil =
+      knownMutedUntil !== undefined ? knownMutedUntil : settings.spreadMutedUntil;
     const isMuted = targetsMutedUntil > nowSec;
+    const hitsThreshold = settings.targetHitsThreshold || 3;
 
     const text =
       `📐 <b>Настройки алертов таргетов спреда</b>\n\n` +
       `Уведомления о достижении целевого спреда между Robinhood Lighter и Lighter Core.\n\n` +
       `🎯 <b>Настроено таргетов:</b> <b>${spreadStats.totalTargets}/${CONFIG.MAX_SPREAD_TARGETS_PER_USER}</b> (токенов: <b>${spreadStats.tokenCount}/${CONFIG.MAX_SPREAD_TOKENS_PER_USER}</b>)\n` +
-      `🔔 <b>Статус уведомлений:</b> <b>${formatAlertMuteStatus(targetsMutedUntil, nowSec)}</b>\n\n` +
-      `Выберите режим сна для всех таргетов спреда:`;
+      `🔔 <b>Статус уведомлений:</b> <b>${formatAlertMuteStatus(targetsMutedUntil, nowSec)}</b>\n` +
+      `⏱ <b>Порог подтверждения:</b> <b>${hitsThreshold} ${formatTicksWord(hitsThreshold)}</b> <i>(~${hitsThreshold} мин)</i>\n\n` +
+      `⏱ <i>Крон проверяет рынок <b>раз в минуту</b>. Порог задает, сколько минут подряд спред должен удерживаться выше цели до отправки алерта:\n` +
+      `• <b>1 тик (1 мин):</b> моментально (подходит для быстрой реакции, но возможен шум при минутных проколах стакана)\n` +
+      `• <b>3 тика (3 мин, дефолт):</b> баланс скорости и фильтрации сквизов ликвидности\n` +
+      `• <b>5 тиков (5 мин):</b> гарантированное удержание стабильного базиса</i>\n\n` +
+      `Выберите порог подтверждения или режим сна:`;
 
     const kb = new InlineKeyboard();
+    const presets = [1, 2, 3, 5];
+    for (const p of presets) {
+      const label =
+        p === hitsThreshold ? `✅ ${p} ${formatTicksWord(p)}` : `${p} ${formatTicksWord(p)}`;
+      kb.text(label, `cfg_hits:${p}`);
+    }
+    kb.row();
+
+    const isCustom = !presets.includes(hitsThreshold);
+    const customLabel = isCustom
+      ? `✏️ Свой порог (сейчас ${hitsThreshold})`
+      : `✏️ Ввести свой порог`;
+    kb.text(customLabel, "cfg_custom_hits").row();
+
     if (isMuted) {
       kb.text("🔔 Включить таргеты", "cfg_mute_targets:0").row();
     }
@@ -1984,7 +2046,7 @@ export function getBot(env: Env): Bot {
   });
 
   bot.callbackQuery("custom_threshold", async (ctx) => {
-    await setUserWizardState(env.DB, ctx.from!.id, { step: "AWAIT_THRESHOLD" });
+    await setUserWizardState(env.DB, ctx.from!.id, { step: WIZARD_STEPS.AWAIT_THRESHOLD });
     await ctx.answerCallbackQuery();
     const kb = new InlineKeyboard().text("❌ Отмена", "action_threshold");
     await ctx.editMessageText(
@@ -2006,8 +2068,34 @@ export function getBot(env: Env): Bot {
   });
 
   bot.callbackQuery("cfg_targets", async (ctx) => {
+    await setUserWizardState(env.DB, ctx.from!.id, null);
     await ctx.answerCallbackQuery();
     await handleSettingsTargets(ctx, true);
+  });
+
+  bot.callbackQuery(/^cfg_hits:(\d+)$/, async (ctx) => {
+    const val = parseInt(ctx.match[1]!, 10);
+    await setUserWizardState(env.DB, ctx.from!.id, null);
+    await setUserTargetHitsThreshold(env.DB, ctx.from!.id, val);
+    await ctx.answerCallbackQuery({
+      text: `Порог установлен: ${val} ${formatTicksWord(val)} (~${val} мин)`,
+    });
+    await handleSettingsTargets(ctx, true);
+  });
+
+  bot.callbackQuery("cfg_custom_hits", async (ctx) => {
+    await setUserWizardState(env.DB, ctx.from!.id, { step: WIZARD_STEPS.AWAIT_TARGET_HITS });
+    await ctx.answerCallbackQuery();
+    const kb = new InlineKeyboard().text("❌ Отмена", "cfg_targets");
+    await ctx.editMessageText(
+      `⏱ <b>Настройка порога подтверждения таргетов</b>\n\n` +
+        `Крон проверяет рынок <b>раз в минуту</b>. Порог указывает, сколько минут подряд спред должен удерживаться выше таргета до отправки уведомления.\n\n` +
+        `• <b>1 тик:</b> быстрый алерт (может ловить минутные проколы стакана)\n` +
+        `• <b>3 тика (дефолт):</b> баланс скорости и фильтрации сквизов\n` +
+        `• <b>5 тиков:</b> гарантированное удержание стабильного базиса\n\n` +
+        `Отправьте желаемое число подтверждений числом в чат (от <b>1</b> до <b>60</b>):`,
+      { parse_mode: "HTML", reply_markup: kb },
+    );
   });
 
   bot.callbackQuery("cfg_updates", async (ctx) => {
@@ -2282,7 +2370,7 @@ export function getBot(env: Env): Bot {
       return;
     }
 
-    await setUserWizardState(env.DB, telegramId, { step: "SPREAD_AWAIT_SYMBOL" });
+    await setUserWizardState(env.DB, telegramId, { step: WIZARD_STEPS.SPREAD_AWAIT_SYMBOL });
 
     const promptText =
       `🎯 <b>Добавление таргета спреда</b>\n\n` +
@@ -2433,7 +2521,7 @@ export function getBot(env: Env): Bot {
       const corePrice = quote ? quote.corePrice : 0;
 
       await setUserWizardState(env.DB, ctx.from!.id, {
-        step: "SPREAD_AWAIT_DELTA",
+        step: WIZARD_STEPS.SPREAD_AWAIT_DELTA,
         symbol,
         direction,
         rhPrice,

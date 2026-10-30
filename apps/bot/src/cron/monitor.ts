@@ -246,7 +246,10 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
               }
 
               const nextHits = (target.consecutive_hits || 0) + 1;
-              const minHits = CONFIG.SPREAD_TARGET_MIN_CONSECUTIVE_HITS || 3;
+              const minHits =
+                target.target_hits_threshold && target.target_hits_threshold >= 1
+                  ? target.target_hits_threshold
+                  : CONFIG.SPREAD_TARGET_MIN_CONSECUTIVE_HITS || 3;
 
               if (nextHits >= minHits) {
                 candidates.push({
@@ -359,8 +362,15 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
                 actualDiff: cand.actualDiffUsd,
                 basisSigned: cand.basisSigned,
                 basisBps: cand.basisBps,
-                confirmedTicks: cand.confirmedTicks || CONFIG.SPREAD_TARGET_MIN_CONSECUTIVE_HITS,
-                minTicks: CONFIG.SPREAD_TARGET_MIN_CONSECUTIVE_HITS,
+                confirmedTicks:
+                  cand.confirmedTicks ||
+                  cand.target.target_hits_threshold ||
+                  CONFIG.SPREAD_TARGET_MIN_CONSECUTIVE_HITS ||
+                  3,
+                minTicks:
+                  cand.target.target_hits_threshold ||
+                  CONFIG.SPREAD_TARGET_MIN_CONSECUTIVE_HITS ||
+                  3,
                 orderBook: orderBookLeg,
               });
 

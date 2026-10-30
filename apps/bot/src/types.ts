@@ -109,6 +109,7 @@ export interface SpreadTargetRow {
   consecutive_hits?: number;
   user_spread_muted_until?: number;
   symbol_muted_until?: number;
+  target_hits_threshold?: number;
 }
 
 export interface TopOrderBook {
@@ -145,22 +146,41 @@ export interface SpreadAlertParams {
   orderBook?: SpreadAlertOrderBookLeg;
 }
 
+export const WIZARD_STEPS = {
+  AWAIT_INDEX: "AWAIT_INDEX",
+  AWAIT_ALIAS: "AWAIT_ALIAS",
+  AWAIT_RENAME: "AWAIT_RENAME",
+  AWAIT_THRESHOLD: "AWAIT_THRESHOLD",
+  AWAIT_TARGET_HITS: "AWAIT_TARGET_HITS",
+  SPREAD_AWAIT_SYMBOL: "SPREAD_AWAIT_SYMBOL",
+  SPREAD_AWAIT_DIRECTION: "SPREAD_AWAIT_DIRECTION",
+  SPREAD_AWAIT_DELTA: "SPREAD_AWAIT_DELTA",
+} as const;
+
+export type WizardStep = (typeof WIZARD_STEPS)[keyof typeof WIZARD_STEPS];
+
 export type WizardState = (
-  | { step: "AWAIT_INDEX"; network: LighterNetwork }
+  | { step: typeof WIZARD_STEPS.AWAIT_INDEX; network: LighterNetwork }
   | {
-      step: "AWAIT_ALIAS";
+      step: typeof WIZARD_STEPS.AWAIT_ALIAS;
       network: LighterNetwork;
       accountIndex: number;
       l1Address: string;
       collateral: number;
       positions: any[];
     }
-  | { step: "AWAIT_RENAME"; network: LighterNetwork; accountIndex: number }
-  | { step: "AWAIT_THRESHOLD" }
-  | { step: "SPREAD_AWAIT_SYMBOL" }
-  | { step: "SPREAD_AWAIT_DIRECTION"; symbol: string; rhPrice: number; corePrice: number }
+  | { step: typeof WIZARD_STEPS.AWAIT_RENAME; network: LighterNetwork; accountIndex: number }
+  | { step: typeof WIZARD_STEPS.AWAIT_THRESHOLD }
+  | { step: typeof WIZARD_STEPS.AWAIT_TARGET_HITS }
+  | { step: typeof WIZARD_STEPS.SPREAD_AWAIT_SYMBOL }
   | {
-      step: "SPREAD_AWAIT_DELTA";
+      step: typeof WIZARD_STEPS.SPREAD_AWAIT_DIRECTION;
+      symbol: string;
+      rhPrice: number;
+      corePrice: number;
+    }
+  | {
+      step: typeof WIZARD_STEPS.SPREAD_AWAIT_DELTA;
       symbol: string;
       direction: SpreadDirection;
       rhPrice: number;
