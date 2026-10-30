@@ -25,6 +25,8 @@ describe("Account Deletion & Orphan Data Cleanup", () => {
     const mockDb: any = {
       prepare: (sql: string) => ({
         bind: (...params: any[]) => ({
+          sql,
+          params,
           run: async () => {
             executedQueries.push({ sql, params });
             return { meta: { changes: 1 } };
@@ -37,12 +39,19 @@ describe("Account Deletion & Orphan Data Cleanup", () => {
         }),
       }),
       batch: async (stmts: any[]) => {
+        const res: any[] = [];
         for (const s of stmts) {
-          if (s && s.run) {
-            await s.run();
+          if (s && s.sql && s.sql.includes("SELECT 1 FROM user_tracked_accounts")) {
+            const row = s.first ? await s.first() : null;
+            res.push({ results: row ? [row] : [] });
+          } else if (s && s.run) {
+            const r = await s.run();
+            res.push(r);
+          } else {
+            res.push({ meta: { changes: 1 } });
           }
         }
-        return [];
+        return res;
       },
     };
 
@@ -77,6 +86,8 @@ describe("Account Deletion & Orphan Data Cleanup", () => {
     const mockDb: any = {
       prepare: (sql: string) => ({
         bind: (...params: any[]) => ({
+          sql,
+          params,
           run: async () => {
             executedQueries.push({ sql, params });
             return { meta: { changes: 1 } };
@@ -89,12 +100,19 @@ describe("Account Deletion & Orphan Data Cleanup", () => {
         }),
       }),
       batch: async (stmts: any[]) => {
+        const res: any[] = [];
         for (const s of stmts) {
-          if (s && s.run) {
-            await s.run();
+          if (s && s.sql && s.sql.includes("SELECT 1 FROM user_tracked_accounts")) {
+            const row = s.first ? await s.first() : { "1": 1 };
+            res.push({ results: row ? [row] : [] });
+          } else if (s && s.run) {
+            const r = await s.run();
+            res.push(r);
+          } else {
+            res.push({ meta: { changes: 1 } });
           }
         }
-        return [];
+        return res;
       },
     };
 
@@ -180,15 +198,13 @@ describe("Account Deletion & Orphan Data Cleanup", () => {
               {
                 total_users: 3,
                 users_24h: 1,
+                active_users_24h: 1,
+                muted_users: 0,
                 total_tracked: 2,
                 tracked_rh: 1,
                 tracked_mainnet: 1,
-                active_accounts_count: 2,
-                active_positions: 2,
-                total_longs: 1,
-                total_shorts: 1,
-                total_open_interest: 44000,
                 total_collateral: 6.1,
+                avg_collateral: 3.05,
                 oldest_cache: 100,
                 newest_cache: 200,
                 avg_cache: 150,
@@ -196,7 +212,45 @@ describe("Account Deletion & Orphan Data Cleanup", () => {
             ],
           },
           {
+            results: [
+              {
+                total_targets: 3,
+                active_targets: 3,
+                armed_targets: 3,
+                hitting_now_targets: 0,
+                spread_users: 2,
+                rh_cheaper_count: 1,
+                rh_expensive_count: 2,
+                spread_alerts_24h: 0,
+              },
+            ],
+          },
+          {
             results: [{ symbol: "SPY", count: 2 }],
+          },
+          {
+            results: [
+              {
+                symbol: "SPY",
+                network: "rh",
+                account_index: 31886,
+                is_long: 1,
+                entry_price: 755.64,
+                size: 29.2,
+                liquidation_price: 727.92,
+                notional: 22000,
+              },
+              {
+                symbol: "SPY",
+                network: "mainnet",
+                account_index: 749329,
+                is_long: 1,
+                entry_price: 755.64,
+                size: 29.2,
+                liquidation_price: 727.92,
+                notional: 22000,
+              },
+            ],
           },
           {
             results: [],
@@ -213,15 +267,14 @@ describe("Account Deletion & Orphan Data Cleanup", () => {
     expect(stats.activeAccountsCount).toBe(2);
     expect(stats.activePositionsCount).toBe(2);
     expect(stats.totalCollateralUsd).toBe(6.1);
-    expect(stats.topTokens).toEqual([{ symbol: "SPY", count: 2 }]);
+    expect(stats.topTokens).toEqual([{ symbol: "SPY", count: 2, notionalUsd: 44000 }]);
 
     const summarySql = batchSqls[0]!;
-    expect(summarySql).toContain("JOIN user_tracked_accounts uta");
-    expect(summarySql).toContain("active_accounts_count");
-    expect(summarySql).toContain("active_positions");
+    expect(summarySql).toContain("user_tracked_accounts) uta");
     expect(summarySql).toContain("total_collateral");
 
-    const tokensSql = batchSqls[1]!;
-    expect(tokensSql).toContain("JOIN user_tracked_accounts uta");
+    const positionsSql = batchSqls.find((s) => s.includes("FROM account_open_positions aop"))!;
+    expect(positionsSql).toBeDefined();
+    expect(positionsSql).toContain("user_tracked_accounts) uta");
   });
 });

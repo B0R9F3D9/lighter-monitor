@@ -34,7 +34,13 @@ import {
   verifyExecutableSpread,
 } from "../lighter/api";
 import { computePositionsFingerprint } from "../lighter/math";
-import { getMemoryAccount, setLastCronMetrics } from "../cache/memory";
+import {
+  getMemoryAccount,
+  setLastCronMetrics,
+  recordMemoryCronRun,
+  getMemoryCron24hStats,
+  setMemoryCron24hStats,
+} from "../cache/memory";
 import { formatPriceStepAlert, formatSpreadAlert, getSpreadAlertKeyboard } from "../bot/formatters";
 import { checkAndBroadcastRelease } from "../bot/release_notifier";
 import { pingHealthcheckSuccess, pingHealthcheckFail } from "../utils/healthcheck";
@@ -159,6 +165,23 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
 
     // 0. Гарантируем актуальность схемы БД (Cold-start auto-migration)
     await ensureDatabaseSchema(env.DB);
+
+    // 0b. Холодный старт: гидратация 24h cron stats из D1 для непрерывности метрик
+    if (!getMemoryCron24hStats()) {
+      try {
+        const row = await env.DB.prepare(
+          "SELECT value_json FROM bot_system_metrics WHERE key = 'cron_stats_24h'",
+        ).first<{ value_json: string }>();
+        if (row?.value_json) {
+          const parsed = JSON.parse(row.value_json);
+          if (parsed && parsed.windowStart && now - parsed.windowStart < 86400) {
+            setMemoryCron24hStats(parsed);
+          }
+        }
+      } catch (err: any) {
+        console.warn("[cron] Could not hydrate cron_stats_24h:", err?.message || err);
+      }
+    }
 
     // 1. ПАРАЛЛЕЛЬНЫЙ СТАРТ ТИКА: читаем символы, таргеты спреда и запрашиваем биржи в 0-ю мс!
     const [uniqueSymbols, spreadTargets, snapRh, snapMainnet] = await Promise.all([
@@ -942,11 +965,22 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     };
 
     setLastCronMetrics(executionMetrics);
+    recordMemoryCronRun(durationMs, subrequestsUsed, false, now, cleanedZombieKeys.size);
 
     const shouldSaveMetricsToDb = alertsSentCount > 0 || spreadAlertsSent > 0 || now % 600 < 60;
 
     if (shouldSaveMetricsToDb) {
       allUpdates.push(stmts.saveMetrics.bind(JSON.stringify(executionMetrics), now));
+      const cronStats = getMemoryCron24hStats();
+      if (cronStats) {
+        allUpdates.push(
+          env.DB.prepare(`
+            INSERT INTO bot_system_metrics (key, value_json, updated_at)
+            VALUES ('cron_stats_24h', ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+          `).bind(JSON.stringify(cronStats), now),
+        );
+      }
     }
 
     // Санитарная фоновая зачистка орфанных записей (раз в ~10 минут)
@@ -1012,13 +1046,31 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
 
     // Запись ошибки в D1 bot_system_metrics для видимости в /stats
     try {
-      await env.DB.prepare(`
-        INSERT INTO bot_system_metrics (key, value_json, updated_at)
-        VALUES ('last_cron_error', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-      `)
-        .bind(JSON.stringify(errorMetrics), now)
-        .run();
+      recordMemoryCronRun(durationMs, subrequestsUsed, true, now);
+      const cronStats = getMemoryCron24hStats();
+      const updates = [
+        env.DB.prepare(`
+          INSERT INTO bot_system_metrics (key, value_json, updated_at)
+          VALUES ('last_cron_error', ?, ?)
+          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+        `).bind(JSON.stringify(errorMetrics), now),
+      ];
+      if (cronStats) {
+        updates.push(
+          env.DB.prepare(`
+            INSERT INTO bot_system_metrics (key, value_json, updated_at)
+            VALUES ('cron_stats_24h', ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+          `).bind(JSON.stringify(cronStats), now),
+        );
+      }
+      if (typeof env.DB.batch === "function") {
+        await env.DB.batch(updates);
+      } else {
+        for (const u of updates) {
+          await u.run();
+        }
+      }
     } catch (dbErr) {
       console.error("Failed to persist cron error metric:", dbErr);
     }

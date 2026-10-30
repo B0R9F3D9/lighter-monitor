@@ -36,6 +36,7 @@ import {
   setUserWizardState,
   updateAccountAlias,
   removeTrackedAccount,
+  updateUserActivity,
   getSystemStats,
   getUserTrackedAccounts,
   getUserPositionsFullState,
@@ -74,7 +75,7 @@ import { invalidateActiveSymbolsCache } from "../cron/monitor";
 
 let botInstance: Bot | null = null;
 let currentEnv: Env | null = null;
-const knownUsers = new Set<number>();
+const knownUsers = new Map<number, number>();
 
 export function isUserAdmin(env: Env, userId?: number, username?: string): boolean {
   const rawAdmin = (env.ADMIN_TELEGRAM_ID || "").trim();
@@ -163,24 +164,72 @@ export function getMainKeyboard(env?: Env, userId?: number, username?: string): 
 
 async function renderAdminDashboard(env: Env): Promise<string> {
   const stats = await getSystemStats(env.DB);
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // 1. Топ токенов по открытому интересу
   const tokenBreakdown =
     stats.topTokens.length > 0
-      ? stats.topTokens.map((t) => `  • <b>${t.symbol}:</b> ${t.count} поз.`).join("\n") + "\n"
+      ? stats.topTokens
+          .map((t) => {
+            const notionalStr = t.notionalUsd ? ` ($${t.notionalUsd.toLocaleString("en-US")})` : "";
+            return `  • <b>${t.symbol}:</b> ${t.count} поз.${notionalStr}`;
+          })
+          .join("\n") + "\n"
       : "  • <i>нет открытых сделок</i>\n";
 
-  const nowSec = Math.floor(Date.now() / 1000);
+  // 2. Дисбаланс Long / Short и системная дельта
+  const longPercent =
+    stats.totalOpenInterestUsd > 0
+      ? Math.round((stats.longOiUsd / stats.totalOpenInterestUsd) * 100)
+      : 50;
+  const shortPercent = 100 - longPercent;
+  const deltaSign = stats.netDeltaUsd >= 0 ? "+" : "";
+  const deltaEmoji =
+    stats.netDeltaUsd > 0
+      ? "🟢 Long-heavy"
+      : stats.netDeltaUsd < 0
+        ? "🔴 Short-heavy"
+        : "⚪️ Нейтральная";
+
+  // 3. Риски ликвидации
+  const r = stats.riskDistribution;
+  let riskSummary = `  • Риски: 🟢 Safe: <b>${r.safe}</b> | 🟡 Warn: <b>${r.warning}</b> | 🟠 Danger: <b>${r.danger}</b> | 🔴 Crit: <b>${r.critical}</b>\n`;
+  if (stats.closestLiquidation) {
+    const cl = stats.closestLiquidation;
+    const netBadge = cl.network === "rh" ? "🟠 RH" : "⚡️ Mainnet";
+    riskSummary += `  • Ближайшая ликв: <b>${cl.symbol}</b> (${netBadge} #${cl.accountIndex}) — <b>${cl.distancePercent}%</b>\n`;
+  }
+
+  // 4. Таргеты спреда
+  const sp = stats.spreadStats;
+  let spreadTopStr = "";
+  if (sp.topSymbols && sp.topSymbols.length > 0) {
+    spreadTopStr = `  • Топ пар: ${sp.topSymbols.map((s) => `<b>${s.symbol}</b> (${s.count})`).join(", ")}\n`;
+  }
+  const hittingBadge =
+    sp.hittingNowTargets > 0 ? ` <i>(⚠️ подтверждается: ${sp.hittingNowTargets})</i>` : "";
+
+  // 5. Крон и надежность
   let cronSection = "";
+  if (stats.cron24hStats) {
+    const c24 = stats.cron24hStats;
+    cronSection +=
+      `⚡️ <b>Крон и аптайм (24ч):</b>\n` +
+      `  • Аптайм: <b>${c24.uptimePercent}%</b> (${c24.totalRuns - c24.failedRuns}/${c24.totalRuns} тиков | сбоев: ${c24.failedRuns})\n` +
+      `  • Скорость тика: ср. <b>${c24.avgDurationMs} мс</b> | макс. <b>${c24.maxDurationMs} мс</b>\n` +
+      `  • Пик subrequests: <b>${c24.maxSubrequests} / 50</b> (запас ${Math.max(0, 50 - c24.maxSubrequests)})\n\n`;
+  }
+
   if (stats.lastCron) {
     const c = stats.lastCron;
     const cronAgoSec = nowSec - c.timestamp;
     const cronAgoText =
       cronAgoSec < 60 ? `${cronAgoSec} сек назад` : `${Math.round(cronAgoSec / 60)} мин назад`;
-    cronSection =
-      `⚙️ <b>Последний тик крона (${cronAgoText}):</b>\n` +
-      `  • Длительность: <b>${c.duration_ms} мс</b>\n` +
-      `  • Subrequests: <b>${c.subrequests_used} / 50</b>\n` +
-      `  • Позиций проверено: <b>${c.total_positions_checked}</b> (JIT: <b>${c.jit_checks_performed}</b>)\n` +
-      `  • Алертов отправлено: <b>${c.alerts_sent}</b>\n\n`;
+    cronSection +=
+      `⚙️ <b>Последний тик (${cronAgoText}):</b>\n` +
+      `  • Длительность: <b>${c.duration_ms} мс</b> | Subrequests: <b>${c.subrequests_used} / 50</b>\n` +
+      `  • Проверено поз: <b>${c.total_positions_checked}</b> (JIT: <b>${c.jit_checks_performed}</b>)\n` +
+      `  • Алертов: <b>${c.alerts_sent}</b> | Спредов: <b>${c.spread_alerts_sent ?? 0}</b>\n\n`;
   }
 
   if (
@@ -190,9 +239,14 @@ async function renderAdminDashboard(env: Env): Promise<string> {
     const errAgoSec = nowSec - stats.lastCronError.timestamp;
     const errAgoText =
       errAgoSec < 60 ? `${errAgoSec} сек назад` : `${Math.round(errAgoSec / 60)} мин назад`;
+    const safeErr = (stats.lastCronError.error || "Unknown error")
+      .slice(0, 100)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
     cronSection +=
-      `⚠️ <b>Сбой в последнем тике крона (${errAgoText}):</b>\n` +
-      `  • Ошибка: <code>${stats.lastCronError.error.slice(0, 100)}</code>\n` +
+      `⚠️ <b>Сбой в последнем тике (${errAgoText}):</b>\n` +
+      `  • Ошибка: <code>${safeErr}</code>\n` +
       `  • Длительность: <b>${stats.lastCronError.duration_ms} мс</b>\n\n`;
   }
 
@@ -210,6 +264,10 @@ async function renderAdminDashboard(env: Env): Promise<string> {
     authStatusText = `⚪️ <b>Публичный IP-режим</b> — <i>60 req/min (без мастер-ключа)</i>`;
   }
 
+  const heartbeatText = env.HEALTHCHECK_URL
+    ? `🟢 <b>Подключен</b> <i>(Healthcheck Heartbeat)</i>`
+    : `⚪️ <i>Не настроен (HEALTHCHECK_URL отсутствует)</i>`;
+
   const now = new Date();
   const timeStr = now.toLocaleTimeString("ru-RU", {
     timeZone: "UTC",
@@ -218,22 +276,36 @@ async function renderAdminDashboard(env: Env): Promise<string> {
     second: "2-digit",
   });
 
+  const maxPosText =
+    stats.maxPositionSizeUsd > 0
+      ? `  • Сделки: ср. <b>$${Math.round(stats.avgPositionSizeUsd).toLocaleString("en-US")}</b> | макс. <b>$${Math.round(stats.maxPositionSizeUsd).toLocaleString("en-US")}</b>${stats.maxPositionSymbol ? ` (${stats.maxPositionSymbol})` : ""}\n`
+      : "";
+
   return (
-    `👥 <b>Пользователи и счета:</b>\n` +
-    `  • Пользователи: <b>${stats.totalUsers}</b> (новых за 24ч: <b>+${stats.users24h}</b>)\n` +
-    `  • Всего аккаунтов: <b>${stats.totalTracked}</b> (🟠 RH: ${stats.trackedRh} | ⚡️ Mainnet: ${stats.trackedMainnet})\n` +
-    `  • Активных счетов: <b>${stats.activeAccountsCount}</b>\n\n` +
-    `💰 <b>Объем портфеля:</b>\n` +
-    `  • Совокупный залог: <b>$${stats.totalCollateralUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>\n` +
-    `  • Открытый интерес (OI): <b>$${stats.totalOpenInterestUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>\n` +
-    `  • Позиции: <b>${stats.activePositionsCount}</b> (🟢 Long: ${stats.totalLongs} | 🔴 Short: ${stats.totalShorts})\n` +
-    `${tokenBreakdown}\n` +
-    `⏱ <b>Здоровье очереди и лаги:</b>\n` +
-    `  • Мин. лаг синхронизации: <b>${stats.minQueueLagMinutes} мин.</b>\n` +
-    `  • Средний лаг кэша: <b>${stats.avgQueueLagMinutes} мин.</b>\n` +
-    `  • Макс. лаг очереди: <b>${stats.maxQueueLagMinutes} мин.</b> <i>(норма &lt; 30–45 мин)</i>\n\n` +
+    `📈 <b>АДМИН-ПАНЕЛЬ LIGHTER MONITOR (v${APP_VERSION.replace(/^v/, "")})</b>\n\n` +
+    `👥 <b>Пользователи и активность:</b>\n` +
+    `  • Всего юзеров: <b>${stats.totalUsers}</b> (активных 24ч: <b>${stats.activeUsers24h}</b> | новых: <b>+${stats.users24h}</b>)\n` +
+    `  • Счетов в базе: <b>${stats.totalTracked}</b> (🟠 RH: ${stats.trackedRh} | ⚡️ Mainnet: ${stats.trackedMainnet})\n` +
+    `  • Счетов/юзер: <b>${stats.avgAccountsPerUser}</b> | На мьюте: <b>${stats.mutedUsersCount}</b>\n\n` +
+    `💰 <b>Объем портфеля и риски:</b>\n` +
+    `  • Совокупный залог: <b>$${stats.totalCollateralUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> (ср. <b>$${Math.round(stats.avgCollateralUsd).toLocaleString("en-US")}</b>)\n` +
+    `  • Открытый интерес (OI): <b>$${stats.totalOpenInterestUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> | Плечо: <b>${stats.effectiveLeverage}x</b>\n` +
+    `  • Баланс: 🟢 Long: <b>$${Math.round(stats.longOiUsd).toLocaleString("en-US")}</b> (${longPercent}%) | 🔴 Short: <b>$${Math.round(stats.shortOiUsd).toLocaleString("en-US")}</b> (${shortPercent}%)\n` +
+    `  • Чистая дельта: <b>${deltaSign}$${Math.round(stats.netDeltaUsd).toLocaleString("en-US")}</b> <i>(${deltaEmoji})</i>\n` +
+    `  • Позиций: <b>${stats.activePositionsCount}</b> (счетов в позициях: <b>${stats.activeAccountsCount}</b>)\n` +
+    maxPosText +
+    riskSummary +
+    tokenBreakdown +
+    `\n📐 <b>Таргеты спреда (Robinhood vs Core):</b>\n` +
+    `  • Таргетов: <b>${sp.totalTargets}</b> (активных: <b>${sp.activeTargets}</b> | взведено: <b>${sp.armedTargets}</b>)${hittingBadge}\n` +
+    `  • Направления: 🟢 RH &lt; Core: <b>${sp.rhCheaperCount}</b> | 🔵 RH &gt; Core: <b>${sp.rhExpensiveCount}</b>\n` +
+    `  • Трейдеров в спредах: <b>${sp.uniqueUsersCount}</b> | Алертов за 24ч: <b>${sp.alertsSent24h}</b>\n` +
+    spreadTopStr +
+    `\n⏱ <b>Здоровье очереди и лаги кэша:</b>\n` +
+    `  • Мин. лаг: <b>${stats.minQueueLagMinutes} мин.</b> | Ср. лаг: <b>${stats.avgQueueLagMinutes} мин.</b> | Макс: <b>${stats.maxQueueLagMinutes} мин.</b>\n\n` +
     `${cronSection}` +
     `🔑 <b>Статус API Lighter:</b>\n${authStatusText}\n\n` +
+    `📡 <b>Heartbeat:</b> ${heartbeatText}\n\n` +
     `🕒 <i>Срез данных: ${timeStr} UTC</i>`
   );
 }
@@ -673,30 +745,37 @@ export function getBot(env: Env): Bot {
     await next();
   });
 
-  // Сохранение пользователя в БД при первом взаимодействии в изоляте (в фоне без задержки ответа)
+  // Сохранение пользователя в БД и троттлинг обновления last_active_at (не чаще раза в 5 минут)
   bot.use(async (ctx, next) => {
     if (ctx.from) {
       const userId = ctx.from.id;
-      if (!knownUsers.has(userId)) {
-        knownUsers.add(userId);
+      const now = Math.floor(Date.now() / 1000);
+      const lastRecorded = knownUsers.get(userId);
+      if (lastRecorded === undefined) {
+        knownUsers.set(userId, now);
         runInBackground(
           env.DB.prepare(`
-            INSERT INTO users (telegram_id, username, first_name, created_at, last_seen_version)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO users (telegram_id, username, first_name, created_at, last_seen_version, last_active_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(telegram_id) DO UPDATE SET
               username = excluded.username,
               first_name = excluded.first_name,
-              last_seen_version = COALESCE(users.last_seen_version, excluded.last_seen_version)
+              last_seen_version = COALESCE(users.last_seen_version, excluded.last_seen_version),
+              last_active_at = excluded.last_active_at
           `)
             .bind(
               userId,
               ctx.from.username || null,
               ctx.from.first_name || null,
-              Math.floor(Date.now() / 1000),
+              now,
               APP_VERSION,
+              now,
             )
             .run(),
         );
+      } else if (now - lastRecorded >= 300) {
+        knownUsers.set(userId, now);
+        runInBackground(updateUserActivity(env.DB, userId));
       }
     }
     return next();

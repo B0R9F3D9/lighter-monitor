@@ -228,7 +228,7 @@ export interface PriceStepAlertParams {
   distancePercent: number | null;
 }
 
-interface CronExecutionMetrics {
+export interface CronExecutionMetrics {
   event: string;
   duration_ms: number;
   subrequests_used: number;
@@ -237,11 +237,12 @@ interface CronExecutionMetrics {
   candidates_count: number;
   jit_checks_performed: number;
   alerts_sent: number;
+  spread_alerts_sent?: number;
   zombies_cleaned: number;
   timestamp: number;
 }
 
-interface CronErrorMetrics {
+export interface CronErrorMetrics {
   event: string;
   error: string;
   stack?: string;
@@ -250,22 +251,85 @@ interface CronErrorMetrics {
   timestamp: number;
 }
 
+export interface Cron24hStats {
+  totalRuns: number;
+  failedRuns: number;
+  uptimePercent: number;
+  avgDurationMs: number;
+  maxDurationMs: number;
+  maxSubrequests: number;
+  lastZombiesCleaned: number;
+}
+
+export interface RiskDistribution {
+  critical: number; // < 2%
+  danger: number; // < 5%
+  warning: number; // < 10%
+  safe: number; // >= 10% или без цены ликвидации
+}
+
+export interface ClosestLiquidation {
+  symbol: string;
+  network: LighterNetwork;
+  accountIndex: number;
+  distancePercent: number;
+  isLong: boolean;
+}
+
+export interface SpreadTargetStats {
+  totalTargets: number;
+  activeTargets: number;
+  armedTargets: number;
+  hittingNowTargets: number;
+  uniqueUsersCount: number;
+  rhCheaperCount: number;
+  rhExpensiveCount: number;
+  alertsSent24h: number;
+  topSymbols: Array<{ symbol: string; count: number }>;
+}
+
 export interface SystemStats {
+  // 1. Пользователи и активность
   totalUsers: number;
   users24h: number;
+  activeUsers24h: number;
   totalTracked: number;
   trackedRh: number;
   trackedMainnet: number;
+  avgAccountsPerUser: number;
+  mutedUsersCount: number;
+
+  // 2. Портфель и позиции
   activeAccountsCount: number;
   activePositionsCount: number;
   totalLongs: number;
   totalShorts: number;
   totalOpenInterestUsd: number;
+  longOiUsd: number;
+  shortOiUsd: number;
+  netDeltaUsd: number;
+  avgPositionSizeUsd: number;
+  maxPositionSizeUsd: number;
+  maxPositionSymbol?: string | null;
   totalCollateralUsd: number;
+  avgCollateralUsd: number;
+  effectiveLeverage: number;
+
+  // 3. Зоны риска ликвидации
+  riskDistribution: RiskDistribution;
+  closestLiquidation?: ClosestLiquidation | null;
+
+  // 4. Таргеты спреда
+  spreadStats: SpreadTargetStats;
+
+  // 5. Очередь и кэш
   minQueueLagMinutes: number;
   avgQueueLagMinutes: number;
   maxQueueLagMinutes: number;
-  topTokens: Array<{ symbol: string; count: number }>;
+  topTokens: Array<{ symbol: string; count: number; notionalUsd?: number }>;
+
+  // 6. Отказоустойчивость и крон
   lastCron?: CronExecutionMetrics | null;
   lastCronError?: CronErrorMetrics | null;
+  cron24hStats?: Cron24hStats | null;
 }

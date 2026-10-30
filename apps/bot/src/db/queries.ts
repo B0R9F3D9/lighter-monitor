@@ -20,6 +20,9 @@ import {
   FastPosition,
   IN_MEMORY_RR_CHECKED,
   getLastCronMetrics,
+  getMemoryPrice,
+  getMemoryCron24hStats,
+  setMemoryCron24hStats,
 } from "../cache/memory";
 
 // 2. Обновление last_updated_at ТОЛЬКО для упавших запросов (экономия 50% квоты D1)
@@ -221,6 +224,16 @@ export async function setUserTargetHitsThreshold(
     .run();
 }
 
+export async function updateUserActivity(db: D1Database, telegramId: number): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    await db
+      .prepare("UPDATE users SET last_active_at = ? WHERE telegram_id = ?")
+      .bind(now, telegramId)
+      .run();
+  } catch {}
+}
+
 export async function setUserMute(
   db: D1Database,
   telegramId: number,
@@ -288,28 +301,41 @@ export async function removeTrackedAccount(
   network: LighterNetwork,
   accountIndex: number,
 ): Promise<boolean> {
-  const res = await db
+  const delTrackedStmt = db
     .prepare(
       "DELETE FROM user_tracked_accounts WHERE telegram_id = ? AND network = ? AND account_index = ?",
     )
-    .bind(telegramId, network, accountIndex)
-    .run();
-
-  await db
+    .bind(telegramId, network, accountIndex);
+  const delAlertsStmt = db
     .prepare(
       "DELETE FROM user_token_alerts WHERE telegram_id = ? AND network = ? AND account_index = ?",
     )
-    .bind(telegramId, network, accountIndex)
-    .run();
-
-  // Проверяем, отслеживает ли этот аккаунт кто-то еще
-  const remaining = await db
+    .bind(telegramId, network, accountIndex);
+  const checkRemainingStmt = db
     .prepare("SELECT 1 FROM user_tracked_accounts WHERE network = ? AND account_index = ? LIMIT 1")
-    .bind(network, accountIndex)
-    .first();
+    .bind(network, accountIndex);
 
-  if (!remaining) {
-    await db.batch([
+  let changes = 0;
+  let remainingCount = 0;
+
+  if (typeof db.batch === "function") {
+    const [resDel, , resRemaining] = await db.batch([
+      delTrackedStmt,
+      delAlertsStmt,
+      checkRemainingStmt,
+    ]);
+    changes = (resDel as any)?.meta?.changes ?? 0;
+    remainingCount = (resRemaining as any)?.results?.length ?? 0;
+  } else {
+    const resDel = await delTrackedStmt.run();
+    await delAlertsStmt.run();
+    const remaining = await checkRemainingStmt.first();
+    changes = resDel.meta.changes ?? 0;
+    remainingCount = remaining ? 1 : 0;
+  }
+
+  if (remainingCount === 0) {
+    const cleanupStmts = [
       db
         .prepare("DELETE FROM account_open_positions WHERE network = ? AND account_index = ?")
         .bind(network, accountIndex),
@@ -319,11 +345,18 @@ export async function removeTrackedAccount(
       db
         .prepare("DELETE FROM user_token_alerts WHERE network = ? AND account_index = ?")
         .bind(network, accountIndex),
-    ]);
+    ];
+    if (typeof db.batch === "function") {
+      await db.batch(cleanupStmts);
+    } else {
+      for (const stmt of cleanupStmts) {
+        await stmt.run();
+      }
+    }
     deleteMemoryAccount(network, accountIndex);
   }
 
-  return (res.meta.changes ?? 0) > 0;
+  return changes > 0;
 }
 
 // 5. Очистка заблокировавшего пользователя через явный batch (без опоры на SQLite PRAGMA foreign_keys)
@@ -392,18 +425,27 @@ export async function getNextAccountsForSync(
   minStalenessSec: number = 0, // 0 = без задержки, проверяем пачку на каждом тике
 ): Promise<TrackedAccountKey[]> {
   const query = `
-    SELECT DISTINCT uta.network, uta.account_index, c.positions_json, c.last_updated_at, c.collateral
+    SELECT uta.network, uta.account_index, c.positions_json, c.last_updated_at, c.collateral
     FROM user_tracked_accounts uta
     LEFT JOIN account_positions_cache c
       ON uta.network = c.network AND uta.account_index = c.account_index
-    LEFT JOIN account_open_positions aop
-      ON uta.network = aop.network AND uta.account_index = aop.account_index
     WHERE (c.last_updated_at IS NULL OR (? - c.last_updated_at) >= ?)
-      AND (c.last_updated_at IS NULL OR aop.account_index IS NOT NULL OR c.collateral > 0)
+      AND (
+        c.last_updated_at IS NULL
+        OR c.collateral > 0
+        OR EXISTS (
+          SELECT 1 FROM account_open_positions aop
+          WHERE aop.network = uta.network AND aop.account_index = uta.account_index
+        )
+      )
+    GROUP BY uta.network, uta.account_index
     ORDER BY
       CASE
         WHEN c.last_updated_at IS NULL THEN 0
-        WHEN aop.account_index IS NOT NULL THEN 1
+        WHEN EXISTS (
+          SELECT 1 FROM account_open_positions aop
+          WHERE aop.network = uta.network AND aop.account_index = uta.account_index
+        ) THEN 1
         WHEN c.collateral > 0 THEN 2
         ELSE 3
       END ASC,
@@ -553,111 +595,87 @@ export function resetSchemaEnsured(): void {
 
 export async function ensureDatabaseSchema(db: D1Database): Promise<void> {
   if (isSchemaEnsured) return;
-  try {
-    await db
-      .prepare("ALTER TABLE account_open_positions ADD COLUMN liquidation_price REAL DEFAULT 0")
-      .run();
-  } catch {}
-  try {
-    await db
-      .prepare(
-        "ALTER TABLE account_positions_cache ADD COLUMN fingerprint INTEGER NOT NULL DEFAULT 0",
+
+  const alterColumns = [
+    "ALTER TABLE account_open_positions ADD COLUMN liquidation_price REAL DEFAULT 0",
+    "ALTER TABLE account_positions_cache ADD COLUMN fingerprint INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN spread_muted_until INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN updates_muted_until INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN last_seen_version TEXT DEFAULT NULL",
+    "ALTER TABLE users ADD COLUMN target_hits_threshold INTEGER NOT NULL DEFAULT 3",
+    "ALTER TABLE users ADD COLUMN last_active_at INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE user_spread_targets ADD COLUMN consecutive_hits INTEGER NOT NULL DEFAULT 0",
+  ];
+
+  for (const sql of alterColumns) {
+    try {
+      await db.prepare(sql).run();
+    } catch {}
+  }
+
+  const idempotentStmts: D1PreparedStatement[] = [
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS bot_system_metrics (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
       )
-      .run();
-  } catch {}
-  try {
-    await db
-      .prepare("CREATE INDEX IF NOT EXISTS idx_open_pos_symbol ON account_open_positions(symbol)")
-      .run();
-  } catch {}
-  try {
-    await db
-      .prepare(`
-        CREATE TABLE IF NOT EXISTS bot_system_metrics (
-          key TEXT PRIMARY KEY,
-          value_json TEXT NOT NULL,
-          updated_at INTEGER NOT NULL
-        )
-      `)
-      .run();
-  } catch {}
-  try {
-    await db
-      .prepare("ALTER TABLE users ADD COLUMN spread_muted_until INTEGER NOT NULL DEFAULT 0")
-      .run();
-  } catch {}
-  try {
-    await db
-      .prepare("ALTER TABLE users ADD COLUMN updates_muted_until INTEGER NOT NULL DEFAULT 0")
-      .run();
-  } catch {}
-  try {
-    await db.prepare("ALTER TABLE users ADD COLUMN last_seen_version TEXT DEFAULT NULL").run();
-  } catch {}
-  try {
-    await db
-      .prepare("ALTER TABLE users ADD COLUMN target_hits_threshold INTEGER NOT NULL DEFAULT 3")
-      .run();
-  } catch {}
-  try {
-    await db
-      .prepare("CREATE INDEX IF NOT EXISTS idx_users_last_seen_version ON users(last_seen_version)")
-      .run();
-  } catch {}
-  try {
-    await db
-      .prepare(`
-        CREATE TABLE IF NOT EXISTS user_spread_targets (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          telegram_id INTEGER NOT NULL,
-          symbol TEXT NOT NULL,
-          direction TEXT NOT NULL CHECK (direction IN ('rh_cheaper', 'rh_expensive')),
-          target_delta REAL NOT NULL CHECK (target_delta > 0),
-          unit TEXT NOT NULL DEFAULT 'usd' CHECK (unit IN ('usd', 'bps')),
-          is_active INTEGER NOT NULL DEFAULT 1,
-          armed INTEGER NOT NULL DEFAULT 1,
-          muted_until INTEGER NOT NULL DEFAULT 0,
-          last_alerted_at INTEGER DEFAULT NULL,
-          last_spread REAL DEFAULT NULL,
-          created_at INTEGER NOT NULL,
-          UNIQUE(telegram_id, symbol, direction, target_delta, unit)
-        )
-      `)
-      .run();
-  } catch {}
-  try {
-    await db
-      .prepare(
-        "ALTER TABLE user_spread_targets ADD COLUMN consecutive_hits INTEGER NOT NULL DEFAULT 0",
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS user_spread_targets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telegram_id INTEGER NOT NULL,
+        symbol TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('rh_cheaper', 'rh_expensive')),
+        target_delta REAL NOT NULL CHECK (target_delta > 0),
+        unit TEXT NOT NULL DEFAULT 'usd' CHECK (unit IN ('usd', 'bps')),
+        is_active INTEGER NOT NULL DEFAULT 1,
+        armed INTEGER NOT NULL DEFAULT 1,
+        muted_until INTEGER NOT NULL DEFAULT 0,
+        last_alerted_at INTEGER DEFAULT NULL,
+        last_spread REAL DEFAULT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE(telegram_id, symbol, direction, target_delta, unit)
       )
-      .run();
-  } catch {}
-  try {
-    await db.prepare("DROP INDEX IF EXISTS idx_spread_targets_user").run();
-  } catch {}
-  try {
-    await db.prepare("DROP INDEX IF EXISTS idx_open_pos_market").run();
-  } catch {}
-  try {
-    await db.prepare("DROP INDEX IF EXISTS idx_spread_targets_active").run();
-    await db
-      .prepare(
-        "CREATE INDEX IF NOT EXISTS idx_spread_targets_active_v2 ON user_spread_targets(is_active, symbol)",
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS spread_symbol_mutes (
+        telegram_id INTEGER NOT NULL,
+        symbol TEXT NOT NULL,
+        muted_until INTEGER NOT NULL,
+        PRIMARY KEY (telegram_id, symbol)
       )
-      .run();
-  } catch {}
-  try {
-    await db
-      .prepare(`
-        CREATE TABLE IF NOT EXISTS spread_symbol_mutes (
-          telegram_id INTEGER NOT NULL,
-          symbol TEXT NOT NULL,
-          muted_until INTEGER NOT NULL,
-          PRIMARY KEY (telegram_id, symbol)
-        )
-      `)
-      .run();
-  } catch {}
+    `),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_open_pos_symbol ON account_open_positions(symbol)"),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_users_last_seen_version ON users(last_seen_version)",
+    ),
+    db.prepare(
+      "CREATE INDEX IF NOT EXISTS idx_spread_targets_active_v2 ON user_spread_targets(is_active, symbol)",
+    ),
+    db.prepare("DROP INDEX IF EXISTS idx_users_last_active"),
+    db.prepare("DROP INDEX IF EXISTS idx_spread_targets_user"),
+    db.prepare("DROP INDEX IF EXISTS idx_open_pos_market"),
+    db.prepare("DROP INDEX IF EXISTS idx_spread_targets_active"),
+  ];
+
+  if (typeof db.batch === "function") {
+    try {
+      await db.batch(idempotentStmts);
+    } catch {
+      for (const stmt of idempotentStmts) {
+        try {
+          await stmt.run();
+        } catch {}
+      }
+    }
+  } else {
+    for (const stmt of idempotentStmts) {
+      try {
+        await stmt.run();
+      } catch {}
+    }
+  }
 
   isSchemaEnsured = true;
 }
@@ -759,44 +777,34 @@ export async function syncAccountOpenPositions(
 export async function getSystemStats(db: D1Database): Promise<SystemStats> {
   const now = Math.floor(Date.now() / 1000);
 
-  const [summaryRes, tokensRes, metricsRes] = await db.batch([
-    db
-      .prepare(`
+  const [summaryRes, spreadSummaryRes, topSpreadSymbolsRes, positionsDetailRes, metricsRes] =
+    await db.batch([
+      // 1. Сводка по пользователям, счетам, залогам и лагам
+      db
+        .prepare(`
       SELECT
         (SELECT COUNT(*) FROM users) as total_users,
-        (SELECT COUNT(*) FROM users WHERE created_at >= ? - 86400) as users_24h,
+        (SELECT COALESCE(SUM(CASE WHEN created_at >= ? - 86400 THEN 1 ELSE 0 END), 0) FROM users) as users_24h,
+        (SELECT COALESCE(SUM(CASE WHEN last_active_at >= ? - 86400 THEN 1 ELSE 0 END), 0) FROM users) as active_users_24h,
+        (SELECT COALESCE(SUM(CASE WHEN muted_until > ? OR spread_muted_until > ? THEN 1 ELSE 0 END), 0) FROM users) as muted_users,
         (SELECT COUNT(*) FROM user_tracked_accounts) as total_tracked,
-        (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'rh') as tracked_rh,
-        (SELECT COUNT(*) FROM user_tracked_accounts WHERE network = 'mainnet') as tracked_mainnet,
-        (SELECT COUNT(DISTINCT aop.network || ':' || aop.account_index)
-         FROM account_open_positions aop
-         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
-        ) as active_accounts_count,
-        (SELECT COUNT(*)
-         FROM account_open_positions aop
-         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
-        ) as active_positions,
-        (SELECT COUNT(*)
-         FROM account_open_positions aop
-         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
-         WHERE aop.is_long = 1
-        ) as total_longs,
-        (SELECT COUNT(*)
-         FROM account_open_positions aop
-         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
-         WHERE aop.is_long = 0
-        ) as total_shorts,
-        (SELECT COALESCE(SUM(aop.size * aop.entry_price), 0)
-         FROM account_open_positions aop
-         JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
-        ) as total_open_interest,
+        (SELECT COALESCE(SUM(CASE WHEN network = 'rh' THEN 1 ELSE 0 END), 0) FROM user_tracked_accounts) as tracked_rh,
+        (SELECT COALESCE(SUM(CASE WHEN network = 'mainnet' THEN 1 ELSE 0 END), 0) FROM user_tracked_accounts) as tracked_mainnet,
         (SELECT COALESCE(SUM(c.collateral), 0)
          FROM account_positions_cache c
-         JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
+         JOIN (SELECT DISTINCT network, account_index FROM user_tracked_accounts) uta
+           ON c.network = uta.network AND c.account_index = uta.account_index
         ) as total_collateral,
+        (SELECT COALESCE(AVG(c.collateral), 0)
+         FROM account_positions_cache c
+         JOIN (SELECT DISTINCT network, account_index FROM user_tracked_accounts) uta
+           ON c.network = uta.network AND c.account_index = uta.account_index
+         WHERE c.collateral > 0
+        ) as avg_collateral,
         (SELECT MIN(c.last_updated_at)
          FROM account_positions_cache c
-         JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
+         JOIN (SELECT DISTINCT network, account_index FROM user_tracked_accounts) uta
+           ON c.network = uta.network AND c.account_index = uta.account_index
          WHERE c.collateral > 0
             OR EXISTS (
               SELECT 1 FROM account_open_positions aop
@@ -805,7 +813,8 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
         ) as oldest_cache,
         (SELECT MAX(c.last_updated_at)
          FROM account_positions_cache c
-         JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
+         JOIN (SELECT DISTINCT network, account_index FROM user_tracked_accounts) uta
+           ON c.network = uta.network AND c.account_index = uta.account_index
          WHERE c.collateral > 0
             OR EXISTS (
               SELECT 1 FROM account_open_positions aop
@@ -814,7 +823,8 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
         ) as newest_cache,
         (SELECT AVG(c.last_updated_at)
          FROM account_positions_cache c
-         JOIN user_tracked_accounts uta ON c.network = uta.network AND c.account_index = uta.account_index
+         JOIN (SELECT DISTINCT network, account_index FROM user_tracked_accounts) uta
+           ON c.network = uta.network AND c.account_index = uta.account_index
          WHERE c.collateral > 0
             OR EXISTS (
               SELECT 1 FROM account_open_positions aop
@@ -822,30 +832,189 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
             )
         ) as avg_cache
     `)
-      .bind(now),
-    db.prepare(`
-      SELECT aop.symbol, COUNT(*) as count 
+        .bind(now, now, now, now),
+
+      // 2. Сводка по таргетам спреда
+      db
+        .prepare(`
+      SELECT
+        COUNT(*) as total_targets,
+        COALESCE(SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END), 0) as active_targets,
+        COALESCE(SUM(CASE WHEN is_active = 1 AND armed = 1 THEN 1 ELSE 0 END), 0) as armed_targets,
+        COALESCE(SUM(CASE WHEN is_active = 1 AND consecutive_hits > 0 THEN 1 ELSE 0 END), 0) as hitting_now_targets,
+        COUNT(DISTINCT telegram_id) as spread_users,
+        COALESCE(SUM(CASE WHEN is_active = 1 AND direction = 'rh_cheaper' THEN 1 ELSE 0 END), 0) as rh_cheaper_count,
+        COALESCE(SUM(CASE WHEN is_active = 1 AND direction = 'rh_expensive' THEN 1 ELSE 0 END), 0) as rh_expensive_count,
+        COALESCE(SUM(CASE WHEN last_alerted_at >= ? - 86400 THEN 1 ELSE 0 END), 0) as spread_alerts_24h
+      FROM user_spread_targets
+    `)
+        .bind(now),
+
+      // 3. Топ-3 символов по активным таргетам спреда
+      db.prepare(`
+      SELECT symbol, COUNT(*) as count
+      FROM user_spread_targets
+      WHERE is_active = 1
+      GROUP BY symbol
+      ORDER BY count DESC
+      LIMIT 3
+    `),
+
+      // 4. Детализация позиций для расчета рисков, размеров, баланса Long/Short и топа токенов (без fan-out)
+      db.prepare(`
+      SELECT
+        aop.symbol,
+        aop.network,
+        aop.account_index,
+        aop.is_long,
+        aop.entry_price,
+        aop.size,
+        aop.liquidation_price,
+        (aop.size * aop.entry_price) as notional
       FROM account_open_positions aop
-      JOIN user_tracked_accounts uta ON aop.network = uta.network AND aop.account_index = uta.account_index
-      GROUP BY aop.symbol 
-      ORDER BY count DESC 
-      LIMIT 5
+      JOIN (SELECT DISTINCT network, account_index FROM user_tracked_accounts) uta
+        ON aop.network = uta.network AND aop.account_index = uta.account_index
     `),
-    db.prepare(`
-      SELECT key, value_json, updated_at FROM bot_system_metrics WHERE key IN ('last_cron', 'last_cron_error')
+
+      // 5. Системные метрики (last_cron, last_cron_error, cron_stats_24h)
+      db.prepare(`
+      SELECT key, value_json, updated_at
+      FROM bot_system_metrics
+      WHERE key IN ('last_cron', 'last_cron_error', 'cron_stats_24h')
     `),
-  ]);
+    ]);
 
   const summary = ((summaryRes as any)?.results?.[0] || {}) as any;
-  const topTokens = ((tokensRes as any)?.results || []) as Array<{ symbol: string; count: number }>;
+  const spreadSummary = ((spreadSummaryRes as any)?.results?.[0] || {}) as any;
+  const topSpreadSymbols = ((topSpreadSymbolsRes as any)?.results || []) as Array<{
+    symbol: string;
+    count: number;
+  }>;
+  const positionsRows = ((positionsDetailRes as any)?.results || []) as Array<{
+    symbol: string;
+    network: string;
+    account_index: number;
+    is_long: number;
+    entry_price: number;
+    size: number;
+    liquidation_price: number;
+    notional: number;
+  }>;
   const metricsRows = ((metricsRes as any)?.results || []) as Array<{
     key: string;
     value_json: string;
     updated_at: number;
   }>;
 
+  // Single-pass V8 aggregation over open positions:
+  const activeAccountsSet = new Set<string>();
+  let activePositionsCount = 0;
+  let totalLongs = 0;
+  let totalShorts = 0;
+  let totalOi = 0;
+  let longOi = 0;
+  let shortOi = 0;
+  let maxPosNotional = 0;
+  let maxPositionSymbol: string | null = null;
+  const tokenMap = new Map<string, { symbol: string; count: number; notional: number }>();
+
+  let critical = 0;
+  let danger = 0;
+  let warning = 0;
+  let safe = 0;
+  let closestLiquidation: {
+    symbol: string;
+    network: LighterNetwork;
+    accountIndex: number;
+    distancePercent: number;
+    isLong: boolean;
+  } | null = null;
+
+  for (const pos of positionsRows) {
+    activeAccountsSet.add(`${pos.network}:${pos.account_index}`);
+    activePositionsCount++;
+
+    const notional = pos.notional || pos.size * pos.entry_price || 0;
+    totalOi += notional;
+
+    if (pos.is_long === 1) {
+      totalLongs++;
+      longOi += notional;
+    } else {
+      totalShorts++;
+      shortOi += notional;
+    }
+
+    if (notional > maxPosNotional) {
+      maxPosNotional = notional;
+      maxPositionSymbol = pos.symbol;
+    }
+
+    const t = tokenMap.get(pos.symbol) || { symbol: pos.symbol, count: 0, notional: 0 };
+    t.count++;
+    t.notional += notional;
+    tokenMap.set(pos.symbol, t);
+
+    // Расчет риска ликвидации по актуальной цене рынка
+    const memPrice = getMemoryPrice(pos.network as LighterNetwork, pos.symbol);
+    const entryPrice = pos.entry_price || 0;
+    const currentPrice = memPrice && memPrice > 0 ? memPrice : entryPrice;
+    const liqPrice = pos.liquidation_price || 0;
+
+    if (liqPrice <= 0 || currentPrice <= 0) {
+      safe++;
+      continue;
+    }
+
+    const rawDist =
+      pos.is_long === 1
+        ? ((currentPrice - liqPrice) / currentPrice) * 100
+        : ((liqPrice - currentPrice) / currentPrice) * 100;
+    const distPercent = Math.max(0, rawDist);
+
+    if (distPercent < 2) {
+      critical++;
+    } else if (distPercent < 5) {
+      danger++;
+    } else if (distPercent < 10) {
+      warning++;
+    } else {
+      safe++;
+    }
+
+    if (!closestLiquidation || distPercent < closestLiquidation.distancePercent) {
+      closestLiquidation = {
+        symbol: pos.symbol,
+        network: pos.network as LighterNetwork,
+        accountIndex: pos.account_index,
+        distancePercent: Number(distPercent.toFixed(2)),
+        isLong: pos.is_long === 1,
+      };
+    }
+  }
+
+  // Сортировка topTokens: ORDER BY notional DESC, count DESC (топ-5)
+  const topTokens = Array.from(tokenMap.values())
+    .toSorted((a, b) => b.notional - a.notional || b.count - a.count)
+    .slice(0, 5)
+    .map((t) => ({
+      symbol: t.symbol,
+      count: t.count,
+      notionalUsd: Math.round(t.notional),
+    }));
+
+  const activeAccountsCount = activeAccountsSet.size;
+  const avgPosSize =
+    activePositionsCount > 0 ? Number((totalOi / activePositionsCount).toFixed(2)) : 0;
+  totalOi = Number(totalOi.toFixed(2));
+  longOi = Number(longOi.toFixed(2));
+  shortOi = Number(shortOi.toFixed(2));
+  maxPosNotional = Number(maxPosNotional.toFixed(2));
+
+  // Парсинг системных метрик с защитой от холодного старта (слияние D1 и in-memory кэша)
   let lastCron: any = null;
   let lastCronError: any = null;
+  let dbCron24Stats: any = null;
   for (const row of metricsRows) {
     if (row.key === "last_cron" && row.value_json) {
       try {
@@ -855,12 +1024,49 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
       try {
         lastCronError = JSON.parse(row.value_json);
       } catch {}
+    } else if (row.key === "cron_stats_24h" && row.value_json) {
+      try {
+        dbCron24Stats = JSON.parse(row.value_json);
+      } catch {}
     }
   }
 
   const memCron = getLastCronMetrics();
   if (memCron && (!lastCron || (memCron.timestamp ?? 0) >= (lastCron.timestamp ?? 0))) {
     lastCron = memCron;
+  }
+
+  // Сверка/гидратация 24h cron stats: берем наиболее актуальные данные
+  const memCron24 = getMemoryCron24hStats();
+  let effective24Stats = dbCron24Stats;
+  if (
+    memCron24 &&
+    (!effective24Stats ||
+      memCron24.windowStart > (effective24Stats.windowStart ?? 0) ||
+      (memCron24.windowStart === effective24Stats.windowStart &&
+        memCron24.totalRuns >= effective24Stats.totalRuns))
+  ) {
+    effective24Stats = memCron24;
+  } else if (!memCron24 && dbCron24Stats && now - (dbCron24Stats.windowStart ?? 0) < 86400) {
+    // Гидрируем память при чтении, если в памяти было пусто
+    setMemoryCron24hStats(dbCron24Stats);
+  }
+
+  let cron24hStats: SystemStats["cron24hStats"] = null;
+  if (effective24Stats && effective24Stats.totalRuns > 0) {
+    const totalRuns = effective24Stats.totalRuns;
+    const failedRuns = effective24Stats.failedRuns || 0;
+    const uptimePercent = Number((((totalRuns - failedRuns) / totalRuns) * 100).toFixed(2));
+    const avgDurationMs = Math.round((effective24Stats.totalDurationMs || 0) / totalRuns);
+    cron24hStats = {
+      totalRuns,
+      failedRuns,
+      uptimePercent,
+      avgDurationMs,
+      maxDurationMs: effective24Stats.maxDurationMs || 0,
+      maxSubrequests: effective24Stats.maxSubrequests || 0,
+      lastZombiesCleaned: effective24Stats.lastZombiesCleaned || 0,
+    };
   }
 
   const oldest = summary.oldest_cache;
@@ -871,24 +1077,67 @@ export async function getSystemStats(db: D1Database): Promise<SystemStats> {
   const minLagMinutes = newest && newest > 0 ? Math.round((now - newest) / 60) : 0;
   const avgLagMinutes = avg && avg > 0 ? Math.round((now - avg) / 60) : 0;
 
+  const totalUsers = summary.total_users || 0;
+  const totalTracked = summary.total_tracked || 0;
+  const avgAccountsPerUser = totalUsers > 0 ? Number((totalTracked / totalUsers).toFixed(1)) : 0;
+
+  const totalCollateral = summary.total_collateral || 0;
+  const netDeltaUsd = Number((longOi - shortOi).toFixed(2));
+  const effectiveLeverage =
+    totalCollateral > 0 ? Number((totalOi / totalCollateral).toFixed(2)) : 0;
+
   return {
-    totalUsers: summary.total_users || 0,
+    totalUsers,
     users24h: summary.users_24h || 0,
-    totalTracked: summary.total_tracked || 0,
+    activeUsers24h: summary.active_users_24h || 0,
+    totalTracked,
     trackedRh: summary.tracked_rh || 0,
     trackedMainnet: summary.tracked_mainnet || 0,
-    activeAccountsCount: summary.active_accounts_count || 0,
-    activePositionsCount: summary.active_positions || 0,
-    totalLongs: summary.total_longs || 0,
-    totalShorts: summary.total_shorts || 0,
-    totalOpenInterestUsd: summary.total_open_interest || 0,
-    totalCollateralUsd: summary.total_collateral || 0,
+    avgAccountsPerUser,
+    mutedUsersCount: summary.muted_users || 0,
+
+    activeAccountsCount,
+    activePositionsCount,
+    totalLongs,
+    totalShorts,
+    totalOpenInterestUsd: totalOi,
+    longOiUsd: longOi,
+    shortOiUsd: shortOi,
+    netDeltaUsd,
+    avgPositionSizeUsd: avgPosSize,
+    maxPositionSizeUsd: maxPosNotional,
+    maxPositionSymbol,
+    totalCollateralUsd: totalCollateral,
+    avgCollateralUsd: summary.avg_collateral || 0,
+    effectiveLeverage,
+
+    riskDistribution: {
+      critical,
+      danger,
+      warning,
+      safe,
+    },
+    closestLiquidation,
+
+    spreadStats: {
+      totalTargets: spreadSummary.total_targets || 0,
+      activeTargets: spreadSummary.active_targets || 0,
+      armedTargets: spreadSummary.armed_targets || 0,
+      hittingNowTargets: spreadSummary.hitting_now_targets || 0,
+      uniqueUsersCount: spreadSummary.spread_users || 0,
+      rhCheaperCount: spreadSummary.rh_cheaper_count || 0,
+      rhExpensiveCount: spreadSummary.rh_expensive_count || 0,
+      alertsSent24h: spreadSummary.spread_alerts_24h || 0,
+      topSymbols: topSpreadSymbols,
+    },
+
     minQueueLagMinutes: minLagMinutes,
     avgQueueLagMinutes: avgLagMinutes,
     maxQueueLagMinutes: maxLagMinutes,
     topTokens,
     lastCron,
     lastCronError,
+    cron24hStats,
   };
 }
 
@@ -1010,17 +1259,26 @@ export async function getAccountsPositionsCache(
   const map = new Map<string, any>();
   if (accounts.length === 0) return map;
 
-  const rows = await Promise.all(
-    accounts.map((item) =>
-      db
-        .prepare("SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?")
-        .bind(item.network, item.account_index)
-        .first<any>(),
-    ),
+  const stmts = accounts.map((item) =>
+    db
+      .prepare("SELECT * FROM account_positions_cache WHERE network = ? AND account_index = ?")
+      .bind(item.network, item.account_index),
   );
-  for (const row of rows) {
-    if (row) {
-      map.set(`${row.network}:${row.account_index}`, row);
+
+  if (typeof db.batch === "function") {
+    const results = await db.batch(stmts);
+    for (const res of results) {
+      const row = (res as any)?.results?.[0];
+      if (row) {
+        map.set(`${row.network}:${row.account_index}`, row);
+      }
+    }
+  } else {
+    for (const stmt of stmts) {
+      const row = await stmt.first<any>();
+      if (row) {
+        map.set(`${row.network}:${row.account_index}`, row);
+      }
     }
   }
   return map;

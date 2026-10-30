@@ -108,9 +108,60 @@ export function setMemoryPrice(
   }
 }
 
+let memoryCron24hStats: {
+  windowStart: number;
+  totalRuns: number;
+  failedRuns: number;
+  totalDurationMs: number;
+  maxDurationMs: number;
+  maxSubrequests: number;
+  lastZombiesCleaned: number;
+} | null = null;
+
+export function recordMemoryCronRun(
+  durationMs: number,
+  subrequestsUsed: number,
+  isError: boolean,
+  now: number,
+  zombiesCleaned: number = 0,
+): void {
+  if (!memoryCron24hStats || now - memoryCron24hStats.windowStart >= 86400) {
+    memoryCron24hStats = {
+      windowStart: now,
+      totalRuns: 1,
+      failedRuns: isError ? 1 : 0,
+      totalDurationMs: durationMs,
+      maxDurationMs: durationMs,
+      maxSubrequests: subrequestsUsed,
+      lastZombiesCleaned: zombiesCleaned,
+    };
+  } else {
+    memoryCron24hStats.totalRuns += 1;
+    if (isError) memoryCron24hStats.failedRuns += 1;
+    memoryCron24hStats.totalDurationMs += durationMs;
+    memoryCron24hStats.maxDurationMs = Math.max(memoryCron24hStats.maxDurationMs, durationMs);
+    memoryCron24hStats.maxSubrequests = Math.max(
+      memoryCron24hStats.maxSubrequests,
+      subrequestsUsed,
+    );
+    if (zombiesCleaned > 0) {
+      memoryCron24hStats.lastZombiesCleaned = zombiesCleaned;
+    }
+  }
+}
+
+export function getMemoryCron24hStats(): typeof memoryCron24hStats {
+  return memoryCron24hStats;
+}
+
+export function setMemoryCron24hStats(stats: typeof memoryCron24hStats): void {
+  memoryCron24hStats = stats;
+}
+
 export function clearMemoryCache(): void {
   MEMORY_ACCOUNTS.clear();
   MEMORY_PRICES.clear();
   IN_MEMORY_RR_CHECKED.clear();
   lastCronMetrics = null;
+  memoryCron24hStats = null;
 }
