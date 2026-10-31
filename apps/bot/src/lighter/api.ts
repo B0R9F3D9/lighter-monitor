@@ -186,6 +186,23 @@ export async function fetchInChunks<T, R>(
   return results;
 }
 
+/**
+ * Перемешивание массива методом Фишера-Йетса (Fisher-Yates shuffle).
+ * Создает поверхностную копию массива и перемешивает её за O(N).
+ * Используется перед сетевыми запросами для рандомизации последовательности
+ * опроса счетов, предотвращая детерминированные кластерные паттерны в логах API Gateway (Anti-Sybil).
+ */
+export function shuffleArray<T>(array: T[]): T[] {
+  const copy = [...array];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = copy[i]!;
+    copy[i] = copy[j]!;
+    copy[j] = temp;
+  }
+  return copy;
+}
+
 interface NormalizedSymbol {
   upper: string;
   clean: string;

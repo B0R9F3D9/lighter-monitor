@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { fetchLighterAccount, fetchInChunks, fetchExchangeStats } from "../src/lighter/api";
+import { fetchLighterAccount, fetchInChunks, shuffleArray, fetchExchangeStats } from "../src/lighter/api";
 
 describe("fetchLighterAccount", () => {
   it("should successfully fetch real account 31704 from Robinhood Lighter API", async () => {
@@ -37,6 +37,39 @@ describe("fetchInChunks", () => {
     expect(results.length).toBe(7);
     const values = results.map((r) => (r.status === "fulfilled" ? r.value : null));
     expect(values).toEqual([10, 20, 30, 40, 50, 60, 70]);
+  });
+});
+
+describe("shuffleArray (Anti-Sybil Fisher-Yates)", () => {
+  it("preserves array elements and length without mutating original", () => {
+    const original = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+    const copy = [...original];
+    const shuffled = shuffleArray(original);
+
+    expect(original).toEqual(copy); // original is not mutated
+    expect(shuffled.length).toBe(original.length);
+    expect([...shuffled].sort((a, b) => a - b)).toEqual(original);
+  });
+
+  it("handles empty and single-element arrays gracefully", () => {
+    expect(shuffleArray([])).toEqual([]);
+    expect(shuffleArray([42])).toEqual([42]);
+  });
+
+  it("randomizes order across multiple executions", () => {
+    const original = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let identicalCount = 0;
+    const trials = 20;
+
+    for (let t = 0; t < trials; t++) {
+      const shuffled = shuffleArray(original);
+      if (shuffled.every((v, idx) => v === original[idx])) {
+        identicalCount++;
+      }
+    }
+
+    // Probability of 10-element array staying in exact same order 20 times in a row is (1/10!)^20 ≈ 0
+    expect(identicalCount).toBeLessThan(trials);
   });
 });
 

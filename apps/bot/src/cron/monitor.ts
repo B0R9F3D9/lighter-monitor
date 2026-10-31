@@ -29,6 +29,7 @@ import { getCronStatements } from "../db/statements";
 import {
   fetchLighterAccount,
   fetchInChunks,
+  shuffleArray,
   fetchExchangeStats,
   findMarketPrice,
   verifyExecutableSpread,
@@ -184,19 +185,12 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     }
 
     // 1. ПАРАЛЛЕЛЬНЫЙ СТАРТ ТИКА: читаем символы, таргеты спреда и запрашиваем биржи в 0-ю мс!
+    // Рыночные цены запрашиваются без авторизационного токена (Anti-Sybil: не связывает ключи с общим пулом)
     const [uniqueSymbols, spreadTargets, snapRh, snapMainnet] = await Promise.all([
       getDistinctActiveSymbols(env.DB),
       getActiveSpreadTargetsForMonitoring(env.DB, now),
-      fetchExchangeStats(
-        LIGHTER_NETWORKS.RH,
-        cachedActiveSymbolsSet,
-        getLighterAuthToken(env, LIGHTER_NETWORKS.RH),
-      ),
-      fetchExchangeStats(
-        LIGHTER_NETWORKS.MAINNET,
-        cachedActiveSymbolsSet,
-        getLighterAuthToken(env, LIGHTER_NETWORKS.MAINNET),
-      ),
+      fetchExchangeStats(LIGHTER_NETWORKS.RH, cachedActiveSymbolsSet),
+      fetchExchangeStats(LIGHTER_NETWORKS.MAINNET, cachedActiveSymbolsSet),
     ]);
     subrequestsUsed += 2;
     cachedActiveSymbolsSet = uniqueSymbols.length > 0 ? new Set(uniqueSymbols) : undefined;
@@ -349,18 +343,14 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
             const toSend = deduplicatedCandidates.slice(0, maxSpreadSends);
 
             const sendPromises = toSend.map(async (cand) => {
-              const authTokenRh = getLighterAuthToken(env, LIGHTER_NETWORKS.RH);
-              const authTokenCore = getLighterAuthToken(env, LIGHTER_NETWORKS.MAINNET);
-
               let orderBookLeg: SpreadAlertOrderBookLeg | undefined;
               try {
+                // Стаканы цен запрашиваются публично без личных токенов
                 const bookCheck = await verifyExecutableSpread(
                   cand.target.symbol,
                   cand.target.direction,
                   cand.target.target_delta,
                   cand.target.unit,
-                  authTokenRh,
-                  authTokenCore,
                 );
 
                 if (!bookCheck.isValid) {
@@ -576,7 +566,9 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       const accountsToSync = await getNextAccountsForSync(env.DB, 5, now, 0);
 
       if (accountsToSync.length > 0) {
-        const syncResults = await fetchInChunks(accountsToSync, 5, (acc) =>
+        // Anti-Sybil: перемешиваем порядок опроса счетов, исключая детерминированные последовательности
+        const shuffledAccounts = shuffleArray(accountsToSync);
+        const syncResults = await fetchInChunks(shuffledAccounts, 5, (acc) =>
           fetchLighterAccount(
             acc.network,
             acc.accountIndex,
@@ -584,7 +576,7 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
             getLighterAuthToken(env, acc.network),
           ),
         );
-        subrequestsUsed += accountsToSync.length;
+        subrequestsUsed += shuffledAccounts.length;
 
         const failedAccounts: TrackedAccountKey[] = [];
         const cacheUpdates: Array<{
@@ -593,8 +585,8 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
           cachedPositions: any[];
         }> = [];
 
-        for (let i = 0; i < accountsToSync.length; i++) {
-          const accKey = accountsToSync[i]!;
+        for (let i = 0; i < shuffledAccounts.length; i++) {
+          const accKey = shuffledAccounts[i]!;
           const res = syncResults[i];
           const syncedData = res?.status === "fulfilled" ? res.value : null;
 
@@ -695,16 +687,17 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
         }
       }
 
-      // Шаг Б.2: Параллельный опрос аккаунтов пачками по 5 штук
+      // Шаг Б.2: Параллельный опрос аккаунтов пачками по 5 штук (Anti-Sybil: перемешиваем очередь)
+      const shuffledPendingJit = shuffleArray(pendingJitKeys);
       const JIT_CHUNK = 5;
-      for (let i = 0; i < pendingJitKeys.length; i += JIT_CHUNK) {
+      for (let i = 0; i < shuffledPendingJit.length; i += JIT_CHUNK) {
         if (Date.now() - startTime > MAX_WALL_CLOCK_MS) {
           console.warn("Cron wall-clock budget reached. Postponing remaining JIT checks.");
           break;
         }
         if (subrequestsUsed + JIT_CHUNK >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) break;
 
-        const chunk = pendingJitKeys.slice(i, i + JIT_CHUNK);
+        const chunk = shuffledPendingJit.slice(i, i + JIT_CHUNK);
         const results = await Promise.allSettled(
           chunk.map((acc) =>
             fetchLighterAccount(

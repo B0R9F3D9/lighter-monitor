@@ -13,6 +13,7 @@ import { CONFIG, getLighterAuthToken } from "../config";
 import {
   fetchLighterAccountWithStatus,
   fetchInChunks,
+  shuffleArray,
   fetchExchangeStats,
   findMarketPrice,
 } from "../lighter/api";
@@ -1526,8 +1527,10 @@ export function getBot(env: Env): Bot {
       const freshMap = new Map<string, any>();
 
       if (toFetch.length > 0) {
+        // Anti-Sybil: рандомизируем порядок сетевых запросов, убирая детерминированную последовательность
+        const shuffledToFetch = shuffleArray(toFetch);
         const settled = await fetchInChunks(
-          toFetch,
+          shuffledToFetch,
           CONFIG.LIGHTER_CHUNK_CONCURRENCY || 5,
           (item) =>
             fetchLighterAccountWithStatus(
@@ -1537,7 +1540,7 @@ export function getBot(env: Env): Bot {
               getLighterAuthToken(currentEnv || env, item.network),
             ),
         );
-        toFetch.forEach((item, i) => {
+        shuffledToFetch.forEach((item, i) => {
           const res = settled[i];
           if (res && res.status === "fulfilled") {
             if (res.value.status === "OK" && res.value.account) {
