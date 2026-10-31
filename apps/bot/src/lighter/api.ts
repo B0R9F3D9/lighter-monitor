@@ -35,8 +35,8 @@ export async function fetchLighterAccountWithStatus(
   authToken?: string,
 ): Promise<FetchAccountResult> {
   const baseUrl = CONFIG.NETWORKS[network]?.baseUrl || CONFIG.NETWORKS.rh.baseUrl;
-  // В интерактивных запросах пользователя ретраи отключены для мгновенного ответа
-  const maxRetries = interactive ? 0 : 1;
+  // 1 быстрый ретрай даже для интерактивных запросов (задержка ~200-300 мс незаметна в Telegram, но спасает от редких 429)
+  const maxRetries = 1;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {

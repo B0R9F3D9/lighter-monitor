@@ -1510,9 +1510,10 @@ export function getBot(env: Env): Bot {
       const nowSec = Math.floor(Date.now() / 1000);
       let isRateLimited = false;
 
-      // TTL кэша: 10 секунд.
-      // Если данные в D1 старше 10 сек или нажат принудительный рефреш -> запрашиваем биржу синхронно (~40-60 мс)
-      const STALE_TTL_SEC = 10;
+      // TTL кэша: 50 секунд.
+      // Если данные в D1 свежие (< 50 сек) -> отдаем мгновенно из согласованной базы без лишних subrequests.
+      // Принудительный рефреш (forceRefresh) или устаревшие данные опрашивают биржу.
+      const STALE_TTL_SEC = 50;
       const accountsNeedingSync = trackedList.filter((item) => {
         const key = `${item.network}:${item.account_index}`;
         const c = cacheMap.get(key);
