@@ -27,7 +27,8 @@ import {
 } from "../db/queries";
 import { getCronStatements } from "../db/statements";
 import {
-  fetchLighterAccount,
+  fetchLighterAccountWithStatus,
+  FetchAccountResult,
   fetchInChunks,
   shuffleArray,
   fetchExchangeStats,
@@ -44,7 +45,12 @@ import {
 } from "../cache/memory";
 import { formatPriceStepAlert, formatSpreadAlert, getSpreadAlertKeyboard } from "../bot/formatters";
 import { checkAndBroadcastRelease } from "../bot/release_notifier";
-import { pingHealthcheckSuccess, pingHealthcheckFail } from "../utils/healthcheck";
+import {
+  pingHealthcheckSuccess,
+  pingHealthcheckFail,
+  checkAndNotifyAdminOutage,
+  checkAndNotifyAdminRecovery,
+} from "../utils/healthcheck";
 
 // In-memory isolate cache for hot loop acceleration
 let cachedActiveSymbolsSet: Set<string> | undefined;
@@ -555,7 +561,13 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     }
 
     let roundRobinSyncedCount = 0;
+    let roundRobinRateLimitCount = 0;
+    let roundRobinErrorCount = 0;
+    let accountsAttempted = 0;
     let jitChecksDone = 0;
+    let jitSyncedCount = 0;
+    let jitRateLimitCount = 0;
+    let jitErrorCount = 0;
     let alertsSentCount = 0;
     const jitCache = new Map<string, LighterAccount | null>();
     const cleanedZombieKeys = new Set<string>();
@@ -568,8 +580,9 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       if (accountsToSync.length > 0) {
         // Anti-Sybil: перемешиваем порядок опроса счетов, исключая детерминированные последовательности
         const shuffledAccounts = shuffleArray(accountsToSync);
+        accountsAttempted += shuffledAccounts.length;
         const syncResults = await fetchInChunks(shuffledAccounts, 5, (acc) =>
-          fetchLighterAccount(
+          fetchLighterAccountWithStatus(
             acc.network,
             acc.accountIndex,
             false,
@@ -588,7 +601,15 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
         for (let i = 0; i < shuffledAccounts.length; i++) {
           const accKey = shuffledAccounts[i]!;
           const res = syncResults[i];
-          const syncedData = res?.status === "fulfilled" ? res.value : null;
+          const fetchResult: FetchAccountResult | null =
+            res?.status === "fulfilled" ? res.value : null;
+          const syncedData = fetchResult?.account || null;
+
+          if (fetchResult?.status === "RATE_LIMIT" || fetchResult?.statusCode === 429) {
+            roundRobinRateLimitCount++;
+          } else if (fetchResult?.status === "ERROR" || res?.status === "rejected") {
+            roundRobinErrorCount++;
+          }
 
           jitCache.set(`${accKey.network}:${accKey.accountIndex}`, syncedData);
 
@@ -698,9 +719,10 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
         if (subrequestsUsed + JIT_CHUNK >= CONFIG.MAX_SUBREQUESTS_PER_CRON - 5) break;
 
         const chunk = shuffledPendingJit.slice(i, i + JIT_CHUNK);
+        accountsAttempted += chunk.length;
         const results = await Promise.allSettled(
           chunk.map((acc) =>
-            fetchLighterAccount(
+            fetchLighterAccountWithStatus(
               acc.network,
               acc.accountIndex,
               false,
@@ -714,10 +736,20 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
         for (let j = 0; j < chunk.length; j++) {
           const acc = chunk[j]!;
           const res = results[j];
-          const syncedData = res?.status === "fulfilled" ? res.value : null;
+          const fetchResult: FetchAccountResult | null =
+            res?.status === "fulfilled" ? res.value : null;
+          const syncedData = fetchResult?.account || null;
+
+          if (fetchResult?.status === "RATE_LIMIT" || fetchResult?.statusCode === 429) {
+            jitRateLimitCount++;
+          } else if (fetchResult?.status === "ERROR" || res?.status === "rejected") {
+            jitErrorCount++;
+          }
+
           jitCache.set(`${acc.network}:${acc.accountIndex}`, syncedData);
 
           if (syncedData) {
+            jitSyncedCount++;
             const currentFingerprint = computePositionsFingerprint(syncedData.positions || []);
             const memAcc = getMemoryAccount(acc.network, acc.accountIndex);
             let hasChanged = true;
@@ -941,10 +973,33 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       }
     }
 
+    // Проверка деградации API биржи или наличия блокировок (429 Too Many Requests / недоступность котировок)
+    const totalRateLimitsInTick = roundRobinRateLimitCount + jitRateLimitCount;
+    const totalSyncedInTick = roundRobinSyncedCount + jitSyncedCount;
+    const totalAccountAttempts = accountsAttempted;
+
+    let isDegraded = false;
+    let degradedReason = "";
+
+    if (items.length > 0 && snapRh.size === 0 && snapMainnet.size === 0) {
+      isDegraded = true;
+      degradedReason =
+        "Биржа Lighter недоступна: orderbook stats вернул 0 котировок (Robinhood и Mainnet)";
+    } else if (totalRateLimitsInTick > 0 && totalSyncedInTick === 0 && totalAccountAttempts > 0) {
+      isDegraded = true;
+      degradedReason = `Биржа Lighter вернула 429 Too Many Requests на все ${totalAccountAttempts} запросов счетов`;
+    } else if (totalRateLimitsInTick >= 2) {
+      isDegraded = true;
+      degradedReason = `Зафиксировано множество 429 Too Many Requests (${totalRateLimitsInTick} блокировок)`;
+    } else if (totalAccountAttempts >= 3 && totalSyncedInTick === 0) {
+      isDegraded = true;
+      degradedReason = `Все запросы синхронизации счетов завершились ошибкой (${totalAccountAttempts} попыток)`;
+    }
+
     // 5. Единая пакетная транзакция в D1 (кэш позиций + синхронизация + алерты + зомби + метрики)
     const durationMs = Date.now() - startTime;
     const executionMetrics = {
-      event: "cron_completed",
+      event: isDegraded ? "cron_degraded" : "cron_completed",
       duration_ms: durationMs,
       subrequests_used: subrequestsUsed,
       round_robin_synced: roundRobinSyncedCount,
@@ -955,10 +1010,31 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
       spread_alerts_sent: spreadAlertsSent,
       zombies_cleaned: cleanedZombieKeys.size,
       timestamp: now,
+      rate_limits_count: totalRateLimitsInTick,
+      is_degraded: isDegraded,
+      degraded_reason: isDegraded ? degradedReason : undefined,
     };
 
     setLastCronMetrics(executionMetrics);
-    recordMemoryCronRun(durationMs, subrequestsUsed, false, now, cleanedZombieKeys.size);
+    recordMemoryCronRun(durationMs, subrequestsUsed, isDegraded, now, cleanedZombieKeys.size);
+
+    if (isDegraded) {
+      const errorMetrics = {
+        event: "cron_degraded",
+        error: degradedReason,
+        rate_limits_count: totalRateLimitsInTick,
+        duration_ms: durationMs,
+        subrequests_used: subrequestsUsed,
+        timestamp: now,
+      };
+      allUpdates.push(
+        env.DB.prepare(`
+          INSERT INTO bot_system_metrics (key, value_json, updated_at)
+          VALUES ('last_cron_error', ?, ?)
+          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+        `).bind(JSON.stringify(errorMetrics), now),
+      );
+    }
 
     const shouldSaveMetricsToDb = alertsSentCount > 0 || spreadAlertsSent > 0 || now % 600 < 60;
 
@@ -1020,9 +1096,17 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     // 6. СТРУКТУРИРОВАННЫЙ JSON-ЛОГ (Observability & Cloudflare Dashboard / Axiom)
     console.log(JSON.stringify(executionMetrics));
 
-    // 7. ПИНГ HEALTHCHECK (гарантированная доставка до выхода из изолята)
-    if (env.HEALTHCHECK_URL) {
-      await pingHealthcheckSuccess(env.HEALTHCHECK_URL, executionMetrics);
+    // 7. ПИНГ HEALTHCHECK (гарантированная доставка до выхода из изолята) И АЛЕРТЫ АДМИНУ
+    if (isDegraded) {
+      if (env.HEALTHCHECK_URL) {
+        await pingHealthcheckFail(env.HEALTHCHECK_URL, new Error(degradedReason), executionMetrics);
+      }
+      await checkAndNotifyAdminOutage(env, degradedReason, totalRateLimitsInTick, now);
+    } else {
+      if (env.HEALTHCHECK_URL) {
+        await pingHealthcheckSuccess(env.HEALTHCHECK_URL, executionMetrics);
+      }
+      await checkAndNotifyAdminRecovery(env, now);
     }
   } catch (err: any) {
     const durationMs = Date.now() - startTime;
@@ -1071,6 +1155,13 @@ export async function runCronMonitor(env: Env, _ctx?: ExecutionContext): Promise
     // Отправка сигнала ошибки на healthcheck (эндпоинт /fail с логами)
     if (env.HEALTHCHECK_URL) {
       await pingHealthcheckFail(env.HEALTHCHECK_URL, err, errorMetrics);
+    }
+
+    // Уведомление админа о фатальном сбое
+    try {
+      await checkAndNotifyAdminOutage(env, err?.message || String(err), 0, now);
+    } catch (notifyErr) {
+      console.warn("Failed to notify admin on fatal cron exception:", notifyErr);
     }
 
     throw err;

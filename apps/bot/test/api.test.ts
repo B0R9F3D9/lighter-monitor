@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { fetchLighterAccount, fetchInChunks, shuffleArray, fetchExchangeStats } from "../src/lighter/api";
+import {
+  fetchLighterAccount,
+  fetchInChunks,
+  shuffleArray,
+  fetchExchangeStats,
+} from "../src/lighter/api";
 
 describe("fetchLighterAccount", () => {
   it("should successfully fetch real account 31704 from Robinhood Lighter API", async () => {
@@ -48,7 +53,7 @@ describe("shuffleArray (Anti-Sybil Fisher-Yates)", () => {
 
     expect(original).toEqual(copy); // original is not mutated
     expect(shuffled.length).toBe(original.length);
-    expect([...shuffled].sort((a, b) => a - b)).toEqual(original);
+    expect([...shuffled].toSorted((a, b) => a - b)).toEqual(original);
   });
 
   it("handles empty and single-element arrays gracefully", () => {

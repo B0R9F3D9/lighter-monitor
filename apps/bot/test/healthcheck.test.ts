@@ -4,6 +4,10 @@ import {
   getHealthcheckSuccessUrl,
   pingHealthcheckSuccess,
   pingHealthcheckFail,
+  resolveAdminTelegramIds,
+  checkAndNotifyAdminOutage,
+  checkAndNotifyAdminRecovery,
+  OUTAGE_ALERT_COOLDOWN_SEC,
 } from "../src/utils/healthcheck";
 import { runCronMonitor } from "../src/cron/monitor";
 import { Env } from "../src/types";
@@ -290,6 +294,284 @@ describe("Healthcheck Monitoring Utilities", () => {
       // ...и сохранил запись в bot_system_metrics с ключом last_cron_error
       const errorMetricQuery = d1ExecutedQueries.find((q) => q.query.includes("last_cron_error"));
       expect(errorMetricQuery).toBeDefined();
+    });
+  });
+
+  describe("resolveAdminTelegramIds", () => {
+    it("parses single numeric ID from env.ADMIN_TELEGRAM_ID", async () => {
+      const ids = await resolveAdminTelegramIds(undefined, {
+        ADMIN_TELEGRAM_ID: "123456789",
+      } as any);
+      expect(ids).toEqual([123456789]);
+    });
+
+    it("parses multiple comma-separated IDs and negative supergroup IDs", async () => {
+      const ids = await resolveAdminTelegramIds(undefined, {
+        ADMIN_TELEGRAM_ID: "12345, -100987654321, 67890",
+      } as any);
+      expect(ids).toEqual([12345, -100987654321, 67890]);
+    });
+
+    it("looks up username from users table in DB", async () => {
+      const mockDb: any = {
+        prepare: (_q: string) => ({
+          bind: (username: string) => ({
+            first: async () => (username === "superadmin" ? { telegram_id: 555000 } : null),
+          }),
+        }),
+      };
+      const ids = await resolveAdminTelegramIds(mockDb, {
+        ADMIN_TELEGRAM_ID: "@SuperAdmin",
+      } as any);
+      expect(ids).toEqual([555000]);
+    });
+
+    it("falls back to the first user in DB when env.ADMIN_TELEGRAM_ID is empty", async () => {
+      const mockDb: any = {
+        prepare: (_q: string) => ({
+          first: async () => ({ telegram_id: 777111 }),
+        }),
+      };
+      const ids = await resolveAdminTelegramIds(mockDb, {} as any);
+      expect(ids).toEqual([777111]);
+    });
+  });
+
+  describe("Admin Outage & Recovery Notifications", () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it("sends outage message to admin on first detection and enforces 15-minute cooldown", async () => {
+      const telegramCalls: Array<{ url: string; body: string }> = [];
+      const dbState = new Map<string, string>();
+
+      globalThis.fetch = (async (input: any, init?: any) => {
+        const urlStr = typeof input === "string" ? input : input?.url || String(input);
+        const bodyStr = init?.body
+          ? String(init.body)
+          : input instanceof Request
+            ? await input.clone().text()
+            : "";
+        if (urlStr.includes("api.telegram.org")) {
+          telegramCalls.push({
+            url: urlStr,
+            body: bodyStr,
+          });
+          return new Response(JSON.stringify({ ok: true, result: {} }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("OK");
+      }) as any;
+
+      const createStmtHandler = (q: string, boundParams: any[] = []) => ({
+        bind: (...params: any[]) => createStmtHandler(q, params),
+        first: async () => {
+          if (q.includes("admin_outage_state")) {
+            const val = dbState.get("admin_outage_state");
+            return val ? { value_json: val } : null;
+          }
+          return null;
+        },
+        run: async () => {
+          if (q.includes("admin_outage_state") && boundParams[0]) {
+            dbState.set("admin_outage_state", boundParams[0]);
+          }
+          return { success: true };
+        },
+      });
+
+      const mockDb: any = {
+        prepare: (q: string) => createStmtHandler(q),
+      };
+
+      const env: Env = {
+        DB: mockDb,
+        TELEGRAM_BOT_TOKEN: "mock_tg_token",
+        ADMIN_TELEGRAM_ID: "999000",
+      };
+
+      const now = 1700000000;
+
+      // 1. Первая фиксация сбоя: должно отправиться сообщение в Telegram
+      await checkAndNotifyAdminOutage(
+        env,
+        "Биржа Lighter вернула 429 Too Many Requests на все запросы счетов",
+        5,
+        now,
+      );
+
+      expect(telegramCalls.length).toBe(1);
+      expect(telegramCalls[0]?.body).toContain("999000");
+      expect(telegramCalls[0]?.body).toContain("Сбой API биржи Lighter");
+      expect(telegramCalls[0]?.body).toContain("429");
+
+      // Проверяем, что состояние сохранилось в БД
+      const stateObj = JSON.parse(dbState.get("admin_outage_state")!);
+      expect(stateObj.is_outage).toBe(true);
+      expect(stateObj.rate_limits_count).toBe(5);
+
+      // 2. Повторная фиксация через 1 минуту (< 15 мин): сообщение НЕ должно отправляться повторно
+      await checkAndNotifyAdminOutage(
+        env,
+        "Биржа Lighter вернула 429 Too Many Requests на все запросы счетов",
+        5,
+        now + 60,
+      );
+      expect(telegramCalls.length).toBe(1); // Количество сообщений не изменилось
+
+      // 3. Повторная фиксация через 16 минут (>= 15 мин): должно отправиться напоминание
+      await checkAndNotifyAdminOutage(
+        env,
+        "Биржа Lighter вернула 429 Too Many Requests на все запросы счетов",
+        12,
+        now + OUTAGE_ALERT_COOLDOWN_SEC + 60,
+      );
+      expect(telegramCalls.length).toBe(2);
+      expect(telegramCalls[1]?.body).toContain("Сбой продолжается");
+
+      // 4. Восстановление: должно отправиться уведомление о восстановлении и очиститься статус
+      await checkAndNotifyAdminRecovery(env, now + OUTAGE_ALERT_COOLDOWN_SEC + 120);
+      expect(telegramCalls.length).toBe(3);
+      expect(telegramCalls[2]?.body).toContain("Связь с биржей восстановлена");
+
+      const recoveredState = JSON.parse(dbState.get("admin_outage_state")!);
+      expect(recoveredState.is_outage).toBe(false);
+      expect(recoveredState.recovered_at).toBeGreaterThan(0);
+
+      // 5. Повторный вызов recovery: не должен слать повторных сообщений, так как сбой уже закрыт
+      await checkAndNotifyAdminRecovery(env, now + OUTAGE_ALERT_COOLDOWN_SEC + 200);
+      expect(telegramCalls.length).toBe(3);
+    });
+  });
+
+  describe("runCronMonitor Degradation Handling (429 Rate Limits)", () => {
+    const originalFetch = globalThis.fetch;
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it("sends /fail ping to healthcheck and notifies admin when Lighter returns 429", async () => {
+      const pings: Array<{ url: string; method: string; body: string }> = [];
+      const tgMessages: Array<{ body: string }> = [];
+      const d1ExecutedQueries: Array<{ query: string; params: any[] }> = [];
+
+      globalThis.fetch = (async (input: any, init?: any) => {
+        const urlStr = typeof input === "string" ? input : input?.url || String(input);
+        const bodyStr = init?.body
+          ? String(init.body)
+          : input instanceof Request
+            ? await input.clone().text()
+            : "";
+        if (urlStr.includes("hc-ping.com")) {
+          pings.push({
+            url: urlStr,
+            method: init?.method || "GET",
+            body: bodyStr,
+          });
+          return new Response("OK", { status: 200 });
+        }
+        if (urlStr.includes("api.telegram.org")) {
+          tgMessages.push({
+            body: bodyStr,
+          });
+          return new Response(JSON.stringify({ ok: true, result: {} }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (urlStr.includes("exchangeStats")) {
+          return new Response(JSON.stringify({ code: 200, order_book_stats: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (urlStr.includes("account?by=index")) {
+          // Имитируем ответ Lighter API 429 Too Many Requests
+          return new Response(JSON.stringify({ code: 23000, message: "Too Many Requests!" }), {
+            status: 429,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+      }) as any;
+
+      const createStmt = (query: string, boundParams: any[] = []) => ({
+        bind: (...params: any[]) => createStmt(query, params),
+        run: async () => {
+          d1ExecutedQueries.push({ query, params: boundParams });
+          return { success: true };
+        },
+        first: async () => {
+          d1ExecutedQueries.push({ query, params: boundParams });
+          if (query.includes("admin_outage_state")) {
+            return null;
+          }
+          return null;
+        },
+        all: async () => {
+          d1ExecutedQueries.push({ query, params: boundParams });
+          if (
+            query.includes("account_positions_cache") ||
+            query.includes("getNextAccountsForSync")
+          ) {
+            return {
+              results: [{ network: "rh", account_index: 31704, last_updated_at: 0 }],
+            };
+          }
+          if (query.includes("account_open_positions")) {
+            return { results: [] };
+          }
+          if (query.includes("user_spread_targets")) {
+            return { results: [] };
+          }
+          return { results: [] };
+        },
+      });
+
+      const mockDb: any = {
+        prepare: (query: string) => createStmt(query),
+        batch: async (stmts: any[]) => {
+          for (const s of stmts) {
+            await s.run();
+          }
+          return [];
+        },
+      };
+
+      const env: Env = {
+        DB: mockDb,
+        TELEGRAM_BOT_TOKEN: "mock_tg_token",
+        ADMIN_TELEGRAM_ID: "999111",
+        HEALTHCHECK_URL: "https://hc-ping.com/my-cron-check",
+      };
+
+      // Выполняем тик мониторинга
+      await runCronMonitor(env);
+
+      // Проверяем, что Healthchecks.io получил /fail (а не успех!)
+      expect(pings.length).toBeGreaterThan(0);
+      const failPing = pings.find((p) => p.url.endsWith("/fail"));
+      expect(failPing).toBeDefined();
+      expect(failPing?.body).toContain("429 Too Many Requests");
+
+      // Проверяем, что админу пришло уведомление в Telegram о блокировке
+      expect(tgMessages.length).toBeGreaterThan(0);
+      expect(tgMessages[0]?.body).toContain("999111");
+      expect(tgMessages[0]?.body).toContain("Сбой API биржи Lighter");
+      expect(tgMessages[0]?.body).toContain("Рейт-лимиты (429)");
+
+      // Проверяем, что в D1 записалась ошибка cron_degraded
+      const errorSave = d1ExecutedQueries.find(
+        (q) =>
+          q.query.includes("last_cron_error") && JSON.stringify(q.params).includes("cron_degraded"),
+      );
+      expect(errorSave).toBeDefined();
     });
   });
 });

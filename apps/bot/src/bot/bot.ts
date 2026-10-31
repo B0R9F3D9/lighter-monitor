@@ -226,16 +226,22 @@ async function renderAdminDashboard(env: Env): Promise<string> {
     const cronAgoSec = nowSec - c.timestamp;
     const cronAgoText =
       cronAgoSec < 60 ? `${cronAgoSec} сек назад` : `${Math.round(cronAgoSec / 60)} мин назад`;
+    const rateLimitPart =
+      c.rate_limits_count && c.rate_limits_count > 0
+        ? `\n  • ⚠️ <b>Рейт-лимиты (429):</b> <b>${c.rate_limits_count}</b>`
+        : "";
     cronSection +=
       `⚙️ <b>Последний тик (${cronAgoText}):</b>\n` +
       `  • Длительность: <b>${c.duration_ms} мс</b> | Subrequests: <b>${c.subrequests_used} / 50</b>\n` +
       `  • Проверено поз: <b>${c.total_positions_checked}</b> (JIT: <b>${c.jit_checks_performed}</b>)\n` +
-      `  • Алертов: <b>${c.alerts_sent}</b> | Спредов: <b>${c.spread_alerts_sent ?? 0}</b>\n\n`;
+      `  • Алертов: <b>${c.alerts_sent}</b> | Спредов: <b>${c.spread_alerts_sent ?? 0}</b>${rateLimitPart}\n\n`;
   }
 
   if (
     stats.lastCronError &&
-    (!stats.lastCron || stats.lastCronError.timestamp >= stats.lastCron.timestamp)
+    (!stats.lastCron ||
+      stats.lastCronError.timestamp >= stats.lastCron.timestamp ||
+      stats.lastCron?.is_degraded)
   ) {
     const errAgoSec = nowSec - stats.lastCronError.timestamp;
     const errAgoText =
@@ -245,10 +251,13 @@ async function renderAdminDashboard(env: Env): Promise<string> {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
+    const rateLimitNote = stats.lastCronError.rate_limits_count
+      ? ` | 429: <b>${stats.lastCronError.rate_limits_count}</b>`
+      : "";
     cronSection +=
-      `⚠️ <b>Сбой в последнем тике (${errAgoText}):</b>\n` +
+      `⚠️ <b>Сбой / деградация (${errAgoText}):</b>\n` +
       `  • Ошибка: <code>${safeErr}</code>\n` +
-      `  • Длительность: <b>${stats.lastCronError.duration_ms} мс</b>\n\n`;
+      `  • Длительность: <b>${stats.lastCronError.duration_ms} мс</b>${rateLimitNote}\n\n`;
   }
 
   const hasAuth = Boolean(

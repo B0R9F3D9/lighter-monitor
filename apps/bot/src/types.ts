@@ -240,6 +240,9 @@ export interface CronExecutionMetrics {
   spread_alerts_sent?: number;
   zombies_cleaned: number;
   timestamp: number;
+  rate_limits_count?: number;
+  is_degraded?: boolean;
+  degraded_reason?: string;
 }
 
 export interface CronErrorMetrics {
@@ -249,6 +252,7 @@ export interface CronErrorMetrics {
   duration_ms: number;
   subrequests_used: number;
   timestamp: number;
+  rate_limits_count?: number;
 }
 
 export interface Cron24hStats {
