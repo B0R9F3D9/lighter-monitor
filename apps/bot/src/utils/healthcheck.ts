@@ -212,7 +212,7 @@ export async function resolveAdminTelegramIds(db?: D1Database, env?: Env): Promi
   return Array.from(ids);
 }
 
-export const OUTAGE_ALERT_COOLDOWN_SEC = 900; // 15 минут между повторными уведомлениями об аварии
+export const OUTAGE_ALERT_COOLDOWN_SEC = 300; // 5 минут между повторными уведомлениями об аварии
 
 export interface AdminOutageState {
   is_outage: boolean;
@@ -220,11 +220,112 @@ export interface AdminOutageState {
   last_alerted_at: number;
   reason: string;
   rate_limits_count: number;
+  recovered_at?: number;
+  duration_min?: number;
+  last_reason?: string;
+}
+
+let memoryOutageState: AdminOutageState | null = null;
+let isAlertingInProgress = false;
+
+export function resetAdminOutageState(): void {
+  memoryOutageState = null;
+  isAlertingInProgress = false;
+}
+
+export function getMemoryAdminOutageState(): AdminOutageState | null {
+  return memoryOutageState;
+}
+
+const OUTAGE_CACHE_URL = "https://lighter-monitor-internal.local/admin_outage_state";
+
+async function readCachedOutageState(): Promise<AdminOutageState | null> {
+  try {
+    if (typeof caches !== "undefined" && (caches as any)?.default) {
+      const cache = (caches as any).default;
+      const res = await cache.match(OUTAGE_CACHE_URL);
+      if (res && res.ok) {
+        return (await res.json()) as AdminOutageState;
+      }
+    }
+  } catch {
+    // Cache not available or unsupported in current environment
+  }
+  return null;
+}
+
+async function writeCachedOutageState(state: AdminOutageState, ttlSec: number): Promise<void> {
+  try {
+    if (typeof caches !== "undefined" && (caches as any)?.default) {
+      const cache = (caches as any).default;
+      const req = new Request(OUTAGE_CACHE_URL);
+      const res = new Response(JSON.stringify(state), {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": `public, max-age=${Math.max(60, ttlSec)}`,
+        },
+      });
+      await cache.put(req, res);
+    }
+  } catch {
+    // Cache write failed or unsupported
+  }
+}
+
+export async function resolveCurrentOutageState(env: Env): Promise<AdminOutageState | null> {
+  let dbState: AdminOutageState | null = null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare(
+        "SELECT value_json FROM bot_system_metrics WHERE key = 'admin_outage_state' LIMIT 1",
+      ).first<{ value_json: string }>();
+      if (row?.value_json) {
+        dbState = JSON.parse(row.value_json) as AdminOutageState;
+      }
+    } catch (err) {
+      console.warn("[Healthcheck] Failed to read admin_outage_state from DB:", err);
+    }
+  }
+
+  const cacheState = await readCachedOutageState();
+  const memState = memoryOutageState;
+
+  if (!dbState && !cacheState && !memState) {
+    return null;
+  }
+
+  const states = [dbState, cacheState, memState].filter((s): s is AdminOutageState => s !== null);
+
+  // States that represent an active outage (not closed by a subsequent recovery)
+  const activeStates = states.filter(
+    (s) => s.is_outage && (!s.recovered_at || s.recovered_at <= (s.last_alerted_at || 0)),
+  );
+
+  const isOutage = activeStates.length > 0;
+  const latestAlertedAt = Math.max(0, ...states.map((s) => s.last_alerted_at || 0));
+
+  const detectedCandidates = activeStates
+    .map((s) => s.first_detected_at)
+    .filter((t): t is number => typeof t === "number" && t > 0);
+  const firstDetectedAt = detectedCandidates.length > 0 ? Math.min(...detectedCandidates) : 0;
+
+  const latestRecovery = Math.max(0, ...states.map((s) => s.recovered_at || 0));
+  const primaryState = activeStates[0] || states[0];
+
+  return {
+    is_outage: isOutage,
+    first_detected_at: firstDetectedAt,
+    last_alerted_at: latestAlertedAt,
+    reason: primaryState?.reason || "",
+    rate_limits_count: primaryState?.rate_limits_count || 0,
+    recovered_at: latestRecovery > 0 ? latestRecovery : undefined,
+  };
 }
 
 /**
  * Checks outage status and alerts administrators via Telegram if degradation is detected.
- * Enforces a 15-minute cooldown between repeated alerts to prevent spam during long outages.
+ * Enforces a 5-minute cooldown between repeated alerts to prevent spam during long outages,
+ * even when the database encounters write failures (e.g. D1 quota exhaustion).
  */
 export async function checkAndNotifyAdminOutage(
   env: Env,
@@ -234,19 +335,12 @@ export async function checkAndNotifyAdminOutage(
 ): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN) return;
 
-  let currentState: AdminOutageState | null = null;
-  if (env.DB) {
-    try {
-      const row = await env.DB.prepare(
-        "SELECT value_json FROM bot_system_metrics WHERE key = 'admin_outage_state' LIMIT 1",
-      ).first<{ value_json: string }>();
-      if (row?.value_json) {
-        currentState = JSON.parse(row.value_json) as AdminOutageState;
-      }
-    } catch (err) {
-      console.warn("[Healthcheck] Failed to read admin_outage_state from DB:", err);
-    }
+  // Immediate guard against concurrent executions in the same tick
+  if (isAlertingInProgress) {
+    return;
   }
+
+  const currentState = await resolveCurrentOutageState(env);
 
   const isNewOutage = !currentState || !currentState.is_outage;
   const shouldAlert =
@@ -256,64 +350,83 @@ export async function checkAndNotifyAdminOutage(
     return;
   }
 
-  const adminIds = await resolveAdminTelegramIds(env.DB, env);
-  if (adminIds.length === 0) {
-    console.warn("[Healthcheck] No admin Telegram ID resolved to send outage alert");
+  // Double-check lock before initiating network side-effects
+  if (isAlertingInProgress) {
     return;
   }
+  isAlertingInProgress = true;
 
-  const firstDetectedAt = isNewOutage ? nowSec : (currentState?.first_detected_at ?? nowSec);
-  const outageDurationMin = Math.round((nowSec - firstDetectedAt) / 60);
+  const firstDetectedAt = isNewOutage ? nowSec : currentState?.first_detected_at || nowSec;
 
-  let message: string;
-  if (isNewOutage) {
-    message =
-      `🚨 <b>Внимание: Сбой API биржи Lighter</b>\n\n` +
-      `Обнаружены проблемы при выполнении планового мониторинга:\n` +
-      `• <b>Причина:</b> ${escapeHtml(reason)}\n` +
-      `• <b>Рейт-лимиты (429):</b> <b>${rateLimitsCount}</b>\n` +
-      `• <b>Healthcheck:</b> Отправлен сигнал <code>/fail</code>\n\n` +
-      `<i>Бот переведён в защитный режим с кэшированными данными до восстановления связи.</i>`;
-  } else {
-    message =
-      `⚠️ <b>Lighter Monitor: Сбой продолжается (~${outageDurationMin} мин)</b>\n\n` +
-      `• <b>Причина:</b> ${escapeHtml(reason)}\n` +
-      `• <b>Рейт-лимиты (429):</b> <b>${rateLimitsCount}</b>\n` +
-      `• <b>Healthcheck:</b> Статус <code>/fail</code> остаётся активным\n\n` +
-      `<i>Повторное уведомление (кулдаун 15 минут).</i>`;
-  }
+  const newState: AdminOutageState = {
+    is_outage: true,
+    first_detected_at: firstDetectedAt,
+    last_alerted_at: nowSec,
+    reason,
+    rate_limits_count: rateLimitsCount,
+  };
 
-  const api = new Api(env.TELEGRAM_BOT_TOKEN, {
-    fetch: (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init),
-  });
-  for (const adminId of adminIds) {
-    try {
-      await api.sendMessage(adminId, message, { parse_mode: "HTML" });
-    } catch (err) {
-      console.error(`[Healthcheck] Failed to send outage alert to admin ${adminId}:`, err);
+  // Persist to in-memory state and cache immediately so interleaving ticks or retries are throttled
+  memoryOutageState = newState;
+  await writeCachedOutageState(newState, OUTAGE_ALERT_COOLDOWN_SEC * 2);
+
+  try {
+    const adminIds = await resolveAdminTelegramIds(env.DB, env);
+    if (adminIds.length === 0) {
+      console.warn("[Healthcheck] No admin Telegram ID resolved to send outage alert");
+      return;
     }
-  }
 
-  if (env.DB) {
-    const newState: AdminOutageState = {
-      is_outage: true,
-      first_detected_at: firstDetectedAt,
-      last_alerted_at: nowSec,
-      reason,
-      rate_limits_count: rateLimitsCount,
-    };
+    const outageDurationMin = Math.round((nowSec - firstDetectedAt) / 60);
+    const cooldownMin = Math.round(OUTAGE_ALERT_COOLDOWN_SEC / 60);
 
-    try {
-      await env.DB.prepare(`
-        INSERT INTO bot_system_metrics (key, value_json, updated_at)
-        VALUES ('admin_outage_state', ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-      `)
-        .bind(JSON.stringify(newState), nowSec)
-        .run();
-    } catch (err) {
-      console.error("[Healthcheck] Failed to persist admin_outage_state:", err);
+    let message: string;
+    if (isNewOutage) {
+      message =
+        `🚨 <b>Внимание: Сбой API биржи Lighter</b>\n\n` +
+        `Обнаружены проблемы при выполнении планового мониторинга:\n` +
+        `• <b>Причина:</b> ${escapeHtml(reason)}\n` +
+        `• <b>Рейт-лимиты (429):</b> <b>${rateLimitsCount}</b>\n` +
+        `• <b>Healthcheck:</b> Отправлен сигнал <code>/fail</code>\n\n` +
+        `<i>Бот переведён в защитный режим с кэшированными данными до восстановления связи.</i>`;
+    } else {
+      message =
+        `⚠️ <b>Lighter Monitor: Сбой продолжается (~${outageDurationMin} мин)</b>\n\n` +
+        `• <b>Причина:</b> ${escapeHtml(reason)}\n` +
+        `• <b>Рейт-лимиты (429):</b> <b>${rateLimitsCount}</b>\n` +
+        `• <b>Healthcheck:</b> Статус <code>/fail</code> остаётся активным\n\n` +
+        `<i>Повторное уведомление (кулдаун ${cooldownMin} минут).</i>`;
     }
+
+    const api = new Api(env.TELEGRAM_BOT_TOKEN, {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) => globalThis.fetch(input, init),
+    });
+    for (const adminId of adminIds) {
+      try {
+        await api.sendMessage(adminId, message, { parse_mode: "HTML" });
+      } catch (err) {
+        console.error(`[Healthcheck] Failed to send outage alert to admin ${adminId}:`, err);
+      }
+    }
+
+    if (env.DB) {
+      try {
+        await env.DB.prepare(`
+          INSERT INTO bot_system_metrics (key, value_json, updated_at)
+          VALUES ('admin_outage_state', ?, ?)
+          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+        `)
+          .bind(JSON.stringify(newState), nowSec)
+          .run();
+      } catch (err) {
+        console.warn(
+          "[Healthcheck] Failed to persist admin_outage_state to DB (in-memory & cache cooldown preserved):",
+          err,
+        );
+      }
+    }
+  } finally {
+    isAlertingInProgress = false;
   }
 }
 
@@ -321,20 +434,9 @@ export async function checkAndNotifyAdminOutage(
  * Checks if the exchange recovered from an active outage and notifies administrators via Telegram.
  */
 export async function checkAndNotifyAdminRecovery(env: Env, nowSec: number): Promise<void> {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.DB) return;
+  if (!env.TELEGRAM_BOT_TOKEN) return;
 
-  let currentState: AdminOutageState | null = null;
-  try {
-    const row = await env.DB.prepare(
-      "SELECT value_json FROM bot_system_metrics WHERE key = 'admin_outage_state' LIMIT 1",
-    ).first<{ value_json: string }>();
-    if (row?.value_json) {
-      currentState = JSON.parse(row.value_json) as AdminOutageState;
-    }
-  } catch (err) {
-    console.warn("[Healthcheck] Failed to read admin_outage_state for recovery check:", err);
-  }
-
+  const currentState = await resolveCurrentOutageState(env);
   if (!currentState || !currentState.is_outage) {
     return; // Нет активного сбоя
   }
@@ -365,23 +467,30 @@ export async function checkAndNotifyAdminRecovery(env: Env, nowSec: number): Pro
     }
   }
 
-  const recoveredState = {
+  const recoveredState: AdminOutageState = {
     is_outage: false,
     first_detected_at: currentState.first_detected_at,
+    last_alerted_at: currentState.last_alerted_at,
     recovered_at: nowSec,
     duration_min: outageDurationMin,
-    last_reason: currentState.reason,
+    reason: currentState.reason,
+    rate_limits_count: 0,
   };
 
-  try {
-    await env.DB.prepare(`
-      INSERT INTO bot_system_metrics (key, value_json, updated_at)
-      VALUES ('admin_outage_state', ?, ?)
-      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-    `)
-      .bind(JSON.stringify(recoveredState), nowSec)
-      .run();
-  } catch (err) {
-    console.error("[Healthcheck] Failed to update recovered admin_outage_state:", err);
+  memoryOutageState = recoveredState;
+  await writeCachedOutageState(recoveredState, OUTAGE_ALERT_COOLDOWN_SEC * 2);
+
+  if (env.DB) {
+    try {
+      await env.DB.prepare(`
+        INSERT INTO bot_system_metrics (key, value_json, updated_at)
+        VALUES ('admin_outage_state', ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+      `)
+        .bind(JSON.stringify(recoveredState), nowSec)
+        .run();
+    } catch (err) {
+      console.error("[Healthcheck] Failed to update recovered admin_outage_state in DB:", err);
+    }
   }
 }

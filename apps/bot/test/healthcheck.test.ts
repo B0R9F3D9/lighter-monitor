@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   getHealthcheckFailUrl,
   getHealthcheckSuccessUrl,
@@ -8,11 +8,19 @@ import {
   checkAndNotifyAdminOutage,
   checkAndNotifyAdminRecovery,
   OUTAGE_ALERT_COOLDOWN_SEC,
+  resetAdminOutageState,
 } from "../src/utils/healthcheck";
 import { runCronMonitor } from "../src/cron/monitor";
 import { Env } from "../src/types";
 
 describe("Healthcheck Monitoring Utilities", () => {
+  beforeEach(() => {
+    resetAdminOutageState();
+  });
+
+  afterEach(() => {
+    resetAdminOutageState();
+  });
   describe("getHealthcheckFailUrl", () => {
     it("appends /fail to clean URL", () => {
       expect(getHealthcheckFailUrl("https://hc-ping.com/12345")).toBe(
@@ -424,7 +432,7 @@ describe("Healthcheck Monitoring Utilities", () => {
       );
       expect(telegramCalls.length).toBe(1); // Количество сообщений не изменилось
 
-      // 3. Повторная фиксация через 16 минут (>= 15 мин): должно отправиться напоминание
+      // 3. Повторная фиксация через 6 минут (>= 5 мин): должно отправиться напоминание
       await checkAndNotifyAdminOutage(
         env,
         "Биржа Lighter вернула 429 Too Many Requests на все запросы счетов",
@@ -433,6 +441,7 @@ describe("Healthcheck Monitoring Utilities", () => {
       );
       expect(telegramCalls.length).toBe(2);
       expect(telegramCalls[1]?.body).toContain("Сбой продолжается");
+      expect(telegramCalls[1]?.body).toContain("кулдаун 5 минут");
 
       // 4. Восстановление: должно отправиться уведомление о восстановлении и очиститься статус
       await checkAndNotifyAdminRecovery(env, now + OUTAGE_ALERT_COOLDOWN_SEC + 120);
@@ -446,6 +455,156 @@ describe("Healthcheck Monitoring Utilities", () => {
       // 5. Повторный вызов recovery: не должен слать повторных сообщений, так как сбой уже закрыт
       await checkAndNotifyAdminRecovery(env, now + OUTAGE_ALERT_COOLDOWN_SEC + 200);
       expect(telegramCalls.length).toBe(3);
+    });
+
+    it("reliably throttles repeated alerts even if D1 write fails with quota exceeded error", async () => {
+      const telegramCalls: Array<{ url: string; body: string }> = [];
+
+      globalThis.fetch = (async (input: any, init?: any) => {
+        const urlStr = typeof input === "string" ? input : input?.url || String(input);
+        const bodyStr = init?.body
+          ? String(init.body)
+          : input instanceof Request
+            ? await input.clone().text()
+            : "";
+        if (urlStr.includes("api.telegram.org")) {
+          telegramCalls.push({
+            url: urlStr,
+            body: bodyStr,
+          });
+          return new Response(JSON.stringify({ ok: true, result: {} }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("OK");
+      }) as any;
+
+      // DB throws write quota error on every INSERT/UPDATE (simulating Cloudflare D1 daily row limit)
+      const mockFailingDb: any = {
+        prepare: (q: string) => ({
+          bind: (..._params: any[]) => mockFailingDb.prepare(q),
+          first: async () => {
+            // DB reads still work, but return null because writes never succeeded
+            return null;
+          },
+          run: async () => {
+            throw new Error(
+              "D1_ERROR: Your account has exceeded D1's free tier daily row write limit.",
+            );
+          },
+        }),
+      };
+
+      const env: Env = {
+        DB: mockFailingDb,
+        TELEGRAM_BOT_TOKEN: "mock_tg_token",
+        ADMIN_TELEGRAM_ID: "999000",
+      };
+
+      const now = 1700000000;
+
+      // 1. Первый сбой: отправляется первичное уведомление
+      await checkAndNotifyAdminOutage(
+        env,
+        "D1_ERROR: Your account has exceeded D1's free tier daily row write limit.",
+        0,
+        now,
+      );
+      expect(telegramCalls.length).toBe(1);
+      expect(telegramCalls[0]?.body).toContain("Сбой API биржи Lighter");
+
+      // 2. Тики каждую минуту в течение кулдауна (минуты 1..4): НЕ ДОЛЖНЫ отправлять спам
+      await checkAndNotifyAdminOutage(
+        env,
+        "D1_ERROR: Your account has exceeded D1's free tier daily row write limit.",
+        0,
+        now + 60,
+      );
+      await checkAndNotifyAdminOutage(
+        env,
+        "D1_ERROR: Your account has exceeded D1's free tier daily row write limit.",
+        0,
+        now + 120,
+      );
+      await checkAndNotifyAdminOutage(
+        env,
+        "D1_ERROR: Your account has exceeded D1's free tier daily row write limit.",
+        0,
+        now + 240,
+      );
+      expect(telegramCalls.length).toBe(1); // До сих пор 1 сообщение!
+
+      // 3. Ровно через 5 минут (кулдаун 300 сек): должно отправиться повторное напоминание
+      await checkAndNotifyAdminOutage(
+        env,
+        "D1_ERROR: Your account has exceeded D1's free tier daily row write limit.",
+        0,
+        now + 300,
+      );
+      expect(telegramCalls.length).toBe(2);
+      expect(telegramCalls[1]?.body).toContain("Сбой продолжается (~5 мин)");
+      expect(telegramCalls[1]?.body).toContain("кулдаун 5 минут");
+
+      // 4. Через 6 минут: снова заблокировано троттлингом
+      await checkAndNotifyAdminOutage(
+        env,
+        "D1_ERROR: Your account has exceeded D1's free tier daily row write limit.",
+        0,
+        now + 360,
+      );
+      expect(telegramCalls.length).toBe(2);
+    });
+
+    it("prevents duplicate messages from concurrent executions in the same tick", async () => {
+      const telegramCalls: Array<{ url: string; body: string }> = [];
+
+      globalThis.fetch = (async (input: any, init?: any) => {
+        const urlStr = typeof input === "string" ? input : input?.url || String(input);
+        const bodyStr = init?.body
+          ? String(init.body)
+          : input instanceof Request
+            ? await input.clone().text()
+            : "";
+        if (urlStr.includes("api.telegram.org")) {
+          telegramCalls.push({
+            url: urlStr,
+            body: bodyStr,
+          });
+          return new Response(JSON.stringify({ ok: true, result: {} }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("OK");
+      }) as any;
+
+      const env: Env = {
+        DB: {
+          prepare: (_q: string) => ({
+            bind: (..._params: any[]) => ({
+              run: async () => ({ success: true }),
+              first: async () => null,
+            }),
+            run: async () => ({ success: true }),
+            first: async () => null,
+          }),
+        } as any,
+        TELEGRAM_BOT_TOKEN: "mock_tg_token",
+        ADMIN_TELEGRAM_ID: "999000",
+      };
+
+      const now = 1700000000;
+
+      // Запускаем 3 одновременных вызова (например, Cloudflare Cron + внешний триггер /api/cron + повтор)
+      await Promise.all([
+        checkAndNotifyAdminOutage(env, "Network timeout", 0, now),
+        checkAndNotifyAdminOutage(env, "Network timeout", 0, now),
+        checkAndNotifyAdminOutage(env, "Network timeout", 0, now),
+      ]);
+
+      // Должно отправиться ровно 1 сообщение без дублей!
+      expect(telegramCalls.length).toBe(1);
     });
   });
 
