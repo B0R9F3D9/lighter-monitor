@@ -137,9 +137,42 @@ export function formatAlertMuteStatus(mutedUntil: number, nowSec: number): strin
   return `🔕 Заглушены (еще ${remainingMinutes}м)`;
 }
 
-function formatThreshold(val: number): string {
+export function formatThreshold(val: number): string {
   const str = Number(val.toFixed(4)).toString();
   return str.includes(".") ? str : `${str}.0`;
+}
+
+export function getSpikeSettingsKeyboard(
+  currentThreshold: number,
+  isMuted: boolean,
+): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  const presets = CONFIG.SPIKE_DEFAULT_PERCENT_PRESETS;
+  for (let i = 0; i < presets.length; i++) {
+    const p = presets[i]!;
+    const label = Math.abs(p - currentThreshold) < 0.001 ? `✅ ${p}%` : `${p}%`;
+    kb.text(label, `set_thresh_${p}`);
+    if (i === 2) kb.row();
+  }
+  kb.row();
+  const isCustom = !presets.some((p) => Math.abs(p - currentThreshold) < 0.001);
+  const customLabel = isCustom
+    ? `✏️ Свой % (сейчас ${formatThreshold(currentThreshold)}%)`
+    : `✏️ Ввести свой %`;
+  kb.text(customLabel, "custom_threshold").row();
+
+  if (isMuted) {
+    kb.text("🔔 Включить спайки", "cfg_mute_spikes:0").row();
+  }
+  kb.text("🔕 1ч", "cfg_mute_spikes:3600")
+    .text("🔕 4ч", "cfg_mute_spikes:14400")
+    .text("🔕 24ч", "cfg_mute_spikes:86400")
+    .row()
+    .text("⏸ Выключить (до включения)", "cfg_mute_spikes:forever")
+    .row()
+    .text("« Назад в настройки", "cfg_main");
+
+  return kb;
 }
 
 export function getStatsKeyboard(): InlineKeyboard {
@@ -1873,35 +1906,11 @@ export function getBot(env: Env): Bot {
       `⚡️ <b>Настройки алертов спайков цен</b>\n\n` +
       `Отслеживание резких движений цены по открытым позициям аккаунтов.\n\n` +
       `🎯 <b>Текущий шаг цены:</b> <b>±${formatThreshold(settings.alertThreshold)}%</b>\n` +
-      `<i>(Для золота XAU на плече 15–25x рекомендуется 0.3%–0.5%)</i>\n\n` +
+      `<i>(На плече 15–25x рекомендуется 0.1%–0.3%)</i>\n\n` +
       `🔔 <b>Статус уведомлений:</b> <b>${formatAlertMuteStatus(mutedUntil, nowSec)}</b>\n\n` +
       `Выберите шаг цены или режим сна:`;
 
-    const kb = new InlineKeyboard();
-    const presets = [0.3, 0.5, 0.8, 1.0, 1.5, 2.0];
-    for (let i = 0; i < presets.length; i++) {
-      const p = presets[i]!;
-      const label = Math.abs(p - settings.alertThreshold) < 0.001 ? `✅ ${p}%` : `${p}%`;
-      kb.text(label, `set_thresh_${p}`);
-      if (i === 2) kb.row();
-    }
-    kb.row();
-    const isCustom = !presets.some((p) => Math.abs(p - settings.alertThreshold) < 0.001);
-    const customLabel = isCustom
-      ? `✏️ Свой % (сейчас ${formatThreshold(settings.alertThreshold)}%)`
-      : `✏️ Ввести свой %`;
-    kb.text(customLabel, "custom_threshold").row();
-
-    if (isMuted) {
-      kb.text("🔔 Включить спайки", "cfg_mute_spikes:0").row();
-    }
-    kb.text("🔕 1ч", "cfg_mute_spikes:3600")
-      .text("🔕 4ч", "cfg_mute_spikes:14400")
-      .text("🔕 24ч", "cfg_mute_spikes:86400")
-      .row()
-      .text("⏸ Выключить (до включения)", "cfg_mute_spikes:forever")
-      .row()
-      .text("« Назад в настройки", "cfg_main");
+    const kb = getSpikeSettingsKeyboard(settings.alertThreshold, isMuted);
 
     if (isEdit) {
       try {

@@ -205,6 +205,40 @@ describe("Wizard State & Settings Logic", () => {
       expect(json).toContain("🔄 Обновить");
       expect(json).toContain("refresh_stats");
     });
+
+    it("creates spike alert settings keyboard with 0.1, 0.15, 0.2, 0.25, 0.3 percent presets", () => {
+      const { getSpikeSettingsKeyboard } = require("../src/bot/bot");
+      const kb = getSpikeSettingsKeyboard(0.15, false);
+
+      // Check rows:
+      // Row 0: 3 preset buttons (0.1%, 0.15%, 0.2%)
+      expect(kb.inline_keyboard[0].length).toBe(3);
+      expect(kb.inline_keyboard[0][0].text).toBe("0.1%");
+      expect(kb.inline_keyboard[0][0].callback_data).toBe("set_thresh_0.1");
+      expect(kb.inline_keyboard[0][1].text).toBe("✅ 0.15%");
+      expect(kb.inline_keyboard[0][1].callback_data).toBe("set_thresh_0.15");
+      expect(kb.inline_keyboard[0][2].text).toBe("0.2%");
+      expect(kb.inline_keyboard[0][2].callback_data).toBe("set_thresh_0.2");
+
+      // Row 1: 2 preset buttons (0.25%, 0.3%)
+      expect(kb.inline_keyboard[1].length).toBe(2);
+      expect(kb.inline_keyboard[1][0].text).toBe("0.25%");
+      expect(kb.inline_keyboard[1][0].callback_data).toBe("set_thresh_0.25");
+      expect(kb.inline_keyboard[1][1].text).toBe("0.3%");
+      expect(kb.inline_keyboard[1][1].callback_data).toBe("set_thresh_0.3");
+
+      // Row 2: Custom threshold button
+      expect(kb.inline_keyboard[2].length).toBe(1);
+      expect(kb.inline_keyboard[2][0].text).toBe("✏️ Ввести свой %");
+      expect(kb.inline_keyboard[2][0].callback_data).toBe("custom_threshold");
+
+      // When threshold is custom (not in presets):
+      const customKb = getSpikeSettingsKeyboard(0.5, true);
+      expect(customKb.inline_keyboard[2][0].text).toBe("✏️ Свой % (сейчас 0.5%)");
+      // Muted row should be present
+      expect(customKb.inline_keyboard[3][0].text).toBe("🔔 Включить спайки");
+      expect(customKb.inline_keyboard[3][0].callback_data).toBe("cfg_mute_spikes:0");
+    });
   });
 
   describe("Unified Settings Mute Durations (Spikes, Targets, All)", () => {

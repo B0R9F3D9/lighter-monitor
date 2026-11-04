@@ -30,9 +30,10 @@ export const CONFIG = {
   FETCH_TIMEOUT_MS: 5000,
 
   // Пороги рисков
-  DEFAULT_ALERT_THRESHOLD: 0.5, // По умолчанию 0.5% (оптимум для XAU и плеча 15-25x)
+  DEFAULT_ALERT_THRESHOLD: 0.5, // По умолчанию 0.5% (на плече 15-25x рекомендуется 0.1%-0.3%)
   MIN_ALERT_THRESHOLD: 0.1,
   MAX_ALERT_THRESHOLD: 50.0,
+  SPIKE_DEFAULT_PERCENT_PRESETS: [0.1, 0.15, 0.2, 0.25, 0.3] as const,
   CLEARANCE_MULTIPLIER: 1.3, // Сброс алерта при уходе цены на 30% выше порога
   ALERT_COOLDOWN_SECONDS: 180, // 3 минуты базовый кулдаун
 
