@@ -32,6 +32,8 @@ export default defineConfig({
               req.url = "/analytics.html" + (search ? `?${search}` : "");
             } else if (pathname === "/spread") {
               req.url = "/spread.html" + (search ? `?${search}` : "");
+            } else if (pathname === "/calculator") {
+              req.url = "/calculator.html" + (search ? `?${search}` : "");
             } else if (pathname === "/checker") {
               req.url = "/checker.html" + (search ? `?${search}` : "");
             }
@@ -55,6 +57,7 @@ export default defineConfig({
         index: path.resolve(import.meta.dirname, "app/index.html"),
         spread: path.resolve(import.meta.dirname, "app/spread.html"),
         analytics: path.resolve(import.meta.dirname, "app/analytics.html"),
+        calculator: path.resolve(import.meta.dirname, "app/calculator.html"),
         checker: path.resolve(import.meta.dirname, "app/checker.html"),
       },
     },

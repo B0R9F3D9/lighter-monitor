@@ -7,3 +7,5 @@ export * from "./version_checker";
 export * from "./ws";
 export * from "./orderbook";
 export * from "./mobile_nav";
+export * from "./market_pairs";
+export * from "./market_modal";

@@ -108,6 +108,11 @@
                 >Analytics</a
               >
               <a
+                href="/calculator"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
+                >Calculator</a
+              >
+              <a
                 href="/checker"
                 class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
                 >Checker</a
@@ -187,27 +192,34 @@
           >
             Navigation
           </div>
-          <div class="grid grid-cols-3 gap-1.5 font-mono text-xs">
+          <div class="grid grid-cols-4 gap-1 font-mono text-xs">
             <a
               href="/spread"
-              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+              class="flex items-center justify-center gap-1 px-1.5 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
             >
               <span class="w-1.5 h-1.5 rounded-full bg-terminal-emerald shrink-0"></span>
-              <span class="font-bold">Spread</span>
+              <span class="font-bold text-[11px] sm:text-xs">Spread</span>
             </a>
             <a
               href="/analytics"
-              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+              class="flex items-center justify-center gap-1 px-1.5 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
             >
               <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent shrink-0"></span>
-              <span class="font-bold">Analytics</span>
+              <span class="font-bold text-[11px] sm:text-xs">Analytics</span>
+            </a>
+            <a
+              href="/calculator"
+              class="flex items-center justify-center gap-1 px-1.5 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-purple shrink-0"></span>
+              <span class="font-bold text-[11px] sm:text-xs">Calculator</span>
             </a>
             <a
               href="/checker"
-              class="flex items-center justify-center gap-1.5 px-2 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+              class="flex items-center justify-center gap-1 px-1.5 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
             >
               <span class="w-1.5 h-1.5 rounded-full bg-terminal-amber shrink-0"></span>
-              <span class="font-bold">Checker</span>
+              <span class="font-bold text-[11px] sm:text-xs">Checker</span>
             </a>
           </div>
         </div>
@@ -241,7 +253,7 @@
 
     <!-- MAIN VIEWPORT: TERMINAL WORKSPACE SELECTOR -->
     <main
-      class="max-w-4xl mx-auto px-4 py-8 sm:py-16 w-full flex-1 flex flex-col justify-center space-y-6 select-text"
+      class="max-w-6xl mx-auto px-4 py-8 sm:py-14 w-full flex-1 flex flex-col justify-center space-y-6 select-text"
     >
       <!-- Title & Concept Brief -->
       <div class="text-center space-y-2 select-text">
@@ -260,7 +272,7 @@
       </div>
 
       <!-- WORKSPACE CARDS GRID -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 select-text">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 select-text">
         <!-- 1. Spread Monitor Workspace -->
         <a
           href="/spread"
@@ -389,7 +401,71 @@
           </div>
         </a>
 
-        <!-- 3. Trade History Checker Workspace -->
+        <!-- 3. Trade Calculator Workspace -->
+        <a
+          href="/calculator"
+          id="hubCardCalculator"
+          class="group relative bg-terminal-surface hover:bg-terminal-surfaceHover border border-terminal-border hover:border-terminal-purple transition-all duration-150 rounded p-5 flex flex-col justify-between space-y-4 no-underline cursor-pointer select-text shadow-sm hover:shadow-md"
+        >
+          <div class="space-y-3 select-text">
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-terminal-purple"></span>
+                <span class="text-[10px] font-bold text-terminal-purple uppercase tracking-wider"
+                  >Position Sizing</span
+                >
+              </div>
+              <kbd
+                class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-[10px] text-terminal-muted group-hover:text-white group-hover:border-terminal-muted transition font-mono"
+                >3</kbd
+              >
+            </div>
+
+            <div>
+              <h2
+                class="text-base font-bold text-white group-hover:text-terminal-purple transition flex items-center gap-1.5 select-text"
+              >
+                <span>Calculator</span>
+                <span
+                  class="text-terminal-muted text-xs group-hover:translate-x-0.5 transition-transform"
+                  >→</span
+                >
+              </h2>
+              <p class="text-[11px] text-terminal-secondary mt-1 leading-relaxed select-text">
+                Pre-trade position sizing, target spread entry/exit capture, exchange fee breakdown
+                and net PnL simulation.
+              </p>
+            </div>
+
+            <div
+              class="pt-2 border-t border-terminal-borderSubtle space-y-1.5 text-[10px] text-terminal-muted select-text"
+            >
+              <div class="flex items-center gap-1.5">
+                <span class="text-terminal-purple">✓</span>
+                <span>Automated RH / Core execution side detection</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-terminal-purple">✓</span>
+                <span>BPS and cents spread delta capture simulation</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-terminal-purple">✓</span>
+                <span>Lighter Robinhood Free & Premium fee tiers</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-2 select-text">
+            <div
+              class="w-full py-1.5 rounded bg-terminal-bg border border-terminal-border group-hover:border-terminal-purple/60 text-white font-semibold text-xs text-center transition flex items-center justify-center gap-1.5"
+            >
+              <span>Open Calculator</span>
+              <span class="text-terminal-muted text-[10px]">[/calculator]</span>
+            </div>
+          </div>
+        </a>
+
+        <!-- 4. Trade History Checker Workspace -->
         <a
           href="/checker"
           id="hubCardChecker"
@@ -405,7 +481,7 @@
               </div>
               <kbd
                 class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-[10px] text-terminal-muted group-hover:text-white group-hover:border-terminal-muted transition font-mono"
-                >3</kbd
+                >4</kbd
               >
             </div>
 
@@ -478,6 +554,13 @@
             ><kbd
               class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-[10px] text-white"
               >3</kbd
+            >
+            Calculator</span
+          >
+          <span
+            ><kbd
+              class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border text-[10px] text-white"
+              >4</kbd
             >
             Trade Checker</span
           >

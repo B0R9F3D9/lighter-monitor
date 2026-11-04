@@ -26,6 +26,9 @@ function initHub(): void {
       window.location.href = "/analytics";
     } else if (e.key === "3") {
       e.preventDefault();
+      window.location.href = "/calculator";
+    } else if (e.key === "4") {
+      e.preventDefault();
       window.location.href = "/checker";
     }
   });

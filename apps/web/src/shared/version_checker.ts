@@ -23,6 +23,7 @@ export interface VersionResponse {
   releaseUrl?: string;
   spreadHash?: string;
   analyticsHash?: string;
+  calculatorHash?: string;
   checkerHash?: string;
   hubHash?: string;
   timestamp?: number;

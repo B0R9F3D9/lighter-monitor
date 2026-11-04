@@ -16,12 +16,28 @@ export function formatFee(fee: number | undefined | null): string {
 
 export function formatPrice(p: number | undefined | null): string {
   if (p === undefined || p === null || isNaN(p)) return "$0.00";
-  if (Math.abs(p) < 0.00005) return "$0.00";
+  if (p === 0) return "$0.00";
   const sign = p < 0 ? "-" : "";
   const abs = Math.abs(p);
+  if (abs < 0.0001) return sign + "$" + abs.toFixed(8).replace(/0+$/, "");
   if (abs < 1) return sign + "$" + abs.toFixed(4);
   if (abs < 10) return sign + "$" + abs.toFixed(3);
   return sign + "$" + abs.toFixed(2);
+}
+
+export function formatPriceForInput(price: number): string {
+  if (price <= 0 || isNaN(price)) return "";
+  if (price >= 1000) {
+    const s = price.toFixed(4).replace(/\.?0+$/, "");
+    return s.includes(".") ? s : price.toFixed(2);
+  }
+  if (price >= 1) {
+    return price.toFixed(4).replace(/\.?0+$/, "");
+  }
+  if (price >= 0.0001) {
+    return price.toFixed(6).replace(/\.?0+$/, "");
+  }
+  return price.toFixed(8).replace(/\.?0+$/, "");
 }
 
 export function formatBps(b: number | undefined | null, withSign = false): string {

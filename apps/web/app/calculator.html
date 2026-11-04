@@ -1,0 +1,1280 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Calculator | Lighter × Robinhood</title>
+
+    <!-- Connection Warming: Preconnect to Lighter APIs -->
+    <link rel="preconnect" href="https://mainnet.zklighter.elliot.ai" crossorigin />
+    <link rel="preconnect" href="https://api.rh.lighter.xyz" crossorigin />
+
+    <!-- Favicon & Touch Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/src/style.css" />
+
+    <!-- Fonts: Inter (UI) & JetBrains Mono (Terminal Data) with display=swap -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      try {
+        const f = localStorage.getItem("terminal_font");
+        if (f) {
+          const stack =
+            f === "JetBrains Mono"
+              ? '"JetBrains Mono", monospace'
+              : `"${f}", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+          document.documentElement.style.setProperty("--font-selected", stack);
+          if (f !== "JetBrains Mono") {
+            document.documentElement.style.setProperty("--font-sans", stack);
+          }
+          if (f !== "Inter" && f !== "JetBrains Mono") {
+            const link = document.createElement("link");
+            link.id = "gfont-" + f.toLowerCase().replace(/\s+/g, "-");
+            link.rel = "stylesheet";
+            link.href =
+              "https://fonts.googleapis.com/css2?family=" +
+              encodeURIComponent(f) +
+              ":wght@400;500;600;700&display=swap";
+            document.head.appendChild(link);
+          }
+        }
+      } catch {}
+    </script>
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+      try {
+        if (window.Telegram?.WebApp) {
+          window.Telegram.WebApp.ready();
+          window.Telegram.WebApp.expand();
+        }
+      } catch {}
+    </script>
+  </head>
+  <body
+    class="bg-terminal-bg text-terminal-primary font-sans antialiased min-h-screen selection:bg-terminal-accent/30 selection:text-white"
+  >
+    <!-- TOP HEADER / APP BAR -->
+    <header
+      class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md select-none"
+    >
+      <div class="max-w-8xl mx-auto px-4 sm:px-6 py-2">
+        <div class="flex items-center justify-between gap-3">
+          <!-- Brand & Navigation Tabs -->
+          <div class="flex items-center gap-3">
+            <a
+              href="/"
+              class="group flex items-center gap-2.5 no-underline transition"
+              title="Return to Hub (/)"
+            >
+              <div
+                class="w-7 h-7 rounded border border-terminal-border bg-terminal-bg flex items-center justify-center p-1.5 shrink-0 group-hover:border-terminal-accent transition"
+              >
+                <svg
+                  class="h-3.5 w-auto text-white group-hover:text-terminal-accent transition"
+                  viewBox="0 0 14 26"
+                  fill="currentColor"
+                >
+                  <path
+                    d="M5.989 20.388 0 25.498V5.888L5.989.502zm7.811.012-5.989 5.098V17.85l5.989-5.37z"
+                  />
+                </svg>
+              </div>
+              <span
+                class="text-sm font-bold tracking-tight text-white group-hover:text-terminal-accent transition"
+                >Lighter × Robinhood</span
+              >
+            </a>
+
+            <!-- Desktop Navigation Tabs Bar -->
+            <nav
+              class="hidden md:flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-xs font-mono ml-1"
+            >
+              <a
+                href="/spread"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
+                >Spread</a
+              >
+              <a
+                href="/analytics"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
+                >Analytics</a
+              >
+              <a
+                href="/calculator"
+                class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-bold transition no-underline shadow-xs border border-terminal-border"
+                >Calculator</a
+              >
+              <a
+                href="/checker"
+                class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition no-underline"
+                >Checker</a
+              >
+            </nav>
+          </div>
+
+          <!-- Desktop Controls -->
+          <div class="hidden lg:flex items-center gap-2.5 text-xs font-mono">
+            <div
+              class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px] text-terminal-secondary"
+            >
+              <label for="fontSelector" class="text-terminal-muted cursor-pointer select-none"
+                >Font:</label
+              >
+              <select
+                id="fontSelector"
+                class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
+                title="Select Interface Font"
+              >
+                <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
+                <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
+                <option value="Montserrat" class="bg-terminal-surface text-white">
+                  Montserrat
+                </option>
+                <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
+                <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
+                <option value="JetBrains Mono" class="bg-terminal-surface text-white">
+                  JetBrains Mono
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Hamburger Button (Mobile) -->
+          <div class="flex lg:hidden items-center gap-2">
+            <button
+              type="button"
+              id="mobileMenuBtn"
+              class="p-1.5 rounded border border-terminal-border bg-terminal-bg hover:bg-terminal-surface text-terminal-secondary hover:text-white transition flex items-center justify-center cursor-pointer focus:outline-none focus:ring-1 focus:ring-terminal-accent"
+              aria-label="Toggle navigation menu"
+              aria-expanded="false"
+              aria-controls="mobileNavMenu"
+            >
+              <svg
+                class="hamburger-icon-open w-5 h-5 text-current block"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              <svg
+                class="hamburger-icon-close w-5 h-5 text-current hidden"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mobile Dropdown Navigation Menu -->
+      <div
+        id="mobileNavMenu"
+        class="mobile-nav-panel hidden lg:hidden border-t border-terminal-border bg-terminal-surface/98 backdrop-blur-md px-4 py-3 space-y-3 transition-all select-none"
+      >
+        <div class="space-y-1 md:hidden">
+          <div class="text-[10px] font-mono text-terminal-muted px-1 py-0.5 font-semibold">
+            Navigation
+          </div>
+          <div class="grid grid-cols-4 gap-1 font-mono text-xs">
+            <a
+              href="/spread"
+              class="flex items-center justify-center gap-1 px-1.5 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-emerald shrink-0"></span>
+              <span class="font-bold text-[11px] sm:text-xs">Spread</span>
+            </a>
+            <a
+              href="/analytics"
+              class="flex items-center justify-center gap-1 px-1.5 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent shrink-0"></span>
+              <span class="font-bold text-[11px] sm:text-xs">Analytics</span>
+            </a>
+            <a
+              href="/calculator"
+              class="flex items-center justify-center gap-1 px-1.5 py-2 rounded border border-terminal-border bg-terminal-surface text-white font-bold transition no-underline shadow-xs text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-purple shrink-0"></span>
+              <span class="font-bold text-[11px] sm:text-xs">Calculator</span>
+            </a>
+            <a
+              href="/checker"
+              class="flex items-center justify-center gap-1 px-1.5 py-2 rounded border border-terminal-border/70 bg-terminal-bg/60 text-terminal-secondary hover:text-white hover:border-terminal-border transition no-underline text-center"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-amber shrink-0"></span>
+              <span class="font-bold text-[11px] sm:text-xs">Checker</span>
+            </a>
+          </div>
+        </div>
+
+        <div
+          class="border-t border-terminal-border/70 pt-2.5 flex items-center justify-between text-xs font-mono"
+        >
+          <span class="text-terminal-muted text-[11px]">Interface Font:</span>
+          <div
+            class="flex items-center gap-1 bg-terminal-bg border border-terminal-border px-2 py-0.5 rounded text-[11px]"
+          >
+            <select
+              id="mobileFontSelector"
+              class="bg-transparent text-white font-sans text-[11px] cursor-pointer outline-none focus:outline-none border-0 p-0 pr-1 hover:text-terminal-accent transition"
+              title="Select Interface Font"
+            >
+              <option value="Inter" class="bg-terminal-surface text-white">Inter</option>
+              <option value="Roboto" class="bg-terminal-surface text-white">Roboto</option>
+              <option value="Montserrat" class="bg-terminal-surface text-white">Montserrat</option>
+              <option value="Poppins" class="bg-terminal-surface text-white">Poppins</option>
+              <option value="Open Sans" class="bg-terminal-surface text-white">Open Sans</option>
+              <option value="JetBrains Mono" class="bg-terminal-surface text-white">
+                JetBrains Mono
+              </option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- MAIN VIEWPORT -->
+    <main class="max-w-8xl mx-auto px-4 sm:px-6 py-2.5 pb-20 space-y-2.5">
+      <!-- 1. SUMMARY LEAD STRIP (KPI GRID - Mirrored from /checker) -->
+      <section
+        id="calcRankCard"
+        class="relative bg-terminal-surface border border-terminal-border rounded overflow-hidden shadow-xs"
+      >
+        <div
+          class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y sm:divide-y-0 sm:divide-x divide-terminal-borderSubtle"
+        >
+          <!-- Token & Mark Price -->
+          <div class="px-3 py-2 flex flex-col justify-center bg-terminal-bg/30">
+            <span
+              class="text-[10px] uppercase tracking-wider text-terminal-muted font-sans font-medium"
+              >Token / Price</span
+            >
+            <span
+              id="kpiToken"
+              class="font-mono font-bold text-xs sm:text-sm text-white tracking-tight select-text cursor-text mt-0.5 truncate"
+              >BTC · $95,000.00</span
+            >
+          </div>
+
+          <!-- Position Size / Spent -->
+          <div class="px-3 py-2 flex flex-col justify-center">
+            <span
+              class="text-[10px] uppercase tracking-wider text-terminal-muted font-sans font-medium"
+              >Spent / Size</span
+            >
+            <span
+              id="kpiSpent"
+              class="font-mono font-bold text-sm text-white tabular-nums select-text cursor-text mt-0.5"
+              >$10,000.00</span
+            >
+            <span
+              id="kpiSpentSub"
+              class="text-[10px] text-terminal-secondary font-mono select-text cursor-text"
+              >0.1053 BTC</span
+            >
+          </div>
+
+          <!-- Spread Delta -->
+          <div class="px-3 py-2 flex flex-col justify-center">
+            <span
+              class="text-[10px] uppercase tracking-wider text-terminal-muted font-sans font-medium"
+              >Spread Delta</span
+            >
+            <span
+              id="kpiSpreadDelta"
+              class="font-mono font-bold text-sm text-terminal-emerald tabular-nums select-text cursor-text mt-0.5"
+              >+15.00 bps</span
+            >
+            <span
+              id="kpiSpreadDeltaSub"
+              class="text-[10px] text-terminal-secondary font-mono select-text cursor-text"
+              >+142.50¢</span
+            >
+          </div>
+
+          <!-- Spread PnL -->
+          <div class="px-3 py-2 flex flex-col justify-center">
+            <span
+              class="text-[10px] uppercase tracking-wider text-terminal-muted font-sans font-medium"
+              >Spread PnL</span
+            >
+            <span
+              id="kpiSpreadPnl"
+              class="font-mono font-bold text-sm text-terminal-emerald tabular-nums select-text cursor-text mt-0.5"
+              >+$15.00</span
+            >
+            <span class="text-[10px] text-terminal-muted font-mono">Gross Gain</span>
+          </div>
+
+          <!-- Fees -->
+          <div class="px-3 py-2 flex flex-col justify-center">
+            <span
+              class="text-[10px] uppercase tracking-wider text-terminal-muted font-sans font-medium"
+              >Trading Fees</span
+            >
+            <span
+              id="kpiFees"
+              class="font-mono font-bold text-sm text-white tabular-nums select-text cursor-text mt-0.5"
+              >$0.00</span
+            >
+            <span
+              id="kpiFeesSub"
+              class="text-[10px] text-terminal-secondary font-mono select-text cursor-text"
+              >0.0 bps</span
+            >
+          </div>
+
+          <!-- Net PnL (Hero KPI) -->
+          <div class="px-3 py-2 flex flex-col justify-center">
+            <span
+              class="text-[10px] uppercase tracking-wider text-terminal-muted font-sans font-medium"
+              >Net PnL</span
+            >
+            <span
+              id="kpiNetPnl"
+              class="font-mono font-bold text-sm text-terminal-emerald tabular-nums select-text cursor-text mt-0.5"
+              >+$15.00</span
+            >
+            <span
+              id="kpiNetPnlSub"
+              class="text-[10px] text-terminal-secondary font-mono select-text cursor-text"
+              >+15.00 bps (+0.15%)</span
+            >
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. PARAMETERS & INPUT CONFIGURATION SECTION -->
+      <section
+        id="calcInputCard"
+        class="bg-terminal-surface border border-terminal-border rounded p-3 text-xs space-y-3"
+      >
+        <div class="flex items-center justify-between border-b border-terminal-borderSubtle pb-2">
+          <div>
+            <h2 class="text-xs font-bold text-white">Trade Parameters & Spread Setup</h2>
+            <p class="text-[10px] text-terminal-muted">
+              Select market asset, enter position size and target entry/exit spreads to calculate
+              PnL and fees.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <!-- Parameter 1: Token Selector & Mark Price -->
+          <div
+            class="bg-terminal-bg/50 border border-terminal-borderSubtle rounded p-2.5 space-y-2"
+          >
+            <div class="flex items-center justify-between gap-2 min-w-0">
+              <span class="text-xs font-semibold text-white">Market Asset</span>
+            </div>
+
+            <!-- Token Selector Button (Like /analytics) -->
+            <div>
+              <label class="text-[10px] text-terminal-muted mb-1 block">Choose Market Token:</label>
+              <button
+                id="tickerSelectBtn"
+                type="button"
+                class="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-accent text-white font-bold text-xs transition cursor-pointer select-none"
+                title="Choose Market (Press /)"
+              >
+                <div class="flex items-center gap-2 min-w-0">
+                  <span
+                    class="w-5 h-5 rounded-full bg-terminal-surface border border-terminal-border flex items-center justify-center text-[10px] text-white font-bold shrink-0 overflow-hidden relative"
+                  >
+                    <img
+                      id="tickerTokenImg"
+                      src=""
+                      alt="Token Logo"
+                      class="w-full h-full object-contain rounded-full"
+                    />
+                    <span
+                      id="tickerTokenIcon"
+                      class="hidden absolute inset-0 items-center justify-center text-[9px] font-bold text-white bg-terminal-surface"
+                    ></span>
+                  </span>
+                  <span id="headerSymbol" class="text-white font-bold tracking-tight text-xs"
+                    >--</span
+                  >
+                  <span id="headerLeverage" class="text-terminal-muted text-[11px] font-normal"
+                    >--</span
+                  >
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <kbd
+                    class="hidden sm:inline-block px-1 py-0.5 rounded bg-terminal-surface border border-terminal-border text-[9px] text-terminal-muted font-mono"
+                    >/</kbd
+                  >
+                  <svg
+                    class="w-3.5 h-3.5 text-terminal-muted"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                </div>
+              </button>
+            </div>
+
+            <!-- Execution Route Info (Auto-detected from getHedgeSideConfig) -->
+            <div
+              id="tokenRouteBadge"
+              class="p-2 rounded bg-terminal-bg/70 border border-terminal-borderSubtle text-[10px] font-mono space-y-1"
+            >
+              <div class="flex items-center justify-between text-terminal-muted">
+                <span>Category:</span>
+                <span id="badgeCategory" class="text-white font-semibold">Crypto</span>
+              </div>
+              <div class="flex items-center justify-between text-[10px]">
+                <span class="text-terminal-muted">Open:</span>
+                <span id="badgeOpenSides" class="font-bold">
+                  <span class="text-terminal-emerald">RH Long</span>
+                  <span class="text-white mx-0.5">·</span>
+                  <span class="text-terminal-accent">Core Short</span>
+                </span>
+              </div>
+              <div class="flex items-center justify-between text-[10px]">
+                <span class="text-terminal-muted">Close:</span>
+                <span id="badgeCloseSides" class="font-bold">
+                  <span class="text-terminal-emerald">RH Short</span>
+                  <span class="text-white mx-0.5">·</span>
+                  <span class="text-terminal-accent">Core Long</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Custom Token Price Input (Editable, without unrequested badge) -->
+            <div>
+              <label for="inputTokenPrice" class="text-[10px] text-terminal-muted mb-1 block">
+                <span>Asset Price ($):</span>
+              </label>
+              <div
+                class="flex items-center bg-terminal-bg border border-terminal-border rounded focus-within:border-terminal-accent transition"
+              >
+                <span
+                  class="px-2.5 py-1.5 text-terminal-muted font-mono text-xs select-none shrink-0"
+                  >$</span
+                >
+                <input
+                  type="number"
+                  step="any"
+                  id="inputTokenPrice"
+                  class="w-full bg-transparent border-0 py-1.5 pr-2.5 text-white font-mono text-[11px] focus:outline-none min-w-0"
+                  value="95000"
+                  placeholder="95000"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Parameter 2: Position Size (USD or Tokens) -->
+          <div
+            class="bg-terminal-bg/50 border border-terminal-borderSubtle rounded p-2.5 space-y-2"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-white">Position Size</span>
+              <!-- Toggle USD vs Tokens -->
+              <div
+                class="flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-[10px] font-mono"
+              >
+                <button
+                  type="button"
+                  id="btnSizeUsd"
+                  class="px-2.5 py-1 rounded bg-terminal-surface text-white font-bold border border-terminal-border shadow-xs cursor-pointer select-none"
+                >
+                  USD ($)
+                </button>
+                <button
+                  type="button"
+                  id="btnSizeTokens"
+                  class="px-2.5 py-1 rounded bg-terminal-bg text-terminal-muted hover:text-white transition cursor-pointer select-none"
+                >
+                  Tokens
+                </button>
+              </div>
+            </div>
+
+            <!-- Size Input (Flex layout fixes QTY overlap bug) -->
+            <div>
+              <div
+                class="flex items-center bg-terminal-bg border border-terminal-border rounded focus-within:border-terminal-emerald transition"
+              >
+                <span
+                  id="labelSizePrefix"
+                  class="px-2.5 py-1.5 text-terminal-muted font-mono text-xs select-none shrink-0"
+                  >$</span
+                >
+                <input
+                  type="number"
+                  step="any"
+                  id="inputSize"
+                  class="w-full bg-transparent border-0 py-1.5 pr-2.5 text-white font-mono text-[11px] focus:outline-none min-w-0 placeholder:text-terminal-muted/50"
+                  value="10000"
+                  placeholder="10,000"
+                />
+              </div>
+              <div
+                id="labelSizeEquivalent"
+                class="text-[10px] text-terminal-secondary font-mono mt-1 select-text"
+              >
+                ≈ 0.1053 BTC
+              </div>
+            </div>
+
+            <!-- Quick Size Buttons -->
+            <div class="flex flex-wrap items-center gap-1 pt-1">
+              <span class="text-[9px] text-terminal-muted font-mono mr-0.5">Quick:</span>
+              <button
+                type="button"
+                data-quick-size="1000"
+                class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-[10px] font-mono text-terminal-secondary hover:text-white transition cursor-pointer"
+              >
+                $1K
+              </button>
+              <button
+                type="button"
+                data-quick-size="5000"
+                class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-[10px] font-mono text-terminal-secondary hover:text-white transition cursor-pointer"
+              >
+                $5K
+              </button>
+              <button
+                type="button"
+                data-quick-size="10000"
+                class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-[10px] font-mono text-terminal-secondary hover:text-white transition cursor-pointer"
+              >
+                $10K
+              </button>
+              <button
+                type="button"
+                data-quick-size="25000"
+                class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-[10px] font-mono text-terminal-secondary hover:text-white transition cursor-pointer"
+              >
+                $25K
+              </button>
+              <button
+                type="button"
+                data-quick-size="50000"
+                class="px-1.5 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-[10px] font-mono text-terminal-secondary hover:text-white transition cursor-pointer"
+              >
+                $50K
+              </button>
+            </div>
+          </div>
+
+          <!-- Parameter 3: Entry Spread (Cents or BPS + RH/Core cheaper selector) -->
+          <div
+            class="bg-terminal-bg/50 border border-terminal-borderSubtle rounded p-2.5 space-y-2 min-w-0"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
+              <span class="text-xs font-semibold text-white">Entry Spread</span>
+              <div class="flex flex-wrap items-center gap-1">
+                <!-- Cheaper Selector (RH cheaper [-] vs Core cheaper [+]) -->
+                <div
+                  class="flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-[10px] font-mono"
+                >
+                  <button
+                    type="button"
+                    id="btnEntryCheaperRh"
+                    class="px-2 py-1 flex items-center justify-center rounded text-terminal-muted hover:text-white transition cursor-pointer select-none leading-none border border-transparent"
+                    title="RH is cheaper (Spread is negative -)"
+                  >
+                    RH cheaper (-)
+                  </button>
+                  <button
+                    type="button"
+                    id="btnEntryCheaperCore"
+                    class="px-2 py-1 flex items-center justify-center rounded bg-terminal-surface text-white font-bold border border-terminal-border shadow-xs cursor-pointer select-none leading-none"
+                    title="Core is cheaper (Spread is positive +)"
+                  >
+                    Core cheaper (+)
+                  </button>
+                </div>
+                <!-- Toggle Cents vs BPS -->
+                <div
+                  class="flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-[10px] font-mono"
+                >
+                  <button
+                    type="button"
+                    id="btnEntryBps"
+                    class="px-2 py-1 flex items-center justify-center rounded bg-terminal-surface text-white font-bold border border-terminal-border shadow-xs cursor-pointer select-none text-center leading-none"
+                  >
+                    bps
+                  </button>
+                  <button
+                    type="button"
+                    id="btnEntryCents"
+                    class="px-2 py-1 flex items-center justify-center rounded text-terminal-muted hover:text-white transition cursor-pointer select-none text-center leading-none border border-transparent"
+                  >
+                    ¢ Cents
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Entry Spread Input -->
+            <div>
+              <div
+                class="flex items-center bg-terminal-bg border border-terminal-border rounded focus-within:border-terminal-accent transition"
+              >
+                <input
+                  type="number"
+                  step="any"
+                  id="inputEntrySpread"
+                  class="w-full bg-transparent border-0 py-1.5 pl-2.5 pr-1 text-white font-mono text-[11px] focus:outline-none min-w-0 placeholder:text-terminal-muted/50"
+                  value="5"
+                  placeholder="5.0"
+                />
+                <span
+                  id="labelEntryUnit"
+                  class="px-2.5 py-1.5 text-terminal-muted font-mono text-xs select-none shrink-0"
+                  >bps</span
+                >
+              </div>
+              <div
+                id="labelEntryEquivalent"
+                class="text-[10px] text-terminal-secondary font-mono mt-1 select-text"
+              >
+                ≈ +47.50¢ ($0.4750)
+              </div>
+            </div>
+
+            <!-- Quick Entry Spread Buttons -->
+            <div id="quickEntrySpreadRow" class="flex flex-wrap items-center gap-1 pt-0.5">
+              <span class="text-[9px] text-terminal-muted font-mono mr-0.5">Quick:</span>
+              <div id="quickEntrySpreadButtons" class="flex flex-wrap items-center gap-1"></div>
+            </div>
+
+            <p class="text-[10px] text-terminal-muted leading-tight">
+              Spread on trade execution (RH vs Core).
+            </p>
+          </div>
+
+          <!-- Parameter 4: Exit Spread (Cents or BPS + RH/Core cheaper selector) -->
+          <div
+            class="bg-terminal-bg/50 border border-terminal-borderSubtle rounded p-2.5 space-y-2 min-w-0"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
+              <span class="text-xs font-semibold text-white">Exit Spread</span>
+              <div class="flex flex-wrap items-center gap-1">
+                <!-- Cheaper Selector (RH cheaper [-] vs Core cheaper [+]) -->
+                <div
+                  class="flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-[10px] font-mono"
+                >
+                  <button
+                    type="button"
+                    id="btnExitCheaperRh"
+                    class="px-2 py-1 flex items-center justify-center rounded text-terminal-muted hover:text-white transition cursor-pointer select-none leading-none border border-transparent"
+                    title="RH is cheaper (Spread is negative -)"
+                  >
+                    RH cheaper (-)
+                  </button>
+                  <button
+                    type="button"
+                    id="btnExitCheaperCore"
+                    class="px-2 py-1 flex items-center justify-center rounded bg-terminal-surface text-white font-bold border border-terminal-border shadow-xs cursor-pointer select-none leading-none"
+                    title="Core is cheaper (Spread is positive +)"
+                  >
+                    Core cheaper (+)
+                  </button>
+                </div>
+                <!-- Toggle Cents vs BPS -->
+                <div
+                  class="flex items-center bg-terminal-bg border border-terminal-border rounded p-0.5 text-[10px] font-mono"
+                >
+                  <button
+                    type="button"
+                    id="btnExitBps"
+                    class="px-2 py-1 flex items-center justify-center rounded bg-terminal-surface text-white font-bold border border-terminal-border shadow-xs cursor-pointer select-none text-center leading-none"
+                  >
+                    bps
+                  </button>
+                  <button
+                    type="button"
+                    id="btnExitCents"
+                    class="px-2 py-1 flex items-center justify-center rounded text-terminal-muted hover:text-white transition cursor-pointer select-none text-center leading-none border border-transparent"
+                  >
+                    ¢ Cents
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Exit Spread Input -->
+            <div>
+              <div
+                class="flex items-center bg-terminal-bg border border-terminal-border rounded focus-within:border-terminal-emerald transition"
+              >
+                <input
+                  type="number"
+                  step="any"
+                  id="inputExitSpread"
+                  class="w-full bg-transparent border-0 py-1.5 pl-2.5 pr-1 text-white font-mono text-[11px] focus:outline-none min-w-0 placeholder:text-terminal-muted/50"
+                  value="20"
+                  placeholder="20.0"
+                />
+                <span
+                  id="labelExitUnit"
+                  class="px-2.5 py-1.5 text-terminal-muted font-mono text-xs select-none shrink-0"
+                  >bps</span
+                >
+              </div>
+              <div
+                id="labelExitEquivalent"
+                class="text-[10px] text-terminal-secondary font-mono mt-1 select-text"
+              >
+                ≈ +190.00¢ ($1.9000)
+              </div>
+            </div>
+
+            <!-- Quick Exit Spread Buttons -->
+            <div id="quickExitSpreadRow" class="flex flex-wrap items-center gap-1 pt-0.5">
+              <span class="text-[9px] text-terminal-muted font-mono mr-0.5">Quick:</span>
+              <div id="quickExitSpreadButtons" class="flex flex-wrap items-center gap-1"></div>
+            </div>
+
+            <p class="text-[10px] text-terminal-muted leading-tight">
+              Target or realized spread when closing the trade.
+            </p>
+          </div>
+        </div>
+
+        <!-- Secondary Configuration: Fees & Execution Route -->
+        <div
+          class="flex flex-wrap items-center justify-between gap-3 border-t border-terminal-borderSubtle pt-2.5"
+        >
+          <!-- Fee Rate Setup (Free & Premium presets) -->
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-[11px] text-terminal-muted font-sans font-medium"
+              >Exchange Fee Rate:</span
+            >
+            <div
+              class="flex items-center bg-terminal-bg border border-terminal-border rounded focus-within:border-terminal-accent transition w-24"
+            >
+              <input
+                type="number"
+                step="any"
+                id="inputFeeRate"
+                class="w-full bg-transparent border-0 py-1 pl-2 pr-1 text-white font-mono text-[11px] focus:outline-none min-w-0"
+                value="0"
+                placeholder="0"
+              />
+              <span class="pr-2 text-terminal-muted font-mono text-[10px] select-none shrink-0"
+                >bps</span
+              >
+            </div>
+
+            <div class="flex items-center gap-1 font-mono text-[10px]">
+              <button
+                type="button"
+                data-fee-bps="0"
+                class="px-2 py-0.5 rounded bg-terminal-surface text-white font-bold border border-terminal-border shadow-xs cursor-pointer select-none"
+                title="Lighter Free Tier: 0 bps (300ms latency)"
+              >
+                free (0 bps)
+              </button>
+              <button
+                type="button"
+                data-fee-bps="1.2"
+                class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer select-none"
+                title="Lighter Maker Fee: 1.2 bps (fast execution)"
+              >
+                maker (1.2 bps)
+              </button>
+              <button
+                type="button"
+                data-fee-bps="3.5"
+                class="px-2 py-0.5 rounded bg-terminal-bg border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white transition cursor-pointer select-none"
+                title="Lighter Premium Tier: 3.5 bps taker fee"
+              >
+                taker (3.5 bps)
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. DETAILED BREAKDOWN & AUDIT CARDS (Mirrored layout from /checker) -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-2.5 items-stretch">
+        <!-- Card 1: Spread & Execution Details -->
+        <div
+          class="relative bg-terminal-surface border border-terminal-border rounded text-xs overflow-hidden flex flex-col p-3 space-y-2.5 shadow-xs"
+        >
+          <div
+            class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5"
+          >
+            <span class="text-xs font-bold text-white flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-emerald shrink-0"></span>
+              <span>Spread & Execution</span>
+            </span>
+            <span class="text-[10px] text-terminal-muted font-mono">Capture Analysis</span>
+          </div>
+
+          <div class="space-y-2 font-mono text-[11px]">
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Entry Spread:</span>
+              <span id="valEntrySpreadFull" class="text-white font-bold tabular-nums text-right"
+                >+5.00 bps (+47.50¢)</span
+              >
+            </div>
+
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Exit Spread:</span>
+              <span id="valExitSpreadFull" class="text-white font-bold tabular-nums text-right"
+                >+20.00 bps (+190.00¢)</span
+              >
+            </div>
+
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Spread Difference (Δ):</span>
+              <span
+                id="valSpreadDeltaFull"
+                class="text-terminal-emerald font-bold tabular-nums text-right"
+                >+15.00 bps (+142.50¢)</span
+              >
+            </div>
+
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Gain Per Token:</span>
+              <span id="valPerTokenGain" class="text-white font-bold tabular-nums text-right"
+                >+$1.4250 / token</span
+              >
+            </div>
+
+            <div class="flex items-center justify-between py-1 pt-1.5">
+              <span class="text-terminal-muted font-sans font-semibold">Gross Spread Gain:</span>
+              <span
+                id="valGrossSpreadPnl"
+                class="text-terminal-emerald font-bold tabular-nums text-right"
+                >+$15.00</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2: Capital & Volumes (Spent) -->
+        <div
+          class="relative bg-terminal-surface border border-terminal-border rounded text-xs overflow-hidden flex flex-col p-3 space-y-2.5 shadow-xs"
+        >
+          <div
+            class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5"
+          >
+            <span class="text-xs font-bold text-white flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent shrink-0"></span>
+              <span>Capital & Volumes</span>
+            </span>
+            <span class="text-[10px] text-terminal-muted font-mono">Notional Spent</span>
+          </div>
+
+          <div class="space-y-2 font-mono text-[11px]">
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Position Size (USD):</span>
+              <span id="valPositionUsd" class="text-white font-bold tabular-nums text-right"
+                >$10,000.00</span
+              >
+            </div>
+
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Asset Quantity (Tokens):</span>
+              <span id="valPositionTokens" class="text-white font-bold tabular-nums text-right"
+                >0.1053 BTC</span
+              >
+            </div>
+
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Asset Price:</span>
+              <span id="valAssetPrice" class="text-white font-bold tabular-nums text-right"
+                >$95,000.00</span
+              >
+            </div>
+
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Estimated Margin:</span>
+              <span id="valEstimatedMargin" class="text-terminal-secondary tabular-nums text-right"
+                >~$1,000.00 (at 10x)</span
+              >
+            </div>
+
+            <div class="flex items-center justify-between py-1 pt-1.5">
+              <span class="text-terminal-muted font-sans">Total Volume (Round-Trip):</span>
+              <span id="valRoundTripVolume" class="text-white font-bold tabular-nums text-right"
+                >$40,000.00</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Financial Summary & Net Result -->
+        <div
+          class="relative bg-terminal-surface border border-terminal-border rounded text-xs overflow-hidden flex flex-col p-3 space-y-2.5 shadow-xs"
+        >
+          <div
+            class="flex items-center justify-between border-b border-terminal-borderSubtle pb-1.5"
+          >
+            <span class="text-xs font-bold text-white flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-terminal-purple shrink-0"></span>
+              <span>Financial Summary</span>
+            </span>
+            <span class="text-[10px] text-terminal-muted font-mono">Net Audit</span>
+          </div>
+
+          <div class="space-y-2 font-mono text-[11px]">
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Gross Spread PnL:</span>
+              <span
+                id="valGrossPnlSummary"
+                class="text-terminal-emerald font-bold tabular-nums text-right"
+                >+$15.00</span
+              >
+            </div>
+
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Trading Fees (Open + Close):</span>
+              <span id="valTotalFees" class="text-white font-bold tabular-nums text-right"
+                >$0.00</span
+              >
+            </div>
+
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Net PnL:</span>
+              <span
+                id="valNetPnlFull"
+                class="text-terminal-emerald font-bold tabular-nums text-right"
+                >+$15.00</span
+              >
+            </div>
+
+            <div
+              class="flex items-center justify-between py-1 border-b border-terminal-borderSubtle/60"
+            >
+              <span class="text-terminal-muted font-sans">Net Trade Return:</span>
+              <span
+                id="valNetReturnRate"
+                class="text-terminal-emerald font-bold tabular-nums text-right"
+                >+15.00 bps (+0.15%)</span
+              >
+            </div>
+
+            <div class="flex items-center justify-between py-1 pt-1.5">
+              <span class="text-terminal-muted font-sans">Break-Even Exit Spread:</span>
+              <span
+                id="valBreakEven"
+                class="text-terminal-secondary font-bold tabular-nums text-right"
+                >+5.00 bps (+47.50¢)</span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- TICKER SEARCH & SELECTION MODAL (Lighter Style - Shared) -->
+    <div
+      id="tickerModal"
+      class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 select-none"
+    >
+      <div id="tickerModalBackdrop" class="absolute inset-0 bg-black/75 backdrop-blur-xs"></div>
+      <div
+        class="relative bg-terminal-surface border border-terminal-border rounded-lg shadow-2xl w-full max-w-2xl sm:max-w-3xl overflow-hidden flex flex-col max-h-[85vh] z-10 font-mono text-xs"
+      >
+        <!-- Modal Top Bar: Search Input -->
+        <div
+          class="p-3 border-b border-terminal-border flex items-center gap-2.5 bg-terminal-surface"
+        >
+          <svg
+            class="w-4 h-4 text-terminal-muted shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+          <input
+            id="tickerSearchInput"
+            type="text"
+            placeholder="Search Markets (AAPL, NVDA, BTC, ETH...)"
+            class="w-full bg-transparent text-white text-xs placeholder-terminal-muted focus:outline-none font-mono"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button
+            id="clearSearchBtn"
+            type="button"
+            class="hidden text-terminal-muted hover:text-white p-1 text-xs cursor-pointer"
+          >
+            ✕
+          </button>
+          <button
+            id="closeTickerModalBtn"
+            type="button"
+            class="text-terminal-muted hover:text-white p-1 text-xs cursor-pointer ml-1"
+            title="Close (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Recents Strip -->
+        <div
+          id="recentsRow"
+          class="px-3 py-1.5 border-b border-terminal-border bg-terminal-bg/30 flex items-center gap-2 overflow-x-auto no-scrollbar"
+        >
+          <span class="text-[10px] text-terminal-muted uppercase font-semibold shrink-0"
+            >RECENTS</span
+          >
+          <div id="recentsList" class="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Filter Tabs & Stats Header -->
+        <div
+          class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex flex-wrap items-center justify-between gap-2 text-xs"
+        >
+          <!-- Left: Category Tabs (Populated dynamically from shared MARKET_CATEGORIES_WITH_FAVORITES) -->
+          <div class="flex items-center gap-1 overflow-x-auto no-scrollbar" id="categoryTabs"></div>
+
+          <!-- Right: Venue Switcher (RH vs Core) + Sort Dropdown + Count -->
+          <div class="flex items-center gap-2">
+            <!-- Venue Switcher Toggle -->
+            <div
+              class="inline-flex p-0.5 rounded bg-terminal-bg border border-terminal-border text-[10px] font-mono shrink-0 select-none"
+            >
+              <button
+                id="venueBtnRh"
+                type="button"
+                data-venue="rh"
+                class="venue-btn px-2 py-0.5 rounded bg-terminal-accent text-terminal-bg font-bold cursor-pointer transition flex items-center gap-1"
+                title="View stats from Robinhood Chain"
+              >
+                <span class="w-1.5 h-1.5 rounded-full bg-terminal-bg"></span>
+                <span>RH</span>
+              </button>
+              <button
+                id="venueBtnCore"
+                type="button"
+                data-venue="core"
+                class="venue-btn px-2 py-0.5 rounded text-terminal-muted hover:text-white cursor-pointer transition flex items-center gap-1"
+                title="View stats from Lighter Core"
+              >
+                <span class="w-1.5 h-1.5 rounded-full bg-terminal-muted"></span>
+                <span>CORE</span>
+              </button>
+            </div>
+
+            <!-- Sort dropdown menu button -->
+            <div class="relative">
+              <button
+                id="modalSortMenuBtn"
+                type="button"
+                class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-terminal-surface border border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white text-[10px] font-semibold transition cursor-pointer uppercase tracking-wider"
+                title="Sort markets"
+              >
+                <span class="text-terminal-muted">Sort:</span>
+                <span id="currentSortLabel" class="text-white">Volume</span>
+                <span id="currentSortArrow" class="text-[9px] text-terminal-accent">↓</span>
+              </button>
+              <div
+                id="modalSortDropdown"
+                class="hidden absolute right-0 mt-1 w-36 bg-terminal-surface border border-terminal-border rounded shadow-xl py-1 z-30 text-[11px]"
+              >
+                <button
+                  type="button"
+                  data-sort="volume"
+                  class="sort-option w-full text-left px-3 py-1 hover:bg-terminal-surfaceHover text-white flex items-center justify-between cursor-pointer"
+                >
+                  <span>24h Volume</span>
+                  <span class="text-[10px] text-terminal-muted">Vol</span>
+                </button>
+                <button
+                  type="button"
+                  data-sort="oi"
+                  class="sort-option w-full text-left px-3 py-1 hover:bg-terminal-surfaceHover text-terminal-secondary hover:text-white flex items-center justify-between cursor-pointer"
+                >
+                  <span>Open Interest</span>
+                  <span class="text-[10px] text-terminal-muted">OI</span>
+                </button>
+                <button
+                  type="button"
+                  data-sort="change"
+                  class="sort-option w-full text-left px-3 py-1 hover:bg-terminal-surfaceHover text-terminal-secondary hover:text-white flex items-center justify-between cursor-pointer"
+                >
+                  <span>24h Change</span>
+                  <span class="text-[10px] text-terminal-muted">±%</span>
+                </button>
+                <button
+                  type="button"
+                  data-sort="price"
+                  class="sort-option w-full text-left px-3 py-1 hover:bg-terminal-surfaceHover text-terminal-secondary hover:text-white flex items-center justify-between cursor-pointer"
+                >
+                  <span>Last Price</span>
+                  <span class="text-[10px] text-terminal-muted">Px</span>
+                </button>
+                <button
+                  type="button"
+                  data-sort="symbol"
+                  class="sort-option w-full text-left px-3 py-1 hover:bg-terminal-surfaceHover text-terminal-secondary hover:text-white flex items-center justify-between cursor-pointer"
+                >
+                  <span>Market Name</span>
+                  <span class="text-[10px] text-terminal-muted">A-Z</span>
+                </button>
+              </div>
+            </div>
+
+            <span
+              id="marketCountBadge"
+              class="text-[10px] text-terminal-muted font-semibold uppercase"
+              >-- SHARED</span
+            >
+          </div>
+        </div>
+
+        <!-- Table Columns Header (Clickable for Sorting) -->
+        <div
+          class="px-3 py-1.5 bg-terminal-bg/80 border-b border-terminal-border grid grid-cols-12 text-[10px] text-terminal-muted uppercase tracking-wider font-semibold select-none items-center"
+        >
+          <button
+            type="button"
+            data-sort="symbol"
+            class="sort-col-btn col-span-5 sm:col-span-4 flex items-center gap-1 text-left text-terminal-muted hover:text-white transition cursor-pointer group"
+          >
+            <span class="group-hover:text-white">MARKET</span>
+            <span id="sortIconSymbol" class="text-[9px] text-terminal-muted opacity-40">↕</span>
+          </button>
+          <button
+            type="button"
+            data-sort="price"
+            class="sort-col-btn col-span-4 sm:col-span-2 flex items-center justify-end gap-1 text-right text-terminal-muted hover:text-white transition cursor-pointer group"
+          >
+            <span class="group-hover:text-white"
+              >PRICE (<span id="colVenueTagPrice">RH</span>)</span
+            >
+            <span id="sortIconPrice" class="text-[9px] text-terminal-muted opacity-40">↕</span>
+          </button>
+          <button
+            type="button"
+            data-sort="change"
+            class="sort-col-btn col-span-3 sm:col-span-2 flex items-center justify-end gap-1 text-right text-terminal-muted hover:text-white transition cursor-pointer group"
+          >
+            <span class="group-hover:text-white">24H</span>
+            <span id="sortIconChange" class="text-[9px] text-terminal-muted opacity-40">↕</span>
+          </button>
+          <button
+            type="button"
+            data-sort="volume"
+            class="sort-col-btn hidden sm:flex sm:col-span-2 items-center justify-end gap-1 text-right text-terminal-muted hover:text-white transition cursor-pointer group"
+          >
+            <span class="group-hover:text-white">VOLUME (<span id="colVenueTagVol">RH</span>)</span>
+            <span id="sortIconVolume" class="text-[9px] text-terminal-accent font-bold">↓</span>
+          </button>
+          <button
+            type="button"
+            data-sort="oi"
+            class="sort-col-btn hidden sm:flex sm:col-span-2 items-center justify-end gap-1 text-right text-terminal-muted hover:text-white transition cursor-pointer group"
+          >
+            <span class="group-hover:text-white">OI (<span id="colVenueTagOi">RH</span>)</span>
+            <span id="sortIconOi" class="text-[9px] text-terminal-muted opacity-40">↕</span>
+          </button>
+        </div>
+
+        <!-- Modal Ticker List (Rows) -->
+        <div
+          id="tickerDropdownList"
+          class="overflow-y-auto divide-y divide-terminal-borderSubtle flex-1 max-h-[50vh]"
+        >
+          <!-- Populated dynamically -->
+        </div>
+
+        <!-- Modal Footer Hotkey Hints -->
+        <div
+          class="px-3 py-2 border-t border-terminal-border bg-terminal-bg/60 flex items-center justify-between text-[11px] text-terminal-muted select-none"
+        >
+          <div class="flex items-center gap-3">
+            <span
+              ><kbd
+                class="px-1 py-0.5 rounded bg-terminal-surface border border-terminal-border text-[9px]"
+                >↑</kbd
+              >
+              <kbd
+                class="px-1 py-0.5 rounded bg-terminal-surface border border-terminal-border text-[9px]"
+                >↓</kbd
+              >
+              Navigate</span
+            >
+            <span
+              ><kbd
+                class="px-1 py-0.5 rounded bg-terminal-surface border border-terminal-border text-[9px]"
+                >↵</kbd
+              >
+              Select</span
+            >
+            <span
+              ><kbd
+                class="px-1 py-0.5 rounded bg-terminal-surface border border-terminal-border text-[9px]"
+                >Esc</kbd
+              >
+              Close</span
+            >
+          </div>
+          <div>
+            <kbd
+              class="px-1.5 py-0.5 rounded bg-terminal-surface border border-terminal-border text-[9px]"
+              >/</kbd
+            >
+            Quick Search
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Page Logic -->
+    <script type="module" src="/src/calculator/main.ts"></script>
+  </body>
+</html>

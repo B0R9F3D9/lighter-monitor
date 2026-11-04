@@ -8,8 +8,6 @@ export interface TimeframeConfig {
   durationSec: number;
 }
 
-import type { HedgeSideConfig } from "../shared";
-
 export interface RawCandle {
   t: number; // millisecond timestamp
   o: number; // open
@@ -65,36 +63,7 @@ export interface HourlyBucketStats {
   scoreNormalized: number; // 0 (cheapest) to 1 (most expensive)
 }
 
-export type AnalyticsVenue = "rh" | "core";
-
-export interface MarketVenueStats {
-  markPrice: number;
-  indexPrice: number;
-  dailyPriceChange: number;
-  dailyVolumeUsd: number;
-  openInterestUsd: number;
-  fundingRate1h: number;
-  leverage: string;
-}
-
-export interface AnalyticsMarketPair {
-  symbol: string;
-  rhMarketId: number;
-  coreMarketId: number;
-  leverage: string;
-  leverageNum: number;
-  isEquity: boolean;
-  hedgeSideConfig: HedgeSideConfig;
-  rh: MarketVenueStats;
-  core: MarketVenueStats;
-  totalVolume24h: number;
-  markPrice: number;
-  indexPrice: number;
-  dailyPriceChange: number;
-  dailyVolumeUsd: number;
-  openInterestUsd: number;
-  fundingRate1h: number;
-}
+export type { AnalyticsVenue, MarketVenueStats, AnalyticsMarketPair } from "../shared";
 
 export interface DateFilterConfig {
   isActive: boolean;

@@ -127,6 +127,23 @@ describe("Worker HTTP Routing", () => {
     expect(assetReqs[0]).toContain("/analytics");
   });
 
+  it("serves calculator HTML on GET /calculator", async () => {
+    const req = new Request("https://worker.dev/calculator", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Calculator | Lighter");
+    expect(html).toContain("calcRankCard");
+  });
+
+  it("serves calculator HTML on GET /calculator/", async () => {
+    const req = new Request("https://worker.dev/calculator/", { method: "GET" });
+    const res = await worker.fetch(req, mockEnv, mockCtx);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+  });
+
   it("serves hedge trade checker HTML on GET /checker", async () => {
     const req = new Request("https://worker.dev/checker", { method: "GET" });
     const res = await worker.fetch(req, mockEnv, mockCtx);

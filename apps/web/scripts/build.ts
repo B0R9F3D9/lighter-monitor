@@ -152,6 +152,7 @@ await build({
         index: path.resolve(webDir, "app/index.html"),
         spread: path.resolve(webDir, "app/spread.html"),
         analytics: path.resolve(webDir, "app/analytics.html"),
+        calculator: path.resolve(webDir, "app/calculator.html"),
         checker: path.resolve(webDir, "app/checker.html"),
       },
     },
@@ -198,6 +199,7 @@ async function readHtmlFile(filePath: string, maxRetries = 10): Promise<string> 
 const rawHubHtml = await readHtmlFile(path.resolve(outDir, "index.html"));
 const rawSpreadHtml = await readHtmlFile(path.resolve(outDir, "spread.html"));
 const rawAnalyticsHtml = await readHtmlFile(path.resolve(outDir, "analytics.html"));
+const rawCalculatorHtml = await readHtmlFile(path.resolve(outDir, "calculator.html"));
 const rawCheckerHtml = await readHtmlFile(path.resolve(outDir, "checker.html"));
 
 const minifiedHubHtml = await minify(
@@ -212,6 +214,10 @@ const minifiedAnalyticsHtml = await minify(
   injectVersionMeta(rawAnalyticsHtml, buildVersion, buildHash),
   minifyConfig,
 );
+const minifiedCalculatorHtml = await minify(
+  injectVersionMeta(rawCalculatorHtml, buildVersion, buildHash),
+  minifyConfig,
+);
 const minifiedCheckerHtml = await minify(
   injectVersionMeta(rawCheckerHtml, buildVersion, buildHash),
   minifyConfig,
@@ -220,6 +226,7 @@ const minifiedCheckerHtml = await minify(
 fs.writeFileSync(path.resolve(outDir, "index.html"), minifiedHubHtml, "utf-8");
 fs.writeFileSync(path.resolve(outDir, "spread.html"), minifiedSpreadHtml, "utf-8");
 fs.writeFileSync(path.resolve(outDir, "analytics.html"), minifiedAnalyticsHtml, "utf-8");
+fs.writeFileSync(path.resolve(outDir, "calculator.html"), minifiedCalculatorHtml, "utf-8");
 fs.writeFileSync(path.resolve(outDir, "checker.html"), minifiedCheckerHtml, "utf-8");
 
 const hubHtmlHash = crypto.createHash("sha256").update(minifiedHubHtml).digest("hex").slice(0, 10);
@@ -231,6 +238,11 @@ const spreadHtmlHash = crypto
 const analyticsHtmlHash = crypto
   .createHash("sha256")
   .update(minifiedAnalyticsHtml)
+  .digest("hex")
+  .slice(0, 10);
+const calculatorHtmlHash = crypto
+  .createHash("sha256")
+  .update(minifiedCalculatorHtml)
   .digest("hex")
   .slice(0, 10);
 const checkerHtmlHash = crypto
@@ -251,6 +263,7 @@ export const BUILD_HASH = ${JSON.stringify(buildHash)};
 export const HUB_HTML_HASH = ${JSON.stringify(hubHtmlHash)};
 export const SPREAD_HTML_HASH = ${JSON.stringify(spreadHtmlHash)};
 export const ANALYTICS_HTML_HASH = ${JSON.stringify(analyticsHtmlHash)};
+export const CALCULATOR_HTML_HASH = ${JSON.stringify(calculatorHtmlHash)};
 export const CHECKER_HTML_HASH = ${JSON.stringify(checkerHtmlHash)};
 export const CHECKER_SOLO_HTML_HASH = ${JSON.stringify(checkerHtmlHash)};
 export const CHECKER_HEDGE_HTML_HASH = ${JSON.stringify(checkerHtmlHash)};
@@ -280,6 +293,7 @@ const versionJsonContent = JSON.stringify(
     hubHash: hubHtmlHash,
     spreadHash: spreadHtmlHash,
     analyticsHash: analyticsHtmlHash,
+    calculatorHash: calculatorHtmlHash,
     checkerHash: checkerHtmlHash,
     timestamp: Date.now(),
   },
@@ -296,6 +310,7 @@ fs.writeFileSync(path.resolve(outDir, "version.json"), versionJsonContent, "utf-
 console.log("✓ Hub Router HTML minified:", minifiedHubHtml.length, "bytes");
 console.log("✓ Spread HTML minified:", minifiedSpreadHtml.length, "bytes");
 console.log("✓ Analytics HTML minified:", minifiedAnalyticsHtml.length, "bytes");
+console.log("✓ Calculator HTML minified:", minifiedCalculatorHtml.length, "bytes");
 console.log("✓ Checker HTML minified:", minifiedCheckerHtml.length, "bytes");
 console.log(
   versionChanged

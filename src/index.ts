@@ -6,6 +6,7 @@ import {
   HUB_HTML_HASH,
   SPREAD_HTML_HASH,
   ANALYTICS_HTML_HASH,
+  CALCULATOR_HTML_HASH,
   CHECKER_HTML_HASH,
 } from "../apps/web/src/version";
 
@@ -30,6 +31,8 @@ async function serveLocalBunAsset(request: Request): Promise<Response | null> {
     (pathname.startsWith("/analytics/") && !pathname.slice(11).includes("."))
   ) {
     pathname = "/analytics.html";
+  } else if (pathname === "/calculator" || pathname === "/calculator/") {
+    pathname = "/calculator.html";
   } else if (pathname === "/checker" || pathname === "/checker/") {
     pathname = "/checker.html";
   } else if (
@@ -107,6 +110,7 @@ export default {
               releaseUrl: `https://github.com/B0R9F3D9/lighter-monitor/releases/tag/${APP_VERSION}`,
               spreadHash: SPREAD_HTML_HASH,
               analyticsHash: ANALYTICS_HTML_HASH,
+              calculatorHash: CALCULATOR_HTML_HASH,
               checkerHash: CHECKER_HTML_HASH,
               hubHash: HUB_HTML_HASH,
               timestamp: Date.now(),
@@ -235,6 +239,11 @@ export default {
         (url.pathname.startsWith("/analytics/") && !url.pathname.slice(11).includes("."))
       ) {
         const assetUrl = new URL("/analytics", request.url);
+        return await env.ASSETS.fetch(new Request(assetUrl, request));
+      }
+
+      if (url.pathname === "/calculator" || url.pathname === "/calculator/") {
+        const assetUrl = new URL("/calculator", request.url);
         return await env.ASSETS.fetch(new Request(assetUrl, request));
       }
 
