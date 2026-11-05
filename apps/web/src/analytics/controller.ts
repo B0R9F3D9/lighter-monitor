@@ -88,6 +88,9 @@ export function getSlugSymbolFromPath(pathname: string): string | null {
 
 export class AnalyticsController {
   private pairs: AnalyticsMarketPair[] = [];
+  private activePair: AnalyticsMarketPair | null = null;
+  private activeRhMarketId = 0;
+  private activeCoreMarketId = 0;
   private activeSymbol = "AAPL";
   private activeTimeframe: TimeframeId = "24h";
   private activeCategory: MarketCategoryFilter = "all";
@@ -103,13 +106,26 @@ export class AnalyticsController {
   private chartContext: ChartSyncContext | null = null;
   private activePoints: BasisPoint[] = [];
   private currentStats: QuantStats | null = null;
+  private sortedBasisValues: Float64Array | number[] = [];
 
   private wsManager: WebSocketManager | null = null;
   private rhBook: OrderBook | null = null;
   private coreBook: OrderBook | null = null;
   private lastKnownRhMid = 0;
   private lastKnownCoreMid = 0;
-  private rafUpdateScheduled = false;
+  private lastRenderedRhMid = 0;
+  private lastRenderedCoreMid = 0;
+  private lastRealtimeFlushTs = 0;
+  private realtimeThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly REALTIME_THROTTLE_MS = 150;
+  private isForceRealtimeUpdate = false;
+
+  private isTickerListDirty = true;
+  private prevFocusedModalRowIndex = -1;
+  private lastLegendTimeSec: number | null = null;
+  private lastLegendRhPrice: number | null = null;
+  private lastLegendCorePrice: number | null = null;
+  private lastLegendBasisUsd: number | null = null;
 
   private showBands = false;
   private dateFilter: DateFilterConfig = {
@@ -136,9 +152,53 @@ export class AnalyticsController {
     timeVal: HTMLElement | null;
   } | null = null;
 
+  private onPopState = () => {
+    const sym = getSlugSymbolFromPath(window.location.pathname);
+    if (sym && sym !== this.activeSymbol) {
+      this.selectSymbol(sym, false);
+    }
+  };
+
+  private onDocumentClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const sortDropdown = document.getElementById("modalSortDropdown");
+    if (!target.closest("#modalSortMenuBtn") && !target.closest("#modalSortDropdown")) {
+      sortDropdown?.classList.add("hidden");
+    }
+  };
+
+  private onDocumentKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName || "")) {
+      e.preventDefault();
+      this.openTickerModal();
+    } else if (e.key === "Escape") {
+      this.closeTickerModal();
+      this.closeDateFilterModal();
+    }
+  };
+
+  private onBeforeUnload = () => {
+    this.destroy();
+  };
+
+  private setupTokenImageFallback(): void {
+    const tokenImgEl = document.getElementById("tickerTokenImg") as HTMLImageElement | null;
+    const tokenIconEl = document.getElementById("tickerTokenIcon");
+    if (!tokenImgEl) return;
+    tokenImgEl.addEventListener("error", () => {
+      tokenImgEl.style.display = "none";
+      if (tokenIconEl) tokenIconEl.style.display = "flex";
+    });
+    if (tokenImgEl.complete && tokenImgEl.naturalWidth === 0 && tokenImgEl.src) {
+      tokenImgEl.style.display = "none";
+      if (tokenIconEl) tokenIconEl.style.display = "flex";
+    }
+  }
+
   public async init(): Promise<void> {
     try {
       this.restoreSettings();
+      this.setupTokenImageFallback();
       this.updateInitialHeaderDisplay();
       this.initCharts();
       this.initWs();
@@ -154,7 +214,8 @@ export class AnalyticsController {
   private initWs(): void {
     this.wsManager = new WebSocketManager({
       onRhBookUpdate: (marketId, data, isSnapshot, offset) => {
-        const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+        if (marketId !== this.activeRhMarketId) return;
+        const pair = this.activePair || this.pairs.find((p) => p.symbol === this.activeSymbol);
         if (!pair || pair.rhMarketId !== marketId) return;
         if (!this.rhBook || this.rhBook.marketId !== marketId) {
           this.rhBook = createEmptyBook(marketId);
@@ -168,7 +229,8 @@ export class AnalyticsController {
         }
       },
       onCoreBookUpdate: (marketId, data, isSnapshot, offset) => {
-        const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+        if (marketId !== this.activeCoreMarketId) return;
+        const pair = this.activePair || this.pairs.find((p) => p.symbol === this.activeSymbol);
         if (!pair || pair.coreMarketId !== marketId) return;
         if (!this.coreBook || this.coreBook.marketId !== marketId) {
           this.coreBook = createEmptyBook(marketId);
@@ -209,10 +271,12 @@ export class AnalyticsController {
     if (symEl) symEl.textContent = this.activeSymbol;
     const imgEl = document.getElementById("tickerTokenImg") as HTMLImageElement | null;
     const iconEl = document.getElementById("tickerTokenIcon");
-    if (imgEl) {
+    if (imgEl && imgEl.dataset.loadedSymbol !== this.activeSymbol) {
+      imgEl.dataset.loadedSymbol = this.activeSymbol;
       imgEl.src = getTokenImageUrl(this.activeSymbol);
       imgEl.alt = this.activeSymbol;
       imgEl.style.display = "block";
+      if (iconEl) iconEl.style.display = "none";
     }
     if (iconEl) {
       iconEl.textContent = getTokenIcon(this.activeSymbol);
@@ -368,9 +432,14 @@ export class AnalyticsController {
       this.updateUrl(false);
       const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
       if (pair) {
+        this.activePair = pair;
+        this.activeRhMarketId = pair.rhMarketId;
+        this.activeCoreMarketId = pair.coreMarketId;
         this.updateTopMarketStats(pair);
         this.lastKnownRhMid = pair.rh.markPrice;
         this.lastKnownCoreMid = pair.core.markPrice;
+        this.lastRenderedRhMid = 0;
+        this.lastRenderedCoreMid = 0;
         this.updateWsSubscriptions(null, pair);
       }
       this.updateSortIndicators();
@@ -470,6 +539,11 @@ export class AnalyticsController {
       }
       this.activePoints = points;
       this.currentStats = stats;
+      this.sortedBasisValues = stats?.sortedBasisValues || [];
+      this.lastLegendTimeSec = null;
+      this.lastLegendRhPrice = null;
+      this.lastLegendCorePrice = null;
+      this.lastLegendBasisUsd = null;
 
       if (points.length > 0) {
         const lastPt = points[points.length - 1]!;
@@ -491,7 +565,9 @@ export class AnalyticsController {
       this.updateLegend(points[points.length - 1] || null);
 
       if (this.lastKnownRhMid > 0 && this.lastKnownCoreMid > 0) {
-        this.scheduleRealtimeUpdate();
+        this.lastRenderedRhMid = 0;
+        this.lastRenderedCoreMid = 0;
+        this.scheduleRealtimeUpdate(true);
       }
     } catch (err) {
       if (reqId === this.currentRequestId) {
@@ -587,6 +663,11 @@ export class AnalyticsController {
 
         this.activePoints = points;
         this.currentStats = stats;
+        this.sortedBasisValues = stats?.sortedBasisValues || [];
+        this.lastLegendTimeSec = null;
+        this.lastLegendRhPrice = null;
+        this.lastLegendCorePrice = null;
+        this.lastLegendBasisUsd = null;
 
         if (this.chartContext) {
           this.chartContext.setData(
@@ -603,7 +684,9 @@ export class AnalyticsController {
         this.updateLegend(points[points.length - 1] || null);
         this.clearActiveTimeframeButtons();
         if (this.lastKnownRhMid > 0 && this.lastKnownCoreMid > 0) {
-          this.scheduleRealtimeUpdate();
+          this.lastRenderedRhMid = 0;
+          this.lastRenderedCoreMid = 0;
+          this.scheduleRealtimeUpdate(true);
         }
       }
     } catch (err) {
@@ -666,18 +749,11 @@ export class AnalyticsController {
     if (symEl) symEl.textContent = pair.symbol;
     if (levEl) levEl.textContent = pair.leverage;
     if (iconEl) iconEl.textContent = getTokenIcon(pair.symbol);
-    if (imgEl) {
+    if (imgEl && imgEl.dataset.loadedSymbol !== pair.symbol) {
+      imgEl.dataset.loadedSymbol = pair.symbol;
       imgEl.style.display = "block";
       if (iconEl) iconEl.style.display = "none";
       imgEl.src = getTokenImageUrl(pair.symbol);
-      imgEl.addEventListener(
-        "error",
-        () => {
-          imgEl.style.display = "none";
-          if (iconEl) iconEl.style.display = "flex";
-        },
-        { once: true },
-      );
     }
 
     const markEl = document.getElementById("statMarkPrice");
@@ -750,12 +826,25 @@ export class AnalyticsController {
       }
     }
 
+    if (
+      point.timeSec === this.lastLegendTimeSec &&
+      point.rhPrice === this.lastLegendRhPrice &&
+      point.corePrice === this.lastLegendCorePrice &&
+      point.basisUsd === this.lastLegendBasisUsd
+    ) {
+      return;
+    }
+    this.lastLegendTimeSec = point.timeSec;
+    this.lastLegendRhPrice = point.rhPrice;
+    this.lastLegendCorePrice = point.corePrice;
+    this.lastLegendBasisUsd = point.basisUsd;
+
     const { rhVal, coreVal, basisVal, bpsVal, timeVal } = this.legendElements;
 
     if (rhVal) rhVal.textContent = `$${point.rhPrice.toFixed(2)}`;
     if (coreVal) coreVal.textContent = `$${point.corePrice.toFixed(2)}`;
 
-    const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+    const pair = this.activePair || this.pairs.find((p) => p.symbol === this.activeSymbol);
     const isRhLong = pair ? pair.hedgeSideConfig.isRhLong : true;
     const isEdge = isRhLong ? point.basisUsd <= 0 : point.basisUsd >= 0;
 
@@ -867,22 +956,68 @@ export class AnalyticsController {
     }
   }
 
-  private scheduleRealtimeUpdate(): void {
-    if (this.rafUpdateScheduled) return;
-    this.rafUpdateScheduled = true;
-    requestAnimationFrame(() => {
-      this.rafUpdateScheduled = false;
+  private scheduleRealtimeUpdate(force = false): void {
+    if (force) {
+      this.isForceRealtimeUpdate = true;
+    }
+    const now = performance.now();
+    const elapsed = now - this.lastRealtimeFlushTs;
+
+    if (force || elapsed >= this.REALTIME_THROTTLE_MS) {
+      if (this.realtimeThrottleTimer !== null) {
+        clearTimeout(this.realtimeThrottleTimer);
+        this.realtimeThrottleTimer = null;
+      }
+      this.lastRealtimeFlushTs = now;
       this.flushRealtimeUpdate();
-    });
+    } else if (this.realtimeThrottleTimer === null) {
+      this.realtimeThrottleTimer = setTimeout(() => {
+        this.realtimeThrottleTimer = null;
+        this.lastRealtimeFlushTs = performance.now();
+        this.flushRealtimeUpdate();
+      }, this.REALTIME_THROTTLE_MS - elapsed);
+    }
   }
 
   private flushRealtimeUpdate(): void {
-    const pair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+    const pair = this.activePair || this.pairs.find((p) => p.symbol === this.activeSymbol);
     if (!pair) return;
 
     const rhPrice = this.lastKnownRhMid;
     const corePrice = this.lastKnownCoreMid;
     if (rhPrice <= 0 || corePrice <= 0) return;
+
+    const tf = TIMEFRAMES[this.activeTimeframe];
+    const stepSec = tf ? getResolutionStepSec(tf.resolution) : 300;
+    const nowSec = Math.floor(Date.now() / 1000);
+    let timeSec = Math.floor(nowSec / stepSec) * stepSec;
+    let isNewBar = false;
+    if (this.activePoints.length > 0) {
+      const lastPt = this.activePoints[this.activePoints.length - 1]!;
+      if (timeSec < lastPt.timeSec) {
+        timeSec = lastPt.timeSec;
+      } else if (timeSec > lastPt.timeSec) {
+        isNewBar = true;
+      }
+    }
+
+    const isForced = this.isForceRealtimeUpdate;
+    this.isForceRealtimeUpdate = false;
+
+    const rhDiff = Math.abs(rhPrice - this.lastRenderedRhMid);
+    const coreDiff = Math.abs(corePrice - this.lastRenderedCoreMid);
+    if (
+      !isForced &&
+      !isNewBar &&
+      this.lastRenderedRhMid > 0 &&
+      this.lastRenderedCoreMid > 0 &&
+      rhDiff < 0.0001 &&
+      coreDiff < 0.0001
+    ) {
+      return;
+    }
+    this.lastRenderedRhMid = rhPrice;
+    this.lastRenderedCoreMid = corePrice;
 
     const basisUsd = rhPrice - corePrice;
     const midPrice = (rhPrice + corePrice) / 2;
@@ -905,17 +1040,6 @@ export class AnalyticsController {
     this.updateRealtimeQuantGauges(basisUsd, basisBps, isRhLong, isEdge);
 
     // 3. Update Chart & Price Lines
-    const tf = TIMEFRAMES[this.activeTimeframe];
-    const stepSec = tf ? getResolutionStepSec(tf.resolution) : 300;
-    const nowSec = Math.floor(Date.now() / 1000);
-    let timeSec = Math.floor(nowSec / stepSec) * stepSec;
-    if (this.activePoints.length > 0) {
-      const lastPt = this.activePoints[this.activePoints.length - 1]!;
-      if (timeSec < lastPt.timeSec) {
-        timeSec = lastPt.timeSec;
-      }
-    }
-
     const livePoint: BasisPoint = {
       timeSec,
       timestampMs: Date.now(),
@@ -934,6 +1058,10 @@ export class AnalyticsController {
         this.activePoints[this.activePoints.length - 1] = livePoint;
       } else if (timeSec > lastPt.timeSec) {
         this.activePoints.push(livePoint);
+        const MAX_ACTIVE_POINTS = 2000;
+        while (this.activePoints.length > MAX_ACTIVE_POINTS) {
+          this.activePoints.shift();
+        }
       }
     } else {
       this.activePoints.push(livePoint);
@@ -1013,14 +1141,18 @@ export class AnalyticsController {
         }
       }
 
-      if (percentileEl && this.activePoints.length > 0) {
-        let countBelow = 0;
-        for (let i = 0; i < this.activePoints.length; i++) {
-          if (this.activePoints[i]!.basisUsd < basisUsd) {
-            countBelow++;
+      if (percentileEl && this.sortedBasisValues.length > 0) {
+        let low = 0;
+        let high = this.sortedBasisValues.length;
+        while (low < high) {
+          const mid = (low + high) >>> 1;
+          if (this.sortedBasisValues[mid]! < basisUsd) {
+            low = mid + 1;
+          } else {
+            high = mid;
           }
         }
-        const pct = (countBelow / this.activePoints.length) * 100;
+        const pct = (low / this.sortedBasisValues.length) * 100;
         percentileEl.textContent = `${pct.toFixed(1)}%`;
       }
     }
@@ -1224,10 +1356,20 @@ export class AnalyticsController {
     this.renderTickerSelector();
   }
 
+  private isModalVisible(): boolean {
+    const modal = document.getElementById("tickerModal");
+    return !!modal && !modal.classList.contains("hidden");
+  }
+
   private renderRecents(): void {
     const container = document.getElementById("recentsRow");
     const listEl = document.getElementById("recentsList");
     if (!listEl) return;
+
+    if (!this.isModalVisible()) {
+      this.isTickerListDirty = true;
+      return;
+    }
 
     if (this.recents.length === 0) {
       if (container) container.classList.add("hidden");
@@ -1243,11 +1385,12 @@ export class AnalyticsController {
       const chip = document.createElement("a");
       chip.href = `/analytics/${encodeURIComponent(sym)}`;
       const isSelected = sym === this.activeSymbol;
-      chip.className = `inline-flex items-center gap-1.5 px-2 py-0.5 rounded border text-[11px] font-mono transition cursor-pointer shrink-0 no-underline ${
+      chip.className = `recent-chip inline-flex items-center gap-1.5 px-2 py-0.5 rounded border text-[11px] font-mono transition cursor-pointer shrink-0 no-underline ${
         isSelected
           ? "bg-terminal-border border-terminal-accent/50 text-white font-bold"
           : "bg-terminal-bg border-terminal-border hover:border-terminal-muted text-terminal-secondary hover:text-white"
       }`;
+      chip.dataset.symbol = sym;
 
       chip.innerHTML = `
         <div class="w-3.5 h-3.5 rounded-full bg-terminal-surface border border-terminal-border flex items-center justify-center text-[8px] font-bold text-white shrink-0 overflow-hidden relative">
@@ -1258,28 +1401,6 @@ export class AnalyticsController {
         ${pair ? `<span class="text-[9px] text-terminal-muted">${pair.leverage}</span>` : ""}
         <span class="text-terminal-muted hover:text-terminal-coral text-[10px] pl-0.5 cursor-pointer chip-remove-btn" title="Remove">✕</span>
       `;
-
-      chip.addEventListener("click", (e) => {
-        const target = e.target as HTMLElement;
-        if (target.classList.contains("chip-remove-btn")) {
-          e.preventDefault();
-          this.removeFromRecents(sym, e);
-          return;
-        }
-        if (
-          e.defaultPrevented ||
-          e.button !== 0 ||
-          e.metaKey ||
-          e.ctrlKey ||
-          e.shiftKey ||
-          e.altKey
-        ) {
-          return;
-        }
-        e.preventDefault();
-        this.selectSymbol(sym);
-        this.closeTickerModal();
-      });
 
       listEl.appendChild(chip);
     }
@@ -1311,24 +1432,42 @@ export class AnalyticsController {
     this.renderTickerSelector();
   }
 
-  private highlightFocusedRow(): void {
+  private highlightFocusedRow(shouldScroll = false): void {
     const listEl = document.getElementById("tickerDropdownList");
     if (!listEl) return;
-    const rows = listEl.querySelectorAll<HTMLElement>(".ticker-modal-row");
-    rows.forEach((r, idx) => {
-      if (idx === this.focusedModalRowIndex) {
-        r.classList.add("bg-terminal-surfaceHover");
-        r.scrollIntoView({ block: "nearest" });
-      } else {
-        r.classList.remove("bg-terminal-surfaceHover");
+
+    if (
+      this.prevFocusedModalRowIndex >= 0 &&
+      this.prevFocusedModalRowIndex < listEl.children.length
+    ) {
+      const prevRow = listEl.children[this.prevFocusedModalRowIndex] as HTMLElement;
+      if (prevRow?.classList) {
+        prevRow.classList.remove("bg-terminal-surfaceHover");
       }
-    });
+    }
+
+    if (this.focusedModalRowIndex >= 0 && this.focusedModalRowIndex < listEl.children.length) {
+      const curRow = listEl.children[this.focusedModalRowIndex] as HTMLElement;
+      if (curRow?.classList) {
+        curRow.classList.add("bg-terminal-surfaceHover");
+        if (shouldScroll) {
+          curRow.scrollIntoView({ block: "nearest" });
+        }
+      }
+    }
+    this.prevFocusedModalRowIndex = this.focusedModalRowIndex;
   }
 
   private renderTickerSelector(): void {
     const listEl = document.getElementById("tickerDropdownList");
     const countBadge = document.getElementById("marketCountBadge");
     if (!listEl) return;
+
+    if (!this.isModalVisible()) {
+      this.isTickerListDirty = true;
+      return;
+    }
+    this.isTickerListDirty = false;
 
     listEl.innerHTML = "";
     const filtered = this.getFilteredPairs();
@@ -1346,6 +1485,7 @@ export class AnalyticsController {
     if (this.focusedModalRowIndex >= filtered.length) {
       this.focusedModalRowIndex = 0;
     }
+    this.prevFocusedModalRowIndex = this.focusedModalRowIndex;
 
     filtered.forEach((p, idx) => {
       const isSelected = p.symbol === this.activeSymbol;
@@ -1387,37 +1527,6 @@ export class AnalyticsController {
         <div class="hidden sm:block sm:col-span-2 text-right tabular-nums text-terminal-muted">${formatMoney(p.openInterestUsd)}</div>
       `;
 
-      row.addEventListener("click", (e) => {
-        const target = e.target as HTMLElement;
-        if (target.classList.contains("fav-star-btn")) {
-          e.preventDefault();
-          this.toggleFavorite(p.symbol, e);
-          return;
-        }
-
-        // Allow opening in new tab/window when Ctrl, Cmd (Mac), Shift, Alt or middle click is used
-        if (
-          e.defaultPrevented ||
-          e.button !== 0 ||
-          e.metaKey ||
-          e.ctrlKey ||
-          e.shiftKey ||
-          e.altKey
-        ) {
-          return;
-        }
-
-        e.preventDefault();
-        this.selectSymbol(p.symbol);
-        this.addToRecents(p.symbol);
-        this.closeTickerModal();
-      });
-
-      row.addEventListener("mouseenter", () => {
-        this.focusedModalRowIndex = idx;
-        this.highlightFocusedRow();
-      });
-
       listEl.appendChild(row);
     });
   }
@@ -1433,23 +1542,31 @@ export class AnalyticsController {
       this.rangeDebounceTimer = null;
     }
     this.pendingRange = null;
-    const prevPair = this.pairs.find((p) => p.symbol === this.activeSymbol);
+    const prevPair = this.activePair || this.pairs.find((p) => p.symbol === this.activeSymbol);
     this.activeSymbol = symbol;
     this.saveSettings();
     this.addToRecents(symbol);
     if (pushHistory) {
       this.updateUrl(true);
     }
-    this.renderRecents();
     this.renderTickerSelector();
     const pair = this.pairs.find((p) => p.symbol === symbol);
     if (pair) {
+      this.activePair = pair;
+      this.activeRhMarketId = pair.rhMarketId;
+      this.activeCoreMarketId = pair.coreMarketId;
       this.updateTopMarketStats(pair);
       this.updateWsSubscriptions(prevPair, pair);
       this.rhBook = null;
       this.coreBook = null;
       this.lastKnownRhMid = pair.rh.markPrice;
       this.lastKnownCoreMid = pair.core.markPrice;
+      this.lastRenderedRhMid = 0;
+      this.lastRenderedCoreMid = 0;
+      this.lastLegendTimeSec = null;
+      this.lastLegendRhPrice = null;
+      this.lastLegendCorePrice = null;
+      this.lastLegendBasisUsd = null;
     }
     this.loadData();
   }
@@ -1503,88 +1620,99 @@ export class AnalyticsController {
 
   // --- DRAGGABLE CHART RESIZERS ---
 
-  private setupChartResizers(): void {
-    const setupHandle = (
-      handleId: string,
-      containerId: string,
-      storageKey: string,
-      defaultHeight: number,
-      minHeight: number,
-      maxHeight: number,
-    ) => {
-      const handle = document.getElementById(handleId);
-      const container = document.getElementById(containerId);
-      if (!handle || !container) return;
+  private setupResizeHandle(
+    handleId: string,
+    containerId: string,
+    storageKey: string,
+    defaultHeight: number,
+    minHeight: number,
+    maxHeight: number,
+  ): void {
+    const handle = document.getElementById(handleId);
+    const container = document.getElementById(containerId);
+    if (!handle || !container) return;
 
-      // Double-click to reset to default height
-      handle.addEventListener("dblclick", () => {
-        container.style.height = `${defaultHeight}px`;
-        const cssVar =
-          containerId === "priceChartContainer" ? "--price-chart-h" : "--basis-chart-h";
-        document.documentElement.style.setProperty(cssVar, `${defaultHeight}px`);
-        try {
-          localStorage.removeItem(storageKey);
-        } catch {}
-        this.chartContext?.resize();
-      });
+    // Double-click to reset to default height
+    handle.addEventListener("dblclick", () => {
+      container.style.height = `${defaultHeight}px`;
+      const cssVar = containerId === "priceChartContainer" ? "--price-chart-h" : "--basis-chart-h";
+      document.documentElement.style.setProperty(cssVar, `${defaultHeight}px`);
+      try {
+        localStorage.removeItem(storageKey);
+      } catch {}
+    });
 
-      let startY = 0;
-      let startHeight = 0;
-      let isDragging = false;
+    let startY = 0;
+    let startHeight = 0;
+    let isDragging = false;
+    let pendingHeight: number | null = null;
+    let resizeRafId: number | null = null;
 
-      const onPointerMove = (e: PointerEvent) => {
-        if (!isDragging) return;
-        const deltaY = e.clientY - startY;
-        const newHeight = Math.max(
-          minHeight,
-          Math.min(maxHeight, Math.round(startHeight + deltaY)),
-        );
-        container.style.height = `${newHeight}px`;
-        this.chartContext?.resize();
-      };
-
-      const onPointerUp = (e: PointerEvent) => {
-        if (!isDragging) return;
-        isDragging = false;
-        try {
-          handle.releasePointerCapture(e.pointerId);
-        } catch {}
-        document.body.style.removeProperty("cursor");
-        document.body.style.removeProperty("user-select");
-
-        const finalHeight = container.clientHeight;
-        if (finalHeight >= minHeight && finalHeight <= maxHeight) {
-          const cssVar =
-            containerId === "priceChartContainer" ? "--price-chart-h" : "--basis-chart-h";
-          document.documentElement.style.setProperty(cssVar, `${finalHeight}px`);
-          try {
-            localStorage.setItem(storageKey, String(finalHeight));
-          } catch {}
-        }
-        this.chartContext?.resize();
-      };
-
-      handle.addEventListener("pointerdown", (e: PointerEvent) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        isDragging = true;
-        startY = e.clientY;
-        startHeight = container.clientHeight;
-
-        try {
-          handle.setPointerCapture(e.pointerId);
-        } catch {}
-
-        document.body.style.cursor = "row-resize";
-        document.body.style.userSelect = "none";
-      });
-
-      handle.addEventListener("pointermove", onPointerMove);
-      handle.addEventListener("pointerup", onPointerUp);
-      handle.addEventListener("pointercancel", onPointerUp);
+    const onPointerMove = (e: PointerEvent) => {
+      if (!isDragging) return;
+      const deltaY = e.clientY - startY;
+      pendingHeight = Math.max(minHeight, Math.min(maxHeight, Math.round(startHeight + deltaY)));
+      if (resizeRafId === null) {
+        resizeRafId = requestAnimationFrame(() => {
+          resizeRafId = null;
+          if (pendingHeight !== null && isDragging) {
+            container.style.height = `${pendingHeight}px`;
+          }
+        });
+      }
     };
 
-    setupHandle(
+    const onPointerUp = (e: PointerEvent) => {
+      if (!isDragging) return;
+      isDragging = false;
+      if (resizeRafId !== null) {
+        cancelAnimationFrame(resizeRafId);
+        resizeRafId = null;
+      }
+      if (pendingHeight !== null) {
+        container.style.height = `${pendingHeight}px`;
+        pendingHeight = null;
+      }
+      try {
+        handle.releasePointerCapture(e.pointerId);
+      } catch {}
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+
+      const finalHeight = parseInt(container.style.height, 10) || container.clientHeight;
+      if (finalHeight >= minHeight && finalHeight <= maxHeight) {
+        const cssVar =
+          containerId === "priceChartContainer" ? "--price-chart-h" : "--basis-chart-h";
+        document.documentElement.style.setProperty(cssVar, `${finalHeight}px`);
+        try {
+          localStorage.setItem(storageKey, String(finalHeight));
+        } catch {}
+      }
+    };
+
+    handle.addEventListener("pointerdown", (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      isDragging = true;
+      startY = e.clientY;
+      startHeight = container.clientHeight;
+      pendingHeight = null;
+
+      try {
+        handle.setPointerCapture(e.pointerId);
+      } catch {}
+
+      document.body.style.cursor = "row-resize";
+      document.body.style.userSelect = "none";
+    });
+
+    handle.addEventListener("pointermove", onPointerMove);
+    handle.addEventListener("pointerup", onPointerUp);
+    handle.addEventListener("pointercancel", onPointerUp);
+  }
+
+  private setupChartResizers(): void {
+    this.setupResizeHandle(
       "priceChartResizeHandle",
       "priceChartContainer",
       "analytics_price_chart_h",
@@ -1593,7 +1721,7 @@ export class AnalyticsController {
       1200,
     );
 
-    setupHandle(
+    this.setupResizeHandle(
       "basisChartResizeHandle",
       "basisChartContainer",
       "analytics_basis_chart_h",
@@ -2053,10 +2181,17 @@ export class AnalyticsController {
         return;
       }
 
-      this.dateFilter = { ...config, isActive: true, resolution };
-      this.activePoints = filtered;
       const stats = calculateQuantStats(filtered, pair.hedgeSideConfig.isRhLong);
       const bands = calculateRollingBands(filtered, 20);
+
+      this.dateFilter = { ...config, isActive: true, resolution };
+      this.activePoints = filtered;
+      this.currentStats = stats;
+      this.sortedBasisValues = stats?.sortedBasisValues || [];
+      this.lastLegendTimeSec = null;
+      this.lastLegendRhPrice = null;
+      this.lastLegendCorePrice = null;
+      this.lastLegendBasisUsd = null;
 
       if (this.chartContext) {
         this.chartContext.setData(filtered, bands, true, undefined, pair.hedgeSideConfig.isRhLong);
@@ -2094,22 +2229,25 @@ export class AnalyticsController {
   private openTickerModal(): void {
     const modal = document.getElementById("tickerModal");
     const input = document.getElementById("tickerSearchInput") as HTMLInputElement | null;
+    const listEl = document.getElementById("tickerDropdownList");
     modal?.classList.remove("hidden");
     input?.focus();
     input?.select();
     this.focusedModalRowIndex = 0;
-    this.renderRecents();
-    this.renderTickerSelector();
+    if (listEl) {
+      listEl.scrollTop = 0;
+    }
+    if (this.isTickerListDirty) {
+      this.renderRecents();
+      this.renderTickerSelector();
+    } else {
+      this.highlightFocusedRow(true);
+    }
   }
 
   private setupEventListeners(): void {
     // Browser back/forward navigation support for /analytics/:ticker
-    window.addEventListener("popstate", () => {
-      const sym = getSlugSymbolFromPath(window.location.pathname);
-      if (sym && sym !== this.activeSymbol) {
-        this.selectSymbol(sym, false);
-      }
-    });
+    window.addEventListener("popstate", this.onPopState);
 
     // Font selector
     initFontSelector({
@@ -2133,6 +2271,79 @@ export class AnalyticsController {
 
     document.getElementById("tickerModalBackdrop")?.addEventListener("click", () => {
       this.closeTickerModal();
+    });
+
+    // Delegated event listeners for ticker dropdown rows
+    const tickerListEl = document.getElementById("tickerDropdownList");
+    tickerListEl?.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      const row = target.closest(".ticker-modal-row") as HTMLElement | null;
+      if (!row) return;
+      const symbol = row.dataset.symbol;
+      if (!symbol) return;
+
+      if (target.classList.contains("fav-star-btn")) {
+        e.preventDefault();
+        this.toggleFavorite(symbol, e);
+        return;
+      }
+
+      if (
+        e.defaultPrevented ||
+        e.button !== 0 ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.shiftKey ||
+        e.altKey
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      this.closeTickerModal();
+      this.selectSymbol(symbol);
+    });
+
+    tickerListEl?.addEventListener("mouseover", (e) => {
+      const target = e.target as HTMLElement;
+      const row = target.closest(".ticker-modal-row") as HTMLElement | null;
+      if (!row) return;
+      const idx = parseInt(row.dataset.index || "", 10);
+      if (!isNaN(idx) && idx !== this.focusedModalRowIndex) {
+        this.focusedModalRowIndex = idx;
+        this.highlightFocusedRow(false);
+      }
+    });
+
+    // Delegated event listeners for recent chips
+    const recentsListEl = document.getElementById("recentsList");
+    recentsListEl?.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      const chip = target.closest(".recent-chip") as HTMLElement | null;
+      if (!chip) return;
+      const sym = chip.dataset.symbol;
+      if (!sym) return;
+
+      if (target.classList.contains("chip-remove-btn")) {
+        e.preventDefault();
+        this.removeFromRecents(sym, e);
+        return;
+      }
+
+      if (
+        e.defaultPrevented ||
+        e.button !== 0 ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.shiftKey ||
+        e.altKey
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+      this.closeTickerModal();
+      this.selectSymbol(sym);
     });
 
     // Search input in modal
@@ -2171,21 +2382,21 @@ export class AnalyticsController {
         e.preventDefault();
         if (filtered.length > 0) {
           this.focusedModalRowIndex = (this.focusedModalRowIndex + 1) % filtered.length;
-          this.highlightFocusedRow();
+          this.highlightFocusedRow(true);
         }
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         if (filtered.length > 0) {
           this.focusedModalRowIndex =
             (this.focusedModalRowIndex - 1 + filtered.length) % filtered.length;
-          this.highlightFocusedRow();
+          this.highlightFocusedRow(true);
         }
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (filtered[this.focusedModalRowIndex]) {
           const sym = filtered[this.focusedModalRowIndex].symbol;
-          this.selectSymbol(sym);
           this.closeTickerModal();
+          this.selectSymbol(sym);
         }
       } else if (e.key === "Escape") {
         this.closeTickerModal();
@@ -2239,12 +2450,7 @@ export class AnalyticsController {
     });
 
     // Close sort dropdown when clicking outside
-    document.addEventListener("click", (e) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest("#modalSortMenuBtn") && !target.closest("#modalSortDropdown")) {
-        sortDropdown?.classList.add("hidden");
-      }
-    });
+    document.addEventListener("click", this.onDocumentClick);
 
     // Venue switcher toggle buttons (Modal)
     document.getElementById("venueBtnRh")?.addEventListener("click", () => {
@@ -2373,22 +2579,20 @@ export class AnalyticsController {
     });
 
     // Global hotkey '/' to search ticker, Escape to close
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName || "")) {
-        e.preventDefault();
-        this.openTickerModal();
-      } else if (e.key === "Escape") {
-        this.closeTickerModal();
-        this.closeDateFilterModal();
-      }
-    });
-
-    window.addEventListener("beforeunload", () => {
-      this.destroy();
-    });
+    document.addEventListener("keydown", this.onDocumentKeyDown);
+    window.addEventListener("beforeunload", this.onBeforeUnload);
   }
 
   public destroy(): void {
+    window.removeEventListener("popstate", this.onPopState);
+    document.removeEventListener("click", this.onDocumentClick);
+    document.removeEventListener("keydown", this.onDocumentKeyDown);
+    window.removeEventListener("beforeunload", this.onBeforeUnload);
+
+    if (this.realtimeThrottleTimer !== null) {
+      clearTimeout(this.realtimeThrottleTimer);
+      this.realtimeThrottleTimer = null;
+    }
     if (this.wsManager) {
       this.wsManager.disconnectAll();
       this.wsManager = null;

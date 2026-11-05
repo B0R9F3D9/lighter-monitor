@@ -114,28 +114,42 @@ export function calculateQuantStats(points: BasisPoint[], isRhLong = true): Quan
   if (!points.length) return null;
 
   const count = points.length;
-  const valuesUsd = points.map((p) => p.basisUsd);
-  const valuesBps = points.map((p) => p.basisBps);
+  let sumUsd = 0;
+  let sumBps = 0;
+  const sortedUsd = new Float64Array(count);
 
-  const sumUsd = valuesUsd.reduce((acc, v) => acc + v, 0);
-  const sumBps = valuesBps.reduce((acc, v) => acc + v, 0);
+  for (let i = 0; i < count; i++) {
+    const p = points[i]!;
+    sumUsd += p.basisUsd;
+    sumBps += p.basisBps;
+    sortedUsd[i] = p.basisUsd;
+  }
+
   const meanBasisUsd = sumUsd / count;
   const meanBasisBps = sumBps / count;
 
   // Standard Deviation
-  const varianceUsd = valuesUsd.reduce((acc, v) => acc + Math.pow(v - meanBasisUsd, 2), 0) / count;
-  const varianceBps = valuesBps.reduce((acc, v) => acc + Math.pow(v - meanBasisBps, 2), 0) / count;
-  const stdDevUsd = Math.sqrt(varianceUsd);
-  const stdDevBps = Math.sqrt(varianceBps);
+  let varianceSumUsd = 0;
+  let varianceSumBps = 0;
+  for (let i = 0; i < count; i++) {
+    const p = points[i]!;
+    const diffUsd = p.basisUsd - meanBasisUsd;
+    varianceSumUsd += diffUsd * diffUsd;
+    const diffBps = p.basisBps - meanBasisBps;
+    varianceSumBps += diffBps * diffBps;
+  }
+
+  const stdDevUsd = Math.sqrt(varianceSumUsd / count);
+  const stdDevBps = Math.sqrt(varianceSumBps / count);
 
   // Median
-  const sortedUsd = valuesUsd.toSorted((a, b) => a - b);
+  sortedUsd.sort();
   const midIndex = Math.floor(count / 2);
   const medianBasisUsd =
-    count % 2 === 0 ? (sortedUsd[midIndex - 1] + sortedUsd[midIndex]) / 2 : sortedUsd[midIndex];
+    count % 2 === 0 ? (sortedUsd[midIndex - 1]! + sortedUsd[midIndex]!) / 2 : sortedUsd[midIndex]!;
 
   // Latest point
-  const latest = points[points.length - 1];
+  const latest = points[count - 1]!;
   const currentBasisUsd = latest.basisUsd;
   const currentBasisBps = latest.basisBps;
 
@@ -149,16 +163,26 @@ export function calculateQuantStats(points: BasisPoint[], isRhLong = true): Quan
   //   Opening: Short RH (sell) + Long Core (buy). Higher basis = selling RH premium = cheaper entry!
   const effectiveZScore = isRhLong ? zScore : -zScore;
 
-  // Percentile rank (0 to 100)
-  const countBelow = sortedUsd.filter((v) => v < currentBasisUsd).length;
+  // Percentile rank (0 to 100) via binary search
+  let low = 0;
+  let high = count;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (sortedUsd[mid]! < currentBasisUsd) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  const countBelow = low;
   const percentile = (countBelow / count) * 100;
 
   // Bollinger Bands (2σ)
   const upperBandUsd = meanBasisUsd + 2 * stdDevUsd;
   const lowerBandUsd = meanBasisUsd - 2 * stdDevUsd;
 
-  const minBasisUsd = sortedUsd[0];
-  const maxBasisUsd = sortedUsd[count - 1];
+  const minBasisUsd = sortedUsd[0]!;
+  const maxBasisUsd = sortedUsd[count - 1]!;
   const signal = evaluateSignalVerdict(effectiveZScore);
 
   return {
@@ -179,6 +203,7 @@ export function calculateQuantStats(points: BasisPoint[], isRhLong = true): Quan
     minBasisUsd,
     maxBasisUsd,
     signal,
+    sortedBasisValues: sortedUsd,
   };
 }
 

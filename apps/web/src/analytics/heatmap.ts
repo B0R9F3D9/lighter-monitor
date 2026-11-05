@@ -36,10 +36,31 @@ interface HeatmapCellState {
   bucket: HourlyBucketStats;
   isCurrent: boolean;
   borderClass: string;
+  dotEl: HTMLElement | null;
   onHourClick?: (hour: number) => void;
 }
 
 const cellStateMap = new WeakMap<HTMLElement, HeatmapCellState>();
+const activeHourMap = new WeakMap<HTMLElement, number>();
+const heatmapScrollSet = new WeakSet<HTMLElement>();
+
+function deactivateHeatmapCell(cell: HTMLElement): void {
+  const state = cellStateMap.get(cell);
+  const borderClass = state?.borderClass || "border-terminal-border";
+  cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none hover:bg-terminal-surfaceHover bg-terminal-surface z-0 ${borderClass}`;
+  if (state?.dotEl) {
+    state.dotEl.classList.add("hidden");
+  }
+}
+
+function activateHeatmapCell(cell: HTMLElement): void {
+  const state = cellStateMap.get(cell);
+  cell.className =
+    "relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none hover:bg-terminal-surfaceHover bg-terminal-surface z-10 border-terminal-accent ring-1 ring-terminal-accent ring-inset";
+  if (state?.dotEl) {
+    state.dotEl.classList.remove("hidden");
+  }
+}
 
 export function renderHourlyHeatmap(
   container: HTMLElement,
@@ -68,14 +89,17 @@ export function renderHourlyHeatmap(
       tooltip.style.display = "none";
     });
 
-    container.addEventListener(
-      "scroll",
-      () => {
-        tooltip.style.opacity = "0";
-        tooltip.style.display = "none";
-      },
-      { passive: true },
-    );
+    if (!heatmapScrollSet.has(container)) {
+      container.addEventListener(
+        "scroll",
+        () => {
+          tooltip.style.opacity = "0";
+          tooltip.style.display = "none";
+        },
+        { passive: true },
+      );
+      heatmapScrollSet.add(container);
+    }
   }
 
   for (let i = 0; i < buckets.length; i++) {
@@ -159,8 +183,6 @@ export function renderHourlyHeatmap(
       textClass = "text-terminal-muted";
     }
 
-    cellStateMap.set(cell, { bucket: b, isCurrent, borderClass, onHourClick });
-
     const activeSelectedClass = isCurrent
       ? "z-10 border-terminal-accent ring-1 ring-terminal-accent ring-inset"
       : `z-0 ${borderClass}`;
@@ -176,13 +198,20 @@ export function renderHourlyHeatmap(
     cell.innerHTML = `
       <div class="text-[10px] font-bold ${textClass} tabular-nums">${b.label}</div>
       <div class="text-[9px] font-mono ${textClass} tabular-nums mt-0.5 truncate w-full text-center">${basisLabel}</div>
-      ${isCurrent ? '<span class="heatmap-current-dot absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-terminal-accent pointer-events-none"></span>' : ""}
+      <span class="heatmap-current-dot absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-terminal-accent pointer-events-none ${isCurrent ? "" : "hidden"}"></span>
     `;
+
+    const dotEl = (
+      cell.querySelector ? cell.querySelector(".heatmap-current-dot") : null
+    ) as HTMLElement | null;
+    cellStateMap.set(cell, { bucket: b, isCurrent, borderClass, dotEl, onHourClick });
   }
 
   if (!isExisting) {
     container.appendChild(grid);
   }
+
+  activeHourMap.set(grid, currentHourLocal);
 
   if (
     typeof requestAnimationFrame === "function" &&
@@ -212,54 +241,25 @@ export function highlightHeatmapHour(container: HTMLElement, targetHour: number)
   const grid = (container.firstElementChild || container.children?.[0]) as HTMLElement | null;
   if (!grid || !grid.children || grid.children.length === 0) return;
 
-  for (let i = 0; i < grid.children.length; i++) {
-    const cell = grid.children[i] as HTMLElement;
-    if (!cell) continue;
+  const prevHour = activeHourMap.get(grid);
+  if (prevHour === targetHour) return;
 
-    const isSelected = i === targetHour;
-    const state = cellStateMap.get(cell);
-    const borderClass = state?.borderClass || "border-terminal-border";
-    const bgClass = "bg-terminal-surface";
-
-    if (isSelected) {
-      cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none hover:bg-terminal-surfaceHover ${bgClass} z-10 border-terminal-accent ring-1 ring-terminal-accent ring-inset`;
-      if (cell.classList) {
-        cell.classList.remove("z-0");
-        cell.classList.add(
-          "z-10",
-          "border-terminal-accent",
-          "ring-1",
-          "ring-terminal-accent",
-          "ring-inset",
-        );
-      }
-      let dot = cell.querySelector ? cell.querySelector(".heatmap-current-dot") : null;
-      if (!dot && cell.innerHTML && !cell.innerHTML.includes("heatmap-current-dot")) {
-        const dotEl = document.createElement("span");
-        dotEl.className =
-          "heatmap-current-dot absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-terminal-accent pointer-events-none";
-        cell.appendChild(dotEl);
-      }
-    } else {
-      cell.className = `relative flex flex-col items-center justify-center h-11.5 px-0.5 rounded border cursor-pointer transition select-none hover:bg-terminal-surfaceHover ${bgClass} z-0 ${borderClass}`;
-      if (cell.classList) {
-        cell.classList.remove(
-          "z-10",
-          "border-terminal-accent",
-          "ring-1",
-          "ring-terminal-accent",
-          "ring-inset",
-        );
-        cell.classList.add("z-0");
-      }
-      const dot = cell.querySelector ? cell.querySelector(".heatmap-current-dot") : null;
-      if (dot) {
-        if (typeof (dot as any).remove === "function") {
-          (dot as any).remove();
-        } else if (typeof cell.removeChild === "function") {
-          cell.removeChild(dot);
-        }
+  if (typeof prevHour === "number" && prevHour >= 0 && prevHour < grid.children.length) {
+    const prevCell = grid.children[prevHour] as HTMLElement;
+    if (prevCell) deactivateHeatmapCell(prevCell);
+  } else {
+    for (let i = 0; i < grid.children.length; i++) {
+      if (i !== targetHour) {
+        const cell = grid.children[i] as HTMLElement;
+        if (cell) deactivateHeatmapCell(cell);
       }
     }
   }
+
+  if (targetHour >= 0 && targetHour < grid.children.length) {
+    const targetCell = grid.children[targetHour] as HTMLElement;
+    if (targetCell) activateHeatmapCell(targetCell);
+  }
+
+  activeHourMap.set(grid, targetHour);
 }

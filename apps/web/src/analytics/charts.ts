@@ -62,6 +62,21 @@ const CHART_PALETTE = {
   bandSma: "rgba(110, 118, 129, 0.45)",
 } as const;
 
+const SHORT_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
 export function initAnalyticsCharts(
   priceContainer: HTMLElement,
   basisContainer: HTMLElement,
@@ -87,7 +102,7 @@ export function initAnalyticsCharts(
         } else {
           return String(time);
         }
-        const month = d.toLocaleDateString(undefined, { month: "short" });
+        const month = SHORT_MONTHS[d.getMonth()] || "";
         const day = String(d.getDate()).padStart(2, "0");
         const hours = String(d.getHours()).padStart(2, "0");
         const minutes = String(d.getMinutes()).padStart(2, "0");
@@ -128,7 +143,7 @@ export function initAnalyticsCharts(
 
         const hours = String(d.getHours()).padStart(2, "0");
         const minutes = String(d.getMinutes()).padStart(2, "0");
-        const month = d.toLocaleDateString(undefined, { month: "short" });
+        const month = SHORT_MONTHS[d.getMonth()] || "";
         const day = String(d.getDate()).padStart(2, "0");
 
         switch (tickMarkType) {
@@ -152,11 +167,16 @@ export function initAnalyticsCharts(
     },
   };
 
+  const initialPriceWidth = priceContainer.clientWidth || 800;
+  const initialPriceHeight = priceContainer.clientHeight || 340;
+  const initialBasisWidth = basisContainer.clientWidth || 800;
+  const initialBasisHeight = basisContainer.clientHeight || 220;
+
   // 1. Price Chart (Top)
   const priceChart = createChart(priceContainer, {
     ...commonOptions,
-    width: priceContainer.clientWidth || 800,
-    height: priceContainer.clientHeight || 340,
+    width: initialPriceWidth,
+    height: initialPriceHeight,
     crosshair: {
       ...commonOptions.crosshair,
       horzLine: {
@@ -190,8 +210,8 @@ export function initAnalyticsCharts(
     color: CHART_PALETTE.accent,
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
-    lineVisible: true,
-    axisLabelVisible: true,
+    lineVisible: false,
+    axisLabelVisible: false,
     title: "RH",
     axisLabelColor: CHART_PALETTE.accent,
     axisLabelTextColor: CHART_PALETTE.background,
@@ -202,8 +222,8 @@ export function initAnalyticsCharts(
     color: CHART_PALETTE.textColor,
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
-    lineVisible: true,
-    axisLabelVisible: true,
+    lineVisible: false,
+    axisLabelVisible: false,
     title: "Core",
     axisLabelColor: CHART_PALETTE.borderSubtle,
     axisLabelTextColor: CHART_PALETTE.white,
@@ -212,8 +232,8 @@ export function initAnalyticsCharts(
   // 2. Basis & Spread Sub-Chart (Bottom)
   const basisChart = createChart(basisContainer, {
     ...commonOptions,
-    width: basisContainer.clientWidth || 800,
-    height: basisContainer.clientHeight || 220,
+    width: initialBasisWidth,
+    height: initialBasisHeight,
     crosshair: {
       ...commonOptions.crosshair,
       horzLine: {
@@ -247,7 +267,7 @@ export function initAnalyticsCharts(
     lineWidth: 1,
     lineStyle: LineStyle.Dashed,
     lineVisible: false,
-    axisLabelVisible: true,
+    axisLabelVisible: false,
     title: "Basis",
     axisLabelColor: CHART_PALETTE.accent,
     axisLabelTextColor: CHART_PALETTE.background,
@@ -295,10 +315,43 @@ export function initAnalyticsCharts(
 
   let isSyncing = false;
   let isProgrammaticUpdate = false;
+  let isResizing = false;
+  let resizeResetRafId: number | null = null;
   let isHovering = false;
+  let lastHoveredTimeSec: number | null = null;
   let currentIsRhLong = true;
   let currentPointsList: BasisPoint[] = [];
   const currentPointsMap = new Map<number, BasisPoint>();
+
+  let lastAppliedRhPrice: number | null = null;
+  let lastAppliedCorePrice: number | null = null;
+  let lastAppliedBasisPrice: number | null = null;
+  let lastAppliedIsEdge: boolean | null = null;
+  let lastAppliedLinesVisible = false;
+
+  let lastPriceWidth = initialPriceWidth;
+  let lastPriceHeight = initialPriceHeight;
+  let lastBasisWidth = initialBasisWidth;
+  let lastBasisHeight = initialBasisHeight;
+
+  function markResizing(): void {
+    isResizing = true;
+    if (resizeResetRafId !== null) {
+      cancelAnimationFrame(resizeResetRafId);
+    }
+    resizeResetRafId = requestAnimationFrame(() => {
+      isResizing = false;
+      resizeResetRafId = null;
+    });
+  }
+
+  function resetPriceLineCache() {
+    lastAppliedRhPrice = null;
+    lastAppliedCorePrice = null;
+    lastAppliedBasisPrice = null;
+    lastAppliedIsEdge = null;
+    lastAppliedLinesVisible = true;
+  }
 
   const onCrosshairMove = typeof callbacks === "function" ? callbacks : callbacks?.onCrosshairMove;
   const onVisibleRangeChange =
@@ -329,7 +382,7 @@ export function initAnalyticsCharts(
   }
 
   function handleUserRangeChange() {
-    if (isProgrammaticUpdate || isSyncing || !onVisibleRangeChange) return;
+    if (isProgrammaticUpdate || isSyncing || isResizing || !onVisibleRangeChange) return;
     const range = computeExtrapolatedRange();
     if (range) {
       onVisibleRangeChange(range);
@@ -364,47 +417,82 @@ export function initAnalyticsCharts(
     }
 
     if (!p || typeof p.rhPrice !== "number" || typeof p.corePrice !== "number" || p.rhPrice <= 0) {
-      rhPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
-      corePriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
-      basisPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
+      if (lastAppliedLinesVisible) {
+        rhPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
+        corePriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
+        basisPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
+        lastAppliedLinesVisible = false;
+        lastAppliedRhPrice = null;
+        lastAppliedCorePrice = null;
+        lastAppliedBasisPrice = null;
+        lastAppliedIsEdge = null;
+      }
       return;
     }
 
-    rhPriceLine.applyOptions({
-      price: p.rhPrice,
-      axisLabelVisible: true,
-      lineVisible: true,
-    });
-    corePriceLine.applyOptions({
-      price: p.corePrice,
-      axisLabelVisible: true,
-      lineVisible: true,
-    });
+    lastAppliedLinesVisible = true;
+
+    if (lastAppliedRhPrice === null || Math.abs(p.rhPrice - lastAppliedRhPrice) >= 0.001) {
+      rhPriceLine.applyOptions({
+        price: p.rhPrice,
+        axisLabelVisible: true,
+        lineVisible: true,
+      });
+      lastAppliedRhPrice = p.rhPrice;
+    }
+
+    if (lastAppliedCorePrice === null || Math.abs(p.corePrice - lastAppliedCorePrice) >= 0.001) {
+      corePriceLine.applyOptions({
+        price: p.corePrice,
+        axisLabelVisible: true,
+        lineVisible: true,
+      });
+      lastAppliedCorePrice = p.corePrice;
+    }
 
     if (typeof p.basisUsd === "number") {
       const isEdge = currentIsRhLong ? p.basisUsd <= 0 : p.basisUsd >= 0;
-      basisPriceLine.applyOptions({
-        price: p.basisUsd,
-        axisLabelVisible: true,
-        lineVisible: false,
-        axisLabelColor: isEdge ? CHART_PALETTE.emerald : CHART_PALETTE.accent,
-        axisLabelTextColor: isEdge ? CHART_PALETTE.white : CHART_PALETTE.background,
-      });
-    } else {
+      if (
+        lastAppliedBasisPrice === null ||
+        Math.abs(p.basisUsd - lastAppliedBasisPrice) >= 0.0001 ||
+        lastAppliedIsEdge !== isEdge
+      ) {
+        basisPriceLine.applyOptions({
+          price: p.basisUsd,
+          axisLabelVisible: true,
+          lineVisible: false,
+          axisLabelColor: isEdge ? CHART_PALETTE.emerald : CHART_PALETTE.accent,
+          axisLabelTextColor: isEdge ? CHART_PALETTE.white : CHART_PALETTE.background,
+        });
+        lastAppliedBasisPrice = p.basisUsd;
+        lastAppliedIsEdge = isEdge;
+      }
+    } else if (lastAppliedBasisPrice !== null) {
       basisPriceLine.applyOptions({ axisLabelVisible: false, lineVisible: false });
+      lastAppliedBasisPrice = null;
+      lastAppliedIsEdge = null;
     }
   }
 
   // Crosshair move handler (drives dynamic price scale labels on right)
   const handleMove = (param: { time?: Time; point?: { x: number; y: number } }) => {
     if (!param.time || !param.point) {
-      isHovering = false;
-      updatePriceLines(null);
-      if (onCrosshairMove) onCrosshairMove(null);
+      if (lastHoveredTimeSec !== null || isHovering) {
+        lastHoveredTimeSec = null;
+        isHovering = false;
+        updatePriceLines(null);
+        if (onCrosshairMove) onCrosshairMove(null);
+      }
       return;
     }
-    isHovering = true;
+
     const tSec = typeof param.time === "number" ? param.time : 0;
+    if (tSec === lastHoveredTimeSec) {
+      return;
+    }
+
+    lastHoveredTimeSec = tSec;
+    isHovering = true;
     const pt = currentPointsMap.get(tSec) || null;
     updatePriceLines(pt);
     if (onCrosshairMove) onCrosshairMove(pt);
@@ -414,35 +502,57 @@ export function initAnalyticsCharts(
   basisChart.subscribeCrosshairMove(handleMove);
 
   const handleMouseLeave = () => {
-    isHovering = false;
-    updatePriceLines(null);
-    if (onCrosshairMove) onCrosshairMove(null);
+    if (lastHoveredTimeSec !== null || isHovering) {
+      lastHoveredTimeSec = null;
+      isHovering = false;
+      updatePriceLines(null);
+      if (onCrosshairMove) onCrosshairMove(null);
+    }
   };
 
   priceContainer.addEventListener("mouseleave", handleMouseLeave);
   basisContainer.addEventListener("mouseleave", handleMouseLeave);
 
-  // Responsive resize
+  // Responsive resize with change check and range suppression
   const resizeObserver = new ResizeObserver((entries) => {
+    let priceResized = false;
+    let basisResized = false;
+    let newPw = 0;
+    let newPh = 0;
+    let newBw = 0;
+    let newBh = 0;
+
     for (const entry of entries) {
-      if (
-        entry.target === priceContainer &&
-        priceContainer.clientWidth > 0 &&
-        priceContainer.clientHeight > 0
-      ) {
-        priceChart.applyOptions({
-          width: priceContainer.clientWidth,
-          height: priceContainer.clientHeight,
-        });
-      } else if (
-        entry.target === basisContainer &&
-        basisContainer.clientWidth > 0 &&
-        basisContainer.clientHeight > 0
-      ) {
-        basisChart.applyOptions({
-          width: basisContainer.clientWidth,
-          height: basisContainer.clientHeight,
-        });
+      const width = Math.round(entry.contentRect.width);
+      const height = Math.round(entry.contentRect.height);
+      if (width <= 0 || height <= 0) continue;
+
+      if (entry.target === priceContainer) {
+        if (width !== lastPriceWidth || height !== lastPriceHeight) {
+          lastPriceWidth = width;
+          lastPriceHeight = height;
+          newPw = width;
+          newPh = height;
+          priceResized = true;
+        }
+      } else if (entry.target === basisContainer) {
+        if (width !== lastBasisWidth || height !== lastBasisHeight) {
+          lastBasisWidth = width;
+          lastBasisHeight = height;
+          newBw = width;
+          newBh = height;
+          basisResized = true;
+        }
+      }
+    }
+
+    if (priceResized || basisResized) {
+      markResizing();
+      if (priceResized) {
+        priceChart.applyOptions({ width: newPw, height: newPh });
+      }
+      if (basisResized) {
+        basisChart.applyOptions({ width: newBw, height: newBh });
       }
     }
   });
@@ -458,8 +568,12 @@ export function initAnalyticsCharts(
     isRhLong = true,
   ) => {
     isProgrammaticUpdate = true;
+    lastHoveredTimeSec = null;
+    isHovering = false;
+    resetPriceLineCache();
+
     currentIsRhLong = isRhLong;
-    currentPointsList = points;
+    currentPointsList = points.slice();
     currentPointsMap.clear();
     for (const p of points) {
       currentPointsMap.set(p.timeSec, p);
@@ -474,16 +588,31 @@ export function initAnalyticsCharts(
       bottomFillColor2: "rgba(0, 0, 0, 0)",
     });
 
-    const rhLineData = points.map((p) => ({ time: p.timeSec as UTCTimestamp, value: p.rhPrice }));
-    const coreLineData = points.map((p) => ({
-      time: p.timeSec as UTCTimestamp,
-      value: p.corePrice,
-    }));
-    const basisData = points.map((p) => ({ time: p.timeSec as UTCTimestamp, value: p.basisUsd }));
+    const pLen = points.length;
+    const rhLineData: Array<{ time: UTCTimestamp; value: number }> = [];
+    const coreLineData: Array<{ time: UTCTimestamp; value: number }> = [];
+    const basisData: Array<{ time: UTCTimestamp; value: number }> = [];
 
-    const smaData = bands.map((b) => ({ time: b.timeSec as UTCTimestamp, value: b.sma }));
-    const upperData = bands.map((b) => ({ time: b.timeSec as UTCTimestamp, value: b.upper }));
-    const lowerData = bands.map((b) => ({ time: b.timeSec as UTCTimestamp, value: b.lower }));
+    for (let i = 0; i < pLen; i++) {
+      const p = points[i]!;
+      const time = p.timeSec as UTCTimestamp;
+      rhLineData.push({ time, value: p.rhPrice });
+      coreLineData.push({ time, value: p.corePrice });
+      basisData.push({ time, value: p.basisUsd });
+    }
+
+    const bLen = bands.length;
+    const smaData: Array<{ time: UTCTimestamp; value: number }> = [];
+    const upperData: Array<{ time: UTCTimestamp; value: number }> = [];
+    const lowerData: Array<{ time: UTCTimestamp; value: number }> = [];
+
+    for (let i = 0; i < bLen; i++) {
+      const b = bands[i]!;
+      const time = b.timeSec as UTCTimestamp;
+      smaData.push({ time, value: b.sma });
+      upperData.push({ time, value: b.upper });
+      lowerData.push({ time, value: b.lower });
+    }
 
     rhSeries.setData(rhLineData);
     coreSeries.setData(coreLineData);
@@ -513,15 +642,23 @@ export function initAnalyticsCharts(
       }
     }
 
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       isProgrammaticUpdate = false;
-    }, 60);
+    });
   };
 
   const destroy = () => {
+    if (resizeResetRafId !== null) {
+      cancelAnimationFrame(resizeResetRafId);
+      resizeResetRafId = null;
+    }
     resizeObserver.disconnect();
     priceContainer.removeEventListener("mouseleave", handleMouseLeave);
     basisContainer.removeEventListener("mouseleave", handleMouseLeave);
+    try {
+      priceChart.unsubscribeCrosshairMove(handleMove);
+      basisChart.unsubscribeCrosshairMove(handleMove);
+    } catch {}
     priceChart.remove();
     basisChart.remove();
   };
@@ -559,17 +696,26 @@ export function initAnalyticsCharts(
   const isUserHovering = () => isHovering;
 
   const resize = () => {
-    if (priceContainer.clientWidth > 0 && priceContainer.clientHeight > 0) {
-      priceChart.applyOptions({
-        width: priceContainer.clientWidth,
-        height: priceContainer.clientHeight,
-      });
+    const pw = priceContainer.clientWidth;
+    const ph = priceContainer.clientHeight;
+    const bw = basisContainer.clientWidth;
+    const bh = basisContainer.clientHeight;
+
+    const priceChanged = pw > 0 && ph > 0 && (pw !== lastPriceWidth || ph !== lastPriceHeight);
+    const basisChanged = bw > 0 && bh > 0 && (bw !== lastBasisWidth || bh !== lastBasisHeight);
+    if (!priceChanged && !basisChanged) return;
+
+    markResizing();
+
+    if (priceChanged) {
+      lastPriceWidth = pw;
+      lastPriceHeight = ph;
+      priceChart.applyOptions({ width: pw, height: ph });
     }
-    if (basisContainer.clientWidth > 0 && basisContainer.clientHeight > 0) {
-      basisChart.applyOptions({
-        width: basisContainer.clientWidth,
-        height: basisContainer.clientHeight,
-      });
+    if (basisChanged) {
+      lastBasisWidth = bw;
+      lastBasisHeight = bh;
+      basisChart.applyOptions({ width: bw, height: bh });
     }
   };
 

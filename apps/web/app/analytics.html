@@ -95,7 +95,7 @@
   >
     <!-- TOP HEADER / APP BAR (Matches /spread 1:1) -->
     <header
-      class="border-b border-terminal-border bg-terminal-surface/95 sticky top-0 z-40 backdrop-blur-md select-none"
+      class="border-b border-terminal-border bg-terminal-surface sticky top-0 z-40 select-none"
     >
       <div class="max-w-8xl mx-auto px-4 sm:px-6 py-2">
         <div class="flex items-center justify-between gap-3">
@@ -652,6 +652,7 @@
       <div
         id="priceChartBlock"
         class="bg-terminal-surface border border-terminal-border rounded overflow-hidden relative flex flex-col"
+        style="contain: layout paint"
       >
         <!-- Chart Loading Overlay (Matches /checker spinner) -->
         <div
@@ -760,6 +761,7 @@
       <div
         id="basisChartBlock"
         class="bg-terminal-surface border border-terminal-border rounded overflow-hidden relative flex flex-col"
+        style="contain: layout paint"
       >
         <!-- Sub-chart Title Strip -->
         <div
@@ -807,6 +809,7 @@
       <!-- 24-HOUR EXECUTION CLOCK (HEATMAP) -->
       <div
         class="bg-terminal-surface border border-terminal-border rounded p-3 space-y-2 font-mono"
+        style="contain: content"
       >
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4">
           <div>

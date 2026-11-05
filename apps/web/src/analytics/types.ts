@@ -50,6 +50,7 @@ export interface QuantStats {
   minBasisUsd: number;
   maxBasisUsd: number;
   signal: SignalVerdict;
+  sortedBasisValues?: Float64Array | number[];
 }
 
 export interface HourlyBucketStats {
