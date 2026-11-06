@@ -8,18 +8,7 @@
     />
     <title>Analytics | Lighter × Robinhood</title>
 
-    <!-- Favicon & Touch Icons -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
-    <link rel="shortcut icon" href="/favicon.ico" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/src/style.css" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- 1. Instant initialization from localStorage & URL (Runs before CSS to prevent parser blocking) -->
     <script>
       try {
         const f = localStorage.getItem("terminal_font");
@@ -43,10 +32,7 @@
             document.head.appendChild(link);
           }
         }
-      } catch {}
-    </script>
-    <script>
-      try {
+
         const m = window.location.pathname.match(/^\/analytics\/([a-zA-Z0-9_.-]+)\/?$/i);
         let s = m ? m[1].toUpperCase() : localStorage.getItem("analytics_symbol");
         if (
@@ -59,36 +45,48 @@
           window.__INITIAL_ANALYTICS_SYMBOL__ = s;
           document.title = s + " Analytics | Lighter × Robinhood";
         }
-      } catch {}
-    </script>
-    <script>
-      try {
-        var ph = localStorage.getItem("analytics_price_chart_h");
-        if (ph) {
-          var pVal = parseInt(ph, 10);
-          if (!isNaN(pVal) && pVal >= 180 && pVal <= 1200) {
-            document.documentElement.style.setProperty("--price-chart-h", pVal + "px");
-          }
+
+        const ph = parseInt(localStorage.getItem("analytics_price_chart_h") || "", 10);
+        if (ph >= 180 && ph <= 1200) {
+          document.documentElement.style.setProperty("--price-chart-h", ph + "px");
         }
-        var bh = localStorage.getItem("analytics_basis_chart_h");
-        if (bh) {
-          var bVal = parseInt(bh, 10);
-          if (!isNaN(bVal) && bVal >= 120 && bVal <= 800) {
-            document.documentElement.style.setProperty("--basis-chart-h", bVal + "px");
-          }
+
+        const bh = parseInt(localStorage.getItem("analytics_basis_chart_h") || "", 10);
+        if (bh >= 120 && bh <= 800) {
+          document.documentElement.style.setProperty("--basis-chart-h", bh + "px");
         }
       } catch {}
     </script>
-    <!-- Telegram WebApp SDK -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script>
-      try {
-        if (window.Telegram?.WebApp) {
-          window.Telegram.WebApp.ready();
-          window.Telegram.WebApp.expand();
-        }
-      } catch {}
-    </script>
+
+    <!-- Favicon & Touch Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+    <!-- 2. Preconnect to fonts and token image CDN -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://assets.lighter.xyz" crossorigin />
+
+    <!-- 3. Stylesheets & Monospace Font -->
+    <link rel="stylesheet" href="/src/style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- 4. Telegram WebApp SDK (Deferred to not block parser) -->
+    <script
+      defer
+      src="https://telegram.org/js/telegram-web-app.js"
+      onload="
+        try {
+          window.Telegram?.WebApp?.ready();
+          window.Telegram?.WebApp?.expand();
+        } catch (e) {}
+      "
+    ></script>
   </head>
   <body
     class="bg-terminal-bg text-terminal-primary antialiased min-h-screen flex flex-col font-mono text-xs selection:bg-terminal-accent/30 selection:text-white overflow-x-hidden"
@@ -286,7 +284,9 @@
     <main class="max-w-8xl mx-auto px-4 sm:px-6 py-2.5 space-y-2.5 w-full flex-1">
       <!-- Controls & Ticker Toolbar -->
       <div
+        id="controlsToolbar"
         class="bg-terminal-surface border border-terminal-border rounded p-2 sm:px-3 sm:py-1.5 flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 text-xs font-mono"
+        style="contain: layout paint"
       >
         <!-- Left: Token Selector Button + Key Live Stats -->
         <div class="flex flex-wrap items-center gap-3 sm:gap-5 overflow-x-auto no-scrollbar">
@@ -302,7 +302,7 @@
             >
               <img
                 id="tickerTokenImg"
-                src=""
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
                 alt="Token Logo"
                 class="w-full h-full object-contain rounded-full"
               />
@@ -377,7 +377,7 @@
             class="flex items-center gap-4 sm:gap-6 text-xs select-text overflow-x-auto no-scrollbar w-full xl:w-auto max-w-full pb-0.5 xl:pb-0"
           >
             <!-- 1. Mark Price -->
-            <div class="space-y-0.5">
+            <div class="space-y-0.5 min-w-18">
               <div
                 class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold underline decoration-dotted decoration-terminal-muted/60 cursor-help"
                 title="Current Mark Price on active venue"
@@ -388,7 +388,7 @@
             </div>
 
             <!-- 2. Index Price -->
-            <div class="space-y-0.5">
+            <div class="space-y-0.5 min-w-18">
               <div
                 class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold underline decoration-dotted decoration-terminal-muted/60 cursor-help"
                 title="Underlying spot reference index price"
@@ -404,7 +404,7 @@
             </div>
 
             <!-- 3. 24h Change -->
-            <div class="space-y-0.5">
+            <div class="space-y-0.5 min-w-17">
               <div class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold">
                 24H CHANGE
               </div>
@@ -414,7 +414,7 @@
             </div>
 
             <!-- 4. 24h Volume -->
-            <div class="space-y-0.5">
+            <div class="space-y-0.5 min-w-18">
               <div class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold">
                 24H VOLUME
               </div>
@@ -422,7 +422,7 @@
             </div>
 
             <!-- 5. Open Interest -->
-            <div class="space-y-0.5">
+            <div class="space-y-0.5 min-w-19">
               <div
                 class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold underline decoration-dotted decoration-terminal-muted/60 cursor-help"
                 title="Open interest in USD on active venue"
@@ -433,7 +433,7 @@
             </div>
 
             <!-- 6. 1hr Funding -->
-            <div class="space-y-0.5">
+            <div class="space-y-0.5 min-w-18">
               <div
                 class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold underline decoration-dotted decoration-terminal-muted/60 cursor-help"
                 title="1-Hour estimated perpetual funding rate"
@@ -446,7 +446,7 @@
             </div>
 
             <!-- 7. Next Funding Countdown -->
-            <div class="space-y-0.5">
+            <div class="space-y-0.5 min-w-17">
               <div class="text-[10px] text-terminal-muted uppercase tracking-wider font-semibold">
                 NEXT FUNDING
               </div>
@@ -541,7 +541,7 @@
       <!-- ACTIVE DATE & DAY FILTER BANNER -->
       <div
         id="activeFilterBanner"
-        class="hidden bg-terminal-surface border border-terminal-accent/40 rounded px-3 py-1 flex flex-wrap items-center justify-between gap-2 text-xs font-mono select-text"
+        class="hidden bg-terminal-surface border border-terminal-accent/40 rounded px-3 py-1 flex-wrap items-center justify-between gap-2 text-xs font-mono select-text"
       >
         <div
           class="flex items-center gap-2 flex-wrap text-terminal-secondary text-[11px] select-text"
@@ -572,6 +572,7 @@
       <div
         id="quantLeadStrip"
         class="bg-terminal-surface border border-terminal-border rounded px-3 py-2 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs font-mono"
+        style="contain: layout paint"
       >
         <!-- Left: Signal indicator + Current Basis Hero -->
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 sm:shrink-0">
@@ -724,7 +725,7 @@
           <div class="flex items-center gap-3">
             <div
               id="chartRangeLoading"
-              class="hidden flex items-center gap-1.5 text-[10px] text-terminal-accent select-none"
+              class="hidden items-center gap-1.5 text-[10px] text-terminal-accent select-none"
             >
               <span class="w-1.5 h-1.5 rounded-full bg-terminal-accent animate-ping"></span>
               <span>Fetching view history...</span>
@@ -763,6 +764,40 @@
         class="bg-terminal-surface border border-terminal-border rounded overflow-hidden relative flex flex-col"
         style="contain: layout paint"
       >
+        <!-- Basis Chart Loading Overlay (Matches priceChartBlock) -->
+        <div
+          id="basisChartLoadingOverlay"
+          class="absolute inset-0 bg-terminal-bg/75 backdrop-blur-2xs flex items-center justify-center z-20 pointer-events-auto select-none transition-opacity"
+        >
+          <div class="inline-flex items-center gap-2.5 text-terminal-accent text-xs font-mono">
+            <svg
+              class="animate-spin w-4 h-4 text-terminal-accent shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            <span id="basisChartLoadingMessage">Calculating Basis &amp; Dispersion...</span>
+          </div>
+        </div>
+        <script>
+          try {
+            if (window.__INITIAL_ANALYTICS_SYMBOL__) {
+              var bmEl = document.getElementById("basisChartLoadingMessage");
+              if (bmEl) {
+                bmEl.textContent =
+                  "Calculating " +
+                  window.__INITIAL_ANALYTICS_SYMBOL__ +
+                  " basis & dispersion bands...";
+              }
+            }
+          } catch {}
+        </script>
+
         <!-- Sub-chart Title Strip -->
         <div
           class="px-3 py-1.5 bg-terminal-bg/50 border-b border-terminal-border flex flex-wrap items-center justify-between gap-2 text-[10px] text-terminal-muted tracking-wider font-mono select-text"
@@ -847,9 +882,9 @@
     <!-- TICKER SEARCH & SELECTION MODAL (Lighter Style) -->
     <div
       id="tickerModal"
-      class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 select-none"
+      class="hidden fixed inset-0 z-50 items-center justify-center p-3 sm:p-4 select-none"
     >
-      <div id="tickerModalBackdrop" class="absolute inset-0 bg-black/75 backdrop-blur-xs"></div>
+      <div id="tickerModalBackdrop" class="absolute inset-0 bg-black/85"></div>
       <div
         class="relative bg-terminal-surface border border-terminal-border rounded-lg shadow-2xl w-full max-w-2xl sm:max-w-3xl overflow-hidden flex flex-col max-h-[85vh] z-10 font-mono text-xs"
       >
@@ -1062,6 +1097,7 @@
         <div
           id="tickerDropdownList"
           class="overflow-y-auto divide-y divide-terminal-borderSubtle flex-1 max-h-[50vh]"
+          style="contain: content"
         >
           <!-- Populated dynamically -->
         </div>
@@ -1111,9 +1147,9 @@
     <!-- DATE & DAY-OF-WEEK FILTER MODAL -->
     <div
       id="dateFilterModal"
-      class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 select-none"
+      class="hidden fixed inset-0 z-50 items-center justify-center p-3 sm:p-4 select-none"
     >
-      <div id="dateFilterModalBackdrop" class="absolute inset-0 bg-black/75 backdrop-blur-xs"></div>
+      <div id="dateFilterModalBackdrop" class="absolute inset-0 bg-black/85"></div>
       <div
         class="relative bg-terminal-surface border border-terminal-border rounded-lg shadow-2xl w-full max-w-lg overflow-hidden flex flex-col z-10 font-mono text-xs"
       >

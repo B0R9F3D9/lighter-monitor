@@ -361,3 +361,9 @@ input[type="text"] {
     transform: translateY(0);
   }
 }
+
+/* Virtualized rendering of off-screen modal ticker rows */
+#tickerDropdownList > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 36px;
+}

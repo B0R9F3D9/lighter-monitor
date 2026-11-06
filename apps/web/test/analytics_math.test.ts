@@ -185,9 +185,12 @@ describe("Analytics Math Engine", () => {
   });
 
   it("selects optimal candle resolutions based on visible time span", () => {
-    // <= 3 hours -> 1m
+    // <= 5 hours -> 1m (covers 1H and 4H timeframes)
     expect(chooseOptimalResolution(3600).resolution).toBe("1m");
     expect(chooseOptimalResolution(3 * 3600).resolution).toBe("1m");
+    expect(chooseOptimalResolution(4 * 3600).resolution).toBe("1m");
+    expect(chooseOptimalResolution(5 * 3600).resolution).toBe("1m");
+    expect(chooseOptimalResolution(5 * 3600 + 1).resolution).toBe("5m");
 
     // <= 26 hours -> 5m
     expect(chooseOptimalResolution(12 * 3600).resolution).toBe("5m");

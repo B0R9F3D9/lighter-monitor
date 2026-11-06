@@ -373,7 +373,7 @@ export function getResolutionStepSec(resolution: string): number {
  * Chooses the best candle resolution and step based on visible time span in seconds.
  */
 export function chooseOptimalResolution(spanSec: number): { resolution: string; stepSec: number } {
-  if (spanSec <= 3 * 3600) {
+  if (spanSec <= 5 * 3600) {
     return { resolution: "1m", stepSec: 60 };
   } else if (spanSec <= 26 * 3600) {
     return { resolution: "5m", stepSec: 300 };

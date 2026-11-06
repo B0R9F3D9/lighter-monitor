@@ -77,6 +77,16 @@ const SHORT_MONTHS = [
   "Dec",
 ] as const;
 
+function areLogicalRangesEqual(
+  r1: { from: number; to: number } | null,
+  r2: { from: number; to: number } | null,
+  epsilon = 0.005,
+): boolean {
+  if (r1 === r2) return true;
+  if (!r1 || !r2) return false;
+  return Math.abs(r1.from - r2.from) < epsilon && Math.abs(r1.to - r2.to) < epsilon;
+}
+
 export function initAnalyticsCharts(
   priceContainer: HTMLElement,
   basisContainer: HTMLElement,
@@ -164,6 +174,7 @@ export function initAnalyticsCharts(
     },
     rightPriceScale: {
       borderColor: CHART_PALETTE.border,
+      minimumWidth: 72,
     },
   };
 
@@ -313,8 +324,10 @@ export function initAnalyticsCharts(
     axisLabelTextColor: CHART_PALETTE.textColor,
   });
 
-  let isSyncing = false;
+  let isSyncingFromPrice = false;
+  let isSyncingFromBasis = false;
   let isProgrammaticUpdate = false;
+  let programmaticTimer: ReturnType<typeof setTimeout> | null = null;
   let isResizing = false;
   let resizeResetRafId: number | null = null;
   let isHovering = false;
@@ -333,6 +346,48 @@ export function initAnalyticsCharts(
   let lastPriceHeight = initialPriceHeight;
   let lastBasisWidth = initialBasisWidth;
   let lastBasisHeight = initialBasisHeight;
+
+  function markProgrammaticUpdate(durationMs = 250): void {
+    isProgrammaticUpdate = true;
+    if (programmaticTimer !== null) {
+      clearTimeout(programmaticTimer);
+    }
+    programmaticTimer = setTimeout(() => {
+      isProgrammaticUpdate = false;
+      programmaticTimer = null;
+    }, durationMs);
+  }
+
+  let syncWidthsRafId: number | null = null;
+
+  function syncPriceScaleWidths(resetToBaseline = false): void {
+    if (syncWidthsRafId !== null) {
+      cancelAnimationFrame(syncWidthsRafId);
+      syncWidthsRafId = null;
+    }
+
+    if (resetToBaseline) {
+      try {
+        priceChart.priceScale("right").applyOptions({ minimumWidth: 72 });
+        basisChart.priceScale("right").applyOptions({ minimumWidth: 72 });
+      } catch {}
+    }
+
+    syncWidthsRafId = requestAnimationFrame(() => {
+      syncWidthsRafId = null;
+      try {
+        const pw = priceChart.priceScale("right").width();
+        const bw = basisChart.priceScale("right").width();
+        const maxW = Math.max(pw, bw, 72);
+        if (maxW > 0) {
+          priceChart.priceScale("right").applyOptions({ minimumWidth: maxW });
+          basisChart.priceScale("right").applyOptions({ minimumWidth: maxW });
+        }
+      } catch {}
+    });
+  }
+
+  syncPriceScaleWidths(true);
 
   function markResizing(): void {
     isResizing = true;
@@ -382,33 +437,51 @@ export function initAnalyticsCharts(
   }
 
   function handleUserRangeChange() {
-    if (isProgrammaticUpdate || isSyncing || isResizing || !onVisibleRangeChange) return;
+    if (isProgrammaticUpdate || isResizing || !onVisibleRangeChange) {
+      return;
+    }
     const range = computeExtrapolatedRange();
     if (range) {
       onVisibleRangeChange(range);
     }
   }
 
-  // Synchronize TimeScales (scroll & zoom together)
+  // Synchronize TimeScales bidirectionally without feedback loops
   priceChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (!range) return;
-    if (!isSyncing) {
-      isSyncing = true;
-      basisChart.timeScale().setVisibleLogicalRange(range);
-      isSyncing = false;
+    if (!range || isSyncingFromBasis) return;
+    const basisLogical = basisChart.timeScale().getVisibleLogicalRange();
+    if (!areLogicalRangesEqual(range, basisLogical)) {
+      isSyncingFromPrice = true;
+      try {
+        basisChart.timeScale().setVisibleLogicalRange(range);
+      } finally {
+        requestAnimationFrame(() => {
+          isSyncingFromPrice = false;
+        });
+      }
     }
     handleUserRangeChange();
   });
 
   basisChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (!range) return;
-    if (!isSyncing) {
-      isSyncing = true;
-      priceChart.timeScale().setVisibleLogicalRange(range);
-      isSyncing = false;
+    if (!range || isSyncingFromPrice) return;
+    const priceLogical = priceChart.timeScale().getVisibleLogicalRange();
+    if (!areLogicalRangesEqual(range, priceLogical)) {
+      isSyncingFromBasis = true;
+      try {
+        priceChart.timeScale().setVisibleLogicalRange(range);
+      } finally {
+        requestAnimationFrame(() => {
+          isSyncingFromBasis = false;
+        });
+      }
     }
     handleUserRangeChange();
   });
+
+  const onTimeScaleSizeChange = () => syncPriceScaleWidths(false);
+  priceChart.timeScale().subscribeSizeChange(onTimeScaleSizeChange);
+  basisChart.timeScale().subscribeSizeChange(onTimeScaleSizeChange);
 
   function updatePriceLines(point: BasisPoint | null) {
     let p = point;
@@ -474,7 +547,7 @@ export function initAnalyticsCharts(
     }
   }
 
-  // Crosshair move handler (drives dynamic price scale labels on right)
+  // Crosshair move handler (drives dynamic price scale labels on right and top legend)
   const handleMove = (param: { time?: Time; point?: { x: number; y: number } }) => {
     if (!param.time || !param.point) {
       if (lastHoveredTimeSec !== null || isHovering) {
@@ -567,10 +640,18 @@ export function initAnalyticsCharts(
     targetRange?: { fromSec: number; toSec: number },
     isRhLong = true,
   ) => {
-    isProgrammaticUpdate = true;
+    markProgrammaticUpdate(300);
     lastHoveredTimeSec = null;
     isHovering = false;
     resetPriceLineCache();
+
+    // Preserve logical visible range & timestamps BEFORE replacing currentPointsList
+    const prevLogicalRange = priceChart.timeScale().getVisibleLogicalRange();
+    const prevPointsCount = currentPointsList.length;
+    const prevFirstTime = prevPointsCount > 0 ? currentPointsList[0]!.timeSec : null;
+    const prevLastTime =
+      prevPointsCount > 0 ? currentPointsList[prevPointsCount - 1]!.timeSec : null;
+    const prevPointsRef = currentPointsList;
 
     currentIsRhLong = isRhLong;
     currentPointsList = points.slice();
@@ -627,27 +708,116 @@ export function initAnalyticsCharts(
     if (fitContent) {
       priceChart.timeScale().fitContent();
       basisChart.timeScale().fitContent();
-    } else if (targetRange && targetRange.fromSec && targetRange.toSec) {
-      const range = {
-        from: targetRange.fromSec as UTCTimestamp,
-        to: targetRange.toSec as UTCTimestamp,
+    } else if (points.length > 0) {
+      const newCount = points.length;
+      const newFirstTime = points[0]!.timeSec;
+      const newLastTime = points[newCount - 1]!.timeSec;
+      const newDt = newCount > 1 ? Math.max(1, (newLastTime - newFirstTime) / (newCount - 1)) : 60;
+
+      const timeToLogical = (t: number): number => {
+        if (t < newFirstTime) {
+          return (t - newFirstTime) / newDt;
+        }
+        if (t > newLastTime) {
+          return newCount - 1 + (t - newLastTime) / newDt;
+        }
+        let low = 0;
+        let high = newCount - 1;
+        while (low <= high) {
+          const mid = (low + high) >> 1;
+          if (points[mid]!.timeSec <= t) {
+            low = mid + 1;
+          } else {
+            high = mid - 1;
+          }
+        }
+        const idx = Math.max(0, high);
+        if (idx >= newCount - 1) return newCount - 1;
+        const p1 = points[idx]!;
+        const p2 = points[idx + 1]!;
+        const span = p2.timeSec - p1.timeSec;
+        if (span <= 0) return idx;
+        return idx + (t - p1.timeSec) / span;
       };
-      priceChart.timeScale().setVisibleRange(range);
-      basisChart.timeScale().setVisibleRange(range);
-    } else {
-      const savedRange = priceChart.timeScale().getVisibleRange();
-      if (savedRange) {
-        priceChart.timeScale().setVisibleRange(savedRange);
-        basisChart.timeScale().setVisibleRange(savedRange);
+
+      let targetLogicalRange: { from: number; to: number } | null = null;
+
+      if (
+        prevLogicalRange &&
+        prevPointsCount > 0 &&
+        prevFirstTime !== null &&
+        prevLastTime !== null
+      ) {
+        const prevDt =
+          prevPointsCount > 1
+            ? Math.max(1, (prevLastTime - prevFirstTime) / (prevPointsCount - 1))
+            : 60;
+
+        // If resolution is unchanged (same candle step dt)
+        if (Math.abs(prevDt - newDt) < 1.0) {
+          let offset = 0;
+          if (newFirstTime < prevFirstTime) {
+            const idx = points.findIndex((p) => p.timeSec === prevFirstTime);
+            offset = idx > 0 ? idx : Math.round((prevFirstTime - newFirstTime) / newDt);
+          } else if (newFirstTime > prevFirstTime) {
+            const idx = prevPointsRef.findIndex((p) => p.timeSec === newFirstTime);
+            offset = -(idx > 0 ? idx : Math.round((newFirstTime - prevFirstTime) / prevDt));
+          }
+          targetLogicalRange = {
+            from: prevLogicalRange.from + offset,
+            to: prevLogicalRange.to + offset,
+          };
+        } else {
+          // Resolution changed (e.g. user zoomed in or out)
+          // Extrapolate exact timestamp of left and right viewport edges from previous points
+          const logicalToTime = (logicalIndex: number): number => {
+            if (logicalIndex < 0) {
+              return prevFirstTime + logicalIndex * prevDt;
+            }
+            if (logicalIndex > prevPointsCount - 1) {
+              return prevLastTime + (logicalIndex - (prevPointsCount - 1)) * prevDt;
+            }
+            const baseIdx = Math.floor(logicalIndex);
+            const frac = logicalIndex - baseIdx;
+            const nextIdx = Math.min(prevPointsCount - 1, baseIdx + 1);
+            const t1 = prevPointsRef[baseIdx]!.timeSec;
+            const t2 = prevPointsRef[nextIdx]!.timeSec;
+            return t1 + frac * (t2 - t1);
+          };
+
+          const tFrom = logicalToTime(prevLogicalRange.from);
+          const tTo = logicalToTime(prevLogicalRange.to);
+
+          targetLogicalRange = {
+            from: timeToLogical(tFrom),
+            to: timeToLogical(tTo),
+          };
+        }
+      } else if (targetRange && targetRange.fromSec && targetRange.toSec) {
+        targetLogicalRange = {
+          from: timeToLogical(targetRange.fromSec),
+          to: timeToLogical(targetRange.toSec),
+        };
+      }
+
+      if (targetLogicalRange) {
+        priceChart.timeScale().setVisibleLogicalRange(targetLogicalRange);
+        basisChart.timeScale().setVisibleLogicalRange(targetLogicalRange);
       }
     }
 
-    requestAnimationFrame(() => {
-      isProgrammaticUpdate = false;
-    });
+    syncPriceScaleWidths(fitContent);
   };
 
   const destroy = () => {
+    if (programmaticTimer !== null) {
+      clearTimeout(programmaticTimer);
+      programmaticTimer = null;
+    }
+    if (syncWidthsRafId !== null) {
+      cancelAnimationFrame(syncWidthsRafId);
+      syncWidthsRafId = null;
+    }
     if (resizeResetRafId !== null) {
       cancelAnimationFrame(resizeResetRafId);
       resizeResetRafId = null;
@@ -658,6 +828,8 @@ export function initAnalyticsCharts(
     try {
       priceChart.unsubscribeCrosshairMove(handleMove);
       basisChart.unsubscribeCrosshairMove(handleMove);
+      priceChart.timeScale().unsubscribeSizeChange(onTimeScaleSizeChange);
+      basisChart.timeScale().unsubscribeSizeChange(onTimeScaleSizeChange);
     } catch {}
     priceChart.remove();
     basisChart.remove();
@@ -672,13 +844,18 @@ export function initAnalyticsCharts(
   const updateRealtimePoint = (point: BasisPoint, updateSeries = true) => {
     if (!point) return;
 
+    const lastIdx = currentPointsList.length - 1;
+    const isNewBar = lastIdx < 0 || point.timeSec > currentPointsList[lastIdx]!.timeSec;
+
     if (updateSeries) {
+      if (isNewBar) {
+        markProgrammaticUpdate(50);
+      }
       rhSeries.update({ time: point.timeSec as UTCTimestamp, value: point.rhPrice });
       coreSeries.update({ time: point.timeSec as UTCTimestamp, value: point.corePrice });
       basisSeries.update({ time: point.timeSec as UTCTimestamp, value: point.basisUsd });
     }
 
-    const lastIdx = currentPointsList.length - 1;
     if (lastIdx >= 0 && currentPointsList[lastIdx]!.timeSec === point.timeSec) {
       currentPointsList[lastIdx] = point;
     } else if (lastIdx >= 0 && point.timeSec > currentPointsList[lastIdx]!.timeSec) {
@@ -717,6 +894,7 @@ export function initAnalyticsCharts(
       lastBasisHeight = bh;
       basisChart.applyOptions({ width: bw, height: bh });
     }
+    syncPriceScaleWidths(false);
   };
 
   return {

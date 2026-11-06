@@ -559,6 +559,20 @@ export class AnalyticsController {
         this.chartContext.setData(points, bands, true, undefined, pair.hedgeSideConfig.isRhLong);
       }
 
+      const nowSec = Math.floor(Date.now() / 1000);
+      const requestedFromSec = nowSec - tf.durationSec;
+      if (points.length >= 2) {
+        const fromSec = Math.min(points[0]!.timeSec, requestedFromSec);
+        const toSec = Math.max(points[points.length - 1]!.timeSec, nowSec);
+        this.lastRequestedRange = { fromSec, toSec, resolution: tf.resolution };
+      } else {
+        this.lastRequestedRange = {
+          fromSec: requestedFromSec,
+          toSec: nowSec,
+          resolution: tf.resolution,
+        };
+      }
+
       this.updateQuantGauges(stats);
       this.renderHeatmap();
       this.updateTopMarketStats(pair);
@@ -610,6 +624,12 @@ export class AnalyticsController {
 
     // If resolution is unchanged and viewport shifted by less than 10%, skip redundant fetch
     if (this.lastRequestedRange && this.lastRequestedRange.resolution === resolution) {
+      const alreadyHasOlderHistory = fromSec >= this.lastRequestedRange.fromSec;
+      const alreadyHasNewerData = toSec <= this.lastRequestedRange.toSec + stepSec * 2;
+      if (alreadyHasOlderHistory && alreadyHasNewerData) {
+        return;
+      }
+
       const fromDiff = Math.abs(fromSec - this.lastRequestedRange.fromSec);
       const toDiff = Math.abs(toSec - this.lastRequestedRange.toSec);
       if (fromDiff < spanSec * 0.1 && toDiff < spanSec * 0.1) {
@@ -669,14 +689,16 @@ export class AnalyticsController {
         this.lastLegendCorePrice = null;
         this.lastLegendBasisUsd = null;
 
+        const firstPtTime = points[0]!.timeSec;
+        const lastPtTime = points[points.length - 1]!.timeSec;
+        this.lastRequestedRange = {
+          fromSec: Math.min(firstPtTime, queryStart),
+          toSec: Math.max(lastPtTime, queryEnd),
+          resolution,
+        };
+
         if (this.chartContext) {
-          this.chartContext.setData(
-            points,
-            bands,
-            false,
-            { fromSec, toSec },
-            pair.hedgeSideConfig.isRhLong,
-          );
+          this.chartContext.setData(points, bands, false, undefined, pair.hedgeSideConfig.isRhLong);
         }
 
         this.updateQuantGauges(stats);
@@ -710,8 +732,10 @@ export class AnalyticsController {
     if (!el) return;
     if (isLoading) {
       el.classList.remove("hidden");
+      el.classList.add("flex");
     } else {
       el.classList.add("hidden");
+      el.classList.remove("flex");
     }
   }
 
@@ -724,6 +748,8 @@ export class AnalyticsController {
 
   private setLoading(isLoading: boolean, message?: string): void {
     const loader = document.getElementById("chartLoadingOverlay");
+    const basisLoader = document.getElementById("basisChartLoadingOverlay");
+
     if (loader) {
       if (isLoading) {
         loader.classList.remove("hidden");
@@ -737,6 +763,21 @@ export class AnalyticsController {
       } else {
         loader.classList.add("hidden");
         loader.classList.remove("flex");
+      }
+    }
+
+    if (basisLoader) {
+      if (isLoading) {
+        basisLoader.classList.remove("hidden");
+        basisLoader.classList.add("flex");
+        const basisMsgEl = document.getElementById("basisChartLoadingMessage");
+        if (basisMsgEl) {
+          basisMsgEl.textContent =
+            message || `Calculating ${this.activeSymbol} basis & dispersion bands...`;
+        }
+      } else {
+        basisLoader.classList.add("hidden");
+        basisLoader.classList.remove("flex");
       }
     }
   }
@@ -1579,6 +1620,11 @@ export class AnalyticsController {
     this.activeTimeframe = tf;
     this.saveSettings();
     this.updateTimeframeButtons();
+    if (this.rangeDebounceTimer) {
+      clearTimeout(this.rangeDebounceTimer);
+      this.rangeDebounceTimer = null;
+    }
+    this.pendingRange = null;
     this.loadData();
   }
 
@@ -1779,11 +1825,13 @@ export class AnalyticsController {
     this.updateModalDayPills();
     this.updateModalPresetUi();
     modal.classList.remove("hidden");
+    modal.classList.add("flex");
   }
 
   public closeDateFilterModal(): void {
     const modal = document.getElementById("dateFilterModal");
     modal?.classList.add("hidden");
+    modal?.classList.remove("flex");
   }
 
   private updateModalDayPills(): void {
@@ -2034,7 +2082,10 @@ export class AnalyticsController {
     const btn = document.getElementById("openDateFilterBtn");
 
     if (this.dateFilter.isActive) {
-      if (banner) banner.classList.remove("hidden");
+      if (banner) {
+        banner.classList.remove("hidden");
+        banner.classList.add("flex");
+      }
       if (activeDot) activeDot.classList.remove("hidden");
       if (btn) {
         btn.className =
@@ -2070,7 +2121,10 @@ export class AnalyticsController {
         countEl.textContent = `(${this.activePoints.length} points${stepLabel})`;
       }
     } else {
-      if (banner) banner.classList.add("hidden");
+      if (banner) {
+        banner.classList.add("hidden");
+        banner.classList.remove("flex");
+      }
       if (activeDot) activeDot.classList.add("hidden");
       if (btn) {
         btn.className =
@@ -2224,6 +2278,7 @@ export class AnalyticsController {
   private closeTickerModal(): void {
     const modal = document.getElementById("tickerModal");
     modal?.classList.add("hidden");
+    modal?.classList.remove("flex");
   }
 
   private openTickerModal(): void {
@@ -2231,6 +2286,7 @@ export class AnalyticsController {
     const input = document.getElementById("tickerSearchInput") as HTMLInputElement | null;
     const listEl = document.getElementById("tickerDropdownList");
     modal?.classList.remove("hidden");
+    modal?.classList.add("flex");
     input?.focus();
     input?.select();
     this.focusedModalRowIndex = 0;
