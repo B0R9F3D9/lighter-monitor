@@ -90,7 +90,7 @@ describe("Calculator Math Engine", () => {
     expect(res.netReturnBps).toBeCloseTo(15.0, 4);
   });
 
-  it("calculates trade metrics for Equities (RH Short / Core Long)", () => {
+  it("calculates trade metrics for Equities (RH Long / Core Short - W13)", () => {
     const state: CalculatorState = {
       symbol: "NVDA",
       price: 200,
@@ -110,11 +110,11 @@ describe("Calculator Math Engine", () => {
     expect(res.sizeTokens).toBe(50);
     expect(res.sizeUsd).toBe(10000); // 50 * 200 = $10,000
 
-    expect(res.isRhLong).toBe(false);
-    expect(res.openRhSide).toBe("Short");
-    expect(res.openCoreSide).toBe("Long");
-    expect(res.closeRhSide).toBe("Long");
-    expect(res.closeCoreSide).toBe("Short");
+    expect(res.isRhLong).toBe(true);
+    expect(res.openRhSide).toBe("Long");
+    expect(res.openCoreSide).toBe("Short");
+    expect(res.closeRhSide).toBe("Short");
+    expect(res.closeCoreSide).toBe("Long");
 
     expect(res.entrySpreadCents).toBe(40);
     expect(res.entrySpreadUsd).toBeCloseTo(0.4, 4);
@@ -124,23 +124,23 @@ describe("Calculator Math Engine", () => {
     expect(res.exitSpreadUsd).toBeCloseTo(0.1, 4);
     expect(res.exitSpreadBps).toBeCloseTo(5.0, 4);
 
-    // For Equities: spread delta is entry - exit (compression of spread) = 40 - 10 = 30 cents
-    expect(res.spreadDeltaCents).toBe(30);
-    expect(res.spreadDeltaUsd).toBeCloseTo(0.3, 4);
-    expect(res.spreadDeltaBps).toBeCloseTo(15.0, 4);
+    // For RH Long / Core Short: spread delta is exit - entry = 10 - 40 = -30 cents
+    expect(res.spreadDeltaCents).toBe(-30);
+    expect(res.spreadDeltaUsd).toBeCloseTo(-0.3, 4);
+    expect(res.spreadDeltaBps).toBeCloseTo(-15.0, 4);
 
-    // Spread PnL = 0.30 * 50 = $15.00
-    expect(res.spreadPnlUsd).toBeCloseTo(15.0, 4);
+    // Spread PnL = -0.30 * 50 = -$15.00
+    expect(res.spreadPnlUsd).toBeCloseTo(-15.0, 4);
 
     // Total fees: 10,000 * 2 * (1.2 / 10000) = $2.40 (open + close on RH)
     expect(res.totalFeesUsd).toBeCloseTo(2.4, 4);
 
-    // Net PnL = 15.00 - 2.40 = $12.60
-    expect(res.netPnlUsd).toBeCloseTo(12.6, 4);
+    // Net PnL = -15.00 - 2.40 = -$17.40
+    expect(res.netPnlUsd).toBeCloseTo(-17.4, 4);
 
-    // Break-even exit spread: Entry ($0.40) - Fees per token ($2.40 / 50 = $0.048) = $0.352 (35.2¢)
-    expect(res.breakEvenExitSpreadUsd).toBeCloseTo(0.352, 4);
-    expect(res.breakEvenExitSpreadCents).toBeCloseTo(35.2, 2);
+    // Break-even exit spread: Entry ($0.40) + Fees per token ($2.40 / 50 = $0.048) = $0.448 (44.8¢)
+    expect(res.breakEvenExitSpreadUsd).toBeCloseTo(0.448, 4);
+    expect(res.breakEvenExitSpreadCents).toBeCloseTo(44.8, 2);
   });
 
   it("calculates fees accurately for 3.5 bps taker tier across open and close", () => {

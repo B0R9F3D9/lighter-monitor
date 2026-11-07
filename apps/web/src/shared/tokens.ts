@@ -487,7 +487,7 @@ export function isCommoditySymbol(symbol: string): boolean {
  * Categorizes market symbols according to Lighter Points program rules:
  * - Crypto: Core Short / RH Long (2.5x)
  * - RWA (Commodities, ETFs): Core Short / RH Long (2.5x)
- * - RWA (Pre IPOs, Equities): Core Long / RH Short (2.5x)
+ * - RWA (Pre IPOs, Equities): Core Short / RH Long (2.5x)
  */
 export function getHedgeCategory(symbol: string): HedgeStrategyCategory {
   const sym = symbol.toUpperCase().trim();
@@ -518,7 +518,7 @@ export function getHedgeCategory(symbol: string): HedgeStrategyCategory {
  * Returns the exact opening execution sides (legs) and boost parameters:
  * - Crypto: Core Short / RH Long (2.5x) -> isRhLong: true
  * - RWA (Commodities, ETFs): Core Short / RH Long (2.5x) -> isRhLong: true
- * - RWA (Pre IPOs, Equities): Core Long / RH Short (2.5x) -> isRhLong: false
+ * - RWA (Pre IPOs, Equities): Core Short / RH Long (2.5x) -> isRhLong: true
  */
 export function getHedgeSideConfig(symbol: string): HedgeSideConfig {
   const cat = getHedgeCategory(symbol);
@@ -550,11 +550,11 @@ export function getHedgeSideConfig(symbol: string): HedgeSideConfig {
   return {
     category: "RWA_PRE_IPO_EQUITIES",
     categoryLabel: "RWA (Pre IPOs, Equities)",
-    isRhLong: false,
-    rhSide: "SELL",
-    coreSide: "BUY",
-    rhAction: "Short",
-    coreAction: "Long",
+    isRhLong: true,
+    rhSide: "BUY",
+    coreSide: "SELL",
+    rhAction: "Long",
+    coreAction: "Short",
   };
 }
 
@@ -563,7 +563,7 @@ export function getHedgeSideConfig(symbol: string): HedgeSideConfig {
  * - 'all': all tokens
  * - 'crypto': Crypto tokens (Core Short / RH Long, 2.5x)
  * - 'rwa_commodities_etf': RWA (Commodities, ETFs) (Core Short / RH Long, 2.5x)
- * - 'rwa_pre_ipo_equities': RWA (Pre IPOs, Equities) (Core Long / RH Short, 2.5x)
+ * - 'rwa_pre_ipo_equities': RWA (Pre IPOs, Equities) (Core Short / RH Long, 2.5x)
  * - legacy / backward-compatible filters: 'stocks', 'pre_ipo', 'etf'
  */
 export function matchesCategoryFilter(symbol: string, filter: TokenCategoryType): boolean {

@@ -398,7 +398,7 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     expect(metrics.status).toBe("READY");
   });
 
-  it("calculates asymmetric entry and exit when shorting premium RH and longing discount Core", () => {
+  it("calculates asymmetric entry and exit for equities and pre-IPOs (RH Long / Core Short in W13)", () => {
     // RH: Ask 102.10, Bid 101.90 (Mid 102.0)
     // Core: Ask 100.05, Bid 99.95 (Mid 100.0)
     const equityMarket: MarketInfo = { ...dummyMarket, symbol: "AAPL" };
@@ -424,23 +424,23 @@ describe("Spread Terminal: Metrics & RT Loss Calculation", () => {
     expect(metrics).not.toBeNull();
     if (!metrics) return;
 
-    // Equities: RH Short / Core Long
-    expect(metrics.isRhLong).toBe(false);
+    // Equities: RH Long / Core Short (W13)
+    expect(metrics.isRhLong).toBe(true);
     expect(metrics.hedgeCategory).toBe("RWA_PRE_IPO_EQUITIES");
 
     // Mid: (102 + 100) / 2 = 101.0 -> 100 base units for $10,100
     expect(metrics.midPrice).toBe(101.0);
     expect(metrics.baseQty).toBeCloseTo(100.0, 2);
 
-    // Entry: Sell 100 RH @ 101.90 ($10,190), Buy 100 Core @ 100.05 ($10,005)
-    // Entry Loss = CostCore ($10,005) - RecvRH ($10,190) = -$185.00 (profited on entry!)
-    expect(metrics.entryLossUsd).toBeCloseTo(-185.0, 2);
+    // Entry: Buy 100 RH @ 102.10 ($10,210), Sell 100 Core @ 99.95 ($9,995)
+    // Entry Loss = CostRH ($10,210) - RecvCore ($9,995) = +$215.00
+    expect(metrics.entryLossUsd).toBeCloseTo(215.0, 2);
 
-    // Exit: Buy 100 RH @ 102.10 ($10,210), Sell 100 Core @ 99.95 ($9,995)
-    // Exit Loss = CostRH ($10,210) - RecvCore ($9,995) = +$215.00
-    expect(metrics.exitLossUsd).toBeCloseTo(215.0, 2);
+    // Exit: Sell 100 RH @ 101.90 ($10,190), Buy 100 Core @ 100.05 ($10,005)
+    // Exit Loss = CostCore ($10,005) - RecvRH ($10,190) = -$185.00
+    expect(metrics.exitLossUsd).toBeCloseTo(-185.0, 2);
 
-    // Total RT loss = -$185 + $215 = $30.00
+    // Total RT loss = +$215 + (-$185) = $30.00
     expect(metrics.rawCostUsd).toBeCloseTo(30.0, 2);
     expect(metrics.costUsd).toBeCloseTo(30.0, 2);
   });
@@ -1008,17 +1008,17 @@ describe("Spread Terminal: Dynamic Token List & All Tokens Filter", () => {
       expect(xau.coreSide).toBe("SELL");
       expect(xau.category).toBe("RWA_COMMODITIES_ETF");
 
-      // 3. RWA Pre IPOs & Equities: Core Long / RH Short
+      // 3. RWA Pre IPOs & Equities: Core Short / RH Long (W13)
       const aapl = getHedgeSideConfig("AAPL");
-      expect(aapl.isRhLong).toBe(false);
-      expect(aapl.rhSide).toBe("SELL");
-      expect(aapl.coreSide).toBe("BUY");
+      expect(aapl.isRhLong).toBe(true);
+      expect(aapl.rhSide).toBe("BUY");
+      expect(aapl.coreSide).toBe("SELL");
       expect(aapl.category).toBe("RWA_PRE_IPO_EQUITIES");
 
       const openai = getHedgeSideConfig("OPENAI");
-      expect(openai.isRhLong).toBe(false);
-      expect(openai.rhSide).toBe("SELL");
-      expect(openai.coreSide).toBe("BUY");
+      expect(openai.isRhLong).toBe(true);
+      expect(openai.rhSide).toBe("BUY");
+      expect(openai.coreSide).toBe("SELL");
       expect(openai.category).toBe("RWA_PRE_IPO_EQUITIES");
     });
 
