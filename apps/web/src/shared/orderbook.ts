@@ -200,11 +200,11 @@ export class FlatOrderBookSide implements IFlatOrderBookSide {
   }
 }
 
-export function createEmptyBook(marketId: number): OrderBook {
+export function createEmptyBook(marketId: number, capacity: number = 80): OrderBook {
   return {
     marketId,
-    asks: new FlatOrderBookSide(true),
-    bids: new FlatOrderBookSide(false),
+    asks: new FlatOrderBookSide(true, capacity),
+    bids: new FlatOrderBookSide(false, capacity),
     isSnapshotReceived: false,
     lastUpdatedTs: 0,
     offset: 0,
@@ -237,6 +237,9 @@ export function updateBookFromWs(
       ? (book.bids as FlatOrderBookSide)
       : (book.bids = new FlatOrderBookSide(false, (book.bids as Map<number, number>).entries()));
 
+  const prevBestAsk = !isSnapshot && asks.count > 0 ? asks.prices[0]! : Infinity;
+  const prevBestBid = !isSnapshot && bids.count > 0 ? bids.prices[0]! : -Infinity;
+
   if (isSnapshot) {
     asks.clear();
     bids.clear();
@@ -267,6 +270,38 @@ export function updateBookFromWs(
       bids.set(p, s);
     }
     if (isSnapshot) bids.recalibrateDepth();
+  }
+
+  // Crossed Book Guard: ensure spread is never negative due to out-of-order packets
+  if (asks.count > 0 && bids.count > 0 && asks.prices[0]! <= bids.prices[0]!) {
+    const askMovedIn = asks.prices[0]! < prevBestAsk;
+    const bidMovedIn = bids.prices[0]! > prevBestBid;
+
+    if (askMovedIn && !bidMovedIn) {
+      while (bids.count > 0 && asks.count > 0 && bids.prices[0]! >= asks.prices[0]!) {
+        bids.remove(bids.prices[0]!);
+        bidsChanged = true;
+      }
+    } else if (bidMovedIn && !askMovedIn) {
+      while (asks.count > 0 && bids.count > 0 && asks.prices[0]! <= bids.prices[0]!) {
+        asks.remove(asks.prices[0]!);
+        asksChanged = true;
+      }
+    } else {
+      while (asks.count > 0 && bids.count > 0 && asks.prices[0]! <= bids.prices[0]!) {
+        const askPenetration =
+          prevBestBid !== -Infinity ? Math.max(0, prevBestBid - asks.prices[0]!) : 0;
+        const bidPenetration =
+          prevBestAsk !== Infinity ? Math.max(0, bids.prices[0]! - prevBestAsk) : 0;
+        if (bidPenetration > askPenetration) {
+          asks.remove(asks.prices[0]!);
+          asksChanged = true;
+        } else {
+          bids.remove(bids.prices[0]!);
+          bidsChanged = true;
+        }
+      }
+    }
   }
 
   if (asksChanged) book.cachedAsks = null;

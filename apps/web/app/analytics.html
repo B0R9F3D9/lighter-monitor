@@ -649,6 +649,176 @@
         </div>
       </div>
 
+      <!-- ORDERBOOKS COMPARISON GRID (Robinhood Chain vs Lighter Core) -->
+      <div
+        id="orderbooksGrid"
+        class="grid grid-cols-1 lg:grid-cols-2 gap-2.5 font-mono text-xs select-text contain-content"
+      >
+        <!-- LEFT: RH Order Book -->
+        <div
+          id="rhOrderBookCard"
+          class="bg-terminal-surface border border-terminal-border rounded overflow-hidden flex flex-col select-text"
+        >
+          <!-- Card Header -->
+          <div
+            class="px-3 py-1.5 border-b border-terminal-border bg-terminal-surface flex flex-wrap items-center justify-between gap-2 select-text"
+          >
+            <span class="font-bold text-terminal-secondary select-text">RH Order Book</span>
+            <div class="flex items-center gap-1.5 text-xs font-mono select-text">
+              <select
+                id="rhObStepSelect"
+                class="ob-step-select bg-terminal-bg border border-terminal-border hover:border-terminal-muted rounded px-1.5 py-0.5 text-xs text-terminal-secondary hover:text-white font-mono cursor-pointer outline-none transition select-text"
+                title="Tick Size"
+              >
+                <option value="0.01">0.01</option>
+              </select>
+              <select
+                id="rhObUnitSelect"
+                class="ob-unit-select bg-terminal-bg border border-terminal-border hover:border-terminal-muted rounded px-1.5 py-0.5 text-xs text-terminal-secondary hover:text-white font-mono cursor-pointer outline-none transition select-text"
+                title="Display Currency"
+              >
+                <option value="base" class="ob-unit-token-opt">AAPL</option>
+                <option value="usd">USD</option>
+              </select>
+              <select
+                id="rhObDepthSelect"
+                class="ob-depth-select bg-terminal-bg border border-terminal-border hover:border-terminal-muted rounded px-1.5 py-0.5 text-xs text-terminal-secondary hover:text-white font-mono cursor-pointer outline-none transition select-text"
+                title="Depth"
+              >
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="15" selected>15</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Table Column Headers (3 columns) -->
+          <div
+            class="grid grid-cols-3 px-3 py-1.5 text-xs uppercase font-semibold text-terminal-muted border-b border-terminal-borderSubtle bg-terminal-bg/40 tracking-wider select-text"
+          >
+            <div class="text-left select-text">PRICE</div>
+            <div class="text-center select-text">
+              SIZE
+              <span class="ob-symbol-badge text-terminal-secondary font-bold select-text"
+                >AAPL</span
+              >
+            </div>
+            <div class="text-right select-text">TOTAL</div>
+          </div>
+
+          <!-- Asks Container (Top Half, 14 rows, filled dynamically) -->
+          <div id="rhOrderBookAsks" class="flex flex-col select-text"></div>
+
+          <!-- Spread Divider Bar -->
+          <div
+            class="bg-terminal-bg/80 border-y border-terminal-borderSubtle px-3 py-1 grid grid-cols-3 items-center text-xs select-text"
+          >
+            <div
+              id="rhOrderBookSpreadUsd"
+              class="text-left text-white font-bold tabular-nums select-text"
+            >
+              --
+            </div>
+            <div
+              class="text-center text-terminal-muted text-xs uppercase tracking-wider font-semibold select-text"
+            >
+              SPREAD
+            </div>
+            <div
+              id="rhOrderBookSpreadPct"
+              class="text-right text-white font-bold tabular-nums select-text"
+            >
+              --%
+            </div>
+          </div>
+
+          <!-- Bids Container (Bottom Half, 14 rows, filled dynamically) -->
+          <div id="rhOrderBookBids" class="flex flex-col select-text"></div>
+        </div>
+
+        <!-- RIGHT: Core Order Book -->
+        <div
+          id="coreOrderBookCard"
+          class="bg-terminal-surface border border-terminal-border rounded overflow-hidden flex flex-col select-text"
+        >
+          <!-- Card Header -->
+          <div
+            class="px-3 py-1.5 border-b border-terminal-border bg-terminal-surface flex flex-wrap items-center justify-between gap-2 select-text"
+          >
+            <span class="font-bold text-terminal-secondary select-text">Core Order Book</span>
+            <div class="flex items-center gap-1.5 text-xs font-mono select-text">
+              <select
+                id="coreObStepSelect"
+                class="ob-step-select bg-terminal-bg border border-terminal-border hover:border-terminal-muted rounded px-1.5 py-0.5 text-xs text-terminal-secondary hover:text-white font-mono cursor-pointer outline-none transition select-text"
+                title="Tick Size"
+              >
+                <option value="0.01">0.01</option>
+              </select>
+              <select
+                id="coreObUnitSelect"
+                class="ob-unit-select bg-terminal-bg border border-terminal-border hover:border-terminal-muted rounded px-1.5 py-0.5 text-xs text-terminal-secondary hover:text-white font-mono cursor-pointer outline-none transition select-text"
+                title="Display Currency"
+              >
+                <option value="base" class="ob-unit-token-opt">AAPL</option>
+                <option value="usd">USD</option>
+              </select>
+              <select
+                id="coreObDepthSelect"
+                class="ob-depth-select bg-terminal-bg border border-terminal-border hover:border-terminal-muted rounded px-1.5 py-0.5 text-xs text-terminal-secondary hover:text-white font-mono cursor-pointer outline-none transition select-text"
+                title="Depth"
+              >
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="15" selected>15</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Table Column Headers (3 columns) -->
+          <div
+            class="grid grid-cols-3 px-3 py-1.5 text-xs uppercase font-semibold text-terminal-muted border-b border-terminal-borderSubtle bg-terminal-bg/40 tracking-wider select-text"
+          >
+            <div class="text-left select-text">PRICE</div>
+            <div class="text-center select-text">
+              SIZE
+              <span class="ob-symbol-badge text-terminal-secondary font-bold select-text"
+                >AAPL</span
+              >
+            </div>
+            <div class="text-right select-text">TOTAL</div>
+          </div>
+
+          <!-- Asks Container (Top Half, 14 rows, filled dynamically) -->
+          <div id="coreOrderBookAsks" class="flex flex-col select-text"></div>
+
+          <!-- Spread Divider Bar -->
+          <div
+            class="bg-terminal-bg/80 border-y border-terminal-borderSubtle px-3 py-1 grid grid-cols-3 items-center text-xs select-text"
+          >
+            <div
+              id="coreOrderBookSpreadUsd"
+              class="text-left text-white font-bold tabular-nums select-text"
+            >
+              --
+            </div>
+            <div
+              class="text-center text-terminal-muted text-xs uppercase tracking-wider font-semibold select-text"
+            >
+              SPREAD
+            </div>
+            <div
+              id="coreOrderBookSpreadPct"
+              class="text-right text-white font-bold tabular-nums select-text"
+            >
+              --%
+            </div>
+          </div>
+
+          <!-- Bids Container (Bottom Half, 14 rows, filled dynamically) -->
+          <div id="coreOrderBookBids" class="flex flex-col select-text"></div>
+        </div>
+      </div>
+
       <!-- 1. PRICE COMPARISON CHART -->
       <div
         id="priceChartBlock"

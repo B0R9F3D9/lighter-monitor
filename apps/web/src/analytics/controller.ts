@@ -17,6 +17,7 @@ import {
   splitIntervalsIntoApiChunks,
 } from "./math";
 import { highlightHeatmapHour, renderHourlyHeatmap } from "./heatmap";
+import { initOrderBookUI, type OrderBookUI } from "./orderbook_ui";
 import type {
   AnalyticsMarketPair,
   AnalyticsVenue,
@@ -109,6 +110,10 @@ export class AnalyticsController {
   private sortedBasisValues: Float64Array | number[] = [];
 
   private wsManager: WebSocketManager | null = null;
+  private orderBookUI: OrderBookUI | null = null;
+  private orderBookRafId: number | null = null;
+  private isRhBookDirty = false;
+  private isCoreBookDirty = false;
   private rhBook: OrderBook | null = null;
   private coreBook: OrderBook | null = null;
   private lastKnownRhMid = 0;
@@ -201,6 +206,17 @@ export class AnalyticsController {
       this.setupTokenImageFallback();
       this.updateInitialHeaderDisplay();
       this.initCharts();
+      const estimatedPrice =
+        this.activeSymbol === "BTC" || this.activeSymbol === "WBTC"
+          ? 90000
+          : this.activeSymbol === "ETH" || this.activeSymbol === "WETH"
+            ? 3000
+            : this.activeSymbol === "SOL"
+              ? 200
+              : this.activeSymbol === "XAU" || this.activeSymbol === "PAXG"
+                ? 2700
+                : 100;
+      this.orderBookUI = initOrderBookUI(this.activeSymbol, estimatedPrice);
       this.initWs();
       this.setupEventListeners();
       this.setLoading(true);
@@ -211,6 +227,21 @@ export class AnalyticsController {
     }
   }
 
+  private scheduleOrderBookRaf(): void {
+    if (this.orderBookRafId !== null) return;
+    this.orderBookRafId = requestAnimationFrame(() => {
+      this.orderBookRafId = null;
+      if (this.isRhBookDirty) {
+        this.isRhBookDirty = false;
+        this.orderBookUI?.renderRh(this.rhBook);
+      }
+      if (this.isCoreBookDirty) {
+        this.isCoreBookDirty = false;
+        this.orderBookUI?.renderCore(this.coreBook);
+      }
+    });
+  }
+
   private initWs(): void {
     this.wsManager = new WebSocketManager({
       onRhBookUpdate: (marketId, data, isSnapshot, offset) => {
@@ -218,9 +249,11 @@ export class AnalyticsController {
         const pair = this.activePair || this.pairs.find((p) => p.symbol === this.activeSymbol);
         if (!pair || pair.rhMarketId !== marketId) return;
         if (!this.rhBook || this.rhBook.marketId !== marketId) {
-          this.rhBook = createEmptyBook(marketId);
+          this.rhBook = createEmptyBook(marketId, 160);
         }
         updateBookFromWs(this.rhBook, data, isSnapshot, offset);
+        this.isRhBookDirty = true;
+        this.scheduleOrderBookRaf();
         const mid = getBookMidPrice(this.rhBook);
         if (mid > 0) {
           this.lastKnownRhMid = mid;
@@ -233,9 +266,11 @@ export class AnalyticsController {
         const pair = this.activePair || this.pairs.find((p) => p.symbol === this.activeSymbol);
         if (!pair || pair.coreMarketId !== marketId) return;
         if (!this.coreBook || this.coreBook.marketId !== marketId) {
-          this.coreBook = createEmptyBook(marketId);
+          this.coreBook = createEmptyBook(marketId, 160);
         }
         updateBookFromWs(this.coreBook, data, isSnapshot, offset);
+        this.isCoreBookDirty = true;
+        this.scheduleOrderBookRaf();
         const mid = getBookMidPrice(this.coreBook);
         if (mid > 0) {
           this.lastKnownCoreMid = mid;
@@ -441,6 +476,7 @@ export class AnalyticsController {
         this.lastRenderedRhMid = 0;
         this.lastRenderedCoreMid = 0;
         this.updateWsSubscriptions(null, pair);
+        this.orderBookUI?.setSymbol(this.activeSymbol, pair.markPrice);
       }
       this.updateSortIndicators();
       this.renderRecents();
@@ -1593,6 +1629,13 @@ export class AnalyticsController {
     this.renderTickerSelector();
     const pair = this.pairs.find((p) => p.symbol === symbol);
     if (pair) {
+      this.orderBookUI?.setSymbol(symbol, pair.markPrice);
+    } else {
+      this.orderBookUI?.clear(symbol);
+    }
+    this.isRhBookDirty = false;
+    this.isCoreBookDirty = false;
+    if (pair) {
       this.activePair = pair;
       this.activeRhMarketId = pair.rhMarketId;
       this.activeCoreMarketId = pair.coreMarketId;
@@ -2660,6 +2703,14 @@ export class AnalyticsController {
     if (this.rangeDebounceTimer) {
       clearTimeout(this.rangeDebounceTimer);
       this.rangeDebounceTimer = null;
+    }
+    if (this.orderBookRafId !== null) {
+      cancelAnimationFrame(this.orderBookRafId);
+      this.orderBookRafId = null;
+    }
+    if (this.orderBookUI) {
+      this.orderBookUI.destroy();
+      this.orderBookUI = null;
     }
     if (this.chartContext) {
       this.chartContext.destroy();
