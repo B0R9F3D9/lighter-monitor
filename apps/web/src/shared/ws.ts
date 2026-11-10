@@ -45,6 +45,8 @@ export class WebSocketManager {
 
   public lastCoreMsgAt = 0;
   public lastRhMsgAt = 0;
+  private lastCoreConnectAt = 0;
+  private lastRhConnectAt = 0;
   private lastWsErrLog = 0;
 
   private subscribedCore = new Set<number>();
@@ -84,6 +86,51 @@ export class WebSocketManager {
     this.cleanupRh();
   }
 
+  public checkHealthAndReconnect(force = false): void {
+    const now = Date.now();
+    const isCoreConnecting =
+      !force &&
+      this.coreWs &&
+      this.coreWs.readyState === WebSocket.CONNECTING &&
+      now - this.lastCoreConnectAt < 5_000;
+
+    if (!isCoreConnecting) {
+      if (
+        force ||
+        !this.coreWs ||
+        this.coreWs.readyState !== WebSocket.OPEN ||
+        now - this.lastCoreMsgAt > 15_000
+      ) {
+        this.connectCore();
+      } else {
+        try {
+          this.coreWs.send(PING_PAYLOAD);
+        } catch {}
+      }
+    }
+
+    const isRhConnecting =
+      !force &&
+      this.rhWs &&
+      this.rhWs.readyState === WebSocket.CONNECTING &&
+      now - this.lastRhConnectAt < 5_000;
+
+    if (!isRhConnecting) {
+      if (
+        force ||
+        !this.rhWs ||
+        this.rhWs.readyState !== WebSocket.OPEN ||
+        now - this.lastRhMsgAt > 15_000
+      ) {
+        this.connectRh();
+      } else {
+        try {
+          this.rhWs.send(PING_PAYLOAD);
+        } catch {}
+      }
+    }
+  }
+
   private cleanupCore(): void {
     if (this.corePingTimer) {
       clearInterval(this.corePingTimer);
@@ -99,6 +146,7 @@ export class WebSocketManager {
       try {
         oldWs.close();
       } catch {}
+      this.callbacks.onCoreClose?.();
     }
   }
 
@@ -117,11 +165,13 @@ export class WebSocketManager {
       try {
         oldWs.close();
       } catch {}
+      this.callbacks.onRhClose?.();
     }
   }
 
   public connectCore(): void {
     this.cleanupCore();
+    this.lastCoreConnectAt = Date.now();
 
     const ws = new WebSocket(CONFIG.CORE_WS_URL);
     this.coreWs = ws;
@@ -231,6 +281,7 @@ export class WebSocketManager {
 
   public connectRh(): void {
     this.cleanupRh();
+    this.lastRhConnectAt = Date.now();
 
     const ws = new WebSocket(CONFIG.RH_WS_URL);
     this.rhWs = ws;

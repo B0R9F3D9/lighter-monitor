@@ -132,4 +132,156 @@ describe("Analytics WebSocket & Real-Time Price Tracking", () => {
     expect(effZScore2).toBeCloseTo(2.5, 2);
     expect(evaluateSignalVerdict(effZScore2)).toBe("OVERHEATED");
   });
+
+  describe("OrderBook Sequence Offset & Snapshot Guarding", () => {
+    it("drops delta updates if snapshot was never received or was reset", () => {
+      const book = createEmptyBook(100);
+      expect(book.isSnapshotReceived).toBe(false);
+
+      // Delta before snapshot must be ignored
+      updateBookFromWs(
+        book,
+        {
+          bids: [{ price: 50.0, size: 10 }],
+          asks: [{ price: 51.0, size: 10 }],
+        },
+        false,
+      );
+
+      expect(book.isSnapshotReceived).toBe(false);
+      expect(getBookMidPrice(book)).toBe(0);
+      expect(book.bids.size).toBe(0);
+      expect(book.asks.size).toBe(0);
+
+      // Now receive snapshot
+      updateBookFromWs(
+        book,
+        {
+          bids: [{ price: 50.0, size: 10 }],
+          asks: [{ price: 51.0, size: 10 }],
+        },
+        true,
+        1000,
+      );
+      expect(book.isSnapshotReceived).toBe(true);
+      expect(book.offset).toBe(1000);
+      expect(getBookMidPrice(book)).toBe(50.5);
+
+      // Reset book on connection drop / visibility change
+      book.isSnapshotReceived = false;
+      expect(getBookMidPrice(book)).toBe(0);
+
+      // Delta arriving after reset before new snapshot must be ignored
+      updateBookFromWs(
+        book,
+        {
+          bids: [{ price: 52.0, size: 5 }],
+        },
+        false,
+        1001,
+      );
+      // Mid price must still be 0 (invalidated)
+      expect(getBookMidPrice(book)).toBe(0);
+    });
+
+    it("drops stale and duplicate sequence offsets", () => {
+      const book = createEmptyBook(101);
+
+      // Snapshot with sequence offset 500
+      updateBookFromWs(
+        book,
+        {
+          bids: [{ price: 100.0, size: 10 }],
+          asks: [{ price: 102.0, size: 10 }],
+        },
+        true,
+        500,
+      );
+      expect(book.offset).toBe(500);
+      expect(getBookMidPrice(book)).toBe(101.0);
+
+      // Duplicate offset 500 should be rejected
+      updateBookFromWs(
+        book,
+        {
+          bids: [{ price: 100.5, size: 20 }],
+        },
+        false,
+        500,
+      );
+      expect(book.bids.get(100.5)).toBeUndefined();
+      expect(book.offset).toBe(500);
+
+      // Older offset 490 should be rejected
+      updateBookFromWs(
+        book,
+        {
+          bids: [{ price: 100.5, size: 20 }],
+        },
+        false,
+        490,
+      );
+      expect(book.bids.get(100.5)).toBeUndefined();
+      expect(book.offset).toBe(500);
+
+      // Newer offset 501 should be accepted
+      updateBookFromWs(
+        book,
+        {
+          bids: [{ price: 100.5, size: 20 }],
+        },
+        false,
+        501,
+      );
+      expect(book.bids.get(100.5)).toBe(20);
+      expect(book.offset).toBe(501);
+      expect(getBookMidPrice(book)).toBe((100.5 + 102.0) / 2);
+    });
+  });
+
+  describe("WebSocketManager Health & Reconnect", () => {
+    it("provides checkHealthAndReconnect to detect stale or dead sockets", () => {
+      // Mock WebSocket
+      const originalWs = globalThis.WebSocket;
+      class MockWs {
+        static CONNECTING = 0;
+        static OPEN = 1;
+        static CLOSING = 2;
+        static CLOSED = 3;
+        readyState = MockWs.OPEN;
+        send = () => {};
+        close = () => {};
+        addEventListener = () => {};
+        removeEventListener = () => {};
+      }
+      (globalThis as any).WebSocket = MockWs;
+
+      try {
+        const { WebSocketManager } = require("../src/shared/ws");
+        const mgr = new WebSocketManager({});
+
+        // Trigger health check - sockets are null, should initiate connections
+        mgr.checkHealthAndReconnect();
+        expect((mgr as any).coreWs).not.toBeNull();
+        expect((mgr as any).rhWs).not.toBeNull();
+
+        // Simulate stale messages (> 15 seconds ago)
+        mgr.lastCoreMsgAt = Date.now() - 20_000;
+        mgr.lastRhMsgAt = Date.now() - 20_000;
+
+        const prevCoreWs = (mgr as any).coreWs;
+        const prevRhWs = (mgr as any).rhWs;
+
+        mgr.checkHealthAndReconnect();
+
+        // Sockets should have been reconnected (new instances created)
+        expect((mgr as any).coreWs).not.toBe(prevCoreWs);
+        expect((mgr as any).rhWs).not.toBe(prevRhWs);
+
+        mgr.disconnectAll();
+      } finally {
+        globalThis.WebSocket = originalWs;
+      }
+    });
+  });
 });

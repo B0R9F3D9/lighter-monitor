@@ -124,6 +124,8 @@ export class AnalyticsController {
   private realtimeThrottleTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly REALTIME_THROTTLE_MS = 150;
   private isForceRealtimeUpdate = false;
+  private currentResolutionStepSec = 300;
+  private lastHiddenAt = 0;
 
   private isTickerListDirty = true;
   private prevFocusedModalRowIndex = -1;
@@ -186,6 +188,53 @@ export class AnalyticsController {
     this.destroy();
   };
 
+  private onVisibilityChange = () => {
+    if (typeof document === "undefined") return;
+    if (document.visibilityState === "hidden") {
+      this.lastHiddenAt = Date.now();
+      return;
+    }
+
+    const now = Date.now();
+    const awayMs = this.lastHiddenAt > 0 ? now - this.lastHiddenAt : 0;
+    this.lastHiddenAt = 0;
+
+    const wsDormant = Boolean(
+      this.wsManager &&
+      (now - this.wsManager.lastCoreMsgAt > 15_000 || now - this.wsManager.lastRhMsgAt > 15_000),
+    );
+
+    const forceReconnect = awayMs > 15_000 || wsDormant;
+    this.wsManager?.checkHealthAndReconnect(forceReconnect);
+
+    if (forceReconnect) {
+      if (this.rhBook) {
+        this.rhBook.isSnapshotReceived = false;
+        this.rhBook.offset = 0;
+        this.isRhBookDirty = true;
+      }
+      if (this.coreBook) {
+        this.coreBook.isSnapshotReceived = false;
+        this.coreBook.offset = 0;
+        this.isCoreBookDirty = true;
+      }
+      this.scheduleOrderBookRaf();
+      this.lastKnownRhMid = 0;
+      this.lastKnownCoreMid = 0;
+      this.lastRenderedRhMid = 0;
+      this.lastRenderedCoreMid = 0;
+
+      this.loadData();
+    }
+  };
+
+  private onPageShow = (e: PageTransitionEvent) => {
+    if (e.persisted) {
+      this.lastHiddenAt = Date.now() - 30_000;
+      this.onVisibilityChange();
+    }
+  };
+
   private setupTokenImageFallback(): void {
     const tokenImgEl = document.getElementById("tickerTokenImg") as HTMLImageElement | null;
     const tokenIconEl = document.getElementById("tickerTokenIcon");
@@ -229,6 +278,17 @@ export class AnalyticsController {
 
   private scheduleOrderBookRaf(): void {
     if (this.orderBookRafId !== null) return;
+    if (typeof requestAnimationFrame === "undefined") {
+      if (this.isRhBookDirty) {
+        this.isRhBookDirty = false;
+        this.orderBookUI?.renderRh(this.rhBook);
+      }
+      if (this.isCoreBookDirty) {
+        this.isCoreBookDirty = false;
+        this.orderBookUI?.renderCore(this.coreBook);
+      }
+      return;
+    }
     this.orderBookRafId = requestAnimationFrame(() => {
       this.orderBookRafId = null;
       if (this.isRhBookDirty) {
@@ -244,6 +304,24 @@ export class AnalyticsController {
 
   private initWs(): void {
     this.wsManager = new WebSocketManager({
+      onRhClose: () => {
+        this.lastKnownRhMid = 0;
+        if (this.rhBook) {
+          this.rhBook.isSnapshotReceived = false;
+          this.rhBook.offset = 0;
+          this.isRhBookDirty = true;
+          this.scheduleOrderBookRaf();
+        }
+      },
+      onCoreClose: () => {
+        this.lastKnownCoreMid = 0;
+        if (this.coreBook) {
+          this.coreBook.isSnapshotReceived = false;
+          this.coreBook.offset = 0;
+          this.isCoreBookDirty = true;
+          this.scheduleOrderBookRaf();
+        }
+      },
       onRhBookUpdate: (marketId, data, isSnapshot, offset) => {
         if (marketId !== this.activeRhMarketId) return;
         const pair = this.activePair || this.pairs.find((p) => p.symbol === this.activeSymbol);
@@ -255,8 +333,8 @@ export class AnalyticsController {
         this.isRhBookDirty = true;
         this.scheduleOrderBookRaf();
         const mid = getBookMidPrice(this.rhBook);
+        this.lastKnownRhMid = mid;
         if (mid > 0) {
-          this.lastKnownRhMid = mid;
           pair.rh.markPrice = mid;
           this.scheduleRealtimeUpdate();
         }
@@ -272,8 +350,8 @@ export class AnalyticsController {
         this.isCoreBookDirty = true;
         this.scheduleOrderBookRaf();
         const mid = getBookMidPrice(this.coreBook);
+        this.lastKnownCoreMid = mid;
         if (mid > 0) {
-          this.lastKnownCoreMid = mid;
           pair.core.markPrice = mid;
           this.scheduleRealtimeUpdate();
         }
@@ -471,8 +549,12 @@ export class AnalyticsController {
         this.activeRhMarketId = pair.rhMarketId;
         this.activeCoreMarketId = pair.coreMarketId;
         this.updateTopMarketStats(pair);
-        this.lastKnownRhMid = pair.rh.markPrice;
-        this.lastKnownCoreMid = pair.core.markPrice;
+        if (!this.rhBook?.isSnapshotReceived) {
+          this.lastKnownRhMid = pair.rh.markPrice;
+        }
+        if (!this.coreBook?.isSnapshotReceived) {
+          this.lastKnownCoreMid = pair.core.markPrice;
+        }
         this.lastRenderedRhMid = 0;
         this.lastRenderedCoreMid = 0;
         this.updateWsSubscriptions(null, pair);
@@ -565,6 +647,7 @@ export class AnalyticsController {
 
     this.setLoading(true);
     const tf = TIMEFRAMES[this.activeTimeframe];
+    this.currentResolutionStepSec = getResolutionStepSec(tf.resolution);
     const reqId = ++this.currentRequestId;
     const currentSymbol = pair.symbol;
 
@@ -583,16 +666,71 @@ export class AnalyticsController {
 
       if (points.length > 0) {
         const lastPt = points[points.length - 1]!;
-        if (this.lastKnownRhMid <= 0 && lastPt.rhPrice > 0) {
+        if ((!this.rhBook || !this.rhBook.isSnapshotReceived) && lastPt.rhPrice > 0) {
           this.lastKnownRhMid = lastPt.rhPrice;
         }
-        if (this.lastKnownCoreMid <= 0 && lastPt.corePrice > 0) {
+        if ((!this.coreBook || !this.coreBook.isSnapshotReceived) && lastPt.corePrice > 0) {
           this.lastKnownCoreMid = lastPt.corePrice;
         }
       }
 
+      const rhBookValid = this.rhBook?.isSnapshotReceived ?? false;
+      const coreBookValid = this.coreBook?.isSnapshotReceived ?? false;
+      const hasLivePrices =
+        rhBookValid && coreBookValid && this.lastKnownRhMid > 0 && this.lastKnownCoreMid > 0;
+
+      let finalStats = stats;
+      let finalBands = bands;
+
+      if (hasLivePrices && points.length > 0) {
+        const rhPrice = this.lastKnownRhMid;
+        const corePrice = this.lastKnownCoreMid;
+        const basisUsd = rhPrice - corePrice;
+        const midPrice = (rhPrice + corePrice) / 2;
+        const basisBps = midPrice > 0 ? (basisUsd / midPrice) * 10000 : 0;
+        const lastPt = points[points.length - 1]!;
+        const stepSec = this.currentResolutionStepSec;
+        const nowSec = Math.floor(Date.now() / 1000);
+        const currentBarTime = Math.floor(nowSec / stepSec) * stepSec;
+
+        const livePoint: BasisPoint = {
+          timeSec: Math.max(lastPt.timeSec, currentBarTime),
+          timestampMs: Date.now(),
+          rhPrice,
+          corePrice,
+          basisUsd,
+          basisBps,
+          midPrice,
+          rhVolume: lastPt.rhVolume,
+          coreVolume: lastPt.coreVolume,
+        };
+
+        if (livePoint.timeSec === lastPt.timeSec) {
+          points[points.length - 1] = livePoint;
+        } else if (livePoint.timeSec > lastPt.timeSec) {
+          points.push(livePoint);
+        }
+
+        finalStats = calculateQuantStats(points, pair.hedgeSideConfig.isRhLong);
+        finalBands = calculateRollingBands(points, 20);
+      }
+
+      this.activePoints = points;
+      this.currentStats = finalStats;
+      this.sortedBasisValues = finalStats?.sortedBasisValues || [];
+      this.lastLegendTimeSec = null;
+      this.lastLegendRhPrice = null;
+      this.lastLegendCorePrice = null;
+      this.lastLegendBasisUsd = null;
+
       if (this.chartContext) {
-        this.chartContext.setData(points, bands, true, undefined, pair.hedgeSideConfig.isRhLong);
+        this.chartContext.setData(
+          points,
+          finalBands,
+          true,
+          undefined,
+          pair.hedgeSideConfig.isRhLong,
+        );
       }
 
       const nowSec = Math.floor(Date.now() / 1000);
@@ -609,12 +747,12 @@ export class AnalyticsController {
         };
       }
 
-      this.updateQuantGauges(stats);
+      this.updateQuantGauges(finalStats);
       this.renderHeatmap();
       this.updateTopMarketStats(pair);
       this.updateLegend(points[points.length - 1] || null);
 
-      if (this.lastKnownRhMid > 0 && this.lastKnownCoreMid > 0) {
+      if (hasLivePrices) {
         this.lastRenderedRhMid = 0;
         this.lastRenderedCoreMid = 0;
         this.scheduleRealtimeUpdate(true);
@@ -714,6 +852,42 @@ export class AnalyticsController {
 
       const points = alignCandlesToBasisPoints(rhCandles, coreCandles);
       if (points.length >= 2) {
+        this.currentResolutionStepSec = stepSec;
+        const nowSec = Math.floor(Date.now() / 1000);
+        const isLiveEdge = toSec + bufferSec >= nowSec - stepSec * 2;
+        const rhBookValid = this.rhBook?.isSnapshotReceived ?? false;
+        const coreBookValid = this.coreBook?.isSnapshotReceived ?? false;
+        const hasLivePrices =
+          rhBookValid && coreBookValid && this.lastKnownRhMid > 0 && this.lastKnownCoreMid > 0;
+
+        if (isLiveEdge && hasLivePrices) {
+          const rhPrice = this.lastKnownRhMid;
+          const corePrice = this.lastKnownCoreMid;
+          const basisUsd = rhPrice - corePrice;
+          const midPrice = (rhPrice + corePrice) / 2;
+          const basisBps = midPrice > 0 ? (basisUsd / midPrice) * 10000 : 0;
+          const lastPt = points[points.length - 1]!;
+          const currentBarTime = Math.floor(nowSec / stepSec) * stepSec;
+
+          const livePoint: BasisPoint = {
+            timeSec: Math.max(lastPt.timeSec, currentBarTime),
+            timestampMs: Date.now(),
+            rhPrice,
+            corePrice,
+            basisUsd,
+            basisBps,
+            midPrice,
+            rhVolume: lastPt.rhVolume,
+            coreVolume: lastPt.coreVolume,
+          };
+
+          if (livePoint.timeSec === lastPt.timeSec) {
+            points[points.length - 1] = livePoint;
+          } else if (livePoint.timeSec > lastPt.timeSec) {
+            points.push(livePoint);
+          }
+        }
+
         const stats = calculateQuantStats(points, pair.hedgeSideConfig.isRhLong);
         const bands = calculateRollingBands(points, 20);
 
@@ -741,7 +915,7 @@ export class AnalyticsController {
         this.renderHeatmap();
         this.updateLegend(points[points.length - 1] || null);
         this.clearActiveTimeframeButtons();
-        if (this.lastKnownRhMid > 0 && this.lastKnownCoreMid > 0) {
+        if (isLiveEdge && hasLivePrices) {
           this.lastRenderedRhMid = 0;
           this.lastRenderedCoreMid = 0;
           this.scheduleRealtimeUpdate(true);
@@ -1060,12 +1234,30 @@ export class AnalyticsController {
     const pair = this.activePair || this.pairs.find((p) => p.symbol === this.activeSymbol);
     if (!pair) return;
 
+    const rhBookValid = this.rhBook?.isSnapshotReceived ?? false;
+    const coreBookValid = this.coreBook?.isSnapshotReceived ?? false;
+
+    // 1. Update Top Mark Price for active venue if valid
+    if (this.activeVenue === "rh" && rhBookValid && this.lastKnownRhMid > 0) {
+      pair.markPrice = this.lastKnownRhMid;
+      const markEl = document.getElementById("statMarkPrice");
+      if (markEl) markEl.textContent = formatMarketPrice(this.lastKnownRhMid);
+    } else if (this.activeVenue === "core" && coreBookValid && this.lastKnownCoreMid > 0) {
+      pair.markPrice = this.lastKnownCoreMid;
+      const markEl = document.getElementById("statMarkPrice");
+      if (markEl) markEl.textContent = formatMarketPrice(this.lastKnownCoreMid);
+    }
+
+    // Both books must be valid with fresh snapshot to compute basis
+    if (!rhBookValid || !coreBookValid) return;
+
     const rhPrice = this.lastKnownRhMid;
     const corePrice = this.lastKnownCoreMid;
     if (rhPrice <= 0 || corePrice <= 0) return;
 
     const tf = TIMEFRAMES[this.activeTimeframe];
-    const stepSec = tf ? getResolutionStepSec(tf.resolution) : 300;
+    const stepSec =
+      this.currentResolutionStepSec || (tf ? getResolutionStepSec(tf.resolution) : 300);
     const nowSec = Math.floor(Date.now() / 1000);
     let timeSec = Math.floor(nowSec / stepSec) * stepSec;
     let isNewBar = false;
@@ -1104,17 +1296,24 @@ export class AnalyticsController {
     const isRhLong = pair.hedgeSideConfig.isRhLong;
     const isEdge = isRhLong ? basisUsd <= 0 : basisUsd >= 0;
 
-    // 1. Update Top Mark Price
-    const liveMarkPrice = this.activeVenue === "rh" ? rhPrice : corePrice;
-    pair.markPrice = liveMarkPrice;
-    const markEl = document.getElementById("statMarkPrice");
-    if (markEl) markEl.textContent = formatMarketPrice(liveMarkPrice);
-
     // If date filter is active, historical view is frozen, so do not alter gauges or chart
     if (this.dateFilter.isActive) return;
 
     // 2. Update Quant Gauges
     this.updateRealtimeQuantGauges(basisUsd, basisBps, isRhLong, isEdge);
+
+    // If user has scrolled into historical past, do not append live point to historical chart
+    const isHistoricalViewport =
+      this.lastRequestedRange !== null && this.lastRequestedRange.toSec < nowSec - stepSec * 3;
+    if (isHistoricalViewport) return;
+
+    // Wait for loadData() to finish loading missing candles, avoiding a line spanning a huge time gap
+    if (this.activePoints.length > 0) {
+      const lastPt = this.activePoints[this.activePoints.length - 1]!;
+      if (timeSec - lastPt.timeSec > stepSec * 2) {
+        return;
+      }
+    }
 
     // 3. Update Chart & Price Lines
     const livePoint: BasisPoint = {
@@ -2680,6 +2879,10 @@ export class AnalyticsController {
     // Global hotkey '/' to search ticker, Escape to close
     document.addEventListener("keydown", this.onDocumentKeyDown);
     window.addEventListener("beforeunload", this.onBeforeUnload);
+
+    // Tab visibility & bfcache restoration
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
+    window.addEventListener("pageshow", this.onPageShow);
   }
 
   public destroy(): void {
@@ -2687,6 +2890,8 @@ export class AnalyticsController {
     document.removeEventListener("click", this.onDocumentClick);
     document.removeEventListener("keydown", this.onDocumentKeyDown);
     window.removeEventListener("beforeunload", this.onBeforeUnload);
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    window.removeEventListener("pageshow", this.onPageShow);
 
     if (this.realtimeThrottleTimer !== null) {
       clearTimeout(this.realtimeThrottleTimer);

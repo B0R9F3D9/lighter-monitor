@@ -228,6 +228,16 @@ export function updateBookFromWs(
   isSnapshot = false,
   offset = 0,
 ): void {
+  // 1. Do not apply deltas to empty/reset book before receiving a snapshot
+  if (!isSnapshot && !book.isSnapshotReceived) {
+    return;
+  }
+
+  // 2. Discard stale or duplicate delta packets based on sequence offset
+  if (!isSnapshot && offset > 0 && book.offset > 0 && offset <= book.offset) {
+    return;
+  }
+
   const asks: FlatOrderBookSide =
     "prices" in book.asks
       ? (book.asks as FlatOrderBookSide)
@@ -243,6 +253,7 @@ export function updateBookFromWs(
   if (isSnapshot) {
     asks.clear();
     bids.clear();
+    book.offset = offset || 0;
   }
 
   let asksChanged = isSnapshot;
@@ -309,7 +320,11 @@ export function updateBookFromWs(
 
   book.isSnapshotReceived = true;
   book.lastUpdatedTs = Date.now();
-  if (offset) book.offset = offset;
+  if (offset) {
+    book.offset = offset;
+  } else if (isSnapshot) {
+    book.offset = 0;
+  }
 }
 
 export const ASC_COMP = (a: number, b: number): number => a - b;
