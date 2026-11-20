@@ -225,6 +225,27 @@ function createUnhedgedRow(
     uFundingTooltip = `${trade.network} Funding: ${uFund >= 0 ? "+" : ""}${formatMoney(uFund)}`;
   }
 
+  // Unhedged trades have no hedge-pair PnL, but they do realize PnL on their own
+  // (e.g. a Core-only position opened and closed outside a hedge pair).
+  const uRealizedPnl = trade.realizedPnlUsd ?? 0;
+  const uNetPnl = uRealizedPnl + (uFund ?? 0) - trade.feeUsd;
+  let uNetPnlStr = "$0.00";
+  let uNetPnlColor = "text-terminal-muted";
+  if (uNetPnl > 0.0001) {
+    uNetPnlStr = `+${formatMoney(uNetPnl)}`;
+    uNetPnlColor = "text-terminal-emerald";
+  } else if (uNetPnl < -0.0001) {
+    uNetPnlStr = formatMoney(uNetPnl);
+    uNetPnlColor = "text-terminal-coral";
+  }
+  const uRealizedStr =
+    uRealizedPnl > 0.0001
+      ? `+${formatMoney(uRealizedPnl)}`
+      : uRealizedPnl < -0.0001
+        ? formatMoney(uRealizedPnl)
+        : "$0.00";
+  const uPnlTooltip = `Unhedged Net PnL: ${uNetPnlStr} | Realized PnL: ${uRealizedStr} | Fees: ${formatFee(trade.feeUsd)} | Funding: ${uFund != null ? `${uFund >= 0 ? "+" : ""}${formatMoney(uFund)}` : "—"}`;
+
   tr.innerHTML = `
     <td class="py-1.5 px-2 text-center w-7">
       <input
@@ -249,7 +270,10 @@ function createUnhedgedRow(
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
     <td class="py-1.5 px-2 text-right text-white text-[11px] tabular-nums">${formatFee(trade.feeUsd)}</td>
     <td class="py-1.5 px-2 text-right whitespace-nowrap text-[11px]" title="${uFundingTooltip}">${uFundingHtml}</td>
-    <td class="py-1.5 px-2 text-right text-terminal-muted font-bold">--</td>
+    <td class="py-1.5 px-2 text-right whitespace-nowrap" title="${uPnlTooltip}">
+      <span class="${uNetPnlColor} font-bold tabular-nums">${uNetPnlStr}</span>
+      <span class="text-terminal-muted text-[10px] tabular-nums font-normal ml-1">(${uRealizedStr})</span>
+    </td>
     <td class="py-1.5 px-2 text-right text-terminal-muted">--</td>
     <td class="py-1.5 px-2 text-center whitespace-nowrap">
       <span class="text-terminal-coral font-bold text-[11px]">UNHEDGED (${trade.network})</span>
@@ -433,9 +457,14 @@ export function updateHedgeExecutiveMetrics(
     const fund = metrics.totalFundingUsd ?? 0;
     const fundSign = fund > 0.0001 ? "+" : "";
     const slipSign = metrics.totalPricePnlUsd > 0.0001 ? "+" : "";
+    const unhedgedPnl = metrics.unhedgedRealizedPnlUsd ?? 0;
+    const unhedgedStr =
+      Math.abs(unhedgedPnl) > 0.0001
+        ? ` + Unhedged PnL: ${unhedgedPnl > 0 ? "+" : ""}${formatMoney(unhedgedPnl)}`
+        : "";
     const wFeeTotal = metrics.totalWithdrawalFeesUsd ?? 0;
     const wStr = wFeeTotal > 0.0001 ? ` - Withdraw Fees: ${formatFee(wFeeTotal)}` : "";
-    elements.netPnl.title = `Net PnL: ${sign}${formatMoney(metrics.totalNetPnlUsd)} = Slippage: ${slipSign}${formatMoney(metrics.totalPricePnlUsd)} + Funding: ${fundSign}${formatMoney(fund)} - Fees: ${formatFee(metrics.totalFeesUsd)}${wStr}`;
+    elements.netPnl.title = `Net PnL: ${sign}${formatMoney(metrics.totalNetPnlUsd)} = Slippage: ${slipSign}${formatMoney(metrics.totalPricePnlUsd)}${unhedgedStr} + Funding: ${fundSign}${formatMoney(fund)} - Fees: ${formatFee(metrics.totalFeesUsd)}${wStr}`;
   }
 
   if (elements.pnlBps) {
@@ -891,7 +920,12 @@ export function updateHedgeSelectionMetrics(
     const fund = metrics.totalFundingUsd ?? 0;
     const fundSign = fund > 0.0001 ? "+" : "";
     const slipSign = metrics.totalPricePnlUsd > 0.0001 ? "+" : "";
-    elements.netPnl.title = `Net PnL: ${sign}${formatMoney(metrics.totalNetPnlUsd)} = Slippage: ${slipSign}${formatMoney(metrics.totalPricePnlUsd)} + Funding: ${fundSign}${formatMoney(fund)} - Fees: ${formatFee(metrics.totalFeesUsd)}`;
+    const unhedgedPnl = metrics.unhedgedRealizedPnlUsd ?? 0;
+    const unhedgedStr =
+      Math.abs(unhedgedPnl) > 0.0001
+        ? ` + Unhedged PnL: ${unhedgedPnl > 0 ? "+" : ""}${formatMoney(unhedgedPnl)}`
+        : "";
+    elements.netPnl.title = `Net PnL: ${sign}${formatMoney(metrics.totalNetPnlUsd)} = Slippage: ${slipSign}${formatMoney(metrics.totalPricePnlUsd)}${unhedgedStr} + Funding: ${fundSign}${formatMoney(fund)} - Fees: ${formatFee(metrics.totalFeesUsd)}`;
   }
 
   if (elements.pnlBps) {
@@ -1048,6 +1082,9 @@ export function renderMarketSummaryCards(
       const netSign = net > 0.0001 ? "+" : "";
       const netFormatted = `${netSign}${formatMoney(net)}`;
 
+      const unhedgedPnl = stat.unhedgedPnlUsd ?? 0;
+      const unhedgedSign = unhedgedPnl > 0.0001 ? "+" : "";
+
       const tooltipLines = [
         `Ticker: ${stat.marketSymbol}`,
         `Volume (RH): ${formatMoney(stat.volumeUsd)}`,
@@ -1055,6 +1092,9 @@ export function renderMarketSummaryCards(
           ? `Avg Hold: ${formatCompactDuration(stat.avgHoldingDurationMs)}`
           : null,
         `Slippage: ${slipFormatted}`,
+        Math.abs(unhedgedPnl) > 0.0001
+          ? `Unhedged PnL: ${unhedgedSign}${formatMoney(unhedgedPnl)}`
+          : null,
         `Funding: ${fundFormatted}`,
         `Fees: ${feeFormatted}`,
         `Net PnL: ${netFormatted}`,
@@ -1115,6 +1155,7 @@ export function renderMarketSummaryCards(
   const overallAvgHoldingMs = totalHoldingCount > 0 ? totalHoldingWeight / totalHoldingCount : 0;
 
   const totalSlippageUsd = stats.reduce((acc, s) => acc + (s.slippagePnlUsd || 0), 0);
+  const totalUnhedgedPnlUsd = stats.reduce((acc, s) => acc + (s.unhedgedPnlUsd || 0), 0);
   const totalFundingUsd = stats.reduce((acc, s) => acc + (s.fundingPnlUsd || 0), 0);
   const totalFeeUsd = stats.reduce((acc, s) => acc + (s.feeUsd || 0), 0);
   const totalNetPnlUsd = stats.reduce((acc, s) => acc + (s.netPnlUsd ?? s.realizedPnlUsd ?? 0), 0);
@@ -1159,6 +1200,9 @@ export function renderMarketSummaryCards(
     `Volume (RH): ${formatMoney(totalVolumeUsd)}`,
     overallAvgHoldingMs > 0 ? `Avg Hold: ${formatCompactDuration(overallAvgHoldingMs)}` : null,
     `Slippage: ${totalSlipFormatted}`,
+    Math.abs(totalUnhedgedPnlUsd) > 0.0001
+      ? `Unhedged PnL: ${totalUnhedgedPnlUsd > 0 ? "+" : ""}${formatMoney(totalUnhedgedPnlUsd)}`
+      : null,
     `Funding: ${totalFundFormatted}`,
     `Fees: ${totalFeeFormatted}`,
     `Net PnL: ${totalNetFormatted}`,
@@ -1190,7 +1234,7 @@ export function renderMarketSummaryCards(
           <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="feeUsd" title="Trading fees (RH + Core)">
             Fees ${renderSortIndicator("feeUsd")}
           </th>
-          <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="netPnlUsd" title="Net PnL = Slippage + Funding - Fees">
+          <th class="h-8 py-0 px-2 sm:px-3 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap" data-sort="netPnlUsd" title="Net PnL = Slippage + Unhedged PnL + Funding - Fees">
             Net PnL ${renderSortIndicator("netPnlUsd")}
           </th>
         </tr>
@@ -1351,7 +1395,7 @@ export function updateWeeklyPointsCard(
     if (Math.abs(metrics.totalNetPnlUsd) <= 0.0001 || analysis.costPerPoint === null) {
       elements.costPerPoint.textContent = "$0.0000";
       elements.costPerPoint.className = "font-bold text-terminal-muted tabular-nums";
-      elements.costPerPoint.title = "Net hedge PnL was $0.00";
+      elements.costPerPoint.title = "Net PnL was $0.00";
     } else if (analysis.isProfitable) {
       elements.costPerPoint.textContent = `+${formatUnitPointPrice(analysis.costPerPoint)}`;
       elements.costPerPoint.className = "font-bold text-terminal-emerald tabular-nums";
@@ -1446,7 +1490,7 @@ function getWeekMetricStrings(
   const pnl = stats.totalNetPnlUsd;
   let netPnlStr = "$0.00";
   let netPnlCls = "font-bold text-terminal-muted tabular-nums";
-  let netPnlTitle = isTotal ? "Total net hedge PnL was $0.00" : "Net hedge PnL was $0.00";
+  let netPnlTitle = isTotal ? "Total net PnL was $0.00" : "Net PnL was $0.00";
 
   if (Math.abs(pnl) > 0.0001) {
     if (pnl < -0.0001) {
@@ -1488,7 +1532,7 @@ function getWeekMetricStrings(
     } else {
       priceStr = "$0.0000";
       priceCls = "font-bold text-terminal-muted tabular-nums";
-      priceTitle = isTotal ? "Total net hedge PnL was $0.00" : "Net hedge PnL was $0.00";
+      priceTitle = isTotal ? "Total net PnL was $0.00" : "Net PnL was $0.00";
     }
   }
 

@@ -4448,6 +4448,156 @@ describe("Hedge Matching Engine", () => {
       expect(classes.has("scroll-mask-both")).toBe(false);
     });
   });
+
+  describe("Unhedged Trade PnL & Volume accounting", () => {
+    const buyTs = Date.UTC(2026, 10, 19, 17, 5, 53);
+    const sellTs = Date.UTC(2026, 10, 19, 17, 6, 48);
+
+    it("includes unhedged Core realized PnL in totals while excluding its volume", () => {
+      // Mirrors the real QQQ Core-only round trip from the 2026-11-19 audit:
+      // bought ~50 QQQ around 648.05 and sold around 648.60.
+      const coreBuy = mockTrade({
+        tradeId: "core-unhedged-buy",
+        marketSymbol: "QQQ",
+        marketId: 1,
+        side: "BUY",
+        price: 648.05,
+        size: 30,
+        realizedPnl: 0,
+        feeUsd: 0,
+        timestampMs: buyTs,
+      });
+      const coreSell = mockTrade({
+        tradeId: "core-unhedged-sell",
+        marketSymbol: "QQQ",
+        marketId: 1,
+        side: "SELL",
+        price: 648.6,
+        size: 30,
+        realizedPnl: 16.5,
+        feeUsd: 0,
+        timestampMs: sellTs,
+      });
+
+      const result = matchHedgeTrades([], [coreBuy, coreSell], null, 749329);
+      expect(result.pairs).toHaveLength(0);
+      expect(result.unhedged).toHaveLength(2);
+
+      const sell = result.unhedged.find((u) => u.tradeId === "core-unhedged-sell")!;
+      expect(sell.realizedPnlUsd).toBeCloseTo(16.5, 4);
+
+      // PnL counts, but Core volume must not.
+      expect(result.metrics.unhedgedRealizedPnlUsd).toBeCloseTo(16.5, 4);
+      expect(result.metrics.coreUnhedgedRealizedPnlUsd).toBeCloseTo(16.5, 4);
+      expect(result.metrics.totalNetPnlUsd).toBeCloseTo(16.5, 4);
+      expect(result.metrics.totalHedgedVolumeUsd).toBe(0);
+      expect(result.metrics.unhedgedVolumeUsd).toBe(0);
+      expect(result.metrics.unhedgedCoreVolumeUsd).toBeCloseTo(30 * 648.05 + 30 * 648.6, 4);
+      expect(result.metrics.unhedgedCoreCount).toBe(2);
+      expect(result.metrics.unhedgedRhCount).toBe(0);
+
+      // Per-market summary reflects the Core PnL with zero RH volume.
+      const marketStats = calculateMarketSummaryStats(
+        result.pairs,
+        result.unhedged,
+        [],
+        [],
+        null,
+        buyTs,
+      );
+      const qqq = marketStats.find((s) => s.marketSymbol === "QQQ")!;
+      expect(qqq.volumeUsd).toBe(0);
+      expect(qqq.unhedgedPnlUsd).toBeCloseTo(16.5, 4);
+      expect(qqq.netPnlUsd).toBeCloseTo(16.5, 4);
+    });
+
+    it("counts unhedged RH realized PnL and volume", () => {
+      const rhSell = mockTrade({
+        tradeId: "rh-unhedged-sell",
+        marketSymbol: "SPY",
+        side: "SELL",
+        price: 724.12,
+        size: 3,
+        realizedPnl: 0,
+        feeUsd: 0,
+        timestampMs: buyTs,
+      });
+      const rhBuy = mockTrade({
+        tradeId: "rh-unhedged-buy",
+        marketSymbol: "SPY",
+        side: "BUY",
+        price: 723.75,
+        size: 3,
+        realizedPnl: 1.11,
+        feeUsd: 0,
+        timestampMs: sellTs,
+      });
+
+      const result = matchHedgeTrades([rhSell, rhBuy], [], 51700, null);
+      expect(result.pairs).toHaveLength(0);
+      expect(result.unhedged).toHaveLength(2);
+
+      expect(result.metrics.unhedgedRealizedPnlUsd).toBeCloseTo(1.11, 4);
+      expect(result.metrics.rhUnhedgedRealizedPnlUsd).toBeCloseTo(1.11, 4);
+      expect(result.metrics.totalNetPnlUsd).toBeCloseTo(1.11, 4);
+      // RH unhedged volume is real traded RH volume.
+      expect(result.metrics.unhedgedVolumeUsd).toBeCloseTo(3 * 724.12 + 3 * 723.75, 4);
+      expect(result.metrics.totalHedgedVolumeUsd).toBeCloseTo(3 * 724.12 + 3 * 723.75, 4);
+      expect(result.metrics.unhedgedCoreVolumeUsd).toBe(0);
+    });
+
+    it("feeds unhedged Core PnL into weekly stats and cost per point", () => {
+      const coreBuy = mockTrade({
+        tradeId: "core-week-buy",
+        marketSymbol: "QQQ",
+        marketId: 1,
+        side: "BUY",
+        price: 648.05,
+        size: 30,
+        realizedPnl: 0,
+        feeUsd: 0,
+        timestampMs: buyTs,
+      });
+      const coreSell = mockTrade({
+        tradeId: "core-week-sell",
+        marketSymbol: "QQQ",
+        marketId: 1,
+        side: "SELL",
+        price: 648.6,
+        size: 30,
+        realizedPnl: 16.5,
+        feeUsd: 0,
+        timestampMs: sellTs,
+      });
+
+      const result = matchHedgeTrades([], [coreBuy, coreSell], null, 749329);
+      const nowMs = Date.UTC(2026, 10, 19, 23, 0, 0);
+      const week14 = getRobinhoodPromoWeeks(nowMs).find((w) => w.weekNumber === 14)!;
+      expect(week14).toBeDefined();
+      expect(isTradeInDateRange(buyTs, createPresetDateFilter(week14))).toBe(true);
+
+      const weekStats = calculateWeekActivityStats(week14, {
+        allHedgePairs: result.pairs,
+        allUnhedgedTrades: result.unhedged,
+        rhParsedTrades: [],
+        coreParsedTrades: [coreBuy, coreSell],
+        rhAccountIndex: null,
+        coreAccountIndex: 749329,
+        coreAccountIndices: [749329],
+        pointsByWeek: { 14: 1000 },
+        nowMs,
+      });
+
+      expect(weekStats).not.toBeNull();
+      // Core-only leg is unhedged: PnL is counted, RH volume is zero.
+      expect(weekStats!.totalNetPnlUsd).toBeCloseTo(16.5, 4);
+      expect(weekStats!.rhVolumeUsd).toBe(0);
+      expect(weekStats!.totalFeesUsd).toBe(0);
+      // Cost per point = |Net PnL| / points = 16.5 / 1000
+      expect(weekStats!.analysis.costPerPoint).toBeCloseTo(0.0165, 6);
+      expect(weekStats!.analysis.isProfitable).toBe(true);
+    });
+  });
 });
 
 function createFakeElement(tagName: string) {

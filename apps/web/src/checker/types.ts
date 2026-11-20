@@ -231,6 +231,7 @@ export interface UnhedgedTrade {
   usdValue: number;
   feeUsd: number;
   fundingUsd?: number | null;
+  realizedPnlUsd?: number; // Realized PnL of the unhedged portion (from exchange trade PnL)
   timestampMs: number;
   timeFormatted: string;
   txHash: string;
@@ -245,6 +246,7 @@ export interface SelectedHedgeMetrics {
   totalVolumeUsd: number;
   totalNetPnlUsd: number;
   totalPricePnlUsd: number;
+  unhedgedRealizedPnlUsd?: number;
   totalFeesUsd: number;
   totalFundingUsd?: number | null;
   avgPnlBps: number;
@@ -262,6 +264,9 @@ export interface HedgeSummaryMetrics {
   totalHedgedVolumeUsd: number;
   totalNetPnlUsd: number;
   totalPricePnlUsd: number;
+  unhedgedRealizedPnlUsd?: number;
+  rhUnhedgedRealizedPnlUsd?: number;
+  coreUnhedgedRealizedPnlUsd?: number;
   totalFeesUsd: number;
   totalFundingUsd?: number | null;
   rhTotalFundingUsd?: number | null;
@@ -280,6 +285,7 @@ export interface HedgeSummaryMetrics {
   worstPairPnlUsd: number;
   totalUnhedgedTrades: number;
   unhedgedVolumeUsd: number;
+  unhedgedCoreVolumeUsd?: number;
   unhedgedRhCount: number;
   unhedgedCoreCount: number;
   rhAccountIndex: number | null;
@@ -343,6 +349,7 @@ export interface MarketSummaryStat {
   marketSymbol: string;
   volumeUsd: number;
   slippagePnlUsd?: number;
+  unhedgedPnlUsd?: number;
   fundingPnlUsd?: number;
   feeUsd?: number;
   netPnlUsd?: number;
