@@ -1117,31 +1117,12 @@
             </svg>
           </div>
 
-          <!-- Subheader & Filter Tabs -->
+          <!-- Subheader & Controls -->
           <div
             class="border-b border-terminal-border px-3 py-2 flex flex-col xl:flex-row xl:items-center justify-between gap-2 text-xs bg-terminal-surface/60"
           >
-            <!-- Left: Tab Switchers -->
+            <!-- Left: Controls -->
             <div class="flex flex-wrap items-center gap-2">
-              <div
-                class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px]"
-              >
-                <button
-                  id="tabBtnHedgeAll"
-                  type="button"
-                  class="px-2.5 py-0.5 rounded bg-terminal-surface text-white font-semibold transition cursor-pointer select-none"
-                >
-                  All Pairs
-                </button>
-                <button
-                  id="tabBtnHedgeUnhedged"
-                  type="button"
-                  class="px-2.5 py-0.5 rounded text-terminal-muted hover:text-white transition cursor-pointer select-none bg-transparent"
-                >
-                  Unhedged Only
-                </button>
-              </div>
-
               <!-- Order Aggregation Mode -->
               <div
                 class="inline-flex items-center rounded border border-terminal-border bg-terminal-bg p-0.5 text-[11px]"
@@ -1235,7 +1216,7 @@
 
           <!-- Table View -->
           <div class="overflow-x-auto no-scrollbar">
-            <table class="w-full border-collapse text-left">
+            <table id="hedgeTradesTable" class="w-full border-collapse text-left">
               <thead>
                 <tr
                   class="border-b border-terminal-border bg-terminal-surface/90 text-terminal-muted text-[11px] select-none"
@@ -1250,36 +1231,119 @@
                   </th>
                   <th class="py-2 px-2 font-semibold w-8 font-mono">#</th>
                   <th
-                    class="py-2 px-2 font-semibold"
+                    class="py-2 px-2 font-semibold cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="time"
                     title="Robinhood execution timestamp in your local browser timezone"
                   >
                     Time (RH)
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="time"
+                    ></span>
                   </th>
-                  <th class="py-2 px-2 font-semibold">Market</th>
-                  <th class="py-2 px-2 font-semibold">RH Leg</th>
-                  <th class="py-2 px-2 font-semibold">Core Leg</th>
                   <th
-                    class="py-2 px-2 font-semibold text-right"
+                    class="py-2 px-2 font-semibold cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="marketSymbol"
+                  >
+                    Market
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="marketSymbol"
+                    ></span>
+                  </th>
+                  <th
+                    class="py-2 px-2 font-semibold cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="rhSide"
+                  >
+                    RH Leg
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="rhSide"
+                    ></span>
+                  </th>
+                  <th
+                    class="py-2 px-2 font-semibold cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="coreSide"
+                  >
+                    Core Leg
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="coreSide"
+                    ></span>
+                  </th>
+                  <th
+                    class="py-2 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="size"
                     title="Matched size (and USD notional)"
                   >
                     Size
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="size"
+                    ></span>
                   </th>
-                  <th class="py-2 px-2 font-semibold text-right">Δ Price</th>
-                  <th class="py-2 px-2 font-semibold text-right">Fees</th>
                   <th
-                    class="py-2 px-2 font-semibold text-right"
+                    class="py-2 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="priceDelta"
+                  >
+                    Δ Price
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="priceDelta"
+                    ></span>
+                  </th>
+                  <th
+                    class="py-2 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="fees"
+                  >
+                    Fees
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="fees"
+                    ></span>
+                  </th>
+                  <th
+                    class="py-2 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="funding"
                     title="Net funding paid or received on perpetual positions (RH + Core)"
                   >
                     Funding
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="funding"
+                    ></span>
                   </th>
                   <th
-                    class="py-2 px-2 font-semibold text-right"
+                    class="py-2 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="netPnl"
                     title="Net PnL (Gross Slippage PnL in parentheses for pairs; Realized PnL for unhedged trades)"
                   >
                     Hedge PnL
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="netPnl"
+                    ></span>
                   </th>
-                  <th class="py-2 px-2 font-semibold text-right">Time Δ</th>
-                  <th class="py-2 px-2 font-semibold text-center">Status</th>
+                  <th
+                    class="py-2 px-2 font-semibold text-right cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="timeDelta"
+                  >
+                    Time Δ
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="timeDelta"
+                    ></span>
+                  </th>
+                  <th
+                    class="py-2 px-2 font-semibold text-center cursor-pointer hover:text-white whitespace-nowrap"
+                    data-sort="status"
+                  >
+                    Status
+                    <span
+                      class="sort-indicator text-terminal-accent ml-0.5"
+                      data-sort-indicator="status"
+                    ></span>
+                  </th>
                 </tr>
               </thead>
               <tbody id="hedgeTableBody" class="divide-y divide-terminal-borderSubtle">

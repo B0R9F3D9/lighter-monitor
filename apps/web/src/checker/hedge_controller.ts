@@ -52,6 +52,7 @@ import type {
   AccountMetaRecord,
   HedgePair,
   HedgeSummaryMetrics,
+  HedgeTradesSortColumn,
   IndividualAccountMetrics,
   LighterTrade,
   MarketSummarySortColumn,
@@ -96,7 +97,8 @@ export class HedgeController {
   private filteredHedgePairs: HedgePair[] = [];
   private filteredUnhedgedTrades: UnhedgedTrade[] = [];
   private hedgeMetrics: HedgeSummaryMetrics | null = null;
-  private hedgeFilterTab: "all" | "unhedged" = "all";
+  private hedgeTradesSortColumn: HedgeTradesSortColumn = "time";
+  private hedgeTradesSortDirection: "asc" | "desc" = "desc";
   private hedgeSearchQuery = "";
   private hedgeFilterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private rhMarketMap: Map<number, string> = getStaticMarketMap("rh");
@@ -182,8 +184,6 @@ export class HedgeController {
 
   // Filter & Search Controls
   private inputHedgeSearch: HTMLInputElement | null = null;
-  private tabBtnHedgeAll: HTMLButtonElement | null = null;
-  private tabBtnHedgeUnhedged: HTMLButtonElement | null = null;
   private hedgeAggregateMode: "aggregated" | "raw" = "aggregated";
   private btnHedgeModeAggregated: HTMLButtonElement | null = null;
   private btnHedgeModeRaw: HTMLButtonElement | null = null;
@@ -385,10 +385,6 @@ export class HedgeController {
     this.inputHedgeSearch = document.getElementById(
       "inputHedgeSearchFilter",
     ) as HTMLInputElement | null;
-    this.tabBtnHedgeAll = document.getElementById("tabBtnHedgeAll") as HTMLButtonElement | null;
-    this.tabBtnHedgeUnhedged = document.getElementById(
-      "tabBtnHedgeUnhedged",
-    ) as HTMLButtonElement | null;
     this.btnHedgeModeAggregated = document.getElementById(
       "btnHedgeModeAggregated",
     ) as HTMLButtonElement | null;
@@ -538,10 +534,7 @@ export class HedgeController {
       { passive: true },
     );
 
-    this.tabBtnHedgeAll?.addEventListener("click", () => this.switchHedgeFilterTab("all"));
-    this.tabBtnHedgeUnhedged?.addEventListener("click", () =>
-      this.switchHedgeFilterTab("unhedged"),
-    );
+    this.initHedgeTradesSorting();
 
     this.btnHedgeModeAggregated?.addEventListener("click", () =>
       this.switchHedgeAggregateMode("aggregated"),
@@ -1679,59 +1672,90 @@ export class HedgeController {
         this.hedgeTableBody,
         this.filteredHedgePairs,
         this.filteredUnhedgedTrades,
-        this.hedgeFilterTab,
         this.hedgeDisplayLimit,
         this.selectedHedgeRowIds,
         () => {
           this.hedgeDisplayLimit += 100;
           this.applyHedgeFilter();
         },
+        this.hedgeTradesSortColumn,
+        this.hedgeTradesSortDirection,
       );
       this.updateHeaderCheckboxState();
     }
 
     if (this.hedgeCountNotice) {
-      const showPairs = this.hedgeFilterTab === "all";
-      const count =
-        (showPairs ? this.filteredHedgePairs.length : 0) + this.filteredUnhedgedTrades.length;
-      const total = (showPairs ? this.hedgePairs.length : 0) + this.unhedgedTrades.length;
+      const count = this.filteredHedgePairs.length + this.filteredUnhedgedTrades.length;
+      const total = this.hedgePairs.length + this.unhedgedTrades.length;
+      const allTotal = this.allHedgePairs.length + this.allUnhedgedTrades.length;
 
       if (q && total > 0) {
-        this.hedgeCountNotice.textContent = `Showing ${Math.min(this.hedgeDisplayLimit, count)} of ${total} records`;
-        this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium font-mono";
+        this.hedgeCountNotice.textContent = `Showing ${count.toLocaleString()} of ${total.toLocaleString()} records`;
+        this.hedgeCountNotice.className =
+          "text-[11px] text-terminal-secondary font-medium font-mono";
       } else if (this.activeHedgeDateFilter && this.activeHedgeDateFilter.presetId !== "all") {
-        const allTotal =
-          (showPairs ? this.allHedgePairs.length : 0) + this.allUnhedgedTrades.length;
-        this.hedgeCountNotice.textContent = `Showing ${Math.min(this.hedgeDisplayLimit, total)} of ${allTotal} in range`;
-        this.hedgeCountNotice.className = "text-[11px] text-terminal-accent font-medium font-mono";
+        this.hedgeCountNotice.textContent =
+          total === allTotal
+            ? `${total.toLocaleString()} records in range`
+            : `Showing ${total.toLocaleString()} of ${allTotal.toLocaleString()} records in range`;
+        this.hedgeCountNotice.className =
+          "text-[11px] text-terminal-secondary font-medium font-mono";
       } else if (total > 0) {
-        this.hedgeCountNotice.textContent = `${this.hedgePairs.length} pairs hedged`;
+        this.hedgeCountNotice.textContent = `${this.hedgePairs.length.toLocaleString()} pairs hedged`;
         this.hedgeCountNotice.className = "text-[11px] text-terminal-muted font-mono";
       } else {
         this.hedgeCountNotice.textContent = "";
       }
     }
+
+    this.updateHedgeTradesSortIndicators();
   }
 
-  private switchHedgeFilterTab(tab: "all" | "unhedged"): void {
-    this.hedgeFilterTab = tab;
-    this.hedgeDisplayLimit = 100;
-    if (tab === "all") {
-      this.tabBtnHedgeAll?.classList.add("bg-terminal-surface", "text-white", "font-semibold");
-      this.tabBtnHedgeAll?.classList.remove("text-terminal-muted");
-      this.tabBtnHedgeUnhedged?.classList.remove(
-        "bg-terminal-surface",
-        "text-white",
-        "font-semibold",
-      );
-      this.tabBtnHedgeUnhedged?.classList.add("text-terminal-muted");
+  private initHedgeTradesSorting(): void {
+    const headers = document.querySelectorAll<HTMLElement>("#hedgeTradesTable thead th[data-sort]");
+    headers.forEach((th) => {
+      th.addEventListener("click", () => {
+        const column = th.dataset.sort as HedgeTradesSortColumn | undefined;
+        if (column) this.handleHedgeTradesHeaderSort(column);
+      });
+    });
+    this.updateHedgeTradesSortIndicators();
+  }
+
+  private handleHedgeTradesHeaderSort(column: HedgeTradesSortColumn): void {
+    if (this.hedgeTradesSortColumn === column) {
+      this.hedgeTradesSortDirection = this.hedgeTradesSortDirection === "asc" ? "desc" : "asc";
     } else {
-      this.tabBtnHedgeUnhedged?.classList.add("bg-terminal-surface", "text-white", "font-semibold");
-      this.tabBtnHedgeUnhedged?.classList.remove("text-terminal-muted");
-      this.tabBtnHedgeAll?.classList.remove("bg-terminal-surface", "text-white", "font-semibold");
-      this.tabBtnHedgeAll?.classList.add("text-terminal-muted");
+      this.hedgeTradesSortColumn = column;
+      this.hedgeTradesSortDirection = [
+        "time",
+        "size",
+        "priceDelta",
+        "fees",
+        "funding",
+        "netPnl",
+        "timeDelta",
+      ].includes(column)
+        ? "desc"
+        : "asc";
     }
+    this.hedgeDisplayLimit = 100;
     this.applyHedgeFilter();
+  }
+
+  private updateHedgeTradesSortIndicators(): void {
+    const indicators = document.querySelectorAll<HTMLElement>(
+      "#hedgeTradesTable thead [data-sort-indicator]",
+    );
+    indicators.forEach((indicator) => {
+      const column = indicator.dataset.sortIndicator as HedgeTradesSortColumn | undefined;
+      indicator.textContent =
+        column === this.hedgeTradesSortColumn
+          ? this.hedgeTradesSortDirection === "asc"
+            ? "▲"
+            : "▼"
+          : "";
+    });
   }
 
   private switchHedgeAggregateMode(mode: "aggregated" | "raw"): void {

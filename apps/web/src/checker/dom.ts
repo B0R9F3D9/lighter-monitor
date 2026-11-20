@@ -10,6 +10,7 @@ import type {
   AccountDailyStat,
   HedgePair,
   HedgeSummaryMetrics,
+  HedgeTradesSortColumn,
   IndividualAccountMetrics,
   MarketSummarySortColumn,
   MarketSummaryStat,
@@ -283,19 +284,127 @@ function createUnhedgedRow(
   return tr;
 }
 
+type HedgeTableEntry =
+  | { kind: "pair"; pair: HedgePair; timestampMs: number }
+  | { kind: "unhedged"; trade: UnhedgedTrade; timestampMs: number };
+
+function getHedgeEntrySortValue(
+  entry: HedgeTableEntry,
+  column: HedgeTradesSortColumn,
+): string | number | null {
+  if (entry.kind === "pair") {
+    const pair = entry.pair;
+    switch (column) {
+      case "time":
+        return pair.rhTimestampMs;
+      case "marketSymbol":
+        return pair.marketSymbol;
+      case "rhSide":
+        return pair.rhSide;
+      case "coreSide":
+        return pair.coreSide;
+      case "size":
+        return pair.matchedSize;
+      case "priceDelta":
+        return pair.priceDelta;
+      case "fees":
+        return pair.totalFeesUsd;
+      case "funding":
+        return pair.totalFundingUsd ?? null;
+      case "netPnl":
+        return pair.netPnlUsd;
+      case "timeDelta":
+        return pair.timeDeltaSec;
+      case "status":
+        return pair.status;
+    }
+  }
+
+  const trade = entry.trade;
+  switch (column) {
+    case "time":
+      return trade.timestampMs;
+    case "marketSymbol":
+      return trade.marketSymbol;
+    case "rhSide":
+      return trade.network === "RH" ? trade.side : null;
+    case "coreSide":
+      return trade.network === "CORE" ? trade.side : null;
+    case "size":
+      return trade.unhedgedSize;
+    case "priceDelta":
+      return null;
+    case "fees":
+      return trade.feeUsd;
+    case "funding":
+      return trade.fundingUsd ?? null;
+    case "netPnl":
+      return (trade.realizedPnlUsd ?? 0) + (trade.fundingUsd ?? 0) - trade.feeUsd;
+    case "timeDelta":
+      return null;
+    case "status":
+      return `UNHEDGED (${trade.network})`;
+  }
+
+  return null;
+}
+
+function compareHedgeTableEntries(
+  a: HedgeTableEntry,
+  b: HedgeTableEntry,
+  column: HedgeTradesSortColumn,
+  direction: "asc" | "desc",
+): number {
+  const aValue = getHedgeEntrySortValue(a, column);
+  const bValue = getHedgeEntrySortValue(b, column);
+  const aMissing = aValue === null || aValue === undefined || aValue === "";
+  const bMissing = bValue === null || bValue === undefined || bValue === "";
+
+  if (aMissing || bMissing) {
+    if (aMissing && bMissing) return b.timestampMs - a.timestampMs;
+    return aMissing ? 1 : -1;
+  }
+
+  const comparison =
+    typeof aValue === "number" && typeof bValue === "number"
+      ? aValue - bValue
+      : String(aValue).localeCompare(String(bValue), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+
+  if (comparison === 0) return b.timestampMs - a.timestampMs;
+  return direction === "asc" ? comparison : -comparison;
+}
+
 export function renderHedgeTable(
   container: HTMLTableSectionElement,
   pairs: HedgePair[],
   unhedged: UnhedgedTrade[],
-  filterMode: "all" | "unhedged" = "all",
   limit = 100,
   selectedIds: Set<string> = new Set(),
   onLoadMore?: () => void,
+  sortColumn: HedgeTradesSortColumn = "time",
+  sortDirection: "asc" | "desc" = "desc",
 ): void {
   container.innerHTML = "";
 
-  const showPairs = filterMode === "all";
-  const totalItems = (showPairs ? pairs.length : 0) + unhedged.length;
+  const entries: HedgeTableEntry[] = [
+    ...pairs.map((pair) => ({
+      kind: "pair" as const,
+      pair,
+      timestampMs: pair.rhTimestampMs,
+    })),
+    ...unhedged.map((trade) => ({
+      kind: "unhedged" as const,
+      trade,
+      timestampMs: trade.timestampMs,
+    })),
+  ];
+  const sortedEntries = entries.toSorted((a, b) =>
+    compareHedgeTableEntries(a, b, sortColumn, sortDirection),
+  );
+  const totalItems = sortedEntries.length;
 
   if (totalItems === 0) {
     const emptyRow = document.createElement("tr");
@@ -314,17 +423,14 @@ export function renderHedgeTable(
   const frag = document.createDocumentFragment();
   let rowCount = 0;
 
-  if (showPairs) {
-    for (const pair of pairs) {
-      if (rowCount >= limit) break;
-      frag.appendChild(createHedgeRow(pair, ++rowCount, selectedIds.has(pair.id)));
-    }
-  }
-
-  for (const item of unhedged) {
+  for (const entry of sortedEntries) {
     if (rowCount >= limit) break;
-    const uId = item.id || `unhedged-${item.network}-${item.tradeId}`;
-    frag.appendChild(createUnhedgedRow(item, ++rowCount, selectedIds.has(uId)));
+    if (entry.kind === "pair") {
+      frag.appendChild(createHedgeRow(entry.pair, ++rowCount, selectedIds.has(entry.pair.id)));
+    } else {
+      const uId = entry.trade.id || `unhedged-${entry.trade.network}-${entry.trade.tradeId}`;
+      frag.appendChild(createUnhedgedRow(entry.trade, ++rowCount, selectedIds.has(uId)));
+    }
   }
 
   if (totalItems > limit) {
@@ -336,7 +442,7 @@ export function renderHedgeTable(
       <td colspan="13" class="py-3 px-4 text-center bg-terminal-surface/30 border-t border-terminal-borderSubtle">
         <div class="flex flex-col sm:flex-row items-center justify-center gap-2.5 text-xs font-sans">
           <span class="text-terminal-muted text-[11px]">
-            Showing <span class="font-mono text-terminal-secondary">${limit}</span> of <span class="font-mono text-terminal-secondary">${totalItems.toLocaleString()}</span> records
+            <span class="font-mono text-terminal-secondary">${totalItems.toLocaleString()}</span> records total
           </span>
           <button
             type="button"

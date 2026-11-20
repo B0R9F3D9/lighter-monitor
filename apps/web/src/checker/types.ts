@@ -376,6 +376,19 @@ export type MarketSummarySortColumn =
   | "totalTokenSize"
   | "realizedPnlUsd";
 
+export type HedgeTradesSortColumn =
+  | "time"
+  | "marketSymbol"
+  | "rhSide"
+  | "coreSide"
+  | "size"
+  | "priceDelta"
+  | "fees"
+  | "funding"
+  | "netPnl"
+  | "timeDelta"
+  | "status";
+
 export type WeeklyPointsSortColumn =
   | "weekNumber"
   | "dateRange"

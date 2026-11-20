@@ -54,6 +54,7 @@ import type {
   LighterTrade,
   MarketSummaryStat,
   ParsedTradeView,
+  UnhedgedTrade,
   WeeklyPointsSortColumn,
   WithdrawalRecord,
 } from "../src/checker/types";
@@ -138,6 +139,47 @@ const makeMockHedgePair = (
   timeDeltaSec: 0,
   status: "HEDGED" as const,
 });
+
+function makeSortableHedgePair(
+  id: string,
+  marketSymbol: string,
+  rhTimestampMs: number,
+  netPnlUsd: number,
+): HedgePair {
+  return {
+    ...makeMockHedgePair(id, 100, 0, 1),
+    marketSymbol,
+    rhTimestampMs,
+    coreTimestampMs: rhTimestampMs + 100,
+    netPnlUsd,
+  };
+}
+
+function makeSortableUnhedgedTrade(
+  id: string,
+  marketSymbol: string,
+  timestampMs: number,
+  feeUsd: number,
+): UnhedgedTrade {
+  return {
+    id,
+    tradeId: id,
+    network: "RH",
+    marketSymbol,
+    side: "BUY",
+    role: "TAKER",
+    unhedgedSize: 1,
+    originalSize: 1,
+    price: 100,
+    usdValue: 100,
+    feeUsd,
+    fundingUsd: 0,
+    realizedPnlUsd: 0,
+    timestampMs,
+    timeFormatted: "2024-01-01 00:00:00",
+    txHash: "0x",
+  };
+}
 
 describe("Hedge Matching Engine", () => {
   it("matches 1-to-1 exact opposite trades across RH and Core with PnL terminology", () => {
@@ -4311,7 +4353,7 @@ describe("Hedge Matching Engine", () => {
 
         const tbody = (globalThis as any).document.createElement("tbody");
         let loadMoreCalled = false;
-        renderHedgeTable(tbody, pairs, [], "all", 100, new Set(), () => {
+        renderHedgeTable(tbody, pairs, [], 100, new Set(), () => {
           loadMoreCalled = true;
         });
 
@@ -4357,9 +4399,47 @@ describe("Hedge Matching Engine", () => {
         })) as unknown as HedgePair[];
 
         const tbody = (globalThis as any).document.createElement("tbody");
-        renderHedgeTable(tbody, pairs, [], "all", 100, new Set());
+        renderHedgeTable(tbody, pairs, [], 100, new Set());
         expect(tbody.children.length).toBe(40);
         expect(tbody.querySelector("#btnLoadMoreHedge")).toBeNull();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it("sorts combined pairs and unhedged trades by time descending by default", () => {
+      const cleanup = setupMockHedgeDocument();
+      try {
+        const pairs = [
+          makeSortableHedgePair("pair-old", "AAPL", 1000, 5),
+          makeSortableHedgePair("pair-new", "MSFT", 3000, 1),
+        ];
+        const unhedged = [makeSortableUnhedgedTrade("u-mid", "NVDA", 2000, 0.5)];
+
+        const timeSortedBody = (globalThis as any).document.createElement("tbody");
+        renderHedgeTable(timeSortedBody, pairs, unhedged, 100);
+        expect(timeSortedBody.children.map((row: any) => row.dataset.id)).toEqual([
+          "pair-new",
+          "u-mid",
+          "pair-old",
+        ]);
+
+        const pnlSortedBody = (globalThis as any).document.createElement("tbody");
+        renderHedgeTable(
+          pnlSortedBody,
+          pairs,
+          unhedged,
+          100,
+          new Set(),
+          undefined,
+          "netPnl",
+          "desc",
+        );
+        expect(pnlSortedBody.children.map((row: any) => row.dataset.id)).toEqual([
+          "pair-old",
+          "pair-new",
+          "u-mid",
+        ]);
       } finally {
         cleanup();
       }
