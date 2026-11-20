@@ -35,6 +35,8 @@ export interface SingleBookUi {
   bidsContainer: HTMLElement | null;
   spreadUsdEl: HTMLElement | null;
   spreadPctEl: HTMLElement | null;
+  loadingOverlayEl: HTMLElement | null;
+  loadingMessageEl: HTMLElement | null;
   stepSelect: HTMLSelectElement | null;
   unitSelect: HTMLSelectElement | null;
   depthSelect: HTMLSelectElement | null;
@@ -683,6 +685,20 @@ function updateRowVisibility(rows: OrderBookRowUi[], depth: number): void {
   }
 }
 
+function setSingleBookLoading(ui: SingleBookUi, isLoading: boolean): void {
+  const el = ui.loadingOverlayEl;
+  if (!el) return;
+  if (isLoading) {
+    if (!el.classList.contains("hidden")) return;
+    el.classList.remove("hidden");
+    el.classList.add("flex");
+  } else {
+    if (el.classList.contains("hidden")) return;
+    el.classList.add("hidden");
+    el.classList.remove("flex");
+  }
+}
+
 function renderSingleBook(
   ui: SingleBookUi,
   book: OrderBook | null,
@@ -694,6 +710,7 @@ function renderSingleBook(
   const depth = settings.depth;
 
   if (!book || !book.isSnapshotReceived) {
+    setSingleBookLoading(ui, true);
     ui.asksActualCount = 0;
     ui.bidsActualCount = 0;
     ui.midPrice = 0;
@@ -715,6 +732,8 @@ function renderSingleBook(
     }
     return;
   }
+
+  setSingleBookLoading(ui, false);
 
   const asks = "prices" in book.asks ? (book.asks as FlatOrderBookSide) : null;
   const bids = "prices" in book.bids ? (book.bids as FlatOrderBookSide) : null;
@@ -848,6 +867,8 @@ export function initOrderBookUI(initialSymbol: string, initialMarkPrice = 100): 
     bidsContainer: rhBidsContainer,
     spreadUsdEl: document.getElementById("rhOrderBookSpreadUsd"),
     spreadPctEl: document.getElementById("rhOrderBookSpreadPct"),
+    loadingOverlayEl: document.getElementById("rhOrderBookLoadingOverlay"),
+    loadingMessageEl: document.getElementById("rhOrderBookLoadingMessage"),
     stepSelect: rhStepSelect,
     unitSelect: rhUnitSelect,
     depthSelect: rhDepthSelect,
@@ -877,6 +898,8 @@ export function initOrderBookUI(initialSymbol: string, initialMarkPrice = 100): 
     bidsContainer: coreBidsContainer,
     spreadUsdEl: document.getElementById("coreOrderBookSpreadUsd"),
     spreadPctEl: document.getElementById("coreOrderBookSpreadPct"),
+    loadingOverlayEl: document.getElementById("coreOrderBookLoadingOverlay"),
+    loadingMessageEl: document.getElementById("coreOrderBookLoadingMessage"),
     stepSelect: coreStepSelect,
     unitSelect: coreUnitSelect,
     depthSelect: coreDepthSelect,
@@ -954,6 +977,15 @@ export function initOrderBookUI(initialSymbol: string, initialMarkPrice = 100): 
     });
   };
 
+  const updateLoadingMessages = () => {
+    if (rhUi.loadingMessageEl) {
+      rhUi.loadingMessageEl.textContent = `Loading ${currentSymbol} order book from Robinhood Chain...`;
+    }
+    if (coreUi.loadingMessageEl) {
+      coreUi.loadingMessageEl.textContent = `Loading ${currentSymbol} order book from Lighter Core...`;
+    }
+  };
+
   const populateStepSelects = (newSteps: number[], chosenStep: number) => {
     const populate = (sel: HTMLSelectElement | null) => {
       if (!sel) return;
@@ -1003,6 +1035,7 @@ export function initOrderBookUI(initialSymbol: string, initialMarkPrice = 100): 
   populateUnitSelects(currentSymbol, settings.unit);
   syncDepthSelects(settings.depth);
   updateBadges();
+  updateLoadingMessages();
 
   const handleUnitChange = (newUnit: OrderBookUnit) => {
     settings.unit = newUnit;
@@ -1180,6 +1213,7 @@ export function initOrderBookUI(initialSymbol: string, initialMarkPrice = 100): 
         currentSymbol = symbol;
         populateUnitSelects(currentSymbol, settings.unit);
         updateBadges();
+        updateLoadingMessages();
       }
       activeHoverState = null;
       hideOrderBookTooltip();
@@ -1187,6 +1221,8 @@ export function initOrderBookUI(initialSymbol: string, initialMarkPrice = 100): 
       cachedCoreBook = null;
       clearSingleBook(rhUi, settings.depth);
       clearSingleBook(coreUi, settings.depth);
+      setSingleBookLoading(rhUi, true);
+      setSingleBookLoading(coreUi, true);
     },
     destroy(): void {
       activeHoverState = null;

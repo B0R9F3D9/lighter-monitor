@@ -553,6 +553,11 @@ describe("Analytics OrderBook UI & In-Memory Math", () => {
       elementsMap["coreOrderBookSpreadUsd"] = createMockElement("div");
       elementsMap["coreOrderBookSpreadPct"] = createMockElement("div");
 
+      elementsMap["rhOrderBookLoadingOverlay"] = createMockElement("div");
+      elementsMap["rhOrderBookLoadingMessage"] = createMockElement("span");
+      elementsMap["coreOrderBookLoadingOverlay"] = createMockElement("div");
+      elementsMap["coreOrderBookLoadingMessage"] = createMockElement("span");
+
       elementsMap["rhObStepSelect"] = createMockElement("select");
       elementsMap["rhObUnitSelect"] = createMockElement("select");
       elementsMap["rhObDepthSelect"] = createMockElement("select");
@@ -597,6 +602,36 @@ describe("Analytics OrderBook UI & In-Memory Math", () => {
 
       expect(symbolBadges[0].textContent).toBe("AAPL");
       expect(symbolBadges[1].textContent).toBe("AAPL");
+    });
+
+    it("shows order book loading overlays until the first snapshot and again on symbol change", () => {
+      const ui = initOrderBookUI("AAPL");
+      const rhOverlay = elementsMap["rhOrderBookLoadingOverlay"];
+      const coreOverlay = elementsMap["coreOrderBookLoadingOverlay"];
+      const rhMessage = elementsMap["rhOrderBookLoadingMessage"];
+
+      expect(rhOverlay.classList.contains("hidden")).toBe(false);
+      expect(coreOverlay.classList.contains("hidden")).toBe(false);
+      expect(rhMessage.textContent).toBe("Loading AAPL order book from Robinhood Chain...");
+
+      const book = createEmptyBook(1);
+      updateBookFromWs(
+        book,
+        {
+          asks: [{ price: 150.1, size: 10 }],
+          bids: [{ price: 150.0, size: 5 }],
+        },
+        true,
+      );
+
+      ui.renderRh(book);
+      expect(rhOverlay.classList.contains("hidden")).toBe(true);
+      expect(coreOverlay.classList.contains("hidden")).toBe(false);
+
+      ui.setSymbol("NVDA", 120);
+      expect(rhOverlay.classList.contains("hidden")).toBe(false);
+      expect(coreOverlay.classList.contains("hidden")).toBe(false);
+      expect(rhMessage.textContent).toBe("Loading NVDA order book from Robinhood Chain...");
     });
 
     it("renders asks bottom-up and bids top-down correctly with cumulative total", () => {
