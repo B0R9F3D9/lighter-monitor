@@ -38,13 +38,21 @@ export interface AnalyticsMarketPair {
   fundingRate1h: number;
 }
 
-export async function fetchMarketPairs(): Promise<AnalyticsMarketPair[]> {
+export interface FetchMarketPairsOptions {
+  includeTokenlist?: boolean;
+}
+
+export async function fetchMarketPairs(
+  options: FetchMarketPairsOptions = {},
+): Promise<AnalyticsMarketPair[]> {
   const [coreRes, rhRes, tokenlistRes] = await Promise.all([
     fetch(`${CONFIG.CORE_API_URL}/orderBookDetails`, { headers: { Accept: "application/json" } }),
     fetch(`${CONFIG.RH_API_URL}/orderBookDetails`, { headers: { Accept: "application/json" } }),
-    fetch(`${CONFIG.RH_API_URL}/tokenlist`, { headers: { Accept: "application/json" } }).catch(
-      () => null,
-    ),
+    options.includeTokenlist === false
+      ? Promise.resolve(null)
+      : fetch(`${CONFIG.RH_API_URL}/tokenlist`, { headers: { Accept: "application/json" } }).catch(
+          () => null,
+        ),
   ]);
 
   if (!coreRes.ok || !rhRes.ok) {

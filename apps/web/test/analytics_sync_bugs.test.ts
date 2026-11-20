@@ -52,6 +52,23 @@ function createMockElement(tag: string = "div", id: string = "") {
   return el;
 }
 
+function venueMarket(overrides: Record<string, unknown>) {
+  return {
+    symbol: "AAPL",
+    status: "active",
+    is_frozen: false,
+    market_id: 1,
+    min_initial_margin_fraction: 500,
+    daily_quote_token_volume: "1000",
+    mark_price: "200",
+    index_price: "199.5",
+    daily_price_change: "1.5",
+    open_interest: "10",
+    base_interest_rate: "0",
+    ...overrides,
+  };
+}
+
 describe("Analytics 4-Bug Fix Verification Suite", () => {
   const origDoc = (globalThis as any).document;
   const origWin = (globalThis as any).window;
@@ -637,6 +654,10 @@ describe("Analytics 4-Bug Fix Verification Suite", () => {
       (controller as any).loadData = async () => {
         loadDataCalled = true;
       };
+      let topStatsRefreshed = false;
+      (controller as any).refreshTopStats = async () => {
+        topStatsRefreshed = true;
+      };
 
       // Simulate tab hidden 20 seconds ago
       (controller as any).lastHiddenAt = Date.now() - 20_000;
@@ -653,6 +674,7 @@ describe("Analytics 4-Bug Fix Verification Suite", () => {
       expect((controller as any).lastHiddenAt).toBe(0); // Reset timer!
       expect(loadPairsCalled).toBe(false); // Does not run loadPairs to avoid clobbering WS snapshots!
       expect(loadDataCalled).toBe(true);
+      expect(topStatsRefreshed).toBe(true); // Top market stats refresh immediately on visibility
 
       controller.destroy();
     });
@@ -876,6 +898,100 @@ describe("Analytics 4-Bug Fix Verification Suite", () => {
         expect(lastPoint.corePrice).toBe(119.0);
         expect(lastPoint.basisUsd).toBe(1.0);
         expect((controller as any).currentStats).not.toBeNull();
+      } finally {
+        controller.destroy();
+      }
+    });
+  });
+
+  describe("Bug 5: Top Stats Auto-Refresh", () => {
+    it("re-fetches both venues and updates the top stats strip", async () => {
+      const controller = new AnalyticsController();
+      const seedPair = {
+        symbol: "AAPL",
+        rhMarketId: 1,
+        coreMarketId: 2,
+        leverage: "20x",
+        leverageNum: 20,
+        isEquity: true,
+        hedgeSideConfig: { isRhLong: true },
+        rh: {},
+        core: {},
+        totalVolume24h: 0,
+        markPrice: 0,
+        indexPrice: 0,
+        dailyPriceChange: 0,
+        dailyVolumeUsd: 0,
+        openInterestUsd: 0,
+        fundingRate1h: 0,
+      };
+      (controller as any).activeSymbol = "AAPL";
+      (controller as any).activePair = seedPair;
+      (controller as any).pairs = [seedPair];
+      (controller as any).activeVenue = "rh";
+      (controller as any).isModalVisible = () => false;
+
+      let rhRequests = 0;
+      let coreRequests = 0;
+      (globalThis as any).fetch = async (url: string) => {
+        if (url.startsWith(CONFIG.CORE_API_URL)) {
+          coreRequests++;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              order_book_details: [
+                venueMarket({
+                  market_id: 2,
+                  daily_quote_token_volume: "250000",
+                  mark_price: "201",
+                  index_price: "200",
+                  daily_price_change: "2.5",
+                  open_interest: "1000",
+                }),
+              ],
+            }),
+          };
+        }
+        if (url.startsWith(CONFIG.RH_API_URL)) {
+          rhRequests++;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              order_book_details: [
+                venueMarket({
+                  daily_quote_token_volume: "150000",
+                  mark_price: "202",
+                  index_price: "200",
+                  daily_price_change: "3.5",
+                  open_interest: "500",
+                }),
+              ],
+            }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
+      };
+
+      try {
+        await (controller as any).refreshTopStats();
+
+        expect(rhRequests).toBe(1);
+        expect(coreRequests).toBe(1);
+
+        const refreshedPair = (controller as any).activePair;
+        expect(refreshedPair.symbol).toBe("AAPL");
+        expect(refreshedPair.dailyVolumeUsd).toBe(150000);
+        expect(refreshedPair.openInterestUsd).toBe(500 * 202);
+
+        const doc = (globalThis as any).document;
+        expect(doc.getElementById("statMarkPrice").textContent).toBe("202.00");
+        expect(doc.getElementById("statIndexPrice").textContent).toBe("200.00");
+        expect(doc.getElementById("stat24hChange").textContent).toBe("+3.50%");
+        expect(doc.getElementById("stat24hVolume").textContent).toBe("$150.0K");
+        expect(doc.getElementById("statOpenInterest").textContent).toBe("$101.0K");
+        expect(doc.getElementById("stat1hFunding").textContent).toBe("+0.0417%");
       } finally {
         controller.destroy();
       }

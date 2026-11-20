@@ -103,6 +103,10 @@ export class AnalyticsController {
   private favorites: Set<string> = new Set();
   private focusedModalRowIndex = 0;
   private fundingIntervalId: ReturnType<typeof setInterval> | null = null;
+  private topStatsRefreshIntervalId: ReturnType<typeof setInterval> | null = null;
+  private isRefreshingTopStats = false;
+  private pendingTopStatsRefresh = false;
+  private readonly TOP_STATS_REFRESH_INTERVAL_MS = 60_000;
 
   private chartContext: ChartSyncContext | null = null;
   private activePoints: BasisPoint[] = [];
@@ -199,6 +203,9 @@ export class AnalyticsController {
     const awayMs = this.lastHiddenAt > 0 ? now - this.lastHiddenAt : 0;
     this.lastHiddenAt = 0;
 
+    // Refresh the top market strip (funding, volume, OI, etc.) as soon as the tab is visible again.
+    void this.refreshTopStats();
+
     const wsDormant = Boolean(
       this.wsManager &&
       (now - this.wsManager.lastCoreMsgAt > 15_000 || now - this.wsManager.lastRhMsgAt > 15_000),
@@ -270,6 +277,7 @@ export class AnalyticsController {
       this.setupEventListeners();
       this.setLoading(true);
       await this.loadPairs();
+      this.startTopStatsAutoRefresh();
       await this.loadData();
     } finally {
       this.setLoading(false);
@@ -568,6 +576,87 @@ export class AnalyticsController {
     }
   }
 
+  private startTopStatsAutoRefresh(): void {
+    if (this.topStatsRefreshIntervalId) return;
+    this.topStatsRefreshIntervalId = setInterval(() => {
+      // Only poll while the tab is visible; it refreshes immediately on visibilitychange.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void this.refreshTopStats();
+    }, this.TOP_STATS_REFRESH_INTERVAL_MS);
+  }
+
+  private async refreshTopStats(): Promise<void> {
+    if (this.pairs.length === 0) return;
+
+    if (this.isRefreshingTopStats) {
+      this.pendingTopStatsRefresh = true;
+      return;
+    }
+
+    this.isRefreshingTopStats = true;
+    try {
+      const freshPairs = await fetchMarketPairs({ includeTokenlist: false });
+      this.applyRefreshedPairs(freshPairs);
+    } catch (err) {
+      console.warn("Failed to refresh top market stats:", err);
+    } finally {
+      this.isRefreshingTopStats = false;
+      if (this.pendingTopStatsRefresh) {
+        this.pendingTopStatsRefresh = false;
+        if (typeof document === "undefined" || document.visibilityState !== "hidden") {
+          void this.refreshTopStats();
+        }
+      }
+    }
+  }
+
+  private applyRefreshedPairs(freshPairs: AnalyticsMarketPair[]): void {
+    const nextPair = freshPairs.find((p) => p.symbol === this.activeSymbol);
+    if (!nextPair) return;
+
+    const prevPair = this.activePair;
+    this.pairs = freshPairs;
+    this.applyVenueStats();
+
+    if (
+      prevPair &&
+      (prevPair.rhMarketId !== nextPair.rhMarketId ||
+        prevPair.coreMarketId !== nextPair.coreMarketId)
+    ) {
+      this.updateWsSubscriptions(prevPair, nextPair);
+      this.rhBook = null;
+      this.coreBook = null;
+      this.lastKnownRhMid = nextPair.rh.markPrice;
+      this.lastKnownCoreMid = nextPair.core.markPrice;
+      this.lastRenderedRhMid = 0;
+      this.lastRenderedCoreMid = 0;
+    }
+
+    this.activePair = nextPair;
+    this.activeRhMarketId = nextPair.rhMarketId;
+    this.activeCoreMarketId = nextPair.coreMarketId;
+
+    // Keep fresher WebSocket mids so the header doesn't flicker back to REST values.
+    if (this.rhBook?.isSnapshotReceived && this.lastKnownRhMid > 0) {
+      nextPair.rh.markPrice = this.lastKnownRhMid;
+    }
+    if (this.coreBook?.isSnapshotReceived && this.lastKnownCoreMid > 0) {
+      nextPair.core.markPrice = this.lastKnownCoreMid;
+    }
+    const activeVenueStats = this.activeVenue === "core" ? nextPair.core : nextPair.rh;
+    if (activeVenueStats.markPrice > 0) {
+      nextPair.markPrice = activeVenueStats.markPrice;
+    }
+
+    this.updateTopMarketStats(nextPair);
+
+    const wasModalVisible = this.isModalVisible();
+    const listEl = document.getElementById("tickerDropdownList");
+    const scrollTop = listEl?.scrollTop ?? 0;
+    this.renderTickerSelector();
+    if (wasModalVisible && listEl && scrollTop > 0) listEl.scrollTop = scrollTop;
+  }
+
   private updateUrl(push = true): void {
     if (typeof window === "undefined" || !window.history) return;
     const targetPath = `/analytics/${this.activeSymbol}`;
@@ -749,7 +838,7 @@ export class AnalyticsController {
 
       this.updateQuantGauges(finalStats);
       this.renderHeatmap();
-      this.updateTopMarketStats(pair);
+      this.updateTopMarketStats(this.pairs.find((p) => p.symbol === this.activeSymbol) || pair);
       this.updateLegend(points[points.length - 1] || null);
 
       if (hasLivePrices) {
@@ -1851,6 +1940,7 @@ export class AnalyticsController {
       this.lastLegendCorePrice = null;
       this.lastLegendBasisUsd = null;
     }
+    void this.refreshTopStats();
     this.loadData();
   }
 
@@ -2495,7 +2585,7 @@ export class AnalyticsController {
 
       this.updateQuantGauges(stats);
       this.renderHeatmap();
-      this.updateTopMarketStats(pair);
+      this.updateTopMarketStats(this.pairs.find((p) => p.symbol === this.activeSymbol) || pair);
       this.updateLegend(filtered[filtered.length - 1] || null);
       this.clearActiveTimeframeButtons();
       this.updateDateFilterUI();
@@ -2713,6 +2803,7 @@ export class AnalyticsController {
 
     // Refresh button
     document.getElementById("refreshBtn")?.addEventListener("click", () => {
+      void this.refreshTopStats();
       this.loadData();
     });
 
@@ -2904,6 +2995,10 @@ export class AnalyticsController {
     if (this.fundingIntervalId) {
       clearInterval(this.fundingIntervalId);
       this.fundingIntervalId = null;
+    }
+    if (this.topStatsRefreshIntervalId) {
+      clearInterval(this.topStatsRefreshIntervalId);
+      this.topStatsRefreshIntervalId = null;
     }
     if (this.rangeDebounceTimer) {
       clearTimeout(this.rangeDebounceTimer);
